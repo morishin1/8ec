@@ -3,6 +3,7 @@
 法人向け総合ITサービス「株式会社エイト」（[8ec.jp](https://8ec.jp/)）の静的サイトです。
 これまで ZIP でやり取りしていたものを **git 管理下に整備** し、
 リニューアル作業を差分・レビュー・履歴付きで進められるようにしています。
+デプロイは **Vercel** に連動し、`main` への push で本番公開、PR ごとにプレビューURLが自動発行されます。
 
 ---
 
@@ -27,18 +28,15 @@
 ├── sitemap.xml
 │
 ├── assets/             画像・ロゴ・favicon
-│
 ├── blog/               CMS 貼り付け用の自己完結HTML（4種）※詳細は blog/README.md
+├── notion-proxy/       Notion API プロキシ（Cloudflare Worker・別デプロイ／Vercel配信対象外）
+├── archive/            本番未リンクの過去生成物（参考保管／Vercel配信対象外）
 │
-├── notion-proxy/       Notion API プロキシ（Cloudflare Worker・別デプロイ）
-│
-└── archive/            本番からリンクされていない過去の生成物（参考保管）
-    ├── スピードレンタルPC.html   （旧ビルダー出力・8.5MB / 現在は pc.html に置換済み）
-    └── index-bundle-src.html
+├── vercel.json         Vercel 設定（静的配信・URL挙動）
+└── .vercelignore       Vercel に配信しないもの（archive/・notion-proxy/ 等）
 ```
 
-> `archive/` の中身は本番サイトからは配信されません（公開対象から除外）。
-> 履歴として残しているだけなので、不要になれば削除して構いません。
+> `archive/` `notion-proxy/` は `.vercelignore` で **公開対象から除外** しています。
 
 ---
 
@@ -59,53 +57,52 @@ npx serve .
 
 ---
 
-## デプロイ（git 連動 / GitHub Pages）
+## デプロイ（git 連動 / Vercel）
 
-`main` ブランチへ push（マージ）されると、GitHub Actions
-（[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)）が
-静的サイトを **GitHub Pages へ自動公開** します。
+GitHub リポジトリ `morishin1/8ec` を Vercel プロジェクト **8ec** に接続しています。
 
-公開URL（ステージング）: **https://morishin1.github.io/8ec/**
+| きっかけ | 結果 |
+|---|---|
+| `main` へ push / マージ | **本番デプロイ**（https://8ec.vercel.app/ 、将来は 8ec.jp） |
+| PR を作成 / 更新 | その差分の **プレビューURL** が PR に自動投稿される |
 
-`archive/` `notion-proxy/` `README.md` などは公開対象から除外されます。
+ビルドは不要（静的サイト）。`.vercelignore` で `archive/`・`notion-proxy/` 等は配信されません。
 
-### 初回だけ必要な設定
+### Vercel 初回接続（1回のみ）
 
-リポジトリの **Settings → Pages → Build and deployment → Source** を
-**「GitHub Actions」** に設定してください（初回の1回のみ）。
-以降は `main` への push ごとに自動反映されます。
+Vercel の `8ec` プロジェクト → **Settings → Git** →
+**Connect Git Repository** で `morishin1/8ec` を接続し、Production Branch を `main` に設定します。
+ビルド設定は次のとおり（静的サイト）:
+
+- **Framework Preset**: Other
+- **Build Command**: なし（空欄）
+- **Output Directory**: 既定（リポジトリ直下）
 
 ### リニューアルの進め方（推奨フロー）
 
 1. 作業用ブランチを切る（例: `git switch -c feature/top-renewal`）
-2. HTML/CSS/JS を編集してコミット
-3. Pull Request を作成 → 差分をレビュー
-4. `main` にマージ → GitHub Pages（ステージング）へ自動反映
-5. 内容を確認できたら本番化（下記）
+2. HTML/CSS/JS を編集してコミット → PR を作成
+3. PR に付く **プレビューURL** で仕上がりを確認・レビュー
+4. `main` にマージ → 本番へ自動反映
 
-### 本番 8ec.jp への切り替えについて
+### 本番 8ec.jp への切り替え
 
-現状、本番 `8ec.jp` のホスティング／DNS はこのリポジトリからは**変更していません**。
-GitHub Pages で仕上がりを確認し、準備ができた段階で以下のいずれかを行います。
-
-- **A.** `8ec.jp` の DNS を GitHub Pages に向け、独自ドメインとして公開する
-  （Settings → Pages → Custom domain に `8ec.jp` を設定）
-- **B.** 別ホスティング（Cloudflare Pages / 既存レンタルサーバー等）へ
-  自動デプロイするワークフローに差し替える
-
-どちらで進めるか決まったら、切り替え手順をこの README に追記します。
+Vercel プロジェクトの **Settings → Domains** で `8ec.jp` を追加し、
+表示される DNS レコード（A / CNAME）を 8ec.jp のネームサーバー側に設定すれば、
+本番ドメインが Vercel の配信に切り替わります。
 
 ---
 
 ## notion-proxy（Cloudflare Worker）
 
 `notion-proxy/` は Notion のデータを安全に取得するためのプロキシで、
-GitHub Pages とは**別に** Cloudflare Workers へデプロイします。
+Vercel とは**別に** Cloudflare Workers へデプロイします（`NOTION_TOKEN` は
+`wrangler secret put` で設定し、コードには含めません）。
 詳細は [`notion-proxy/README.md`](notion-proxy/README.md) を参照してください。
 
 ---
 
 ## メモ
 
-- 全ページ相対パス構成のため、独自ドメイン直下でもサブパス（`/8ec/`）でも動作します。
+- 全ページ相対パス構成のため、独自ドメイン直下でもサブパスでも動作します。
 - `.claude/settings.local.json`（各自のマシン依存設定）は `.gitignore` 済みでコミットされません。

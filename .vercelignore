@@ -1,0 +1,6 @@
+# Vercel にアップロード・配信しないもの（本番サイトに不要）
+archive
+notion-proxy
+README.md
+.gitignore
+*.zip

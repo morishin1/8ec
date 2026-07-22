@@ -19,4 +19,6 @@ notion-proxy/node_modules/
 
 # アップロード用ZIPやビルド生成物
 *.zip
-_site/
+
+# Vercel CLI のローカル作業ディレクトリ
+.vercel
