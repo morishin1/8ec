@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /assets/uploads/
+
+Sitemap: https://8ec.jp/sitemap.xml

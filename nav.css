@@ -1,0 +1,158 @@
+/* ==========================================================================
+   共通ナビゲーション（サービスドロップダウン + モバイルハンバーガー）
+   使い方: 各ページ <head> に <link rel="stylesheet" href="nav.css">
+   MARKUP は nav.js のコメント参照、または index.html/services.html等を参照。
+   ========================================================================== */
+
+/* ---------- サービスドロップダウン（デスクトップ） ---------- */
+.nav-svc{position:relative;}
+.nav-svc > button{
+  display:inline-flex; align-items:center; gap:6px;
+  font-size:13px; font-weight:500; color:inherit;
+  cursor:pointer; border:0; background:none; padding:0;
+  font-family:inherit; line-height:inherit;
+}
+.nav-svc > button:hover{color:#1E4FD9;}
+.nav-svc .chev{width:12px; height:12px; transition: transform .2s;}
+.nav-svc.open .chev{transform: rotate(180deg);}
+
+.nav-dropdown{
+  position:absolute; top:calc(100% + 14px); left:-16px;
+  background:#fff; border:1px solid #e3e8f2; border-radius:16px;
+  box-shadow: 0 20px 50px rgba(11,21,48,.15), 0 8px 18px rgba(11,21,48,.08);
+  padding:10px; min-width:300px;
+  opacity:0; pointer-events:none; transform:translateY(-6px);
+  transition: opacity .2s, transform .2s;
+  z-index:70;
+}
+.nav-svc:hover .nav-dropdown,
+.nav-svc.open .nav-dropdown,
+.nav-svc:focus-within .nav-dropdown{
+  opacity:1; pointer-events:auto; transform:translateY(0);
+}
+/* ホバー時に隙間をホバーしてもドロップダウンが閉じない保険 */
+.nav-svc::after{
+  content:""; position:absolute; top:100%; left:0; right:0; height:14px;
+}
+
+.nav-dropdown a{
+  display:flex; align-items:flex-start; gap:12px;
+  padding:11px 12px; border-radius:10px;
+  font-size:13px; font-weight:600; color:#0B1530;
+  text-decoration:none;
+}
+.nav-dropdown a:hover{background:#f5f8ff;}
+.nav-dropdown a:hover .txt strong{color:#1E4FD9;}
+.nav-dropdown a .ic{
+  width:34px; height:34px; border-radius:9px; display:grid; place-items:center;
+  flex-shrink:0; color:#fff;
+}
+.nav-dropdown a .ic svg{width:17px; height:17px;}
+.nav-dropdown a.c-all   .ic{background: linear-gradient(135deg, #0B2B7A 0%, #7C3AED 55%, #0EA5A4 100%);}
+.nav-dropdown a.c-pc    .ic{background: linear-gradient(135deg, #0B2B7A, #3d5fc7);}
+.nav-dropdown a.c-ai    .ic{background: linear-gradient(135deg, #7C3AED, #a78bfa);}
+.nav-dropdown a.c-mcp   .ic{background: linear-gradient(135deg, #0EA5A4, #5eead4);}
+.nav-dropdown a.c-joshis .ic{background: linear-gradient(135deg, #0891B2, #22b4cf);}
+.nav-dropdown a.c-aidev  .ic{background: linear-gradient(135deg, #0B2A5B, #2563EB);}
+.nav-dropdown a .txt strong{display:block; font-weight:800; font-size:13.5px; transition: color .15s;}
+.nav-dropdown a .txt small{display:block; font-size:11px; color:#5a6681; font-weight:500; margin-top:2px; line-height:1.5;}
+.nav-dropdown .sep{height:1px; background:#eef2f9; margin:6px 4px;}
+
+/* ---------- モバイルハンバーガー ---------- */
+.nav-toggle{
+  display:none; width:42px; height:42px;
+  align-items:center; justify-content:center;
+  border-radius:10px; background:transparent; color:#0B1530;
+  border:1px solid #e3e8f2; cursor:pointer;
+  transition: background .15s;
+}
+.nav-toggle:hover{background:#f5f8ff;}
+.nav-toggle svg{width:22px; height:22px;}
+
+/* ---------- モバイルドロワー ---------- */
+.mobile-drawer{
+  position:fixed; inset:0; z-index:80;
+  background:rgba(11,21,48,.55);
+  backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
+  opacity:0; pointer-events:none; transition: opacity .2s;
+}
+.mobile-drawer.open{opacity:1; pointer-events:auto;}
+.md-panel{
+  position:absolute; right:0; top:0; bottom:0;
+  width:min(86vw, 380px);
+  background:#fff; padding:22px 22px 40px 22px;
+  overflow-y:auto;
+  transform: translateX(100%);
+  transition: transform .25s cubic-bezier(.2,.9,.3,1.1);
+  display:flex; flex-direction:column; gap:4px;
+  font-family:"Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+}
+.mobile-drawer.open .md-panel{transform: translateX(0);}
+.md-head{
+  display:flex; align-items:center; justify-content:space-between;
+  margin:0 -4px 12px; padding-bottom:14px; border-bottom:1px solid #eef2f9;
+}
+.md-head .md-brand{
+  display:flex; align-items:center; gap:10px; font-weight:900; font-size:15px; color:#0B1530;
+}
+.md-head .md-brand .logo-mark{
+  width:34px; height:34px; border-radius:9px; display:grid; place-items:center;
+  background: linear-gradient(135deg, #0B2B7A 0%, #7C3AED 55%, #0EA5A4 100%);
+  overflow:hidden; padding:5px;
+}
+.md-head .md-brand .logo-mark img{width:100%; height:100%; object-fit:contain; filter: brightness(0) invert(1);}
+.md-close{
+  width:38px; height:38px; border-radius:50%;
+  background:#f5f8ff; color:#0B1530;
+  display:grid; place-items:center; cursor:pointer; border:0;
+}
+.md-close svg{width:18px; height:18px;}
+.md-group-label{
+  font-size:10px; font-weight:800; color:#5a6681;
+  letter-spacing:.14em; margin:16px 6px 6px;
+  font-family:"Inter",sans-serif;
+}
+.md-link{
+  display:flex; align-items:center; gap:12px;
+  padding:12px 14px; border-radius:12px;
+  font-size:14px; font-weight:700; color:#0B1530;
+  text-decoration:none; transition: background .12s;
+}
+.md-link:hover, .md-link:focus{background:#f5f8ff;}
+.md-link .ic{
+  width:36px; height:36px; border-radius:10px;
+  display:grid; place-items:center; color:#fff; flex-shrink:0;
+}
+.md-link .ic svg{width:18px; height:18px;}
+.md-link .txt{flex:1;}
+.md-link .txt strong{display:block; font-weight:800;}
+.md-link .txt small{display:block; font-size:11px; color:#5a6681; font-weight:500; margin-top:2px;}
+.md-link.c-pc     .ic{background: linear-gradient(135deg, #0B2B7A, #3d5fc7);}
+.md-link.c-ai     .ic{background: linear-gradient(135deg, #7C3AED, #a78bfa);}
+.md-link.c-mcp    .ic{background: linear-gradient(135deg, #0EA5A4, #5eead4);}
+.md-link.c-joshis .ic{background: linear-gradient(135deg, #0891B2, #22b4cf);}
+.md-link.c-aidev  .ic{background: linear-gradient(135deg, #0B2A5B, #2563EB);}
+.md-link.c-all    .ic{background: linear-gradient(135deg, #0B2B7A 0%, #7C3AED 55%, #0EA5A4 100%);}
+.md-link.c-plain  .ic{background:#334155;}
+.md-cta-row{
+  display:flex; flex-direction:column; gap:8px; margin-top:18px;
+}
+.md-cta-row .btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  padding:14px 20px; border-radius:999px; font-weight:800; font-size:14px;
+  text-decoration:none;
+}
+.md-cta-row .btn svg{width:16px; height:16px;}
+.md-cta-row .btn.primary{background:#F5A623; color:#fff;}
+.md-cta-row .btn.ghost{background:#fff; color:#0B1530; border:1px solid #e3e8f2;}
+
+/* ---------- breakpoint ---------- */
+@media (max-width: 980px){
+  /* デスクトップnavを隠してハンバーガー表示 */
+  .nav, .tb-nav, .top-phone{display:none !important;}
+  .nav-toggle{display:inline-flex;}
+  .top-right .btn:not(.nav-toggle){display:none;}
+  .tb-back{display:none;}
+  /* "サービス▼" も隠す（ドロワー側に入っているため） */
+  .nav-svc{display:none;}
+}

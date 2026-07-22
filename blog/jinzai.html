@@ -1,0 +1,219 @@
+<!--
+  ▼ コピーして固定ページのHTML編集モード（または「カスタムHTML」ブロック）へ貼り付けてください。
+  外部CSS/JS依存なし。クラスは `eb-` プレフィックスで衝突回避。
+  画像は Unsplash の絶対URLを使用しているため、追加アップロード不要です。
+-->
+<style>
+  .eb-page{
+    --eb-color:#1E4FD9; --eb-color-dark:#0B2B7A; --eb-color-light:#5C82F0; --eb-color-tint:#E8EFFF;
+    --eb-ink:#0B1530; --eb-ink-2:#1a2544; --eb-muted:#5a6681;
+    --eb-line:#e3e8f2; --eb-bg-soft:#f5f8ff;
+    --eb-shadow: 0 6px 18px rgba(11,21,48,.08), 0 2px 6px rgba(11,21,48,.04);
+    font-family: "Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+    color:var(--eb-ink); line-height:1.8; max-width:1080px; margin:0 auto; padding:0;
+  }
+  .eb-page *{box-sizing:border-box;}
+  .eb-page img{max-width:100%; display:block;}
+  .eb-page a{color:var(--eb-color); text-decoration:none;}
+  .eb-page a:hover{text-decoration:underline;}
+
+  .eb-hero{
+    position:relative; border-radius:24px; overflow:hidden; margin:0 0 40px;
+    min-height:340px; display:grid; place-items:center; padding:60px 32px; text-align:center; color:#fff;
+    background:
+      linear-gradient(135deg, rgba(11,43,122,.85) 0%, rgba(30,79,217,.7) 100%),
+      url("https://images.unsplash.com/photo-1521737711867-e3b97375f902?auto=format&fit=crop&w=1600&q=80") center/cover;
+  }
+  .eb-hero .eb-eyebrow{
+    display:inline-block; font-size:11px; font-weight:700; letter-spacing:.18em;
+    background:rgba(255,255,255,.15); padding:6px 14px; border-radius:999px; margin-bottom:18px;
+  }
+  .eb-hero h1{
+    font-size: clamp(26px, 4vw, 40px); font-weight:900; margin:0 0 16px; line-height:1.4;
+  }
+  .eb-hero .eb-lead{
+    font-size:15px; color:rgba(255,255,255,.92); max-width:640px; margin:0 auto;
+  }
+
+  .eb-section{margin:0 0 56px;}
+  .eb-section h2{
+    font-size: clamp(22px, 3vw, 30px); font-weight:900; margin:0 0 8px;
+    padding-left:16px; border-left:5px solid var(--eb-color); line-height:1.4;
+  }
+  .eb-section .eb-sub{font-size:14px; color:var(--eb-muted); margin:0 0 24px; padding-left:21px;}
+
+  .eb-cards{display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:18px;}
+  .eb-card{
+    background:#fff; border:1px solid var(--eb-line); border-radius:16px; padding:24px 22px;
+    transition: transform .2s, box-shadow .2s;
+  }
+  .eb-card:hover{transform:translateY(-3px); box-shadow:var(--eb-shadow);}
+  .eb-card .eb-num{
+    font-family:"Inter",sans-serif; font-size:11px; font-weight:800; color:var(--eb-color);
+    letter-spacing:.15em; margin-bottom:8px;
+  }
+  .eb-card h3{font-size:16px; font-weight:800; margin:0 0 10px; line-height:1.5;}
+  .eb-card p{font-size:13.5px; color:var(--eb-muted); margin:0; line-height:1.8;}
+  .eb-card ul{margin:10px 0 0; padding-left:20px; font-size:13px; color:var(--eb-ink-2);}
+  .eb-card ul li{margin-bottom:4px;}
+
+  .eb-scenes{display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:14px;}
+  .eb-scene{
+    background:var(--eb-bg-soft); border-radius:12px; padding:18px 20px;
+    border-left:3px solid var(--eb-color);
+  }
+  .eb-scene .eb-q{font-size:11px; font-weight:800; color:var(--eb-color); letter-spacing:.1em; margin-bottom:6px;}
+  .eb-scene p{font-size:13.5px; margin:0; color:var(--eb-ink-2); line-height:1.7;}
+
+  .eb-flow{display:grid; gap:12px;}
+  .eb-step{
+    display:grid; grid-template-columns:48px 1fr; gap:18px; align-items:flex-start;
+    background:#fff; border:1px solid var(--eb-line); border-radius:14px; padding:18px 22px;
+  }
+  .eb-step .eb-stepn{
+    width:40px; height:40px; border-radius:50%; background:var(--eb-color); color:#fff;
+    display:grid; place-items:center; font-family:"Inter",sans-serif; font-weight:800; font-size:15px;
+  }
+  .eb-step h4{font-size:15px; font-weight:800; margin:0 0 4px; color:var(--eb-ink);}
+  .eb-step p{font-size:13px; color:var(--eb-muted); margin:0; line-height:1.7;}
+
+  .eb-cta{
+    margin:40px 0 0; padding:36px 32px; border-radius:20px; text-align:center;
+    background: linear-gradient(135deg, var(--eb-color-dark) 0%, var(--eb-color) 100%);
+    color:#fff;
+  }
+  .eb-cta h3{font-size: clamp(20px, 2.5vw, 26px); font-weight:900; margin:0 0 12px;}
+  .eb-cta p{font-size:14px; margin:0 0 24px; color:rgba(255,255,255,.9);}
+  .eb-cta-btns{display:flex; gap:12px; justify-content:center; flex-wrap:wrap;}
+  .eb-btn{
+    display:inline-flex; align-items:center; gap:8px;
+    padding:14px 28px; border-radius:999px; font-weight:800; font-size:14px;
+    background:#fff; color:var(--eb-color-dark); text-decoration:none;
+    transition: transform .15s, background .15s;
+  }
+  .eb-btn:hover{transform:translateY(-2px); background:#f5f8ff; text-decoration:none;}
+  .eb-btn.eb-ghost{background:transparent; color:#fff; border:1px solid rgba(255,255,255,.4);}
+  .eb-btn.eb-ghost:hover{background:rgba(255,255,255,.1);}
+
+  @media (max-width:640px){
+    .eb-hero{padding:48px 22px; min-height:280px;}
+    .eb-step{grid-template-columns:1fr; gap:10px;}
+    .eb-step .eb-stepn{width:36px; height:36px;}
+  }
+</style>
+
+<div class="eb-page">
+
+  <!-- Hero -->
+  <section class="eb-hero">
+    <div>
+      <div class="eb-eyebrow">SERVICE 01｜HUMAN RESOURCES</div>
+      <h1>人材サービス<br>AI・IT人材のマッチング、SES、採用支援</h1>
+      <p class="eb-lead">「採用できない」「即戦力がほしい」「内製化したい」——変化の早いAI・IT領域で、貴社のフェーズに合った人材戦略をご一緒に組み立てます。</p>
+    </div>
+  </section>
+
+  <!-- About -->
+  <section class="eb-section">
+    <h2>このサービスについて</h2>
+    <p class="eb-sub">人材紹介・SES・採用支援の3軸で、AI／DX時代の組織課題に応えます。</p>
+    <p style="font-size:14.5px; color:var(--eb-ink-2); margin:0 0 16px;">
+      AI・IT領域に特化したエンジニア・PM・データサイエンティストのマッチングから、現場へ即投入できるSES（技術者派遣）、採用ブランディング・スカウト代行まで。<strong style="color:var(--eb-color-dark)">「人を採る」だけでなく「組織として機能させる」ところまで</strong>を伴走します。
+    </p>
+  </section>
+
+  <!-- Services -->
+  <section class="eb-section">
+    <h2>提供サービス</h2>
+    <p class="eb-sub">単発のご依頼から、複数プログラムの組み合わせまで対応可能です。</p>
+    <div class="eb-cards">
+      <div class="eb-card">
+        <div class="eb-num">01</div>
+        <h3>AI・IT人材マッチング</h3>
+        <p>エンジニア・PM・データサイエンティスト・AIプロンプトエンジニア等を、要件・スキル・カルチャーフィットで適切にマッチング。</p>
+        <ul>
+          <li>正社員紹介</li>
+          <li>業務委託・副業マッチング</li>
+          <li>プロフェッショナル人材の招聘</li>
+        </ul>
+      </div>
+      <div class="eb-card">
+        <div class="eb-num">02</div>
+        <h3>SES（技術者派遣）</h3>
+        <p>プロジェクトに応じた即戦力エンジニアを、月単位で柔軟に派遣。社内リソースの不足分を補完できます。</p>
+        <ul>
+          <li>フロント／バックエンド開発</li>
+          <li>AI／機械学習エンジニア</li>
+          <li>インフラ・SRE</li>
+        </ul>
+      </div>
+      <div class="eb-card">
+        <div class="eb-num">03</div>
+        <h3>採用支援・ブランディング</h3>
+        <p>採用ページ制作・スカウト文設計・面接設計・採用ブランディングまで、自走できる採用組織を伴走で構築します。</p>
+        <ul>
+          <li>採用ピッチ資料の制作</li>
+          <li>スカウト文・媒体運用</li>
+          <li>採用フロー設計・改善</li>
+        </ul>
+      </div>
+      <div class="eb-card">
+        <div class="eb-num">04</div>
+        <h3>研修・オンボーディング設計</h3>
+        <p>採用した人材が現場で活躍できるよう、入社後の研修プログラム・オンボーディング設計までトータルで支援します。</p>
+        <ul>
+          <li>新人研修プログラム</li>
+          <li>マネージャー育成</li>
+          <li>AI／DXリテラシー教育</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Scenes -->
+  <section class="eb-section">
+    <h2>こんな企業におすすめ</h2>
+    <p class="eb-sub">業種・規模を問わずご相談いただけます。</p>
+    <div class="eb-scenes">
+      <div class="eb-scene"><div class="eb-q">CASE A</div><p>AI／DX推進のために専門人材を新規採用したいが、自社採用ノウハウがない</p></div>
+      <div class="eb-scene"><div class="eb-q">CASE B</div><p>プロジェクトの繁忙期にスポットで即戦力エンジニアを増員したい</p></div>
+      <div class="eb-scene"><div class="eb-q">CASE C</div><p>中長期で内製化を進めたいが、人材戦略のロードマップが描けていない</p></div>
+      <div class="eb-scene"><div class="eb-q">CASE D</div><p>採用しても定着しない。オンボーディング・育成体制を整えたい</p></div>
+    </div>
+  </section>
+
+  <!-- Flow -->
+  <section class="eb-section">
+    <h2>ご利用の流れ</h2>
+    <p class="eb-sub">ご相談から最短2週間でマッチング・派遣開始が可能です。</p>
+    <div class="eb-flow">
+      <div class="eb-step">
+        <div class="eb-stepn">1</div>
+        <div><h4>無料相談・ヒアリング</h4><p>現状の組織課題・採用要件・予算感をオンライン／対面で伺います。</p></div>
+      </div>
+      <div class="eb-step">
+        <div class="eb-stepn">2</div>
+        <div><h4>ご提案・候補者ご紹介</h4><p>要件に合わせた人材プール／SES契約／採用施策の組み合わせをご提案します。</p></div>
+      </div>
+      <div class="eb-step">
+        <div class="eb-stepn">3</div>
+        <div><h4>面談・契約</h4><p>カジュアル面談から正式契約まで、双方の合意形成をサポートします。</p></div>
+      </div>
+      <div class="eb-step">
+        <div class="eb-stepn">4</div>
+        <div><h4>稼働開始・継続フォロー</h4><p>入社／参画後も定期的にフォローし、定着・パフォーマンス向上まで伴走します。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <div class="eb-cta">
+    <h3>まずは無料でご相談ください</h3>
+    <p>採用要件が固まっていない段階でも大丈夫です。30分のオンライン相談からご対応します。</p>
+    <div class="eb-cta-btns">
+      <a class="eb-btn" href="https://8ec.jp/index.html#contact">無料相談・見積もり</a>
+      <a class="eb-btn eb-ghost" href="tel:0364335025">03-6433-5025（平日9-18時）</a>
+    </div>
+  </div>
+
+</div>

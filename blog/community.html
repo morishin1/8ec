@@ -1,0 +1,250 @@
+<!--
+  ▼ コピーして固定ページのHTML編集モード（または「カスタムHTML」ブロック）へ貼り付けてください。
+  外部CSS/JS依存なし。クラスは `eb-` プレフィックスで衝突回避。
+-->
+<style>
+  .eb-page{
+    --eb-color:#14B8A6; --eb-color-dark:#0F766E; --eb-color-light:#5EEAD4; --eb-color-tint:#D1F5F0;
+    --eb-ink:#0B1530; --eb-ink-2:#1a2544; --eb-muted:#5a6681;
+    --eb-line:#e3e8f2; --eb-bg-soft:#F0FBF8;
+    --eb-shadow: 0 6px 18px rgba(11,21,48,.08), 0 2px 6px rgba(11,21,48,.04);
+    font-family: "Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+    color:var(--eb-ink); line-height:1.8; max-width:1080px; margin:0 auto; padding:0;
+  }
+  .eb-page *{box-sizing:border-box;}
+  .eb-page img{max-width:100%; display:block;}
+  .eb-page a{color:var(--eb-color-dark); text-decoration:none;}
+  .eb-page a:hover{text-decoration:underline;}
+
+  .eb-hero{
+    position:relative; border-radius:24px; overflow:hidden; margin:0 0 40px;
+    min-height:340px; display:grid; place-items:center; padding:60px 32px; text-align:center; color:#fff;
+    background:
+      linear-gradient(135deg, rgba(15,118,110,.85) 0%, rgba(20,184,166,.7) 100%),
+      url("https://images.unsplash.com/photo-1521017432531-fbd92d768814?auto=format&fit=crop&w=1600&q=80") center/cover;
+  }
+  .eb-hero .eb-eyebrow{
+    display:inline-block; font-size:11px; font-weight:700; letter-spacing:.18em;
+    background:rgba(255,255,255,.18); padding:6px 14px; border-radius:999px; margin-bottom:18px;
+  }
+  .eb-hero h1{
+    font-size: clamp(26px, 4vw, 40px); font-weight:900; margin:0 0 16px; line-height:1.4;
+  }
+  .eb-hero .eb-lead{
+    font-size:15px; color:rgba(255,255,255,.95); max-width:640px; margin:0 auto;
+  }
+
+  .eb-section{margin:0 0 56px;}
+  .eb-section h2{
+    font-size: clamp(22px, 3vw, 30px); font-weight:900; margin:0 0 8px;
+    padding-left:16px; border-left:5px solid var(--eb-color); line-height:1.4;
+  }
+  .eb-section .eb-sub{font-size:14px; color:var(--eb-muted); margin:0 0 24px; padding-left:21px;}
+
+  .eb-cards{display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:18px;}
+  .eb-card{
+    background:#fff; border:1px solid var(--eb-line); border-radius:16px; padding:24px 22px;
+    transition: transform .2s, box-shadow .2s;
+  }
+  .eb-card:hover{transform:translateY(-3px); box-shadow:var(--eb-shadow);}
+  .eb-card .eb-num{
+    font-family:"Inter",sans-serif; font-size:11px; font-weight:800; color:var(--eb-color-dark);
+    letter-spacing:.15em; margin-bottom:8px;
+  }
+  .eb-card h3{font-size:16px; font-weight:800; margin:0 0 10px; line-height:1.5;}
+  .eb-card p{font-size:13.5px; color:var(--eb-muted); margin:0; line-height:1.8;}
+  .eb-card ul{margin:10px 0 0; padding-left:20px; font-size:13px; color:var(--eb-ink-2);}
+  .eb-card ul li{margin-bottom:4px;}
+
+  .eb-cafe{
+    margin:24px 0; padding:32px 30px; border-radius:20px;
+    background: var(--eb-bg-soft);
+    display:grid; grid-template-columns: 1fr; gap:22px; align-items:center;
+  }
+  @media (min-width:760px){ .eb-cafe{grid-template-columns: 1.2fr .8fr;} }
+  .eb-cafe h3{font-size:20px; font-weight:900; margin:0 0 8px; color:var(--eb-color-dark);}
+  .eb-cafe p{font-size:14px; color:var(--eb-ink-2); margin:0 0 12px; line-height:1.8;}
+  .eb-cafe-img{
+    border-radius:14px; aspect-ratio:4/3; background:
+      linear-gradient(180deg, rgba(15,118,110,.2), rgba(15,118,110,.6)),
+      url("https://images.unsplash.com/photo-1559925393-8be0ec4767c8?auto=format&fit=crop&w=900&q=80") center/cover;
+    min-height:200px;
+  }
+
+  .eb-scenes{display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:14px;}
+  .eb-scene{
+    background:var(--eb-bg-soft); border-radius:12px; padding:18px 20px;
+    border-left:3px solid var(--eb-color);
+  }
+  .eb-scene .eb-q{font-size:11px; font-weight:800; color:var(--eb-color-dark); letter-spacing:.1em; margin-bottom:6px;}
+  .eb-scene p{font-size:13.5px; margin:0; color:var(--eb-ink-2); line-height:1.7;}
+
+  .eb-flow{display:grid; gap:12px;}
+  .eb-step{
+    display:grid; grid-template-columns:48px 1fr; gap:18px; align-items:flex-start;
+    background:#fff; border:1px solid var(--eb-line); border-radius:14px; padding:18px 22px;
+  }
+  .eb-step .eb-stepn{
+    width:40px; height:40px; border-radius:50%; background:var(--eb-color); color:#fff;
+    display:grid; place-items:center; font-family:"Inter",sans-serif; font-weight:800; font-size:15px;
+  }
+  .eb-step h4{font-size:15px; font-weight:800; margin:0 0 4px; color:var(--eb-ink);}
+  .eb-step p{font-size:13px; color:var(--eb-muted); margin:0; line-height:1.7;}
+
+  .eb-cta{
+    margin:40px 0 0; padding:36px 32px; border-radius:20px; text-align:center;
+    background: linear-gradient(135deg, var(--eb-color-dark) 0%, var(--eb-color) 100%);
+    color:#fff;
+  }
+  .eb-cta h3{font-size: clamp(20px, 2.5vw, 26px); font-weight:900; margin:0 0 12px;}
+  .eb-cta p{font-size:14px; margin:0 0 24px; color:rgba(255,255,255,.92);}
+  .eb-cta-btns{display:flex; gap:12px; justify-content:center; flex-wrap:wrap;}
+  .eb-btn{
+    display:inline-flex; align-items:center; gap:8px;
+    padding:14px 28px; border-radius:999px; font-weight:800; font-size:14px;
+    background:#fff; color:var(--eb-color-dark); text-decoration:none;
+    transition: transform .15s, background .15s;
+  }
+  .eb-btn:hover{transform:translateY(-2px); background:#F0FBF8; text-decoration:none;}
+  .eb-btn.eb-ghost{background:transparent; color:#fff; border:1px solid rgba(255,255,255,.4);}
+  .eb-btn.eb-ghost:hover{background:rgba(255,255,255,.1);}
+
+  @media (max-width:640px){
+    .eb-hero{padding:48px 22px; min-height:280px;}
+    .eb-step{grid-template-columns:1fr; gap:10px;}
+    .eb-step .eb-stepn{width:36px; height:36px;}
+  }
+</style>
+
+<div class="eb-page">
+
+  <!-- Hero -->
+  <section class="eb-hero">
+    <div>
+      <div class="eb-eyebrow">SERVICE 03｜COMMUNITY & EVENT</div>
+      <h1>コミュニティ・イベント<br>エイトカフェを拠点にした交流、学び、企画</h1>
+      <p class="eb-lead">「人と出会いたい」「学び合える場がほしい」「新しい企画を試したい」——リアルとオンラインが交差するコミュニティで、つながりから事業のタネを育てます。</p>
+    </div>
+  </section>
+
+  <!-- About -->
+  <section class="eb-section">
+    <h2>このサービスについて</h2>
+    <p class="eb-sub">エイトが運営するリアル拠点「エイトカフェ」を中心に、人・知・事業を循環させる場を提供しています。</p>
+    <p style="font-size:14.5px; color:var(--eb-ink-2); margin:0 0 16px;">
+      「<strong style="color:var(--eb-color-dark)">学びが人を育てる。人がつながり、共創が生まれる。</strong>」——リアル空間×コミュニティ×イベント企画の3つを軸に、起業家・エンジニア・学生・経営者など多様な人が集まる場を運営しています。協賛・会場利用・イベント共催など、貴社の活動に合わせた関わり方が選べます。
+    </p>
+  </section>
+
+  <!-- Cafe -->
+  <section class="eb-section">
+    <h2>拠点：エイトカフェ</h2>
+    <p class="eb-sub">交流・学び・実験の場として、誰でも使えるオープンスペースです。</p>
+    <div class="eb-cafe">
+      <div>
+        <h3>渋谷・原宿エリアの「集まれる場所」</h3>
+        <p>勉強会・ピッチイベント・もくもく会・採用イベント・ワークショップなど、用途に応じて柔軟にご利用いただけます。コーヒー片手にカジュアルに集まれる空間です。</p>
+        <p style="font-size:13px; color:var(--eb-muted); margin:0;">
+          📍 〒150-0001 東京都渋谷区神宮前6-33-14<br>
+          🚶 JR山手線「原宿」駅 徒歩圏／東京メトロ「明治神宮前〈原宿〉」駅 徒歩圏
+        </p>
+      </div>
+      <div class="eb-cafe-img" aria-label="エイトカフェのイメージ"></div>
+    </div>
+  </section>
+
+  <!-- Programs -->
+  <section class="eb-section">
+    <h2>提供できるかたち</h2>
+    <p class="eb-sub">単発のスペース利用から、継続的なコミュニティ運営支援まで。</p>
+    <div class="eb-cards">
+      <div class="eb-card">
+        <div class="eb-num">FORM 01</div>
+        <h3>イベント・勉強会の会場利用</h3>
+        <p>20〜60名程度のセミナー・勉強会・交流会に対応。プロジェクター・WiFi・ドリンク提供あり。</p>
+        <ul>
+          <li>ピッチイベント</li>
+          <li>勉強会・もくもく会</li>
+          <li>採用イベント</li>
+        </ul>
+      </div>
+      <div class="eb-card">
+        <div class="eb-num">FORM 02</div>
+        <h3>イベント共催・企画協力</h3>
+        <p>テーマ設計・登壇者招聘・集客支援まで含めたイベント共催。コミュニティの巻き込みもサポート。</p>
+        <ul>
+          <li>テーマ・コンテンツ設計</li>
+          <li>登壇者ブッキング</li>
+          <li>集客・告知支援</li>
+        </ul>
+      </div>
+      <div class="eb-card">
+        <div class="eb-num">FORM 03</div>
+        <h3>コミュニティ運営支援</h3>
+        <p>貴社の業界・テーマに沿ったコミュニティの立ち上げ・運営を伴走支援。継続的な集まりを設計します。</p>
+        <ul>
+          <li>コミュニティ設計</li>
+          <li>定例企画・運用</li>
+          <li>オンライン×リアル両立</li>
+        </ul>
+      </div>
+      <div class="eb-card">
+        <div class="eb-num">FORM 04</div>
+        <h3>協賛・スポンサー枠</h3>
+        <p>エイトカフェ／コミュニティへのスポンサーとして、自社サービスのPR・人材接触の機会を提供。</p>
+        <ul>
+          <li>イベント協賛</li>
+          <li>サービスPR</li>
+          <li>採用ブランディング</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Scenes -->
+  <section class="eb-section">
+    <h2>こんなご相談を歓迎しています</h2>
+    <p class="eb-sub">企業・個人を問わず、お気軽にお声かけください。</p>
+    <div class="eb-scenes">
+      <div class="eb-scene"><div class="eb-q">CASE A</div><p>採用イベント・テックトークの会場を探している</p></div>
+      <div class="eb-scene"><div class="eb-q">CASE B</div><p>業界横断のコミュニティを立ち上げたいが、運営ノウハウがない</p></div>
+      <div class="eb-scene"><div class="eb-q">CASE C</div><p>イベント共催で、新サービスのフィードバックや初期ユーザーを集めたい</p></div>
+      <div class="eb-scene"><div class="eb-q">CASE D</div><p>渋谷・原宿エリアでの活動拠点・集まれる場所を探している</p></div>
+    </div>
+  </section>
+
+  <!-- Flow -->
+  <section class="eb-section">
+    <h2>ご利用の流れ</h2>
+    <p class="eb-sub">規模・目的に応じて柔軟にご相談ください。</p>
+    <div class="eb-flow">
+      <div class="eb-step">
+        <div class="eb-stepn">1</div>
+        <div><h4>お問い合わせ・ヒアリング</h4><p>イベント内容・希望日時・規模感・想定参加者を伺います。</p></div>
+      </div>
+      <div class="eb-step">
+        <div class="eb-stepn">2</div>
+        <div><h4>ご提案・お見積もり</h4><p>会場利用・共催・運営支援など、目的に応じた最適なかたちをご提案します。</p></div>
+      </div>
+      <div class="eb-step">
+        <div class="eb-stepn">3</div>
+        <div><h4>事前準備・告知</h4><p>当日の進行設計・必要備品・告知サポートを準備します。</p></div>
+      </div>
+      <div class="eb-step">
+        <div class="eb-stepn">4</div>
+        <div><h4>当日運営・振り返り</h4><p>当日の運営フォロー、終了後のフィードバック・次回企画までサポートします。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <div class="eb-cta">
+    <h3>イベント・コミュニティのご相談はこちら</h3>
+    <p>「ちょっと話を聞きたい」段階からでも大丈夫です。お気軽にお問い合わせください。</p>
+    <div class="eb-cta-btns">
+      <a class="eb-btn" href="https://8ec.jp/index.html#contact">無料相談・見積もり</a>
+      <a class="eb-btn eb-ghost" href="tel:0364335025">03-6433-5025（平日9-18時）</a>
+    </div>
+  </div>
+
+</div>
