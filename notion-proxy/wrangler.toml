@@ -1,0 +1,14 @@
+name = "eight-notion-proxy"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# カスタムドメインに載せる場合はこちらを有効化
+# routes = [
+#   { pattern = "8ec.jp/api/*", zone_name = "8ec.jp" }
+# ]
+
+# 環境変数（非シークレット）— シークレットは `wrangler secret put` で設定
+[vars]
+# デフォルト動作は worker.js 側で吸収する。上書きしたい場合のみ設定：
+# NOTION_DATABASE_ID = "591ade7c-f5ff-492c-b150-3418b9e43c29"
+# ALLOWED_ORIGIN     = "https://8ec.jp"

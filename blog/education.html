@@ -1,0 +1,226 @@
+<!--
+  ▼ コピーして固定ページのHTML編集モード（または「カスタムHTML」ブロック）へ貼り付けてください。
+  外部CSS/JS依存なし。クラスは `eb-` プレフィックスで衝突回避。
+-->
+<style>
+  .eb-page{
+    --eb-color:#FF7A45; --eb-color-dark:#D65A1F; --eb-color-light:#FFB088; --eb-color-tint:#FFF0E6;
+    --eb-ink:#0B1530; --eb-ink-2:#1a2544; --eb-muted:#5a6681;
+    --eb-line:#e3e8f2; --eb-bg-soft:#FFF8F2;
+    --eb-shadow: 0 6px 18px rgba(11,21,48,.08), 0 2px 6px rgba(11,21,48,.04);
+    font-family: "Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+    color:var(--eb-ink); line-height:1.8; max-width:1080px; margin:0 auto; padding:0;
+  }
+  .eb-page *{box-sizing:border-box;}
+  .eb-page img{max-width:100%; display:block;}
+  .eb-page a{color:var(--eb-color-dark); text-decoration:none;}
+  .eb-page a:hover{text-decoration:underline;}
+
+  .eb-hero{
+    position:relative; border-radius:24px; overflow:hidden; margin:0 0 40px;
+    min-height:340px; display:grid; place-items:center; padding:60px 32px; text-align:center; color:#fff;
+    background:
+      linear-gradient(135deg, rgba(214,90,31,.85) 0%, rgba(255,122,69,.7) 100%),
+      url("https://images.unsplash.com/photo-1543269865-cbf427effbad?auto=format&fit=crop&w=1600&q=80") center/cover;
+  }
+  .eb-hero .eb-eyebrow{
+    display:inline-block; font-size:11px; font-weight:700; letter-spacing:.18em;
+    background:rgba(255,255,255,.18); padding:6px 14px; border-radius:999px; margin-bottom:18px;
+  }
+  .eb-hero h1{
+    font-size: clamp(26px, 4vw, 40px); font-weight:900; margin:0 0 16px; line-height:1.4;
+  }
+  .eb-hero .eb-lead{
+    font-size:15px; color:rgba(255,255,255,.95); max-width:640px; margin:0 auto;
+  }
+
+  .eb-section{margin:0 0 56px;}
+  .eb-section h2{
+    font-size: clamp(22px, 3vw, 30px); font-weight:900; margin:0 0 8px;
+    padding-left:16px; border-left:5px solid var(--eb-color); line-height:1.4;
+  }
+  .eb-section .eb-sub{font-size:14px; color:var(--eb-muted); margin:0 0 24px; padding-left:21px;}
+
+  .eb-cards{display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:18px;}
+  .eb-card{
+    background:#fff; border:1px solid var(--eb-line); border-radius:16px; padding:24px 22px;
+    transition: transform .2s, box-shadow .2s;
+  }
+  .eb-card:hover{transform:translateY(-3px); box-shadow:var(--eb-shadow);}
+  .eb-card .eb-num{
+    font-family:"Inter",sans-serif; font-size:11px; font-weight:800; color:var(--eb-color-dark);
+    letter-spacing:.15em; margin-bottom:8px;
+  }
+  .eb-card h3{font-size:16px; font-weight:800; margin:0 0 10px; line-height:1.5;}
+  .eb-card p{font-size:13.5px; color:var(--eb-muted); margin:0; line-height:1.8;}
+  .eb-card ul{margin:10px 0 0; padding-left:20px; font-size:13px; color:var(--eb-ink-2);}
+  .eb-card ul li{margin-bottom:4px;}
+  .eb-card.eb-featured{
+    background: linear-gradient(135deg, var(--eb-color-dark) 0%, var(--eb-color) 100%);
+    color:#fff; border:0;
+  }
+  .eb-card.eb-featured .eb-num{color:#fff; opacity:.8;}
+  .eb-card.eb-featured h3{color:#fff;}
+  .eb-card.eb-featured p{color:rgba(255,255,255,.92);}
+  .eb-card.eb-featured ul{color:rgba(255,255,255,.95);}
+
+  .eb-scenes{display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:14px;}
+  .eb-scene{
+    background:var(--eb-bg-soft); border-radius:12px; padding:18px 20px;
+    border-left:3px solid var(--eb-color);
+  }
+  .eb-scene .eb-q{font-size:11px; font-weight:800; color:var(--eb-color-dark); letter-spacing:.1em; margin-bottom:6px;}
+  .eb-scene p{font-size:13.5px; margin:0; color:var(--eb-ink-2); line-height:1.7;}
+
+  .eb-flow{display:grid; gap:12px;}
+  .eb-step{
+    display:grid; grid-template-columns:48px 1fr; gap:18px; align-items:flex-start;
+    background:#fff; border:1px solid var(--eb-line); border-radius:14px; padding:18px 22px;
+  }
+  .eb-step .eb-stepn{
+    width:40px; height:40px; border-radius:50%; background:var(--eb-color); color:#fff;
+    display:grid; place-items:center; font-family:"Inter",sans-serif; font-weight:800; font-size:15px;
+  }
+  .eb-step h4{font-size:15px; font-weight:800; margin:0 0 4px; color:var(--eb-ink);}
+  .eb-step p{font-size:13px; color:var(--eb-muted); margin:0; line-height:1.7;}
+
+  .eb-cta{
+    margin:40px 0 0; padding:36px 32px; border-radius:20px; text-align:center;
+    background: linear-gradient(135deg, var(--eb-color-dark) 0%, var(--eb-color) 100%);
+    color:#fff;
+  }
+  .eb-cta h3{font-size: clamp(20px, 2.5vw, 26px); font-weight:900; margin:0 0 12px;}
+  .eb-cta p{font-size:14px; margin:0 0 24px; color:rgba(255,255,255,.92);}
+  .eb-cta-btns{display:flex; gap:12px; justify-content:center; flex-wrap:wrap;}
+  .eb-btn{
+    display:inline-flex; align-items:center; gap:8px;
+    padding:14px 28px; border-radius:999px; font-weight:800; font-size:14px;
+    background:#fff; color:var(--eb-color-dark); text-decoration:none;
+    transition: transform .15s, background .15s;
+  }
+  .eb-btn:hover{transform:translateY(-2px); background:#FFF8F2; text-decoration:none;}
+  .eb-btn.eb-ghost{background:transparent; color:#fff; border:1px solid rgba(255,255,255,.4);}
+  .eb-btn.eb-ghost:hover{background:rgba(255,255,255,.1);}
+
+  @media (max-width:640px){
+    .eb-hero{padding:48px 22px; min-height:280px;}
+    .eb-step{grid-template-columns:1fr; gap:10px;}
+    .eb-step .eb-stepn{width:36px; height:36px;}
+  }
+</style>
+
+<div class="eb-page">
+
+  <!-- Hero -->
+  <section class="eb-hero">
+    <div>
+      <div class="eb-eyebrow">SERVICE 02｜EDUCATION & SCHOOL</div>
+      <h1>教育・スクール<br>無限道場・DX/AI学習・実践型カリキュラム</h1>
+      <p class="eb-lead">「AIを使えるようになりたい」「現場で動けるDX人材を育てたい」——座学だけで終わらない、現場直結の実践型カリキュラムで"使える人材"を育てます。</p>
+    </div>
+  </section>
+
+  <!-- About -->
+  <section class="eb-section">
+    <h2>このサービスについて</h2>
+    <p class="eb-sub">学んで終わりではなく、現場で使える状態まで伴走するのが特徴です。</p>
+    <p style="font-size:14.5px; color:var(--eb-ink-2); margin:0 0 16px;">
+      AI／DXリテラシー研修から、実際にプロダクトを開発する「<strong style="color:var(--eb-color-dark)">無限道場</strong>」、業務に直結する課題解決型ワークショップまで——インプットとアウトプットを行き来する実践型プログラムを提供しています。受講後は実際の業務改善・新サービス企画につなげるところまでサポートします。
+    </p>
+  </section>
+
+  <!-- Programs -->
+  <section class="eb-section">
+    <h2>主なプログラム</h2>
+    <p class="eb-sub">単発研修から長期道場まで、目的に合わせた4つの形式をご用意しています。</p>
+    <div class="eb-cards">
+      <div class="eb-card eb-featured">
+        <div class="eb-num">FLAGSHIP</div>
+        <h3>無限道場</h3>
+        <p>3〜6ヶ月の集中プログラム。実際のプロダクト開発・新規事業企画を題材に、ビジネス・技術・デザインを横断して鍛えます。</p>
+        <ul>
+          <li>実務型プロジェクト演習</li>
+          <li>メンター・コーチ伴走</li>
+          <li>修了後の実装サポート</li>
+        </ul>
+      </div>
+      <div class="eb-card">
+        <div class="eb-num">PROGRAM 02</div>
+        <h3>DX/AI学習プログラム</h3>
+        <p>非エンジニア・経営層・現場リーダー向けに、AI・DXを"自分の業務でどう使うか"の観点で学ぶカリキュラム。</p>
+        <ul>
+          <li>AIリテラシー基礎</li>
+          <li>業務自動化・プロンプト実務</li>
+          <li>DX戦略の立て方</li>
+        </ul>
+      </div>
+      <div class="eb-card">
+        <div class="eb-num">PROGRAM 03</div>
+        <h3>実践型カリキュラム</h3>
+        <p>貴社の業務課題を題材にしたカスタム研修。「学んだ翌日から使える」を意識した、実演・ハンズオン中心の構成です。</p>
+        <ul>
+          <li>業務直結ワークショップ</li>
+          <li>ハンズオン実装</li>
+          <li>成果物レビュー・改善</li>
+        </ul>
+      </div>
+      <div class="eb-card">
+        <div class="eb-num">PROGRAM 04</div>
+        <h3>社内講師育成・教材開発</h3>
+        <p>「自社内で継続的に学習文化を回したい」企業向けに、社内講師の育成・教材の共同開発まで支援します。</p>
+        <ul>
+          <li>講師トレーニング</li>
+          <li>教材コンテンツ共同開発</li>
+          <li>学習進捗の可視化</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Scenes -->
+  <section class="eb-section">
+    <h2>こんな企業におすすめ</h2>
+    <p class="eb-sub">業種・規模を問わず、目的に合わせてカスタマイズします。</p>
+    <div class="eb-scenes">
+      <div class="eb-scene"><div class="eb-q">CASE A</div><p>全社員にAIリテラシーを底上げしたいが、座学では定着しない</p></div>
+      <div class="eb-scene"><div class="eb-q">CASE B</div><p>新規事業を立ち上げる人材を社内から育成したい</p></div>
+      <div class="eb-scene"><div class="eb-q">CASE C</div><p>DX推進担当者がスキル不足で施策が進まない</p></div>
+      <div class="eb-scene"><div class="eb-q">CASE D</div><p>研修を内製化して、自社で学び続けられる文化を作りたい</p></div>
+    </div>
+  </section>
+
+  <!-- Flow -->
+  <section class="eb-section">
+    <h2>導入の流れ</h2>
+    <p class="eb-sub">無料カウンセリングからスタートし、貴社の現状に合わせて設計します。</p>
+    <div class="eb-flow">
+      <div class="eb-step">
+        <div class="eb-stepn">1</div>
+        <div><h4>無料カウンセリング</h4><p>育成したい人材像・現状の組織課題・予算感をオンライン／対面で伺います。</p></div>
+      </div>
+      <div class="eb-step">
+        <div class="eb-stepn">2</div>
+        <div><h4>カリキュラム設計</h4><p>目的・期間・対象人数に応じて、最適なプログラム構成と費用感をご提案します。</p></div>
+      </div>
+      <div class="eb-step">
+        <div class="eb-stepn">3</div>
+        <div><h4>キックオフ・実施</h4><p>受講者向けオリエンテーション後、実施開始。進捗を共有しながら細かく調整します。</p></div>
+      </div>
+      <div class="eb-step">
+        <div class="eb-stepn">4</div>
+        <div><h4>修了後フォロー</h4><p>修了後の業務適用・成果物のレビュー・継続学習の仕組み化までサポートします。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <div class="eb-cta">
+    <h3>育成プログラムについてご相談ください</h3>
+    <p>「うちの会社に合うか分からない」段階でも大丈夫です。まずは30分の無料カウンセリングから。</p>
+    <div class="eb-cta-btns">
+      <a class="eb-btn" href="https://8ec.jp/index.html#contact">無料相談・見積もり</a>
+      <a class="eb-btn eb-ghost" href="tel:0364335025">03-6433-5025（平日9-18時）</a>
+    </div>
+  </div>
+
+</div>

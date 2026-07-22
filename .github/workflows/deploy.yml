@@ -1,0 +1,58 @@
+name: Deploy site to GitHub Pages
+
+# main へ push されるたびに静的サイトを GitHub Pages へ自動公開します。
+# （リニューアル作業はブランチ → PR で行い、main にマージされた時点で反映）
+# 手動実行（workflow_dispatch）も可能です。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# GitHub Pages への公開に必要な権限
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 公開は同時に1つだけ。走行中のものはキャンセルせず、最新を確実に反映
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Stage public site (exclude non-public files)
+        run: |
+          mkdir -p _site
+          rsync -a \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude 'archive' \
+            --exclude 'notion-proxy' \
+            --exclude '_site' \
+            --exclude 'README.md' \
+            --exclude '.gitignore' \
+            --exclude '*.zip' \
+            ./ _site/
+          # Jekyll 処理を無効化（アンダースコア始まりのファイル等を素通しで配信）
+          touch _site/.nojekyll
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

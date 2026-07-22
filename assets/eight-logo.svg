@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="currentColor" fill-rule="evenodd" aria-label="EIGHT">
+  <!-- Top inverted triangle with inner notch (forms upper half of the 8-mark) -->
+  <path d="M4 6 L96 6 L50 52 Z M34 22 L66 22 L50 38 Z"/>
+  <!-- Bottom upright triangle with inner notch -->
+  <path d="M4 94 L96 94 L50 48 Z M34 78 L66 78 L50 62 Z"/>
+</svg>
