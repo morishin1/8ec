@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>問い合わせ管理｜株式会社エイト</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/theme.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  body{background:var(--cyan-pale)}
+  .ct-head{background:var(--white);border-bottom:1px solid var(--line);padding:14px 0}
+  .ct-head .inner{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .ct-head h1{font-size:19px;margin:0;letter-spacing:-.02em}
+  .ct-head .sub{font-size:12px;color:var(--ink-soft)}
+  #gate{min-height:70vh;display:none;place-items:center;padding:30px 16px}
+  #gate .card{max-width:360px;width:100%;background:var(--white);border:1px solid var(--line);border-radius:var(--radius-sm);padding:26px 22px}
+  #gate h2{font-size:18px;margin:0 0 4px}
+  #gate p{font-size:12.5px;color:var(--ink-soft);margin:0 0 16px}
+  #gate label{display:block;font-size:12px;font-weight:700;margin:0 0 5px}
+  #gate input{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;font-size:14px;font-family:inherit;margin-bottom:12px;background:var(--paper)}
+  #gate .msg{font-size:12.5px;color:var(--coral);min-height:18px;margin:2px 0 8px}
+  #app{display:none;padding:20px 0 80px}
+  .toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  .toolbar select,.toolbar input{padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:13px;font-family:inherit;background:var(--white)}
+  .stat-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+  .chip{background:var(--white);border:1px solid var(--line);border-radius:99px;padding:6px 13px;font-size:12.5px;font-weight:700}
+  .chip b{color:var(--teal-dark)}
+  .cards{display:flex;flex-direction:column;gap:12px}
+  .c-card{background:var(--white);border:1px solid var(--line);border-radius:var(--radius-sm);padding:16px;box-shadow:var(--shadow)}
+  .c-top{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start}
+  .c-top .who{font-weight:800;font-size:15px}
+  .c-top .who small{font-weight:600;color:var(--ink-soft);font-size:12px;margin-left:6px}
+  .c-meta{font-size:12.5px;color:var(--ink-soft);margin:6px 0}
+  .c-meta a{color:var(--teal-dark);font-weight:700}
+  .c-msg{background:var(--cyan-pale);border-radius:10px;padding:10px 12px;font-size:13.5px;white-space:pre-wrap;margin:8px 0}
+  .badge{font-size:11px;font-weight:800;padding:3px 9px;border-radius:99px;border:1px solid var(--line)}
+  .badge.src{background:var(--teal-pale);color:var(--teal-dark);border-color:transparent}
+  .badge.type{background:#fff2ef;color:#c65b48;border-color:transparent}
+  .c-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;border-top:1px dashed var(--line);padding-top:10px}
+  .c-actions select,.c-actions input{padding:7px 9px;border:1px solid var(--line);border-radius:8px;font-size:12.5px;font-family:inherit;background:var(--white)}
+  .c-actions input.memo{flex:1;min-width:160px}
+  .st-未対応{color:var(--coral)}.st-対応中{color:var(--amber,#c99a1e)}.st-対応済{color:var(--teal-dark)}
+  .mini{font-size:12px;padding:7px 12px;border-radius:9px;border:1px solid var(--line);background:var(--white);cursor:pointer;font-weight:700}
+  .mini.del{color:#b8485d;border-color:#f0c9d2}
+  .mini.save{background:var(--teal);color:#fff;border-color:transparent}
+  .empty{text-align:center;color:var(--ink-soft);padding:50px 0}
+  .logout{font-size:12px;padding:7px 12px;border:1px solid var(--line);border-radius:9px;background:var(--white);cursor:pointer}
+</style>
+</head>
+<body>
+<div class="ct-head"><div class="container inner">
+  <div><h1>問い合わせ・見積もり管理</h1><div class="sub">サイトの各フォームからの受信を管理</div></div>
+  <div id="userBox" style="display:none"><a href="/" style="font-size:12px;color:var(--ink-soft);margin-right:10px">サイトトップ</a><button class="logout" onclick="signOut()">ログアウト</button></div>
+</div></div>
+
+<div id="gate"><div class="card">
+  <h2>ログイン</h2>
+  <p>事務共有アカウントでログインしてください。</p>
+  <label>ID</label><input id="g-id" autocomplete="username" placeholder="zimu">
+  <label>パスワード</label><input id="g-pw" type="password" autocomplete="current-password">
+  <div class="msg" id="gateMsg"></div>
+  <button class="btn btn-primary" style="width:100%" onclick="doLogin()">ログイン</button>
+</div></div>
+
+<main id="app"><div class="container">
+  <div class="stat-row" id="stats"></div>
+  <div class="toolbar">
+    <select id="fStatus" onchange="render()">
+      <option value="">全ステータス</option><option>未対応</option><option>対応中</option><option>対応済</option>
+    </select>
+    <select id="fSource" onchange="render()"><option value="">全ページ</option></select>
+    <input id="q" placeholder="名前・会社・内容で検索" oninput="render()" style="flex:1;min-width:160px">
+  </div>
+  <div class="cards" id="cards"></div>
+</div></main>
+
+<script>
+const SUPA_URL="https://htglvascsuqkixpmclwr.supabase.co";
+const SUPA_KEY="sb_publishable_yZCcrwdqjuf0u_5WBWlHIw_AxdvteEV";
+const SHARED_EMAIL="zimu@8grp.co.jp";
+const STATUSES=['未対応','対応中','対応済'];
+let sb=null, rows=[];
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function fmt(iso){if(!iso)return '';const d=new Date(iso);if(isNaN(d))return '';const p=n=>String(n).padStart(2,'0');return (d.getMonth()+1)+'/'+d.getDate()+' '+p(d.getHours())+':'+p(d.getMinutes());}
+
+(async function init(){
+  if(!window.supabase){document.getElementById('gate').style.display='grid';document.getElementById('gateMsg').textContent='読み込みに失敗しました。再読み込みしてください。';return;}
+  sb=window.supabase.createClient(SUPA_URL,SUPA_KEY,{auth:{persistSession:true,autoRefreshToken:true,storage:window.localStorage,storageKey:'zimu-portal-auth'}});
+  const {data:{session}}=await sb.auth.getSession();
+  if(session&&session.user&&session.user.email===SHARED_EMAIL){showApp();await load();}
+  else{document.getElementById('gate').style.display='grid';}
+})();
+async function doLogin(){
+  const id=document.getElementById('g-id').value.trim(),pw=document.getElementById('g-pw').value;
+  const msg=document.getElementById('gateMsg');msg.textContent='';
+  if(!id||!pw){msg.textContent='IDとパスワードを入力してください';return;}
+  try{
+    const {data,error}=await sb.auth.signInWithPassword({email:id.toLowerCase()+'@8grp.co.jp',password:pw});
+    if(error){msg.textContent='IDまたはパスワードが違います';return;}
+    if(data.user.email!==SHARED_EMAIL){msg.textContent='このアカウントには権限がありません';await sb.auth.signOut();return;}
+    showApp();await load();
+  }catch(e){msg.textContent='ログインに失敗：'+e.message;}
+}
+function showApp(){document.getElementById('gate').style.display='none';document.getElementById('app').style.display='block';document.getElementById('userBox').style.display='flex';}
+async function signOut(){await sb.auth.signOut();location.reload();}
+
+async function load(){
+  const {data,error}=await sb.from('contact_submissions').select('*').order('created_at',{ascending:false});
+  if(error){alert('読み込みエラー：'+error.message+'\n（admin/contact/supabase-setup.sql を実行してください）');return;}
+  rows=data||[];
+  const srcs=[...new Set(rows.map(r=>r.source).filter(Boolean))];
+  document.getElementById('fSource').innerHTML='<option value="">全ページ</option>'+srcs.map(s=>`<option>${esc(s)}</option>`).join('');
+  render();
+}
+function render(){
+  const fs=document.getElementById('fStatus').value, fsrc=document.getElementById('fSource').value, q=document.getElementById('q').value.trim().toLowerCase();
+  const counts={未対応:0,対応中:0,対応済:0};
+  rows.forEach(r=>{counts[r.status]=(counts[r.status]||0)+1;});
+  document.getElementById('stats').innerHTML=
+    `<span class="chip">全 <b>${rows.length}</b></span>`+STATUSES.map(s=>`<span class="chip">${s} <b>${counts[s]||0}</b></span>`).join('');
+  const list=rows.filter(r=>{
+    if(fs&&r.status!==fs)return false;
+    if(fsrc&&r.source!==fsrc)return false;
+    if(q){const hay=[r.name,r.company,r.email,r.phone,r.message,r.inquiry_type].join(' ').toLowerCase();if(hay.indexOf(q)<0)return false;}
+    return true;
+  });
+  const el=document.getElementById('cards');
+  if(!list.length){el.innerHTML='<div class="empty">該当する問い合わせはありません。</div>';return;}
+  el.innerHTML=list.map(r=>`
+    <div class="c-card" data-id="${r.id}">
+      <div class="c-top">
+        <div class="who">${esc(r.name)}${r.company?`<small>${esc(r.company)}</small>`:''}
+          <div class="c-meta">
+            ${r.email?`✉ <a href="mailto:${esc(r.email)}">${esc(r.email)}</a>　`:''}${r.phone?`☎ <a href="tel:${esc(r.phone)}">${esc(r.phone)}</a>`:''}
+          </div>
+        </div>
+        <div style="text-align:right">
+          ${r.source?`<span class="badge src">${esc(r.source)}</span> `:''}${r.inquiry_type?`<span class="badge type">${esc(r.inquiry_type)}</span>`:''}
+          <div class="c-meta">${fmt(r.created_at)}</div>
+        </div>
+      </div>
+      ${r.message?`<div class="c-msg">${esc(r.message)}</div>`:''}
+      <div class="c-actions">
+        <select onchange="setStatus('${r.id}',this.value)" class="st-${esc(r.status)}">
+          ${STATUSES.map(s=>`<option ${s===r.status?'selected':''}>${s}</option>`).join('')}
+        </select>
+        <input class="memo" placeholder="担当メモ" value="${esc(r.staff_memo||'')}" id="memo-${r.id}">
+        <button class="mini save" onclick="saveMemo('${r.id}')">メモ保存</button>
+        <button class="mini del" onclick="del('${r.id}')">削除</button>
+      </div>
+    </div>`).join('');
+}
+async function setStatus(id,status){
+  const {error}=await sb.from('contact_submissions').update({status,updated_at:new Date().toISOString()}).eq('id',id);
+  if(error){alert('更新失敗：'+error.message);return;}
+  const r=rows.find(x=>x.id===id);if(r)r.status=status;render();
+}
+async function saveMemo(id){
+  const memo=document.getElementById('memo-'+id).value;
+  const {error}=await sb.from('contact_submissions').update({staff_memo:memo,updated_at:new Date().toISOString()}).eq('id',id);
+  if(error){alert('保存失敗：'+error.message);return;}
+  const r=rows.find(x=>x.id===id);if(r)r.staff_memo=memo;
+}
+async function del(id){
+  if(!confirm('この問い合わせを削除しますか？'))return;
+  const {error}=await sb.from('contact_submissions').delete().eq('id',id);
+  if(error){alert('削除失敗：'+error.message);return;}
+  rows=rows.filter(x=>x.id!==id);render();
+}
+</script>
+</body>
+</html>
