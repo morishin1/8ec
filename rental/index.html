@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PC・機材レンタルカタログ｜株式会社エイト</title>
+<meta name="description" content="株式会社エイトのPC・機材レンタルカタログ。ノートPC・デスクトップ・タブレット・モニター・周辺機器を、日額・週額・月額でレンタルできます。気になる機材はそのまま問い合わせ。">
+<meta name="theme-color" content="#007f9e">
+<meta name="robots" content="index,follow,max-image-preview:large">
+<link rel="canonical" href="https://8ec.jp/rental/">
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="株式会社エイト">
+<meta property="og:title" content="PC・機材レンタルカタログ｜株式会社エイト">
+<meta property="og:description" content="ノートPC・デスクトップ・タブレット・モニター・周辺機器を、日額・週額・月額でレンタル。気になる機材はそのまま問い合わせできます。">
+<meta property="og:url" content="https://8ec.jp/rental/">
+<meta property="og:locale" content="ja_JP">
+<meta property="og:image" content="https://8ec.jp/assets/training-jp.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/theme.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  /* ===== レンタルカタログ 固有スタイル（theme.css のトークンを利用） ===== */
+  .rental-hero { padding: 56px 0 34px; }
+  .rental-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-top: 26px;
+  }
+  .cat-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 9px 16px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--white);
+    color: #34515f;
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: border .15s, background .15s, color .15s;
+  }
+  .cat-chip:hover { border-color: var(--teal); color: var(--teal-dark); }
+  .cat-chip.on { border-color: var(--teal); background: var(--teal); color: #fff; }
+
+  .rental-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(288px, 1fr));
+    gap: 20px;
+    margin-top: 30px;
+  }
+  .rental-card {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--white);
+    box-shadow: 0 8px 22px rgba(25, 70, 82, .055);
+    transition: transform .2s ease, box-shadow .2s ease;
+  }
+  .rental-card:hover { transform: translateY(-4px); box-shadow: var(--shadow); }
+  .rc-media {
+    position: relative;
+    aspect-ratio: 4 / 3;
+    background: linear-gradient(135deg, var(--teal-pale), var(--cyan-pale));
+  }
+  .rc-media img { width: 100%; height: 100%; object-fit: cover; }
+  .rc-media .rc-placeholder {
+    display: grid;
+    width: 100%; height: 100%;
+    place-items: center;
+    color: #9cc6cf;
+  }
+  .rc-media .rc-placeholder svg { width: 58px; height: 58px; }
+  .rc-badge {
+    position: absolute;
+    top: 12px; left: 12px;
+    padding: 5px 11px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.94);
+    color: var(--teal-dark);
+    font-size: 11px;
+    font-weight: 800;
+    box-shadow: 0 4px 12px rgba(25,70,82,.14);
+  }
+  .rc-avail {
+    position: absolute;
+    top: 12px; right: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 11px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 800;
+  }
+  .rc-avail.ok { background: #e7f6ec; color: #1f7a44; }
+  .rc-avail.wait { background: #fff3d9; color: #8a5a00; }
+  .rc-avail .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .rc-body { display: flex; flex-direction: column; flex: 1; padding: 20px 20px 22px; }
+  .rc-name { margin: 0 0 4px; font-size: 18px; line-height: 1.4; }
+  .rc-maker { margin: 0 0 10px; color: var(--ink-soft); font-size: 12.5px; font-weight: 700; }
+  .rc-spec {
+    margin: 0 0 16px;
+    color: var(--ink-soft);
+    font-size: 13.5px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .rc-prices {
+    display: grid;
+    gap: 7px;
+    margin-top: auto;
+    padding: 14px 15px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--cyan-pale);
+  }
+  .rc-price-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 13px;
+  }
+  .rc-price-row .lbl { color: var(--ink-soft); font-weight: 700; }
+  .rc-price-row .val { color: var(--ink); font-weight: 900; }
+  .rc-price-row .val b { font-size: 19px; }
+  .rc-price-row .val .yen { font-size: 13px; font-weight: 800; }
+  .rc-price-row .val .unit { color: var(--ink-soft); font-size: 11px; font-weight: 700; }
+  .rc-deposit { margin: 9px 1px 0; color: #69808a; font-size: 11.5px; }
+  .rc-noprice { color: var(--ink-soft); font-size: 13px; font-weight: 700; }
+  .rc-actions { margin-top: 16px; }
+  .rc-actions .btn { width: 100%; }
+
+  .rental-status {
+    margin-top: 34px;
+    padding: 40px 24px;
+    text-align: center;
+    color: var(--ink-soft);
+    font-size: 15px;
+  }
+  .rental-status .spinner {
+    display: inline-block;
+    width: 30px; height: 30px;
+    margin-bottom: 12px;
+    border: 3px solid var(--line);
+    border-top-color: var(--teal);
+    border-radius: 50%;
+    animation: rspin 0.8s linear infinite;
+  }
+  @keyframes rspin { to { transform: rotate(360deg); } }
+
+  .note-band {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 10px 22px;
+    margin-top: 40px;
+    padding: 20px 24px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--white);
+    color: var(--ink-soft);
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .note-band span::before { margin-right: 6px; color: var(--teal); content: "✓"; font-weight: 900; }
+
+  /* ===== 問い合わせモーダル ===== */
+  .modal-ov {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: grid;
+    place-items: center;
+    padding: 18px;
+    background: rgba(18, 44, 60, .55);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity .22s, visibility .22s;
+  }
+  .modal-ov.open { opacity: 1; visibility: visible; }
+  .modal {
+    width: min(560px, 100%);
+    max-height: 92vh;
+    overflow-y: auto;
+    border-radius: var(--radius);
+    background: var(--paper);
+    box-shadow: 0 30px 80px rgba(18, 44, 60, .4);
+    transform: translateY(14px) scale(.99);
+    transition: transform .22s;
+  }
+  .modal-ov.open .modal { transform: none; }
+  .modal-head {
+    position: sticky;
+    top: 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 22px 24px 16px;
+    border-bottom: 1px solid var(--line);
+    background: var(--paper);
+  }
+  .modal-head .mh-txt { flex: 1; }
+  .modal-head .eyebrow { margin-bottom: 8px; }
+  .modal-head h3 { margin: 0; font-size: 20px; }
+  .modal-head .mh-item { margin: 4px 0 0; color: var(--teal-dark); font-size: 14px; font-weight: 800; }
+  .modal-head .x {
+    flex: none;
+    width: 38px; height: 38px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: var(--white);
+    color: var(--ink-soft);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .modal-head .x:hover { color: var(--ink); border-color: #aacbd3; }
+  .modal-body { padding: 20px 24px 24px; }
+  .field { margin-bottom: 15px; }
+  .field label {
+    display: block;
+    margin-bottom: 6px;
+    color: #41506e;
+    font-size: 12.5px;
+    font-weight: 800;
+  }
+  .field label .req {
+    margin-left: 6px;
+    padding: 1px 7px;
+    border-radius: 5px;
+    background: var(--coral);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 800;
+  }
+  .field input, .field textarea {
+    width: 100%;
+    padding: 12px 13px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--white);
+    color: var(--ink);
+    font: inherit;
+    font-size: 14px;
+    transition: border .15s, box-shadow .15s;
+  }
+  .field input:focus, .field textarea:focus {
+    outline: none;
+    border-color: var(--teal);
+    box-shadow: 0 0 0 3px var(--teal-pale);
+  }
+  .field textarea { min-height: 92px; resize: vertical; }
+  .field-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
+  .modal-actions { margin-top: 20px; }
+  .modal-actions .btn { width: 100%; }
+  .modal-actions .btn[disabled] { opacity: .55; cursor: not-allowed; transform: none; }
+  .form-msg {
+    margin-top: 14px;
+    min-height: 1.3em;
+    font-size: 13.5px;
+    font-weight: 800;
+    text-align: center;
+  }
+  .form-msg.ok { color: #1f7a44; }
+  .form-msg.err { color: #c0392b; }
+  .form-privacy { margin-top: 14px; color: #69808a; font-size: 11.5px; text-align: center; }
+  .form-privacy a { color: var(--teal-dark); text-underline-offset: 3px; }
+
+  .modal-success {
+    display: none;
+    padding: 14px 0 4px;
+    text-align: center;
+  }
+  .modal-success.show { display: block; }
+  .modal-success .ok-icon {
+    display: grid;
+    width: 66px; height: 66px;
+    margin: 0 auto 16px;
+    place-items: center;
+    border-radius: 50%;
+    background: #e7f6ec;
+    color: #1f7a44;
+    font-size: 34px;
+  }
+  .modal-success h3 { margin: 0 0 8px; font-size: 22px; }
+  .modal-success p { margin: 0 0 20px; color: var(--ink-soft); font-size: 14px; }
+
+  @media (max-width: 640px) {
+    .field-2 { grid-template-columns: 1fr; }
+    .rental-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<header class="site-header">
+    <div class="container nav">
+      <a class="brand" href="/" aria-label="株式会社エイト トップへ">株式会社エイト<small>EIGHT INC.</small></a>
+      <nav class="nav-links" aria-label="メインナビゲーション">
+        <a href="/#services">支援内容</a>
+        <a href="/pc.html">PCレンタル</a>
+        <a href="/rental/" aria-current="page">レンタル</a>
+        <a class="btn btn-primary btn-small" href="/#contact">無料相談</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero rental-hero">
+      <div class="container">
+        <p class="eyebrow">Equipment Rental</p>
+        <h1>PC・機材レンタル<span class="accent">カタログ</span></h1>
+        <p class="lead">ノートPC・デスクトップ・タブレット・モニター・周辺機器を、日額／週額／月額でレンタルできます。研修・イベント・増員・代替機など、必要な期間だけご利用ください。気になる機材はそのまま問い合わせできます。</p>
+        <div class="rental-toolbar" id="catFilter" role="group" aria-label="カテゴリで絞り込み"></div>
+      </div>
+    </section>
+
+    <section class="section" style="padding-top: 14px;">
+      <div class="container">
+        <div id="catalogStatus" class="rental-status">
+          <div class="spinner" aria-hidden="true"></div>
+          <div>機材を読み込んでいます…</div>
+        </div>
+        <div class="rental-grid" id="catalog" hidden></div>
+
+        <div class="note-band">
+          <span>相談・お見積もり無料</span>
+          <span>キッティング済みでお届け</span>
+          <span>1台〜数百台まで対応</span>
+          <span>短期・中期どちらもOK</span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <strong>株式会社エイト</strong>
+      <span>〒150-0001 東京都渋谷区神宮前6-33-14 2F</span>
+      <a href="/privacy.html">プライバシーポリシー</a>
+      <span>© 2026 EIGHT INC.</span>
+    </div>
+  </footer>
+
+  <!-- 問い合わせモーダル -->
+  <div class="modal-ov" id="modalOv" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="mh-txt">
+          <p class="eyebrow">Inquiry</p>
+          <h3 id="modalTitle">レンタルのお問い合わせ</h3>
+          <p class="mh-item" id="modalItem"></p>
+        </div>
+        <button class="x" type="button" onclick="closeModal()" aria-label="閉じる">×</button>
+      </div>
+      <div class="modal-body">
+        <form id="inquiryForm" novalidate>
+          <div class="field">
+            <label for="f-name">お名前・団体名<span class="req">必須</span></label>
+            <input id="f-name" type="text" autocomplete="name" placeholder="例：山田太郎 / 株式会社◯◯">
+          </div>
+          <div class="field">
+            <label for="f-company">会社名</label>
+            <input id="f-company" type="text" autocomplete="organization" placeholder="例：株式会社エイト">
+          </div>
+          <div class="field-2">
+            <div class="field">
+              <label for="f-email">メール</label>
+              <input id="f-email" type="email" autocomplete="email" placeholder="you@example.com">
+            </div>
+            <div class="field">
+              <label for="f-phone">電話番号</label>
+              <input id="f-phone" type="tel" autocomplete="tel" placeholder="090-0000-0000">
+            </div>
+          </div>
+          <div class="field-2">
+            <div class="field">
+              <label for="f-start">希望貸出開始日</label>
+              <input id="f-start" type="date">
+            </div>
+            <div class="field">
+              <label for="f-end">希望返却日</label>
+              <input id="f-end" type="date">
+            </div>
+          </div>
+          <div class="field">
+            <label for="f-message">お問い合わせ内容</label>
+            <textarea id="f-message" placeholder="台数・用途・ご予算・ご質問などをご記入ください。"></textarea>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-primary" type="submit" id="submitBtn">この内容で問い合わせる <span class="arrow">→</span></button>
+          </div>
+          <div class="form-msg" id="formMsg" role="status" aria-live="polite"></div>
+          <p class="form-privacy">送信により<a href="/privacy.html" target="_blank" rel="noopener">プライバシーポリシー</a>に同意したものとみなします。担当より1〜2営業日以内にご連絡します。</p>
+        </form>
+        <div class="modal-success" id="modalSuccess">
+          <div class="ok-icon" aria-hidden="true">✓</div>
+          <h3>送信しました</h3>
+          <p>お問い合わせありがとうございます。担当より1〜2営業日以内にご連絡いたします。</p>
+          <button class="btn btn-outline" type="button" onclick="closeModal()">閉じる</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const SUPA_URL = "https://htglvascsuqkixpmclwr.supabase.co";
+    const SUPA_KEY = "sb_publishable_yZCcrwdqjuf0u_5WBWlHIw_AxdvteEV";
+
+    let sb = null;
+    let items = [];
+    let activeCat = "";
+    let currentItemId = null;
+
+    function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    function yen(n){ const v=Number(n||0); return v.toLocaleString('ja-JP'); }
+    function hasRate(n){ return n!=null && n!=='' && Number(n) > 0; }
+
+    /* ===== 起動 ===== */
+    (function init(){
+      if(!window.supabase || !window.supabase.createClient){
+        showError("接続の初期化に失敗しました。時間をおいて再読み込みしてください。");
+        return;
+      }
+      // 公開ページなのでセッションは保持しない（管理画面のログインに干渉しない）
+      sb = window.supabase.createClient(SUPA_URL, SUPA_KEY, { auth:{ persistSession:false, autoRefreshToken:false } });
+      loadCatalog();
+    })();
+
+    async function loadCatalog(){
+      const { data, error } = await sb
+        .from('rental_items')
+        .select('id,seq,name,category,maker,model,spec,image_url,daily_rate,weekly_rate,monthly_rate,deposit,status,description,public_published')
+        .eq('public_published', true);
+      if(error){
+        showError("機材の読み込みに失敗しました。時間をおいて再読み込みしてください。（"+esc(error.message)+"）");
+        return;
+      }
+      items = (data||[]).slice().sort((a,b)=>{
+        const sa=(a.seq==null?Infinity:a.seq), sb2=(b.seq==null?Infinity:b.seq);
+        if(sa!==sb2) return sa-sb2;
+        return String(a.name||'').localeCompare(String(b.name||''),'ja');
+      });
+      renderCatFilter();
+      renderCatalog();
+    }
+
+    function showError(msg){
+      const st=document.getElementById('catalogStatus');
+      st.hidden=false; st.innerHTML='<div style="color:#c0392b;font-weight:700">'+msg+'</div>';
+      document.getElementById('catalog').hidden=true;
+    }
+
+    function renderCatFilter(){
+      const host=document.getElementById('catFilter');
+      const cats=[...new Set(items.map(it=>(it.category||'').trim()).filter(Boolean))];
+      if(!cats.length){ host.innerHTML=''; return; }
+      const chips=[{k:'',l:'すべて'}, ...cats.map(c=>({k:c,l:c}))];
+      host.innerHTML=chips.map(c=>`<button type="button" class="cat-chip ${activeCat===c.k?'on':''}" onclick="setCat('${esc(c.k)}')">${esc(c.l)}</button>`).join('');
+    }
+    function setCat(k){ activeCat=k; renderCatFilter(); renderCatalog(); }
+
+    function renderCatalog(){
+      const host=document.getElementById('catalog');
+      const st=document.getElementById('catalogStatus');
+      const list=activeCat ? items.filter(it=>(it.category||'')===activeCat) : items;
+      if(!items.length){
+        st.hidden=false; st.innerHTML='<div>現在ご紹介できる機材を準備中です。お手数ですが<a href="/#contact" style="color:var(--teal-dark);font-weight:800">お問い合わせ</a>ください。</div>';
+        host.hidden=true; return;
+      }
+      st.hidden=true; host.hidden=false;
+      if(!list.length){ host.innerHTML='<div class="rental-status" style="grid-column:1/-1">このカテゴリの機材はありません。</div>'; return; }
+      host.innerHTML=list.map(cardHtml).join('');
+    }
+
+    function cardHtml(it){
+      const name = esc(it.name || it.model || '(名称未設定)');
+      const makerModel = [it.maker, it.model].filter(Boolean).map(esc).join(' ');
+      const media = it.image_url
+        ? `<img src="${esc(it.image_url)}" alt="${name}" loading="lazy">`
+        : `<div class="rc-placeholder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>`;
+      const avail = (it.status==='在庫')
+        ? `<span class="rc-avail ok"><span class="dot"></span>在庫あり</span>`
+        : `<span class="rc-avail wait"><span class="dot"></span>要確認</span>`;
+      const priceRows=[];
+      if(hasRate(it.daily_rate))   priceRows.push(priceRow('日額', it.daily_rate));
+      if(hasRate(it.weekly_rate))  priceRows.push(priceRow('週額', it.weekly_rate));
+      if(hasRate(it.monthly_rate)) priceRows.push(priceRow('月額', it.monthly_rate));
+      const priceBlock = priceRows.length
+        ? priceRows.join('') + (hasRate(it.deposit) ? `<div class="rc-deposit">保証金 ¥${yen(it.deposit)}</div>` : '')
+        : `<div class="rc-noprice">料金はお問い合わせください</div>`;
+      const spec = it.spec ? `<p class="rc-spec">${esc(it.spec)}</p>` : (it.description ? `<p class="rc-spec">${esc(it.description)}</p>` : '');
+      return `<article class="rental-card">
+        <div class="rc-media">
+          ${media}
+          ${it.category?`<span class="rc-badge">${esc(it.category)}</span>`:''}
+          ${avail}
+        </div>
+        <div class="rc-body">
+          <h3 class="rc-name">${name}</h3>
+          ${makerModel?`<p class="rc-maker">${makerModel}</p>`:''}
+          ${spec}
+          <div class="rc-prices">${priceBlock}</div>
+          <div class="rc-actions">
+            <button class="btn btn-primary" type="button" onclick="openModal('${it.id}')">この機材を問い合わせる <span class="arrow">→</span></button>
+          </div>
+        </div>
+      </article>`;
+    }
+    function priceRow(label, val){
+      return `<div class="rc-price-row"><span class="lbl">${label}</span><span class="val"><span class="yen">¥</span><b>${yen(val)}</b> <span class="unit">/ ${label==='日額'?'日':label==='週額'?'週':'月'}（税抜）</span></span></div>`;
+    }
+
+    /* ===== モーダル ===== */
+    function openModal(itemId){
+      currentItemId = itemId || null;
+      const it = items.find(x=>x.id===itemId);
+      document.getElementById('modalItem').textContent = it ? ('対象機材：' + (it.name || it.model || '')) : '';
+      // フォーム初期化
+      document.getElementById('inquiryForm').style.display='block';
+      document.getElementById('modalSuccess').classList.remove('show');
+      ['name','company','email','phone','start','end','message'].forEach(k=>{ const el=document.getElementById('f-'+k); if(el) el.value=''; });
+      const msg=document.getElementById('formMsg'); msg.textContent=''; msg.className='form-msg';
+      const btn=document.getElementById('submitBtn'); btn.disabled=false;
+      document.getElementById('modalOv').classList.add('open');
+      setTimeout(()=>{ const n=document.getElementById('f-name'); if(n) n.focus(); }, 60);
+    }
+    function closeModal(){ document.getElementById('modalOv').classList.remove('open'); currentItemId=null; }
+    document.getElementById('modalOv').addEventListener('click', e=>{ if(e.target.id==='modalOv') closeModal(); });
+    document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeModal(); });
+
+    document.getElementById('inquiryForm').addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      const g=k=>{ const el=document.getElementById('f-'+k); return el?el.value.trim():''; };
+      const name=g('name');
+      const msg=document.getElementById('formMsg');
+      const btn=document.getElementById('submitBtn');
+      if(!name){ msg.className='form-msg err'; msg.textContent='お名前・団体名を入力してください。'; document.getElementById('f-name').focus(); return; }
+      btn.disabled=true; msg.className='form-msg'; msg.textContent='送信中…';
+      const params={
+        p_item_id: currentItemId,
+        p_name: name,
+        p_company: g('company') || null,
+        p_email: g('email') || null,
+        p_phone: g('phone') || null,
+        p_start: g('start') || null,
+        p_end: g('end') || null,
+        p_message: g('message') || null
+      };
+      try{
+        const { error } = await sb.rpc('rental_public_inquiry', params);
+        if(error){
+          let t='送信に失敗しました。時間をおいて再度お試しください。';
+          if(/name_required/.test(error.message)) t='お名前・団体名を入力してください。';
+          else if(/item_not_available/.test(error.message)) t='この機材は現在お問い合わせを受け付けていません。ページを再読み込みしてください。';
+          msg.className='form-msg err'; msg.textContent=t; btn.disabled=false; return;
+        }
+        // 成功
+        document.getElementById('inquiryForm').style.display='none';
+        document.getElementById('modalSuccess').classList.add('show');
+      }catch(err){
+        msg.className='form-msg err'; msg.textContent='通信エラー：'+(err&&err.message?err.message:err); btn.disabled=false;
+      }
+    });
+  </script>
+</body>
+</html>

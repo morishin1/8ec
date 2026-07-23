@@ -1,0 +1,700 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PC・機材レンタル管理｜株式会社エイト</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="stylesheet" href="/theme.css">
+<style>
+  /* ===== レンタル管理画面（theme.css のトークンを利用） ===== */
+  body { background: var(--cyan-pale); }
+  .material-icons-outlined { vertical-align: middle; line-height: 1; }
+  .num { font-family: "Inter", sans-serif; }
+  .wrap { width: min(calc(100% - 36px), 1200px); margin-inline: auto; }
+
+  /* トップバー */
+  .adm-top {
+    position: sticky; top: 0; z-index: 40;
+    border-bottom: 1px solid rgba(204,225,229,.8);
+    background: rgba(255,253,249,.92);
+    backdrop-filter: blur(14px);
+  }
+  .adm-top .inner { display: flex; align-items: center; gap: 14px; min-height: 62px; }
+  .adm-brand { display: inline-flex; align-items: center; gap: 9px; font-weight: 900; font-size: 16px; text-decoration: none; color: var(--ink); }
+  .adm-brand .logo { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 10px; background: linear-gradient(135deg, var(--teal), #12a3b9); color: #fff; }
+  .adm-brand small { display: block; margin-top: -3px; color: var(--ink-soft); font-size: 9px; font-weight: 800; letter-spacing: .14em; }
+  .adm-top .right { margin-left: auto; display: inline-flex; align-items: center; gap: 12px; }
+  .adm-top .right a { color: var(--teal-dark); font-size: 13px; font-weight: 800; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }
+  .adm-top .right a:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .adm-top .uemail { color: var(--ink-soft); font-size: 12px; font-weight: 700; }
+  .adm-logout { border: 1px solid var(--line); background: var(--white); color: var(--ink-soft); border-radius: 999px; padding: 7px 14px; font-size: 12.5px; font-weight: 800; cursor: pointer; display: none; align-items: center; gap: 5px; }
+  .adm-logout:hover { border-color: #aacbd3; color: var(--ink); }
+
+  /* タイトル帯 */
+  .adm-hero { border-bottom: 1px solid var(--line); background: linear-gradient(135deg, #fff, var(--teal-pale)); }
+  .adm-hero .inner { padding: 20px 0; }
+  .adm-hero h1 { display: flex; align-items: center; gap: 11px; margin: 0; font-size: 24px; letter-spacing: -.02em; }
+  .adm-hero h1 .ic { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 12px; background: linear-gradient(135deg, var(--teal), #12a3b9); color: #fff; }
+  .adm-hero p { margin: 7px 0 0; color: var(--ink-soft); font-size: 13px; }
+
+  /* ログインゲート */
+  #gate { display: none; place-items: center; min-height: 70vh; padding: 30px 16px; }
+  #gate .card { width: 100%; max-width: 390px; padding: 30px 26px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--white); box-shadow: var(--shadow); text-align: center; }
+  #gate .card .lg { display: grid; width: 56px; height: 56px; margin: 0 auto 14px; place-items: center; border-radius: 15px; background: linear-gradient(135deg, var(--teal), #12a3b9); color: #fff; }
+  #gate h2 { margin: 0 0 5px; font-size: 20px; }
+  #gate p { margin: 0 0 18px; color: var(--ink-soft); font-size: 13px; }
+  #gate .fld { margin-bottom: 12px; text-align: left; }
+  #gate label { display: block; margin-bottom: 5px; color: #41506e; font-size: 12px; font-weight: 800; }
+  #gate input { width: 100%; padding: 12px 13px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--white); font: inherit; font-size: 14px; }
+  #gate input:focus { outline: none; border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-pale); }
+  #gate .msg { min-height: 18px; margin-bottom: 8px; color: #c0392b; font-size: 12.5px; font-weight: 700; }
+  #gate .btn { width: 100%; }
+
+  #app { display: none; padding: 20px 0 90px; }
+
+  /* タブ */
+  .tabs { display: inline-flex; gap: 3px; margin-bottom: 16px; padding: 4px; border: 1px solid var(--line); border-radius: 14px; background: var(--white); }
+  .tabs button { display: inline-flex; align-items: center; gap: 7px; padding: 9px 18px; border: 0; border-radius: 10px; background: transparent; color: var(--ink-soft); font: inherit; font-size: 14px; font-weight: 800; cursor: pointer; }
+  .tabs button.on { background: var(--teal); color: #fff; }
+  .tabs button .material-icons-outlined { font-size: 18px; }
+
+  /* 統計 */
+  .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 16px; }
+  .stat { padding: 13px 15px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--white); cursor: pointer; transition: border .15s, box-shadow .15s; }
+  .stat:hover { border-color: #aacbd3; box-shadow: 0 6px 16px rgba(25,70,82,.08); }
+  .stat.on { border-color: var(--teal); box-shadow: 0 0 0 2px var(--teal-pale); }
+  .stat .lbl { color: var(--ink-soft); font-size: 11.5px; font-weight: 800; }
+  .stat .v { margin-top: 2px; font-family: "Inter", sans-serif; font-size: 24px; font-weight: 800; letter-spacing: -.02em; }
+  .stat .v small { margin-left: 2px; color: var(--ink-soft); font-size: 12px; font-weight: 700; }
+  .stat.s-stock .v { color: var(--teal-dark); }
+  .stat.s-out .v { color: #b57200; }
+  .stat.s-fix .v { color: #7d6be8; }
+  .stat.s-pub .v { color: #1f7a44; }
+  .stat.s-all .v { color: var(--ink); }
+  @media (max-width: 900px) { .stats { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 560px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+
+  /* ツールバー */
+  .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+  .searchbox { display: flex; flex: 1; min-width: 180px; align-items: center; gap: 8px; padding: 2px 13px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--white); }
+  .searchbox:focus-within { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-pale); }
+  .searchbox .material-icons-outlined { color: var(--ink-soft); font-size: 20px; }
+  .searchbox input { flex: 1; padding: 11px 2px; border: 0; background: transparent; font: inherit; font-size: 14px; outline: none; }
+  .toolbar select { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--white); font: inherit; font-size: 13.5px; }
+  .btn-add { display: inline-flex; align-items: center; gap: 6px; min-height: 46px; padding: 11px 20px; border: 0; border-radius: 999px; background: linear-gradient(135deg, var(--teal), #12a3b9); color: #fff; font: inherit; font-size: 14px; font-weight: 800; cursor: pointer; box-shadow: 0 10px 24px rgba(0,136,176,.22); }
+  .btn-add:hover { transform: translateY(-1px); }
+  .btn-add .material-icons-outlined { font-size: 19px; }
+
+  /* リスト */
+  .count { margin-bottom: 9px; color: var(--ink-soft); font-size: 12.5px; font-weight: 700; }
+  .list { display: flex; flex-direction: column; gap: 9px; }
+  .row { display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; align-items: start; padding: 14px 17px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--white); }
+  .row.dim { background: #f6f8f9; opacity: .78; }
+  .row .rn { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; font-size: 15.5px; font-weight: 800; color: var(--ink); }
+  .row .code { font-family: "Inter", sans-serif; font-size: 11.5px; font-weight: 700; color: #9cadb5; }
+  .row .rmeta { display: flex; flex-wrap: wrap; gap: 6px 15px; margin-top: 5px; color: var(--ink-soft); font-size: 12.5px; }
+  .row .rmeta b { color: #41506e; font-weight: 700; }
+  .row .rspec { margin-top: 5px; color: var(--ink-soft); font-size: 12.5px; line-height: 1.6; }
+  .row .rmemo { margin-top: 6px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--cyan-pale); color: #4a636e; font-size: 12px; white-space: pre-wrap; }
+  .row .side { display: flex; flex-direction: column; gap: 7px; align-items: flex-end; }
+  .row .acts { display: flex; gap: 6px; }
+  .iconbtn { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--line); border-radius: 9px; background: var(--white); color: var(--ink-soft); cursor: pointer; }
+  .iconbtn:hover { border-color: #aacbd3; color: var(--ink); }
+  .iconbtn.del:hover { border-color: #f0c9c9; background: #fdf2f2; color: #c0392b; }
+  .iconbtn .material-icons-outlined { font-size: 18px; }
+  .stsel { width: 128px; padding: 8px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--white); font: inherit; font-size: 12.5px; font-weight: 800; }
+
+  /* バッジ */
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 800; }
+  .badge .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .tag { display: inline-flex; padding: 3px 9px; border-radius: 999px; background: #eff7f8; color: #48636e; font-size: 11px; font-weight: 800; }
+  .b-在庫 { background: #e7f6ec; color: #1f7a44; }
+  .b-貸出中 { background: #e7f0ff; color: #2b55b8; }
+  .b-整備中 { background: #f1edfd; color: #5a45c8; }
+  .b-廃棄 { background: #eef1f6; color: #7a869c; }
+  .b-問い合わせ { background: #fdeaea; color: #b02a2a; }
+  .b-仮予約 { background: #fdf0e2; color: #a4601a; }
+  .b-返却済 { background: #e7f6ec; color: #1f7a44; }
+  .b-キャンセル { background: #eef1f6; color: #7a869c; }
+  .b-pub { background: #e7f6ec; color: #1f7a44; }
+  .b-priv { background: #eef1f6; color: #7a869c; }
+  .rates { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 6px; font-size: 12.5px; }
+  .rates .r b { font-family: "Inter", sans-serif; color: var(--ink); }
+  .rates .r span { color: var(--ink-soft); }
+
+  .empty { padding: 44px 20px; border: 1px dashed var(--line); border-radius: var(--radius-sm); background: var(--white); color: var(--ink-soft); font-size: 13.5px; text-align: center; }
+  .empty .material-icons-outlined { display: block; margin-bottom: 6px; color: #c3d3d8; font-size: 34px; }
+
+  /* ドロワー */
+  .ov { position: fixed; inset: 0; z-index: 90; background: rgba(18,44,60,.45); opacity: 0; visibility: hidden; transition: opacity .22s, visibility .22s; }
+  .ov.open { opacity: 1; visibility: visible; }
+  .drawer { position: fixed; top: 0; right: 0; z-index: 91; display: flex; flex-direction: column; width: 480px; max-width: 94vw; height: 100dvh; background: var(--paper); box-shadow: -14px 0 44px rgba(18,44,60,.22); transform: translateX(100%); transition: transform .26s cubic-bezier(.4,0,.2,1); }
+  .drawer.open { transform: none; }
+  .drawer-head { display: flex; align-items: center; gap: 10px; padding: 16px 20px; border-bottom: 1px solid var(--line); background: var(--white); }
+  .drawer-head .ic { color: var(--teal-dark); }
+  .drawer-head h3 { flex: 1; margin: 0; font-size: 17px; }
+  .drawer-head .x { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--line); border-radius: 9px; background: var(--white); color: var(--ink-soft); cursor: pointer; }
+  .drawer-head .x:hover { color: var(--ink); }
+  .drawer-body { flex: 1; overflow-y: auto; padding: 18px 20px; }
+  .drawer-foot { display: flex; gap: 10px; align-items: center; padding: 14px 20px; border-top: 1px solid var(--line); background: var(--white); }
+  .drawer-foot .btn { min-height: 48px; }
+  .btn-save { flex: 1; }
+  .btn-del { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; padding: 11px 16px; border: 1px solid #f0c9c9; border-radius: 999px; background: var(--white); color: #c0392b; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
+  .btn-del:hover { background: #fdf2f2; }
+
+  .fg { margin-bottom: 13px; }
+  .fg label { display: block; margin-bottom: 5px; color: #41506e; font-size: 12px; font-weight: 800; }
+  .fg label .req { margin-left: 5px; padding: 1px 6px; border-radius: 4px; background: var(--coral); color: #fff; font-size: 10px; }
+  .fg input, .fg select, .fg textarea { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--white); font: inherit; font-size: 14px; }
+  .fg input:focus, .fg select:focus, .fg textarea:focus { outline: none; border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-pale); }
+  .fg textarea { min-height: 62px; resize: vertical; }
+  .fg2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .fg3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  .sect { margin: 4px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); color: var(--teal-dark); font-size: 12px; font-weight: 900; letter-spacing: .06em; }
+  .switch { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--teal-pale); }
+  .switch input { width: 20px; height: 20px; accent-color: var(--teal); }
+  .switch label { margin: 0; font-size: 13.5px; font-weight: 800; color: var(--ink); cursor: pointer; }
+  .switch .hint { margin-left: auto; color: var(--ink-soft); font-size: 11px; font-weight: 700; }
+  .daysnote { margin-top: -6px; margin-bottom: 13px; color: var(--ink-soft); font-size: 12px; font-weight: 700; }
+  @media (max-width: 520px) { .fg2, .fg3 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<div class="adm-top"><div class="wrap inner">
+  <a class="adm-brand" href="/admin/">
+    <span class="logo"><span class="material-icons-outlined">devices</span></span>
+    株式会社エイト<small>RENTAL ADMIN</small>
+  </a>
+  <span class="right">
+    <a href="/rental/" target="_blank" rel="noopener"><span class="material-icons-outlined" style="font-size:16px">open_in_new</span>公開カタログ</a>
+    <span class="uemail" id="userEmail"></span>
+    <button class="adm-logout" id="logoutBtn" onclick="signOut()"><span class="material-icons-outlined" style="font-size:15px">logout</span>ログアウト</button>
+  </span>
+</div></div>
+
+<div class="adm-hero"><div class="wrap inner">
+  <h1><span class="ic"><span class="material-icons-outlined">devices</span></span>PC・機材レンタル管理</h1>
+  <p>貸出機材の在庫・料金・公開設定と、貸出／問い合わせの進行（問い合わせ → 仮予約 → 貸出中 → 返却済）を一元管理します。公開カタログ（/rental/）には「公開」にした機材だけが掲載されます。</p>
+</div></div>
+
+<!-- ログインゲート -->
+<div id="gate"><div class="card">
+  <div class="lg"><span class="material-icons-outlined" style="font-size:28px">lock</span></div>
+  <h2>ログイン</h2>
+  <p>事務の共有アカウント（ID: zimu）でログインしてください。</p>
+  <div class="msg" id="gateMsg"></div>
+  <div class="fld"><label>ID</label><input id="g-id" value="zimu" autocomplete="username"></div>
+  <div class="fld"><label>パスワード</label><input id="g-pw" type="password" autocomplete="current-password" placeholder="パスワード" onkeydown="if(event.key==='Enter')doLogin()"></div>
+  <button class="btn btn-primary" onclick="doLogin()">ログイン</button>
+</div></div>
+
+<!-- アプリ本体 -->
+<div id="app"><div class="wrap">
+  <div class="tabs">
+    <button id="tab-items" class="on" onclick="setTab('items')"><span class="material-icons-outlined">inventory_2</span>機材</button>
+    <button id="tab-orders" onclick="setTab('orders')"><span class="material-icons-outlined">assignment</span>貸出・問い合わせ</button>
+  </div>
+
+  <!-- 機材ビュー -->
+  <div id="itemsView">
+    <div class="stats" id="itemStats"></div>
+    <div class="toolbar">
+      <div class="searchbox">
+        <span class="material-icons-outlined">search</span>
+        <input id="iq" placeholder="機材名・管理番号・メーカー・型番・スペックで検索…" oninput="renderItems()" autocomplete="off">
+      </div>
+      <select id="iCat" onchange="renderItems()"><option value="">全カテゴリ</option></select>
+      <select id="iStatus" onchange="renderItems()"><option value="">全ステータス</option></select>
+      <button class="btn-add" onclick="openItem()" style="margin-left:auto"><span class="material-icons-outlined">add</span>機材を追加</button>
+    </div>
+    <div class="count" id="iCount"></div>
+    <div class="list" id="itemList"></div>
+  </div>
+
+  <!-- 貸出・問い合わせビュー -->
+  <div id="ordersView" style="display:none">
+    <div class="stats" id="orderStats"></div>
+    <div class="toolbar">
+      <div class="searchbox">
+        <span class="material-icons-outlined">search</span>
+        <input id="oq" placeholder="お客様名・会社・メール・電話・メモで検索…" oninput="renderOrders()" autocomplete="off">
+      </div>
+      <select id="oStatus" onchange="renderOrders()"><option value="">全ステータス</option></select>
+      <button class="btn-add" onclick="openOrder()" style="margin-left:auto"><span class="material-icons-outlined">add</span>貸出を追加</button>
+    </div>
+    <div class="count" id="oCount"></div>
+    <div class="list" id="orderList"></div>
+  </div>
+</div></div>
+
+<!-- 共有オーバーレイ -->
+<div class="ov" id="ov" onclick="closeDrawers()"></div>
+
+<!-- 機材ドロワー -->
+<aside class="drawer" id="itemDrawer">
+  <div class="drawer-head">
+    <span class="material-icons-outlined ic">inventory_2</span>
+    <h3 id="itemTitle">機材を追加</h3>
+    <button class="x" onclick="closeDrawers()"><span class="material-icons-outlined" style="font-size:18px">close</span></button>
+  </div>
+  <div class="drawer-body">
+    <div class="sect">基本情報</div>
+    <div class="fg"><label>機材名 <span class="req">必須</span></label><input id="i-name" placeholder="例：ThinkPad X1 Carbon Gen11"></div>
+    <div class="fg2">
+      <div class="fg"><label>管理番号</label><input id="i-mgmt" placeholder="例：RPC-0001"></div>
+      <div class="fg"><label>カテゴリ</label><input id="i-cat" list="catList" placeholder="例：ノートPC">
+        <datalist id="catList"></datalist>
+      </div>
+    </div>
+    <div class="fg2">
+      <div class="fg"><label>メーカー</label><input id="i-maker" placeholder="例：Lenovo"></div>
+      <div class="fg"><label>型番</label><input id="i-model" placeholder="例：21HM-XXXX"></div>
+    </div>
+    <div class="fg"><label>スペック</label><textarea id="i-spec" placeholder="CPU / メモリ / ストレージ / OS など"></textarea></div>
+
+    <div class="sect">料金・在庫</div>
+    <div class="fg3">
+      <div class="fg"><label>日額（円）</label><input id="i-daily" type="number" inputmode="numeric" min="0"></div>
+      <div class="fg"><label>週額（円）</label><input id="i-weekly" type="number" inputmode="numeric" min="0"></div>
+      <div class="fg"><label>月額（円）</label><input id="i-monthly" type="number" inputmode="numeric" min="0"></div>
+    </div>
+    <div class="fg3">
+      <div class="fg"><label>保証金（円）</label><input id="i-deposit" type="number" inputmode="numeric" min="0"></div>
+      <div class="fg"><label>保有台数</label><input id="i-qty" type="number" inputmode="numeric" min="0" value="1"></div>
+      <div class="fg"><label>ステータス</label><select id="i-status"></select></div>
+    </div>
+
+    <div class="sect">公開カタログ</div>
+    <div class="fg"><label>画像URL</label><input id="i-image" placeholder="https://… （公開カタログのカード画像）"></div>
+    <div class="fg"><label>公開用の説明文</label><textarea id="i-desc" placeholder="用途・付属品・おすすめポイントなど（未入力ならスペックを表示）"></textarea></div>
+    <div class="fg switch">
+      <input type="checkbox" id="i-pub">
+      <label for="i-pub">公開カタログ（/rental/）に掲載する</label>
+      <span class="hint">ONで一般公開</span>
+    </div>
+
+    <div class="sect">社内メモ</div>
+    <div class="fg"><textarea id="i-memo" placeholder="社内向けメモ（公開されません）"></textarea></div>
+  </div>
+  <div class="drawer-foot">
+    <button class="btn btn-primary btn-save" onclick="saveItem()"><span class="material-icons-outlined" style="font-size:18px">save</span> 保存</button>
+    <button class="btn-del" id="itemDel" onclick="deleteItem()" style="display:none"><span class="material-icons-outlined" style="font-size:16px">delete</span>削除</button>
+  </div>
+</aside>
+
+<!-- 貸出・問い合わせドロワー -->
+<aside class="drawer" id="orderDrawer">
+  <div class="drawer-head">
+    <span class="material-icons-outlined ic">assignment</span>
+    <h3 id="orderTitle">貸出を追加</h3>
+    <button class="x" onclick="closeDrawers()"><span class="material-icons-outlined" style="font-size:18px">close</span></button>
+  </div>
+  <div class="drawer-body">
+    <div class="sect">お客様</div>
+    <div class="fg"><label>お客様氏名・団体名 <span class="req">必須</span></label><input id="o-name" placeholder="例：山田太郎 / 株式会社◯◯"></div>
+    <div class="fg"><label>会社名</label><input id="o-company" placeholder="例：株式会社エイト"></div>
+    <div class="fg2">
+      <div class="fg"><label>メール</label><input id="o-email" type="email" placeholder="you@example.com"></div>
+      <div class="fg"><label>電話</label><input id="o-phone" placeholder="090-0000-0000"></div>
+    </div>
+
+    <div class="sect">貸出内容</div>
+    <div class="fg"><label>対象機材</label><select id="o-item"><option value="">—（機材未指定）</option></select></div>
+    <div class="fg2">
+      <div class="fg"><label>貸出開始日</label><input id="o-start" type="date" onchange="calcDays()"></div>
+      <div class="fg"><label>返却予定日</label><input id="o-end" type="date" onchange="calcDays()"></div>
+    </div>
+    <div class="daysnote" id="daysNote"></div>
+    <div class="fg2">
+      <div class="fg"><label>金額（税込・円）</label><input id="o-amount" type="number" inputmode="numeric" min="0"></div>
+      <div class="fg"><label>ステータス</label><select id="o-status"></select></div>
+    </div>
+    <div class="fg"><label>発送先住所</label><textarea id="o-addr" placeholder="発送先の住所"></textarea></div>
+
+    <div class="sect">メモ・フォーム内容</div>
+    <div class="fg"><textarea id="o-memo" placeholder="フォームからの内容・電話/メールでのやりとり・担当メモ"></textarea></div>
+  </div>
+  <div class="drawer-foot">
+    <button class="btn btn-primary btn-save" onclick="saveOrder()"><span class="material-icons-outlined" style="font-size:18px">save</span> 保存</button>
+    <button class="btn-del" id="orderDel" onclick="deleteOrder()" style="display:none"><span class="material-icons-outlined" style="font-size:16px">delete</span>削除</button>
+  </div>
+</aside>
+
+<script>
+/* ===== Supabase 設定（8/ec と同じ zimu 共有アカウント運用） ===== */
+const SUPA_URL   = "https://htglvascsuqkixpmclwr.supabase.co";
+const SUPA_KEY   = "sb_publishable_yZCcrwdqjuf0u_5WBWlHIw_AxdvteEV";
+const SHARED_EMAIL = "zimu@8grp.co.jp";
+const T_ITEMS  = "rental_items";
+const T_ORDERS = "rental_orders";
+
+const ITEM_STATUS  = ['在庫','貸出中','整備中','廃棄'];
+const ORDER_STATUS = ['問い合わせ','仮予約','貸出中','返却済','キャンセル'];
+const CATEGORIES   = ['ノートPC','デスクトップPC','タブレット','モニター','周辺機器','ネットワーク機器','サーバー','その他'];
+
+let sb = null;
+let items = [], orders = [];
+let itemMap = {};
+let tab = 'items';
+let iStatF = '', oStatF = '';   // 統計カードクリック絞り込み
+let editItemId = null, editOrderId = null;
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function yen(n){ return (n||n===0)?('¥'+Number(n).toLocaleString('ja-JP')):''; }
+function numOrNull(v){ return (v===''||v==null)?null:Number(v); }
+function dslice(s){ return s?String(s).slice(0,10):''; }
+function fmtMD(s){ const d=dslice(s); if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return ''; const p=d.split('-'); return Number(p[1])+'/'+Number(p[2]); }
+function nowIso(){ return new Date().toISOString(); }
+
+/* ===== 認証 ===== */
+(async function init(){
+  fillSelects();
+  if(!window.supabase || !window.supabase.createClient){
+    document.getElementById('gate').style.display='grid';
+    document.getElementById('gateMsg').textContent='読み込みに失敗しました。再読み込みしてください。';
+    return;
+  }
+  sb = window.supabase.createClient(SUPA_URL, SUPA_KEY, { auth:{ persistSession:true, autoRefreshToken:true, storage:window.localStorage, storageKey:'zimu-portal-auth' } });
+  const { data:{ session } } = await sb.auth.getSession();
+  if(session && session.user && session.user.email===SHARED_EMAIL){ showApp(); await loadAll(); }
+  else { document.getElementById('gate').style.display='grid'; }
+})();
+
+async function doLogin(){
+  const id=document.getElementById('g-id').value.trim(), pw=document.getElementById('g-pw').value;
+  const msg=document.getElementById('gateMsg'); msg.textContent='';
+  if(!id||!pw){ msg.textContent='IDとパスワードを入力してください'; return; }
+  try{
+    const email = id.includes('@') ? id.toLowerCase() : id.toLowerCase()+'@8grp.co.jp';
+    const { data, error } = await sb.auth.signInWithPassword({ email, password:pw });
+    if(error){ msg.textContent='IDまたはパスワードが違います'; return; }
+    if(data.user.email!==SHARED_EMAIL){ msg.textContent='このアカウントには権限がありません'; await sb.auth.signOut(); return; }
+    showApp(); await loadAll();
+  }catch(e){ msg.textContent='ログインに失敗：'+e.message; }
+}
+function showApp(){
+  document.getElementById('gate').style.display='none';
+  document.getElementById('app').style.display='block';
+  document.getElementById('logoutBtn').style.display='inline-flex';
+  document.getElementById('userEmail').textContent='zimu';
+}
+async function signOut(){ await sb.auth.signOut(); location.reload(); }
+
+/* ===== 初期セレクト ===== */
+function fillSelects(){
+  document.getElementById('i-status').innerHTML = ITEM_STATUS.map(s=>`<option>${s}</option>`).join('');
+  document.getElementById('o-status').innerHTML = ORDER_STATUS.map(s=>`<option>${s}</option>`).join('');
+  document.getElementById('iStatus').innerHTML = '<option value="">全ステータス</option>'+ITEM_STATUS.map(s=>`<option>${s}</option>`).join('');
+  document.getElementById('oStatus').innerHTML = '<option value="">全ステータス</option>'+ORDER_STATUS.map(s=>`<option>${s}</option>`).join('');
+  document.getElementById('catList').innerHTML = CATEGORIES.map(c=>`<option value="${c}">`).join('');
+}
+
+/* ===== データ読込 ===== */
+async function loadAll(){ await loadItems(); await loadOrders(); }
+async function loadItems(){
+  const { data, error } = await sb.from(T_ITEMS).select('*');
+  if(error){ alert('機材の読込エラー：'+error.message+'\n\nrental/supabase-setup.sql を Supabase SQL Editor で実行してください。'); items=[]; }
+  else items = data||[];
+  itemMap = {}; items.forEach(it=>itemMap[it.id]=it);
+  refreshCatFilter();
+  fillItemSelect();
+  renderItemStats(); renderItems();
+}
+async function loadOrders(){
+  const { data, error } = await sb.from(T_ORDERS).select('*');
+  if(error){ if(!/does not exist/i.test(error.message)) alert('貸出の読込エラー：'+error.message); orders=[]; }
+  else orders = data||[];
+  orders.sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||'')));
+  renderOrderStats(); renderOrders();
+}
+function nextSeq(){ return items.reduce((m,t)=>Math.max(m, t.seq||0), 0) + 1; }
+
+function refreshCatFilter(){
+  const cats=[...new Set([...items.map(it=>(it.category||'').trim()).filter(Boolean)])];
+  const sel=document.getElementById('iCat'); const cur=sel.value;
+  sel.innerHTML='<option value="">全カテゴリ</option>'+cats.map(c=>`<option>${esc(c)}</option>`).join('');
+  sel.value=cur;
+}
+function fillItemSelect(){
+  const sel=document.getElementById('o-item'); const cur=sel.value;
+  sel.innerHTML='<option value="">—（機材未指定）</option>'+items.map(it=>`<option value="${it.id}">${esc(it.name||it.model||it.mgmt_no||'(名称なし)')}</option>`).join('');
+  sel.value=cur;
+}
+
+/* ===== タブ ===== */
+function setTab(t){
+  tab=t;
+  document.getElementById('tab-items').className = t==='items'?'on':'';
+  document.getElementById('tab-orders').className = t==='orders'?'on':'';
+  document.getElementById('itemsView').style.display = t==='items'?'block':'none';
+  document.getElementById('ordersView').style.display = t==='orders'?'block':'none';
+}
+
+/* ===== 機材：統計 ===== */
+function renderItemStats(){
+  const c=s=>items.filter(it=>(it.status||'在庫')===s).length;
+  const pub=items.filter(it=>it.public_published).length;
+  const cards=[
+    {k:'在庫', cls:'s-stock', l:'在庫', v:c('在庫')},
+    {k:'貸出中', cls:'s-out', l:'貸出中', v:c('貸出中')},
+    {k:'整備中', cls:'s-fix', l:'整備中', v:c('整備中')},
+    {k:'__pub', cls:'s-pub', l:'公開中', v:pub},
+    {k:'', cls:'s-all', l:'機材 合計', v:items.length},
+  ];
+  document.getElementById('itemStats').innerHTML = cards.map(c=>
+    `<div class="stat ${c.cls} ${iStatF===c.k?'on':''}" onclick="itemStatFilter('${c.k}')"><div class="lbl">${c.l}</div><div class="v num">${c.v}<small>件</small></div></div>`
+  ).join('');
+}
+function itemStatFilter(k){ iStatF = (iStatF===k)?'':k; renderItemStats(); renderItems(); }
+
+/* ===== 機材：一覧 ===== */
+function filteredItems(){
+  const q=document.getElementById('iq').value.trim().toLowerCase();
+  const fc=document.getElementById('iCat').value, fs=document.getElementById('iStatus').value;
+  return items.filter(it=>{
+    if(iStatF==='__pub'){ if(!it.public_published) return false; }
+    else if(iStatF){ if((it.status||'在庫')!==iStatF) return false; }
+    if(fc && (it.category||'')!==fc) return false;
+    if(fs && (it.status||'在庫')!==fs) return false;
+    if(q){ const t=`${it.name||''} ${it.mgmt_no||''} ${it.maker||''} ${it.model||''} ${it.spec||''} ${it.category||''} ${it.memo||''}`.toLowerCase(); if(!t.includes(q)) return false; }
+    return true;
+  }).sort((a,b)=>(a.seq||0)-(b.seq||0));
+}
+function renderItems(){
+  const list=filteredItems();
+  const host=document.getElementById('itemList');
+  document.getElementById('iCount').textContent = list.length+' 件';
+  if(!list.length){ host.innerHTML='<div class="empty"><span class="material-icons-outlined">inventory_2</span>該当する機材はありません。「機材を追加」から登録できます。</div>'; return; }
+  host.innerHTML=list.map(it=>{
+    const st=it.status||'在庫';
+    const name=esc(it.name||it.model||'(名称未設定)');
+    const makerModel=[it.maker,it.model].filter(Boolean).map(esc).join(' ');
+    const rates=[];
+    if(it.daily_rate)   rates.push(`<span class="r"><span>日</span> <b>${yen(it.daily_rate)}</b></span>`);
+    if(it.weekly_rate)  rates.push(`<span class="r"><span>週</span> <b>${yen(it.weekly_rate)}</b></span>`);
+    if(it.monthly_rate) rates.push(`<span class="r"><span>月</span> <b>${yen(it.monthly_rate)}</b></span>`);
+    if(it.deposit)      rates.push(`<span class="r"><span>保証金</span> <b>${yen(it.deposit)}</b></span>`);
+    return `<div class="row ${st==='廃棄'?'dim':''}">
+      <div>
+        <div class="rn">${name} <span class="code">${esc(it.mgmt_no||'')}</span></div>
+        <div class="rmeta">
+          ${it.category?`<span class="tag">${esc(it.category)}</span>`:''}
+          ${makerModel?`<span><b>${makerModel}</b></span>`:''}
+          <span><b>台数</b> ${Number(it.quantity||0)}</span>
+        </div>
+        ${it.spec?`<div class="rspec">${esc(it.spec)}</div>`:''}
+        ${rates.length?`<div class="rates">${rates.join('')}</div>`:'<div class="rates" style="color:var(--ink-soft)">料金未設定</div>'}
+      </div>
+      <div class="side">
+        <span class="badge b-${st}"><span class="dot"></span>${st}</span>
+        <span class="badge ${it.public_published?'b-pub':'b-priv'}">${it.public_published?'公開中':'非公開'}</span>
+        <div class="acts">
+          <button class="iconbtn" title="編集" onclick="openItem('${it.id}')"><span class="material-icons-outlined">edit</span></button>
+          <button class="iconbtn del" title="削除" onclick="deleteItem('${it.id}')"><span class="material-icons-outlined">delete</span></button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ===== 機材：ドロワー ===== */
+function openItem(id){
+  editItemId=(id&&typeof id==='string')?id:null;
+  const it=editItemId?itemMap[editItemId]:null;
+  const set=(k,v)=>{ const el=document.getElementById('i-'+k); if(el) el.value=(v==null?'':v); };
+  set('name',it?it.name:''); set('mgmt',it?it.mgmt_no:''); set('cat',it?it.category:''); set('maker',it?it.maker:'');
+  set('model',it?it.model:''); set('spec',it?it.spec:''); set('daily',it?it.daily_rate:''); set('weekly',it?it.weekly_rate:'');
+  set('monthly',it?it.monthly_rate:''); set('deposit',it?it.deposit:''); set('qty',it?(it.quantity==null?1:it.quantity):1);
+  set('image',it?it.image_url:''); set('desc',it?it.description:''); set('memo',it?it.memo:'');
+  document.getElementById('i-status').value = it?(it.status||'在庫'):'在庫';
+  document.getElementById('i-pub').checked = it?!!it.public_published:false;
+  document.getElementById('itemTitle').textContent = editItemId?'機材を編集':'機材を追加';
+  document.getElementById('itemDel').style.display = editItemId?'inline-flex':'none';
+  openDrawer('itemDrawer');
+}
+async function saveItem(){
+  const g=k=>{ const el=document.getElementById('i-'+k); return el?el.value.trim():''; };
+  const name=g('name');
+  if(!name){ alert('機材名を入力してください。'); return; }
+  const rec={
+    name, mgmt_no:g('mgmt')||null, category:g('cat')||null, maker:g('maker')||null, model:g('model')||null,
+    spec:g('spec')||null, image_url:g('image')||null, description:g('desc')||null, memo:g('memo')||null,
+    daily_rate:numOrNull(g('daily')), weekly_rate:numOrNull(g('weekly')), monthly_rate:numOrNull(g('monthly')),
+    deposit:numOrNull(g('deposit')), quantity:numOrNull(g('qty')),
+    status:document.getElementById('i-status').value,
+    public_published:document.getElementById('i-pub').checked,
+    updated_at:nowIso()
+  };
+  if(!editItemId) rec.seq=nextSeq();
+  const ok=await saveRow(T_ITEMS, rec, editItemId);
+  if(ok){ closeDrawers(); await loadItems(); }
+}
+async function deleteItem(id){
+  const rid=(id&&typeof id==='string')?id:editItemId; if(!rid) return;
+  const it=itemMap[rid];
+  if(!confirm(`「${it?(it.name||it.model||''):''}」を削除します。よろしいですか？`)) return;
+  const { error }=await sb.from(T_ITEMS).delete().eq('id',rid);
+  if(error){ alert('削除エラー：'+error.message); return; }
+  if(rid===editItemId) closeDrawers();
+  await loadItems(); await loadOrders();
+}
+
+/* ===== 貸出：統計 ===== */
+function renderOrderStats(){
+  const c=s=>orders.filter(o=>(o.status||'問い合わせ')===s).length;
+  const cards=[
+    {k:'問い合わせ', cls:'s-out', l:'問い合わせ', v:c('問い合わせ')},
+    {k:'仮予約', cls:'s-fix', l:'仮予約', v:c('仮予約')},
+    {k:'貸出中', cls:'s-stock', l:'貸出中', v:c('貸出中')},
+    {k:'返却済', cls:'s-pub', l:'返却済', v:c('返却済')},
+    {k:'', cls:'s-all', l:'件数 合計', v:orders.length},
+  ];
+  document.getElementById('orderStats').innerHTML = cards.map(c=>
+    `<div class="stat ${c.cls} ${oStatF===c.k?'on':''}" onclick="orderStatFilter('${c.k}')"><div class="lbl">${c.l}</div><div class="v num">${c.v}<small>件</small></div></div>`
+  ).join('');
+}
+function orderStatFilter(k){ oStatF=(oStatF===k)?'':k; renderOrderStats(); renderOrders(); }
+
+/* ===== 貸出：一覧 ===== */
+function filteredOrders(){
+  const q=document.getElementById('oq').value.trim().toLowerCase();
+  const fs=document.getElementById('oStatus').value;
+  return orders.filter(o=>{
+    const st=o.status||'問い合わせ';
+    if(oStatF && st!==oStatF) return false;
+    if(fs && st!==fs) return false;
+    if(q){ const it=itemMap[o.item_id]; const t=`${o.customer_name||''} ${o.company||''} ${o.email||''} ${o.phone||''} ${o.memo||''} ${it?(it.name||''):''}`.toLowerCase(); if(!t.includes(q)) return false; }
+    return true;
+  });
+}
+function renderOrders(){
+  const list=filteredOrders();
+  const host=document.getElementById('orderList');
+  document.getElementById('oCount').textContent = list.length+' 件';
+  if(!list.length){ host.innerHTML='<div class="empty"><span class="material-icons-outlined">assignment</span>該当する貸出・問い合わせはありません。</div>'; return; }
+  host.innerHTML=list.map(o=>{
+    const st=o.status||'問い合わせ';
+    const it=itemMap[o.item_id];
+    const meta=[];
+    if(it) meta.push(`<span class="tag">${esc(it.name||it.model||'機材')}</span>`);
+    if(o.company) meta.push(`<span><b>会社</b> ${esc(o.company)}</span>`);
+    if(o.start_date||o.end_date) meta.push(`<span><b>期間</b> ${fmtMD(o.start_date)||'—'}〜${fmtMD(o.end_date)||'—'}${o.days?`（${o.days}日）`:''}</span>`);
+    if(o.amount) meta.push(`<span><b>金額</b> ${yen(o.amount)}</span>`);
+    const contact=[];
+    if(o.email) contact.push(`<a href="mailto:${esc(o.email)}" style="color:var(--teal-dark);font-weight:700">${esc(o.email)}</a>`);
+    if(o.phone) contact.push(`<a href="tel:${esc(o.phone)}" style="color:var(--teal-dark);font-weight:700">${esc(o.phone)}</a>`);
+    return `<div class="row ${(st==='返却済'||st==='キャンセル')?'dim':''}">
+      <div>
+        <div class="rn">${esc(o.customer_name||'(無名)')}</div>
+        <div class="rmeta">${meta.join('')}</div>
+        ${contact.length?`<div class="rmeta">${contact.join('　')}</div>`:''}
+        ${o.ship_address?`<div class="rmeta"><span><b>発送先</b> ${esc(o.ship_address)}</span></div>`:''}
+        ${o.memo?`<div class="rmemo">${esc(o.memo)}</div>`:''}
+      </div>
+      <div class="side">
+        <span class="badge b-${st}"><span class="dot"></span>${st}</span>
+        <select class="stsel" onchange="quickOrderStatus('${o.id}',this.value)">
+          ${ORDER_STATUS.map(s=>`<option ${s===st?'selected':''}>${s}</option>`).join('')}
+        </select>
+        <div class="acts">
+          <button class="iconbtn" title="編集" onclick="openOrder('${o.id}')"><span class="material-icons-outlined">edit</span></button>
+          <button class="iconbtn del" title="削除" onclick="deleteOrder('${o.id}')"><span class="material-icons-outlined">delete</span></button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+async function quickOrderStatus(id,val){
+  const { error }=await sb.from(T_ORDERS).update({ status:val, updated_at:nowIso() }).eq('id',id);
+  if(error){ alert('更新エラー：'+error.message); return; }
+  await loadOrders();
+}
+
+/* ===== 貸出：ドロワー ===== */
+function openOrder(id){
+  editOrderId=(id&&typeof id==='string')?id:null;
+  const o=editOrderId?orders.find(x=>x.id===editOrderId):null;
+  const set=(k,v)=>{ const el=document.getElementById('o-'+k); if(el) el.value=(v==null?'':v); };
+  set('name',o?o.customer_name:''); set('company',o?o.company:''); set('email',o?o.email:''); set('phone',o?o.phone:'');
+  set('start',o?dslice(o.start_date):''); set('end',o?dslice(o.end_date):''); set('amount',o?o.amount:''); set('addr',o?o.ship_address:''); set('memo',o?o.memo:'');
+  document.getElementById('o-item').value = o?(o.item_id||''):'';
+  document.getElementById('o-status').value = o?(o.status||'問い合わせ'):'問い合わせ';
+  document.getElementById('orderTitle').textContent = editOrderId?'貸出・問い合わせを編集':'貸出を追加';
+  document.getElementById('orderDel').style.display = editOrderId?'inline-flex':'none';
+  calcDays();
+  openDrawer('orderDrawer');
+}
+function calcDays(){
+  const s=document.getElementById('o-start').value, e=document.getElementById('o-end').value;
+  const note=document.getElementById('daysNote');
+  if(s&&e){ const d=Math.round((new Date(e)-new Date(s))/86400000)+1; note.textContent = d>0?`貸出日数：${d}日（両端含む）`:'返却予定日は開始日以降にしてください'; }
+  else note.textContent='';
+}
+async function saveOrder(){
+  const g=k=>{ const el=document.getElementById('o-'+k); return el?el.value.trim():''; };
+  const name=g('name');
+  if(!name){ alert('お客様氏名・団体名を入力してください。'); return; }
+  const s=g('start'), e=g('end');
+  let days=null; if(s&&e){ const d=Math.round((new Date(e)-new Date(s))/86400000)+1; if(d>0) days=d; }
+  const rec={
+    customer_name:name, company:g('company')||null, email:g('email')||null, phone:g('phone')||null,
+    item_id:document.getElementById('o-item').value||null,
+    start_date:s||null, end_date:e||null, days, amount:numOrNull(g('amount')),
+    status:document.getElementById('o-status').value, ship_address:g('addr')||null, memo:g('memo')||null,
+    updated_at:nowIso()
+  };
+  const ok=await saveRow(T_ORDERS, rec, editOrderId);
+  if(ok){ closeDrawers(); await loadOrders(); }
+}
+async function deleteOrder(id){
+  const rid=(id&&typeof id==='string')?id:editOrderId; if(!rid) return;
+  const o=orders.find(x=>x.id===rid);
+  if(!confirm(`「${o?o.customer_name:''}」の貸出・問い合わせを削除します。よろしいですか？`)) return;
+  const { error }=await sb.from(T_ORDERS).delete().eq('id',rid);
+  if(error){ alert('削除エラー：'+error.message); return; }
+  if(rid===editOrderId) closeDrawers();
+  await loadOrders();
+}
+
+/* ===== 保存（スキーマキャッシュ差異に強い：未知の列を落として再試行） ===== */
+async function saveRow(table, payload, editId){
+  const run=async(p)=>{
+    if(editId) return (await sb.from(table).update(p).eq('id',editId)).error;
+    return (await sb.from(table).insert(p)).error;
+  };
+  let p={...payload};
+  let error=await run(p), guard=0;
+  while(error && /column|schema cache|does not exist|find the/i.test(error.message||'') && guard<20){
+    guard++;
+    const m=(error.message||'').match(/'([a-z_]+)'\s*column|column\s+"?([a-z_]+)"?|find the '([a-z_]+)'/i);
+    const col=m&&(m[1]||m[2]||m[3]);
+    if(!col||!(col in p)) break;
+    delete p[col];
+    error=await run(p);
+  }
+  if(error){ alert('保存エラー：'+error.message+'\n\nrental/supabase-setup.sql を Supabase SQL Editor で実行してください。'); return false; }
+  return true;
+}
+
+/* ===== ドロワー共通 ===== */
+function openDrawer(which){
+  document.getElementById('ov').classList.add('open');
+  document.getElementById(which).classList.add('open');
+}
+function closeDrawers(){
+  document.getElementById('ov').classList.remove('open');
+  document.getElementById('itemDrawer').classList.remove('open');
+  document.getElementById('orderDrawer').classList.remove('open');
+  editItemId=null; editOrderId=null;
+}
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeDrawers(); });
+</script>
+</body>
+</html>
