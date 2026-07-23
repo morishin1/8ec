@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EC在庫管理 つかいかた｜株式会社エイト</title>
+<meta name="robots" content="noindex, nofollow">
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#0f1a36; --navy2:#1a2540; --navy3:#2c3e6b;
+    --gold:#ffd700; --gold2:#ffb347;
+    --bg:#f7f8fc; --panel:#fff; --line:#e3e7f0;
+    --text:#1a2540; --mute:#6b7593; --blue:#4a6bd6; --blue2:#3a55b8;
+    --green:#2e9d4a; --red:#d63a3a; --amber:#e8a13a; --purple:#7d6be8; --gray:#aab4c8;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;background:var(--bg);color:var(--text);line-height:1.85}
+  .material-icons-outlined{vertical-align:middle;line-height:1}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+
+  .topbar{background:var(--navy2);color:#fff;padding:11px 0}
+  .topbar .inner{max-width:1080px;margin:0 auto;padding:0 20px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  .topbar .bk{font-size:12.5px;color:rgba(255,255,255,.85);display:inline-flex;align-items:center;gap:5px}
+  .topbar .bk:hover{color:var(--gold)}
+  .topbar .right{display:inline-flex;gap:8px;flex-wrap:wrap}
+  .topbar a.btn,.topbar button.btn{border:1px solid rgba(255,255,255,.2);padding:6px 12px;border-radius:7px;font-size:12px;background:rgba(255,255,255,.12);color:#fff;display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-family:inherit}
+  .topbar a.btn.gold{background:linear-gradient(135deg,var(--gold),var(--gold2));color:var(--navy2);border-color:transparent;font-weight:700}
+  .topbar button.btn:hover{background:rgba(255,255,255,.22)}
+
+  .hero{background:radial-gradient(circle at 88% 10%,rgba(255,215,0,.18),transparent 34%),linear-gradient(135deg,#fff,#eef4ff 60%,#f9fbff);border-bottom:1px solid var(--line);padding:30px 0}
+  .hero .inner{display:grid;grid-template-columns:1fr 320px;gap:26px;align-items:center;max-width:1080px;margin:0 auto;padding:0 20px}
+  .hero .eyebrow{font-size:12px;font-weight:800;color:var(--blue2);letter-spacing:.08em;display:inline-flex;align-items:center;gap:6px;background:#eaf0fd;padding:5px 11px;border-radius:20px}
+  .hero h1{font-size:clamp(24px,3.4vw,34px);color:var(--navy);margin-top:12px;line-height:1.35}
+  .hero p{font-size:14px;color:#3f4964;margin-top:10px;max-width:56ch}
+  .hero .illust{background:#fff;border:1px solid #dfe8ff;border-radius:20px;padding:12px;display:grid;place-items:center;box-shadow:0 12px 30px -18px rgba(31,58,120,.5)}
+  .hero .illust svg{width:100%;height:auto}
+  @media(max-width:860px){.hero .inner{grid-template-columns:1fr}.hero .illust{display:none}}
+
+  .section{padding:26px 0}
+  .step{background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:24px;margin-bottom:20px;box-shadow:0 10px 30px -24px rgba(31,58,120,.5)}
+  .step .grid{display:grid;grid-template-columns:1fr 300px;gap:26px;align-items:center}
+  .step .grid.rev{grid-template-columns:300px 1fr}
+  .step .grid.rev .txt{order:2}.step .grid.rev .art{order:1}
+  @media(max-width:820px){.step .grid,.step .grid.rev{grid-template-columns:1fr}.step .grid.rev .txt{order:1}.step .grid.rev .art{order:2}}
+  .step .num{display:inline-flex;align-items:center;gap:9px;font-size:12.5px;font-weight:800;color:var(--blue2);margin-bottom:8px}
+  .step .num .b{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--gold),var(--gold2));color:var(--navy2);display:grid;place-items:center;font-family:"Inter",sans-serif;font-size:15px}
+  .step h2{font-size:20px;color:var(--navy);margin-bottom:6px}
+  .step p{font-size:14px;color:#41506e}
+  .step ul{margin:10px 0 0 2px;padding:0;list-style:none;display:flex;flex-direction:column;gap:7px}
+  .step ul li{display:flex;gap:9px;font-size:13.5px;color:#41506e}
+  .step ul li .material-icons-outlined{color:var(--green);font-size:19px;flex:none}
+  .step .art{background:#f5f8ff;border:1px solid #e4ecfb;border-radius:16px;padding:14px;display:grid;place-items:center}
+  .step .art svg{width:100%;height:auto}
+  .tip{margin-top:14px;background:#fff8ec;border:1px solid #f0d9a8;border-radius:12px;padding:11px 14px;font-size:13px;color:#7a5a10;display:flex;gap:9px}
+  .tip .material-icons-outlined{color:var(--amber);flex:none}
+  .tip.red{background:#fdeeee;border-color:#f2cfca;color:#8a2b20}
+  .tip.red .material-icons-outlined{color:var(--red)}
+
+  .band{background:linear-gradient(135deg,#0f1a36,#22345f);color:#fff;border-radius:22px;padding:28px 24px;margin-bottom:20px}
+  .band h2{font-size:21px;display:flex;align-items:center;gap:10px;margin-bottom:4px}
+  .band h2 .material-icons-outlined{color:var(--gold)}
+  .band p{font-size:13.5px;color:#c8d3ec}
+  .flowart{margin-top:18px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);border-radius:16px;padding:16px}
+  .flowart svg{width:100%;height:auto}
+
+  .legend{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  @media(max-width:760px){.legend{grid-template-columns:repeat(2,1fr)}}
+  .lg{background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:16px}
+  .lg .dot{width:12px;height:12px;border-radius:50%;display:inline-block;margin-right:7px}
+  .lg .t{font-size:14px;font-weight:800;display:flex;align-items:center}
+  .lg .d{font-size:12px;color:var(--mute);margin-top:5px;line-height:1.6}
+
+  .h-sec{font-size:13px;font-weight:800;color:var(--mute);letter-spacing:.05em;margin:6px 0 14px;display:flex;align-items:center;gap:9px}
+  .h-sec::before,.h-sec::after{content:"";height:1px;background:var(--line);flex:1}
+
+  .faq{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:8px 20px}
+  .faq details{border-bottom:1px solid var(--line);padding:13px 0}
+  .faq details:last-child{border-bottom:none}
+  .faq summary{cursor:pointer;font-size:14.5px;font-weight:700;color:var(--navy);list-style:none;display:flex;gap:9px;align-items:center}
+  .faq summary::-webkit-details-marker{display:none}
+  .faq summary::before{content:"add";font-family:"Material Icons Outlined";color:var(--blue);font-size:20px}
+  .faq details[open] summary::before{content:"remove"}
+  .faq .a{font-size:13.5px;color:#41506e;padding:9px 0 3px 29px}
+  .faq .a ol,.faq .a ul{margin:6px 0 8px 20px;padding:0}
+  .faq .a li{margin:4px 0}
+  .faq .a .note{background:#fff8ec;border:1px solid #f0d9a8;border-radius:9px;padding:8px 11px;margin:8px 0;color:#7a5a10;font-size:12.5px;display:flex;gap:8px}
+  .faq .a .note .material-icons-outlined{color:var(--amber);flex:none;font-size:18px}
+  .faq .a code{background:#eef2fb;padding:1px 6px;border-radius:5px;font-size:12px}
+  .dec{width:100%;border-collapse:collapse;margin:8px 0;font-size:12.5px}
+  .dec th,.dec td{border:1px solid var(--line);padding:5px 8px;text-align:center}
+  .dec th{background:#f3f6fc;color:#41506e}
+  .grp-h{font-size:13px;font-weight:800;color:var(--navy);margin:16px 0 8px;display:flex;align-items:center;gap:8px}
+  .grp-h .material-icons-outlined{color:var(--blue)}
+
+  footer{text-align:center;color:var(--mute);font-size:12px;padding:30px 0 40px}
+  .cta{display:inline-flex;align-items:center;gap:7px;background:var(--blue);color:#fff;padding:11px 20px;border-radius:11px;font-size:14px;font-weight:700;margin-top:6px}
+  .cta:hover{background:var(--blue2)}
+
+  @media print{
+    *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important}
+    .no-print{display:none !important}
+    body{background:#fff}
+    .step,.faq{box-shadow:none;break-inside:avoid}
+    .faq summary::before{content:"" !important}
+    .faq details{break-inside:avoid}
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar no-print"><div class="inner">
+  <a class="bk" href="index.html"><span class="material-icons-outlined" style="font-size:16px">arrow_back</span>在庫管理へ戻る</a>
+  <span class="right">
+    <button class="btn no-print" onclick="printManual()"><span class="material-icons-outlined" style="font-size:15px">print</span>印刷する</button>
+    <a class="btn gold" href="./"><span class="material-icons-outlined" style="font-size:15px">inventory_2</span>EC在庫管理をひらく</a>
+  </span>
+</div></div>
+
+<header class="hero"><div class="inner">
+  <div>
+    <span class="eyebrow"><span class="material-icons-outlined" style="font-size:15px">menu_book</span>つかいかたガイド</span>
+    <h1>EC在庫管理の<br>登録・出品・販売・発送の<br>流れがひと目でわかる</h1>
+    <p>中古PCなどの<strong>仕入れ→出品→販売→発送・在庫引き</strong>までを1画面で管理します。売れたあとの「在庫引き」（他サイトの出品停止）と「発送」は<strong>それぞれ独立した作業</strong>です。このページでは登録から販売済み一覧に入るまでの流れを、イラストとともに説明します。</p>
+  </div>
+  <div class="illust">
+    <svg viewBox="0 0 320 210" role="img" aria-label="EC在庫管理のイメージ">
+      <rect width="320" height="210" rx="16" fill="#eef4ff"/>
+      <rect x="24" y="30" width="130" height="150" rx="12" fill="#fff" stroke="#d7e0f4"/>
+      <rect x="40" y="48" width="98" height="12" rx="6" fill="#4a6bd6"/>
+      <rect x="40" y="72" width="70" height="9" rx="4.5" fill="#c3cee6"/>
+      <rect x="40" y="90" width="84" height="9" rx="4.5" fill="#c3cee6"/>
+      <rect x="40" y="112" width="60" height="46" rx="6" fill="#f5f8ff" stroke="#dbe5fb"/>
+      <rect x="50" y="122" width="40" height="8" rx="2" fill="#aab4c8"/>
+      <rect x="50" y="134" width="30" height="8" rx="2" fill="#aab4c8"/>
+      <rect x="50" y="146" width="24" height="8" rx="2" fill="#aab4c8"/>
+      <rect x="172" y="30" width="120" height="66" rx="12" fill="#fff" stroke="#d7e0f4"/>
+      <text x="184" y="50" font-size="11" font-weight="800" fill="#1a2540">出品状況</text>
+      <rect x="184" y="58" width="34" height="16" rx="8" fill="#e7f6ec"/><text x="201" y="70" text-anchor="middle" font-size="9" font-weight="700" fill="#1f7a44">メルカリ</text>
+      <rect x="222" y="58" width="34" height="16" rx="8" fill="#eef2fb"/><text x="239" y="70" text-anchor="middle" font-size="9" font-weight="700" fill="#3a55b8">ヤフオク</text>
+      <rect x="184" y="78" width="34" height="16" rx="8" fill="#fdeeee"/><text x="201" y="90" text-anchor="middle" font-size="9" font-weight="700" fill="#b02a2a">楽天</text>
+      <rect x="172" y="108" width="120" height="72" rx="12" fill="#eaf6ee" stroke="#bfe6cb"/>
+      <circle cx="196" cy="140" r="16" fill="#2e9d4a"/><path d="M189 140 l5 5 l9 -11" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="222" y="136" font-size="11" font-weight="800" fill="#1f7a44">販売済み</text>
+      <text x="222" y="150" font-size="10" fill="#3f8a5c">発送・在庫引き</text>
+      <text x="222" y="163" font-size="10" fill="#3f8a5c">両方が完了</text>
+    </svg>
+  </div>
+</div></header>
+
+<main class="section"><div class="wrap">
+
+  <!-- 全体像バンド -->
+  <div class="band">
+    <h2><span class="material-icons-outlined">route</span>全体の流れ</h2>
+    <p>商品を登録したら、出品先の状況を記録し、売れたら「売れた」ボタンで受注登録。そのあと<strong style="color:#fff">在庫引き（他サイトの取下げ）</strong>と<strong style="color:#fff">発送</strong>を進めます。両方終わると自動的に「販売済み一覧」に入ります。</p>
+    <div class="flowart">
+      <svg viewBox="0 0 980 150" role="img" aria-label="登録から販売済みまでの流れ">
+        <line x1="70" y1="55" x2="910" y2="55" stroke="rgba(255,255,255,.28)" stroke-width="3" stroke-dasharray="6 7"/>
+        <g font-family="-apple-system,sans-serif">
+          <!-- 1 登録 -->
+          <circle cx="70" cy="55" r="30" fill="#22345f" stroke="#ffd700" stroke-width="2"/>
+          <g transform="translate(58,43)" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9"/><path d="M12 8 v8 M8 12 h8"/>
+          </g>
+          <text x="70" y="112" text-anchor="middle" font-size="13" font-weight="800" fill="#fff">①商品を登録</text>
+          <text x="70" y="130" text-anchor="middle" font-size="11" fill="#c8d3ec">仕入値・管理番号</text>
+          <!-- 2 出品 -->
+          <circle cx="280" cy="55" r="30" fill="#22345f" stroke="#ffd700" stroke-width="2"/>
+          <g transform="translate(268,43)" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 10 l3 -7 h10 l3 7 z"/><rect x="6" y="10" width="12" height="9" rx="1"/>
+          </g>
+          <text x="280" y="112" text-anchor="middle" font-size="13" font-weight="800" fill="#fff">②出品する</text>
+          <text x="280" y="130" text-anchor="middle" font-size="11" fill="#c8d3ec">メルカリ・ヤフオク等</text>
+          <!-- 3 売れた -->
+          <circle cx="490" cy="55" r="30" fill="#22345f" stroke="#ffd700" stroke-width="2"/>
+          <g transform="translate(478,43)" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9"/><path d="M8 12 l3 3 l6 -6"/>
+          </g>
+          <text x="490" y="112" text-anchor="middle" font-size="13" font-weight="800" fill="#fff">③売れたボタン</text>
+          <text x="490" y="130" text-anchor="middle" font-size="11" fill="#c8d3ec">受注情報を登録</text>
+          <!-- 4 在庫引き・発送 -->
+          <circle cx="700" cy="55" r="30" fill="#22345f" stroke="#ffd700" stroke-width="2"/>
+          <g transform="translate(686,42)" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="6" width="14" height="12" rx="2"/><path d="M16 10 h7 l4 4 v4 h-11 z"/><circle cx="8" cy="20" r="2.4"/><circle cx="22" cy="20" r="2.4"/>
+          </g>
+          <text x="700" y="112" text-anchor="middle" font-size="13" font-weight="800" fill="#fff">④在庫引き・発送</text>
+          <text x="700" y="130" text-anchor="middle" font-size="11" fill="#c8d3ec">それぞれ独立して対応</text>
+          <!-- 5 販売済み -->
+          <circle cx="910" cy="55" r="30" fill="#1f7a44" stroke="#8be8a8" stroke-width="2"/>
+          <g transform="translate(898,43)" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 12 l6 6 l14 -16"/>
+          </g>
+          <text x="910" y="112" text-anchor="middle" font-size="13" font-weight="800" fill="#fff">⑤販売済み一覧</text>
+          <text x="910" y="130" text-anchor="middle" font-size="11" fill="#c8d3ec">両方完了で自動移動</text>
+        </g>
+      </svg>
+    </div>
+  </div>
+
+  <!-- 出品管理（仕入CSV→出品） -->
+  <div class="h-sec">出品管理：仕入 → CSV取込 → 出品 → 在庫へ</div>
+  <div class="step"><div class="grid">
+    <div class="txt">
+      <div class="num"><span class="b">★</span>「出品管理」タブ</div>
+      <h2>仕入CSVを取り込むと、管理番号を自動生成して在庫に登録</h2>
+      <p>その週に仕入れた商品を、オークションの<strong>仕入CSV</strong>から一括登録できます。「出品管理」タブの<strong>「仕入CSVを取込」</strong>を押すだけで、<strong>管理番号が自動生成</strong>され、メーカー・種別・型番・スペック・仕入値・仕入日まで自動でセットされ、<strong>在庫にも同時登録</strong>されます。</p>
+      <ul>
+        <li><span class="material-icons-outlined">check_circle</span><strong>セット品</strong>は台数（総数）で仕入額を割り、個品ごとに1商品として登録</li>
+        <li><span class="material-icons-outlined">check_circle</span><strong>ACセット等のまとめ売り（バルク）</strong>は<strong>個数</strong>を保持し、仕入÷個数で1個あたりの単価に</li>
+        <li><span class="material-icons-outlined">check_circle</span>仕入CSVの全項目は、各商品の<strong>「商品情報 → 仕入情報（CSV）」</strong>で確認できます</li>
+        <li><span class="material-icons-outlined">check_circle</span>仕入値が未設定だと<strong>「参考売値なし」</strong>の警告が出ます</li>
+      </ul>
+      <div class="tip"><span class="material-icons-outlined">warning</span>同じCSVを2回取り込むと重複登録されます。1つのファイルは1回だけ取り込んでください。</div>
+    </div>
+    <div class="art">
+      <svg viewBox="0 0 300 150" aria-label="仕入CSV取込のイラスト">
+        <rect width="300" height="150" rx="12" fill="#f7faff" stroke="#dbe5fb"/>
+        <rect x="20" y="18" width="70" height="50" rx="6" fill="#e7f6ec" stroke="#bfe6cb"/>
+        <g transform="translate(43,32)" fill="none" stroke="#2e9d4a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21 v-9 M8 15 l4 -4 l4 4"/><path d="M20 16 v3 a2 2 0 0 1 -2 2 H6 a2 2 0 0 1 -2 -2 v-3"/></g>
+        <text x="55" y="82" text-anchor="middle" font-size="10" font-weight="700" fill="#1f7a44">仕入CSV</text>
+        <path d="M96 43 L128 43" stroke="#c3cee6" stroke-width="2" stroke-dasharray="4 4" marker-end="url(#a1)"/>
+        <defs><marker id="a1" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#4a6bd6"/></marker></defs>
+        <rect x="134" y="18" width="146" height="50" rx="8" fill="#fff" stroke="#dbe5fb"/>
+        <text x="144" y="34" font-size="10" font-weight="800" fill="#1a2540">20260714-6579-1</text>
+        <text x="144" y="48" font-size="9" fill="#41506e">DELL 3070MFF ／ 仕入 ¥16,533</text>
+        <text x="144" y="60" font-size="9" fill="#1f7a44">参考売値 ¥25,000（仕入×1.5）</text>
+        <rect x="20" y="82" width="260" height="52" rx="8" fill="#eef4ff" stroke="#c9d6f5"/>
+        <text x="30" y="100" font-size="10" font-weight="800" fill="#3a55b8">出品先を選択して「出品済みにする」</text>
+        <g font-family="-apple-system,sans-serif" font-size="9" font-weight="700">
+          <rect x="30" y="108" width="52" height="18" rx="9" fill="#fff" stroke="#c9d6f5"/><text x="56" y="120" text-anchor="middle" fill="#3a55b8">☑メルカリ</text>
+          <rect x="88" y="108" width="46" height="18" rx="9" fill="#fff" stroke="#c9d6f5"/><text x="111" y="120" text-anchor="middle" fill="#3a55b8">☑楽天</text>
+          <rect x="188" y="108" width="82" height="18" rx="9" fill="#2e9d4a"/><text x="229" y="120" text-anchor="middle" fill="#fff">出品済みにする</text>
+        </g>
+      </svg>
+    </div>
+  </div></div>
+
+  <div class="step"><div class="grid rev">
+    <div class="txt">
+      <div class="num"><span class="b">★</span>相場チェック＆出品</div>
+      <h2>型番をクリックして他店の相場を確認 → 出品先を選んで出品</h2>
+      <p>各商品の<strong>型番リンク（メルカリ／ヤフオク／ヤフーフリマ／楽天／Amazon）</strong>をクリックすると、その出品先サイトで<strong>その型番を検索した状態</strong>で開きます。他店がいくらで売っているかを見て、価格の参考にできます（<strong>参考売値の目安</strong>も表示）。</p>
+      <ul>
+        <li><span class="material-icons-outlined">check_circle</span>実際に出品したら、<strong>出品先をチェック</strong>して<strong>「出品済みにする」</strong></li>
+        <li><span class="material-icons-outlined">check_circle</span>在庫の<strong>出品状況が「出品中」</strong>になり、この一覧から外れます</li>
+        <li><span class="material-icons-outlined">check_circle</span><strong>全部出品し終わると出品管理は空</strong>＝すべて在庫・販売管理へ移行した状態</li>
+      </ul>
+    </div>
+    <div class="art">
+      <svg viewBox="0 0 300 120" aria-label="型番で相場検索のイラスト">
+        <rect width="300" height="120" rx="12" fill="#fff" stroke="#e4ecfb"/>
+        <text x="20" y="30" font-size="11" font-weight="800" fill="#1a2540">型番「3070MFF」の相場を見る →</text>
+        <g font-family="-apple-system,sans-serif" font-size="10" font-weight="700">
+          <rect x="20" y="42" width="60" height="20" rx="10" fill="#eef2ff" stroke="#d8e2fb"/><text x="50" y="56" text-anchor="middle" fill="#3a55b8">メルカリ</text>
+          <rect x="86" y="42" width="58" height="20" rx="10" fill="#eef2ff" stroke="#d8e2fb"/><text x="115" y="56" text-anchor="middle" fill="#3a55b8">ヤフオク</text>
+          <rect x="150" y="42" width="44" height="20" rx="10" fill="#eef2ff" stroke="#d8e2fb"/><text x="172" y="56" text-anchor="middle" fill="#3a55b8">楽天</text>
+          <rect x="200" y="42" width="54" height="20" rx="10" fill="#eef2ff" stroke="#d8e2fb"/><text x="227" y="56" text-anchor="middle" fill="#3a55b8">Amazon</text>
+        </g>
+        <rect x="20" y="76" width="260" height="28" rx="7" fill="#f5f8ff" stroke="#dbe5fb"/>
+        <text x="30" y="94" font-size="10" fill="#41506e">クリック → 楽天でその型番が検索された状態で開く</text>
+      </svg>
+    </div>
+  </div></div>
+
+  <div class="h-sec">個別登録・販売・発送</div>
+
+  <!-- STEP 1 登録 -->
+  <div class="step"><div class="grid">
+    <div class="txt">
+      <div class="num"><span class="b">1</span>商品を登録（仕入れ）</div>
+      <h2>右上の「商品を追加」から（CSVを使わない場合）</h2>
+      <p>管理番号・商品名・種別・メーカー・型番・スペック・仕入日・仕入値・送料・手数料を入力します。<strong>管理番号</strong>は必須で、CSV取込や販売履歴の照合にも使われるキーになります。</p>
+      <ul>
+        <li><span class="material-icons-outlined">check_circle</span>種別はNTPC・TWPC・スマホ など既定の一覧から選択</li>
+        <li><span class="material-icons-outlined">check_circle</span><strong>CSV取込</strong>で複数台をまとめて登録することもできます</li>
+      </ul>
+    </div>
+    <div class="art">
+      <svg viewBox="0 0 300 130" aria-label="商品登録フォームのイラスト">
+        <rect width="300" height="130" rx="12" fill="#fff" stroke="#e4ecfb"/>
+        <text x="20" y="28" font-size="11" font-weight="800" fill="#6b7593">商品情報</text>
+        <rect x="20" y="36" width="120" height="20" rx="6" fill="#f5f8ff" stroke="#dbe5fb"/><text x="28" y="50" font-size="10" fill="#41506e">管理番号 L06090410-396</text>
+        <rect x="150" y="36" width="60" height="20" rx="6" fill="#eaf0fd"/><text x="180" y="50" text-anchor="middle" font-size="10" fill="#3a55b8">NTPC</text>
+        <rect x="20" y="64" width="80" height="20" rx="6" fill="#f5f8ff" stroke="#dbe5fb"/><text x="28" y="78" font-size="10" fill="#41506e">仕入日</text>
+        <rect x="108" y="64" width="80" height="20" rx="6" fill="#f5f8ff" stroke="#dbe5fb"/><text x="116" y="78" font-size="10" fill="#41506e">仕入値 ¥20,000</text>
+        <rect x="20" y="92" width="80" height="24" rx="8" fill="#4a6bd6"/><text x="60" y="108" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">追加する</text>
+      </svg>
+    </div>
+  </div></div>
+
+  <!-- STEP 2 出品状況 -->
+  <div class="step"><div class="grid rev">
+    <div class="txt">
+      <div class="num"><span class="b">2</span>出品先を記録</div>
+      <h2>色つきチップで「どこに出しているか」</h2>
+      <p>ドロワーの<strong>「出品状況」</strong>で、メルカリ・ヤフオク・ヤフーフリマ・楽天・Amazonの状態（出品中／売り切れ／出品停止／保留）を選びます。出品ページのURLも記録でき、一覧のチップから直接開けます。</p>
+      <ul>
+        <li><span class="material-icons-outlined">check_circle</span>一覧では商品ごとに<strong>色つきチップ</strong>で状態が一目でわかります</li>
+        <li><span class="material-icons-outlined">check_circle</span>チップ横のリンクアイコンから出品ページへジャンプ</li>
+      </ul>
+    </div>
+    <div class="art">
+      <svg viewBox="0 0 300 120" aria-label="出品チップのイラスト">
+        <rect width="300" height="120" rx="12" fill="#f7faff" stroke="#dbe5fb"/>
+        <text x="20" y="28" font-size="11" font-weight="800" fill="#1a2540">L06090410-396</text>
+        <g font-family="-apple-system,sans-serif" font-size="10" font-weight="700">
+          <rect x="20" y="40" width="60" height="20" rx="10" fill="#e7f6ec"/><text x="50" y="53" text-anchor="middle" fill="#1f7a44">メルカリ</text>
+          <rect x="86" y="40" width="60" height="20" rx="10" fill="#fdeeee"/><text x="116" y="53" text-anchor="middle" fill="#b02a2a">ヤフオク</text>
+          <rect x="152" y="40" width="70" height="20" rx="10" fill="#f2f0fb"/><text x="187" y="53" text-anchor="middle" fill="#5a45c8">ヤフーフリマ</text>
+          <rect x="20" y="66" width="60" height="20" rx="10" fill="#eef2fb"/><text x="50" y="79" text-anchor="middle" fill="#6b7593">楽天</text>
+          <rect x="86" y="66" width="60" height="20" rx="10" fill="#eef2fb"/><text x="116" y="79" text-anchor="middle" fill="#6b7593">Amazon</text>
+        </g>
+      </svg>
+    </div>
+  </div></div>
+
+  <!-- STEP 3 売れた -->
+  <div class="step"><div class="grid">
+    <div class="txt">
+      <div class="num"><span class="b">3</span>売れたら「売れた」ボタン</div>
+      <h2>受注情報・発送指示を入力</h2>
+      <p>在庫の商品行にある<strong>「売れた」</strong>ボタンを押すとドロワーが開き、<strong>「販売」</strong>欄が自動的に開きます。販売日時・売上・販売先・購入者・電話番号・発送先住所・発送方法などを入力します。販売日時を入れた時点で「販売済み」として扱われます。</p>
+      <ul>
+        <li><span class="material-icons-outlined">check_circle</span>販売先を選ぶと<strong>サイト手数料率が自動セット</strong>（メルカリ10%・Amazon8.4%など）</li>
+        <li><span class="material-icons-outlined">check_circle</span>粗利＝売上−仕入−送料−手数料−サイト手数料−利用料 が自動計算されます</li>
+      </ul>
+    </div>
+    <div class="art">
+      <svg viewBox="0 0 300 130" aria-label="売れたボタンのイラスト">
+        <rect width="300" height="130" rx="12" fill="#fff" stroke="#e4ecfb"/>
+        <rect x="20" y="20" width="260" height="28" rx="8" fill="#f5f8ff" stroke="#dbe5fb"/>
+        <text x="30" y="38" font-size="11" fill="#1a2540">L06090410-396 / NTPC</text>
+        <rect x="210" y="26" width="58" height="18" rx="9" fill="#2e9d4a"/><text x="239" y="39" text-anchor="middle" font-size="10" font-weight="800" fill="#fff">売れた</text>
+        <path d="M150 55 L150 68" stroke="#4a6bd6" stroke-width="2" marker-end="url(#ar3)"/>
+        <defs><marker id="ar3" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#4a6bd6"/></marker></defs>
+        <rect x="30" y="74" width="240" height="46" rx="10" fill="#eaf6ee" stroke="#bfe6cb"/>
+        <text x="42" y="90" font-size="10" font-weight="800" fill="#1f7a44">販売日時 / 売上 / 販売先</text>
+        <text x="42" y="105" font-size="10" fill="#3f8a5c">購入者・電話番号・発送先住所</text>
+      </svg>
+    </div>
+  </div></div>
+
+  <!-- STEP 4 在庫引き -->
+  <div class="step"><div class="grid rev">
+    <div class="txt">
+      <div class="num"><span class="b">4</span>在庫引き：受注直後、すぐ対応</div>
+      <h2>二重販売を防ぐ最優先の作業</h2>
+      <p>受注した瞬間、他サイトにまだ「出品中」が残っていると<strong style="color:#b02a2a">赤い「在庫引き待ち」</strong>が付きます。<strong>発送済みかどうかに関係なく</strong>、上部の在庫引きバーの取下げボタンで、他サイトの出品を今すぐ<strong>出品停止</strong>にしてください。</p>
+      <ul>
+        <li><span class="material-icons-outlined">check_circle</span>チャネルごとに「〇〇を取下げ→済」ボタンで記録</li>
+        <li><span class="material-icons-outlined">check_circle</span>出品ページのリンクからそのまま取下げ作業ができます</li>
+      </ul>
+      <div class="tip red"><span class="material-icons-outlined">warning</span>ここを後回しにすると、他サイトで同時に売れてしまう「誤出荷・二重販売」の原因になります。</div>
+    </div>
+    <div class="art">
+      <svg viewBox="0 0 300 140" aria-label="在庫引きのイラスト">
+        <rect width="300" height="140" rx="12" fill="#fdeeee" stroke="#f2cfca"/>
+        <text x="20" y="28" font-size="11" font-weight="800" fill="#b02a2a">在庫引き待ちの商品</text>
+        <rect x="20" y="38" width="260" height="34" rx="8" fill="#fff" stroke="#f2cfca"/>
+        <text x="30" y="58" font-size="11" font-weight="800" fill="#1a2540">L06090410-396</text>
+        <rect x="150" y="45" width="120" height="20" rx="10" fill="#d63a3a"/><text x="210" y="59" text-anchor="middle" font-size="10" font-weight="800" fill="#fff">ヤフオクを取下げ→済</text>
+        <rect x="20" y="80" width="260" height="34" rx="8" fill="#fff" stroke="#f2cfca"/>
+        <text x="30" y="100" font-size="11" font-weight="800" fill="#1a2540">L06090411-402</text>
+        <rect x="150" y="87" width="120" height="20" rx="10" fill="#aab4c8"/><text x="210" y="101" text-anchor="middle" font-size="10" font-weight="800" fill="#fff">対応済み</text>
+      </svg>
+    </div>
+  </div></div>
+
+  <!-- STEP 5 発送 -->
+  <div class="step"><div class="grid">
+    <div class="txt">
+      <div class="num"><span class="b">5</span>発送：準備ができたタイミングで</div>
+      <h2>在庫引きとは順番を問いません</h2>
+      <p>発送指示（購入者・住所・電話・発送方法・台数や付属品）を確認して発送したら、<strong>「発送済みにする」</strong>を押すと出荷日が記録されます。伝票番号や、伝票・QR・写真などの添付ファイルも保存できます。</p>
+      <ul>
+        <li><span class="material-icons-outlined">check_circle</span>上部の「発送待ちの商品一覧」バーからワンクリックで発送済みにできます</li>
+        <li><span class="material-icons-outlined">check_circle</span>在庫引き・発送の<strong>両方が完了</strong>すると「販売済み一覧」に自動的に入ります</li>
+      </ul>
+    </div>
+    <div class="art">
+      <svg viewBox="0 0 300 130" aria-label="発送のイラスト">
+        <rect width="300" height="130" rx="12" fill="#eaf6ee" stroke="#bfe6cb"/>
+        <rect x="30" y="40" width="70" height="46" rx="6" fill="#2e9d4a"/>
+        <path d="M100 52 h32 l16 18 v16 h-48 z" fill="#fff" stroke="#2e9d4a" stroke-width="2.5"/>
+        <circle cx="60" cy="94" r="10" fill="#fff" stroke="#2e9d4a" stroke-width="3"/><circle cx="140" cy="94" r="10" fill="#fff" stroke="#2e9d4a" stroke-width="3"/>
+        <rect x="180" y="46" width="96" height="24" rx="8" fill="#2e9d4a"/><text x="228" y="62" text-anchor="middle" font-size="10" font-weight="800" fill="#fff">発送済みにする</text>
+      </svg>
+    </div>
+  </div></div>
+
+  <!-- 5カード -->
+  <div class="h-sec">上部の5枚のカードで絞り込み（作業の流れの順）</div>
+  <div class="legend" style="margin-bottom:20px">
+    <div class="lg"><div class="t"><span class="dot" style="background:#e8a13a"></span>発送待ち</div><div class="d">売れたがまだ出荷日を入れていない商品</div></div>
+    <div class="lg"><div class="t"><span class="dot" style="background:#d63a3a"></span>在庫引き</div><div class="d">他サイトの出品がまだ残っている、対応が必要な商品</div></div>
+    <div class="lg"><div class="t"><span class="dot" style="background:#2e9d4a"></span>販売済み一覧</div><div class="d">発送・在庫引きの<strong>両方が完了</strong>した商品</div></div>
+    <div class="lg"><div class="t"><span class="dot" style="background:#c0392b"></span>返品・クレーム</div><div class="d">返品・クレームを記録した商品。未対応件数も表示</div></div>
+    <div class="lg"><div class="t"><span class="dot" style="background:#0f1a36"></span>全在庫一覧</div><div class="d">まだ売れていない在庫。仕入額の合計も表示</div></div>
+  </div>
+  <div class="tip" style="margin-bottom:20px"><span class="material-icons-outlined">schedule</span>「全在庫一覧」表示中は、上に<strong>仕入からの経過期間タブ（3ヶ月・6ヶ月・1年以上）</strong>が出ます。長期在庫は値下げや出品先の見直しの目安に使えます。</div>
+
+  <!-- STEP 6 返品・クレーム -->
+  <div class="step"><div class="grid rev">
+    <div class="txt">
+      <div class="num"><span class="b">6</span>返品・クレーム対応（あれば記録）</div>
+      <h2>発生日・内容・対応をまとめて残す</h2>
+      <p>ドロワーの<strong>「返品・クレーム対応」</strong>で、発生日・内容・対応内容を記録し、対応済みならチェックを入れます。記録した商品は上部の<strong>「返品・クレーム」カード</strong>から一覧でき、未対応件数もひと目でわかります。</p>
+    </div>
+    <div class="art">
+      <svg viewBox="0 0 300 110" aria-label="返品・クレーム記録のイラスト">
+        <rect width="300" height="110" rx="12" fill="#fff" stroke="#e4ecfb"/>
+        <circle cx="46" cy="55" r="24" fill="#fdeeee" stroke="#f2cfca" stroke-width="2"/>
+        <g transform="translate(34,42)" fill="none" stroke="#c0392b" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9 a6 6 0 0 1 12 0 c0 5 2 7 2 7 H4 s2 -2 2 -7"/><path d="M10 20 a2 2 0 0 0 4 0"/></g>
+        <rect x="92" y="30" width="188" height="18" rx="6" fill="#f5f8ff" stroke="#dbe5fb"/><text x="100" y="43" font-size="10" fill="#41506e">クレーム内容：起動しない</text>
+        <rect x="92" y="52" width="188" height="18" rx="6" fill="#f5f8ff" stroke="#dbe5fb"/><text x="100" y="65" font-size="10" fill="#41506e">対応内容：返品対応・返金</text>
+        <rect x="92" y="76" width="90" height="18" rx="9" fill="#2e9d4a"/><text x="137" y="89" text-anchor="middle" font-size="10" font-weight="800" fill="#fff">対応済み</text>
+      </svg>
+    </div>
+  </div></div>
+
+  <!-- STEP 7 8 SHOP -->
+  <div class="step"><div class="grid">
+    <div class="txt">
+      <div class="num"><span class="b">7</span>8 SHOPに公開する</div>
+      <h2>登録した商品をそのままショップへ</h2>
+      <p>ドロワーの<strong>「8 SHOP公開設定」</strong>で「8/shop に公開する」にチェックし、ショップ表示名・説明・販売価格・商品画像URL・Stripe決済リンクを入力すると、<a href="https://8grp.co.jp/8/shop/" target="_blank" rel="noopener" style="color:var(--blue2);font-weight:700">8/shop</a>に商品が並びます。</p>
+      <ul>
+        <li><span class="material-icons-outlined">check_circle</span>売れた商品（販売日時あり）は自動的にショップ一覧から外れます</li>
+        <li><span class="material-icons-outlined">check_circle</span>決済はStripeの決済リンクを商品ごとに登録して使います</li>
+      </ul>
+      <div class="tip"><span class="material-icons-outlined">info</span>公開には初回のみ「8/shop/supabase-shop-setup.sql」の実行が必要です。</div>
+    </div>
+    <div class="art">
+      <svg viewBox="0 0 300 120" aria-label="8 SHOP公開設定のイラスト">
+        <rect width="300" height="120" rx="12" fill="#f5f8ff" stroke="#dbe5fb"/>
+        <rect x="20" y="24" width="16" height="16" rx="4" fill="#2e9d4a"/><path d="M23 32 l3 3 l6 -6" stroke="#fff" stroke-width="2" fill="none"/>
+        <text x="44" y="36" font-size="11" font-weight="800" fill="#1a2540">8/shop に公開する</text>
+        <rect x="20" y="50" width="260" height="16" rx="5" fill="#fff" stroke="#dbe5fb"/><text x="28" y="62" font-size="9" fill="#6b7593">ショップ表示名</text>
+        <rect x="20" y="70" width="126" height="16" rx="5" fill="#fff" stroke="#dbe5fb"/><text x="28" y="82" font-size="9" fill="#6b7593">販売価格 ¥28,000</text>
+        <rect x="154" y="70" width="126" height="16" rx="5" fill="#fff" stroke="#dbe5fb"/><text x="162" y="82" font-size="9" fill="#6b7593">Stripe決済リンク</text>
+      </svg>
+    </div>
+  </div></div>
+
+  <!-- STEP 8 CSV -->
+  <div class="step"><div class="grid rev">
+    <div class="txt">
+      <div class="num"><span class="b">8</span>CSVで一括登録・更新</div>
+      <h2>まとめて取り込み・書き出し</h2>
+      <p>右上の<strong>CSV取込</strong>で複数商品をまとめて登録・更新できます。<strong>管理番号が同じ行は上書き更新</strong>され、CSVに無い列は既存の値のまま保持されます。<strong>CSV出力</strong>で現在の一覧をバックアップできます。</p>
+      <ul>
+        <li><span class="material-icons-outlined">check_circle</span>管理番号・商品名・種別・メーカー・型番・仕入・出品状況・販売情報などに対応</li>
+        <li><span class="material-icons-outlined">check_circle</span>取込は必ず一度CSV出力したファイルと同じ形式で行います</li>
+      </ul>
+    </div>
+    <div class="art">
+      <svg viewBox="0 0 300 130" aria-label="CSV入出力のイラスト">
+        <rect width="300" height="130" rx="12" fill="#fff" stroke="#e4ecfb"/>
+        <rect x="30" y="34" width="70" height="62" rx="8" fill="#e7f6ec" stroke="#bfe6cb"/>
+        <g transform="translate(53,52)" fill="none" stroke="#2e9d4a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21 v-9 M8 15 l4 -4 l4 4"/><path d="M20 16 v3 a2 2 0 0 1 -2 2 H6 a2 2 0 0 1 -2 -2 v-3"/></g>
+        <text x="65" y="112" text-anchor="middle" font-size="11" font-weight="700" fill="#1f7a44">取り込み</text>
+        <path d="M112 65 L150 65" stroke="#c3cee6" stroke-width="2" stroke-dasharray="4 4"/>
+        <rect x="150" y="46" width="40" height="38" rx="6" fill="#4a6bd6"/><g transform="translate(160,55)" fill="none" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"><rect x="2" y="3" width="16" height="14" rx="2"/><line x1="2" y1="8" x2="18" y2="8"/><line x1="9" y1="8" x2="9" y2="17"/></g>
+        <path d="M200 65 L238 65" stroke="#c3cee6" stroke-width="2" stroke-dasharray="4 4"/>
+        <rect x="200" y="34" width="70" height="62" rx="8" fill="#eaf0fd" stroke="#c9d6f5"/>
+        <g transform="translate(223,52)" fill="none" stroke="#3a55b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 v11 M8 10 l4 4 l4 -4"/><path d="M4 18 v1 a2 2 0 0 0 2 2 h12 a2 2 0 0 0 2 -2 v-1"/></g>
+        <text x="235" y="112" text-anchor="middle" font-size="11" font-weight="700" fill="#3a55b8">書き出し</text>
+      </svg>
+    </div>
+  </div></div>
+
+  <!-- STEP 9 月次集計 -->
+  <div class="step"><div class="grid">
+    <div class="txt">
+      <div class="num"><span class="b">9</span>月次集計で振り返る</div>
+      <h2>月ごとの販売数・売上・粗利</h2>
+      <p>上部タブの<strong>「月次集計」</strong>で、販売日時をもとに月別の販売数・売上合計・サイト手数料・粗利合計を確認できます。年は左右の矢印で切替、<strong>月の行をクリック</strong>すると、在庫・販売管理画面にその月の販売分だけを絞り込んで表示します。</p>
+    </div>
+    <div class="art">
+      <svg viewBox="0 0 300 130" aria-label="月次集計のイラスト">
+        <rect width="300" height="130" rx="12" fill="#fff" stroke="#e4ecfb"/>
+        <text x="20" y="26" font-size="11" font-weight="800" fill="#1a2540">2026年</text>
+        <g font-family="Inter,sans-serif">
+          <rect x="20" y="36" width="260" height="18" rx="4" fill="#f3f6fc"/><text x="28" y="49" font-size="10" fill="#6b7593">月　　販売数　売上合計　粗利合計</text>
+          <rect x="20" y="56" width="260" height="18" rx="4" fill="#eaf0fd"/><text x="28" y="69" font-size="10" font-weight="700" fill="#3a55b8">6月　　8　　　¥312,000　　¥98,500</text>
+          <rect x="20" y="76" width="260" height="18" rx="4" fill="#fff"/><text x="28" y="89" font-size="10" fill="#41506e">7月　　5　　　¥198,000　　¥61,200</text>
+        </g>
+      </svg>
+    </div>
+  </div></div>
+
+  <!-- ドロワーの見かた -->
+  <div class="h-sec">ドロワー（編集画面）は必要な項目だけ自動で開く</div>
+  <div class="faq" style="margin-bottom:20px">
+    <details open><summary>セクションが折りたたみ式になっています</summary><div class="a">
+      商品情報・出品状況・8 SHOP公開設定・販売・返品・クレーム対応の5つのセクションは、見出しをクリックすると開閉できます。データが<strong>すでに入っている項目だけ自動的に開いた状態</strong>で表示されるので、スクロールが長くなりすぎません。
+      <ul>
+        <li>新規登録時：商品情報だけが開いた状態で始まります</li>
+        <li>出品状況を記録済みの商品：出品状況が開いた状態</li>
+        <li>「売れた」ボタンから開いた場合：販売セクションが開いた状態</li>
+        <li>返品・クレームを記録済みの商品：返品・クレーム対応が開いた状態</li>
+      </ul>
+    </div></details>
+    <details><summary>「在庫を戻す」ボタンとは？</summary><div class="a">
+      販売セクション内の<strong>「在庫を戻す」</strong>ボタン（旧「戻す」）を押すと、販売日時・売上・購入者・発送情報など<strong>販売・発送に関する情報だけ</strong>がクリアされ、商品は在庫に戻ります。出品状況（メルカリ等のチップ）はそのまま残ります。誤って「売れた」にしてしまった時や、注文がキャンセルになった時に使います。
+    </div></details>
+  </div>
+
+  <!-- FAQ -->
+  <div class="h-sec">よくある質問</div>
+  <div class="faq" style="margin-bottom:24px">
+    <details><summary>ログインできない・0件になる</summary><div class="a">共有ID <b>zimu</b> でログインしているか確認してください。別のIDだとデータが見えません（同じIDでみんな同じデータを共有します）。反映されない時は Ctrl+F5 で再読み込みしてください。</div></details>
+    <details><summary>サイト手数料率が自動で入るのはなぜ？</summary><div class="a">販売先を選ぶと、その販売先の目安手数料率（メルカリ10%・ヤフオク10%・ヤフーフリマ5%・楽天10%・Amazon8.4%）が未入力の場合だけ自動セットされます。実際の率が違う場合は手で書き換えてください。</div></details>
+    <details><summary>CSV取込でエラーが出る</summary><div class="a">ヘッダー行に「管理番号」列が必要です。まず一度「CSV出力」でファイルをダウンロードし、その形式（列の並び）に合わせて編集してから取り込んでください。</div></details>
+    <details><summary>「在庫引き」と「発送」はどちらを先にやるべき？</summary><div class="a">順番は問いませんが、<b>在庫引きは受注直後・発送を待たずにすぐ</b>行ってください。二重販売（他サイトでも同時に売れてしまうこと）を防ぐためです。発送は準備ができたタイミングで進めれば大丈夫です。</div></details>
+    <details><summary>Stripe決済リンクとは？</summary><div class="a">Stripeダッシュボードで商品ごとに作成した決済用URL（<code>https://buy.stripe.com/…</code>）を、ドロワーの「8 SHOP公開設定」に貼り付けます。8/shop の購入ボタンからこのリンク先で決済できます。</div></details>
+    <details><summary>粗利はどう計算されている？</summary><div class="a">粗利 ＝ 売上 − 仕入値 − 送料 − 手数料 − サイト手数料（売上×手数料率） − プラットフォーム利用料、で自動計算されます。月次集計の粗利合計もこの計算式の合計です。</div></details>
+  </div>
+
+  <div class="no-print" style="text-align:center;margin:10px 0 4px">
+    <a class="cta" href="./"><span class="material-icons-outlined" style="font-size:18px">inventory_2</span>EC在庫管理をひらく</a>
+  </div>
+
+</div></main>
+
+<footer>株式会社エイト｜事務ポータル・EC在庫管理 つかいかたガイド</footer>
+
+<script>
+let printPrevOpen=null;
+function printManual(){
+  const list=document.querySelectorAll('details');
+  printPrevOpen=Array.from(list).map(d=>d.open);
+  list.forEach(d=>d.open=true);
+  window.print();
+}
+window.addEventListener('afterprint',()=>{
+  if(!printPrevOpen)return;
+  const list=document.querySelectorAll('details');
+  list.forEach((d,i)=>d.open=printPrevOpen[i]);
+  printPrevOpen=null;
+});
+</script>
+</body>
+</html>
