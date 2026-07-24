@@ -21,17 +21,171 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="theme.css">
+<style>
+  /* ===== index.html ページ内スコープCSS（配色・トークンは theme.css を使用） ===== */
+  [id]{ scroll-margin-top: 84px; }
+
+  /* --- ヘッダー強化 --- */
+  .site-header{ transition: box-shadow .25s ease, background .25s ease; }
+  .site-header.scrolled{ background: rgba(255,253,249,.98); box-shadow: 0 6px 20px rgba(22,76,92,.10); }
+  .nav{ gap: 16px; }
+  .nav-links{ gap: 20px; }
+  .header-actions{ display: flex; align-items: center; gap: 14px; }
+  .header-tel{ display: flex; flex-direction: column; line-height: 1.15; text-decoration: none; }
+  .header-tel .tel-num{ display: flex; align-items: center; gap: 6px; color: var(--ink); font-size: 16px; font-weight: 900; letter-spacing: .01em; }
+  .header-tel .tel-num svg{ width: 15px; height: 15px; color: var(--teal); }
+  .header-tel .tel-note{ color: var(--ink-soft); font-size: 10.5px; font-weight: 700; }
+  .header-cta{ display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .header-cta .btn{ white-space: nowrap; }
+  .header-cta .cta-sub{ color: var(--coral); font-size: 10px; font-weight: 800; }
+  .menu-cta{ display: none; }
+  .nav-toggle{ display: none; width: 44px; height: 44px; padding: 0; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--white); cursor: pointer; }
+  .nav-toggle span{ display: block; width: 20px; height: 2px; border-radius: 2px; background: var(--ink); transition: transform .2s, opacity .2s; }
+  .site-header.nav-open .nav-toggle span:nth-child(1){ transform: translateY(6px) rotate(45deg); }
+  .site-header.nav-open .nav-toggle span:nth-child(2){ opacity: 0; }
+  .site-header.nav-open .nav-toggle span:nth-child(3){ transform: translateY(-6px) rotate(-45deg); }
+
+  /* --- ヒーロー補助 --- */
+  .hero-sub{ display: inline-flex; align-items: center; gap: 7px; margin: 14px 0 0; color: var(--coral); font-size: 13px; font-weight: 800; }
+  .hero-sub::before{ content: "◎"; }
+
+  /* --- 信頼バッジ帯 --- */
+  .trust-band{ padding: 20px 0; background: var(--white); border-bottom: 1px solid var(--line); }
+  .trust-grid{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .trust-badge{ display: flex; align-items: center; gap: 13px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 999px; background: var(--cyan-pale); }
+  .trust-badge .tb-ico{ flex: none; display: grid; width: 46px; height: 46px; place-items: center; border: 2px solid var(--teal); border-radius: 50%; background: var(--white); color: var(--teal-dark); box-shadow: 0 4px 10px rgba(0,136,176,.14); }
+  .trust-badge.coral .tb-ico{ border-color: var(--coral); color: #c8544a; box-shadow: 0 4px 10px rgba(255,127,114,.18); }
+  .trust-badge .tb-ico svg{ width: 23px; height: 23px; }
+  .trust-badge .tb-text{ display: flex; flex-direction: column; line-height: 1.15; }
+  .trust-badge .tb-num{ color: var(--ink); font-size: 22px; font-weight: 900; letter-spacing: -.02em; }
+  .trust-badge .tb-label{ color: var(--ink-soft); font-size: 11.5px; font-weight: 700; }
+
+  /* --- 選ばれる理由 --- */
+  .reason-grid{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin-top: 42px; }
+  .reason-card{ padding: 30px 24px 26px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--white); box-shadow: 0 8px 22px rgba(25,70,82,.055); }
+  .reason-card .reason-no{ display: inline-grid; width: 44px; height: 44px; margin-bottom: 15px; place-items: center; border-radius: 14px; background: linear-gradient(135deg, var(--teal), #12a3b9); color: #fff; font-size: 16px; font-weight: 900; }
+  .reason-card:nth-child(even) .reason-no{ background: linear-gradient(135deg, var(--coral), #ff9a8f); }
+  .reason-card h3{ font-size: 18px; }
+  .reason-card p{ margin: 0; color: var(--ink-soft); font-size: 14px; }
+
+  /* --- サービス（ポータル3領域） --- */
+  .svc-cat{ margin-top: 44px; }
+  .svc-cat-head{ display: flex; align-items: center; gap: 16px; padding-bottom: 14px; margin-bottom: 20px; border-bottom: 2px solid var(--line); }
+  .svc-cat-badge{ flex: none; display: inline-grid; place-items: center; min-width: 76px; padding: 8px 15px; border-radius: 999px; background: linear-gradient(135deg, var(--teal), #12a3b9); color: #fff; font-size: 13px; font-weight: 900; letter-spacing: .04em; }
+  .svc-cat-head h3{ margin: 0; font-size: 23px; }
+  .svc-cat-head p{ margin: 3px 0 0; color: var(--ink-soft); font-size: 14px; }
+  .portal-grid{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .portal-card{ display: flex; flex-direction: column; gap: 9px; padding: 26px 24px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--white); box-shadow: 0 8px 22px rgba(25,70,82,.055); color: inherit; text-decoration: none; transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
+  .portal-card:hover{ transform: translateY(-3px); border-color: #bfe0e7; box-shadow: var(--shadow); }
+  .portal-card h4{ margin: 4px 0 0; font-size: 18px; line-height: 1.5; }
+  .portal-card > p{ margin: 0; color: var(--ink-soft); font-size: 14px; flex: 1; }
+  .portal-more{ margin-top: 6px; color: var(--teal-dark); font-size: 13.5px; font-weight: 800; }
+  .portal-card:hover .portal-more{ color: var(--teal); }
+
+  /* --- 料金 --- */
+  .price-wrap{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 42px; }
+  .price-card{ display: flex; flex-direction: column; align-items: flex-start; gap: 11px; padding: 28px 26px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--white); box-shadow: 0 8px 22px rgba(25,70,82,.055); }
+  .price-card h3{ margin: 0; font-size: 20px; }
+  .price-card p{ margin: 0; color: var(--ink-soft); font-size: 14px; flex: 1; }
+  .price-card .price-tag{ padding: 7px 15px; border-radius: 999px; background: var(--teal-pale); color: var(--teal-dark); font-size: 13px; font-weight: 900; }
+  .price-cta{ margin-top: 34px; }
+  .price-cta .price-note{ margin: 14px 0 0; color: var(--ink-soft); font-size: 12px; text-align: center; }
+
+  /* --- 実績 --- */
+  .results-band{ margin-top: 40px; padding: 24px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--white); box-shadow: 0 8px 22px rgba(25,70,82,.055); }
+
+  /* --- FAQ（JS不要のdetails） --- */
+  .faq-list{ max-width: 860px; margin: 42px auto 0; display: grid; gap: 11px; }
+  details.qa{ border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--white); overflow: hidden; }
+  details.qa summary{ list-style: none; cursor: pointer; display: flex; gap: 14px; align-items: flex-start; padding: 20px 22px; font-weight: 800; font-size: 15.5px; }
+  details.qa summary::-webkit-details-marker{ display: none; }
+  details.qa .q{ flex: none; width: 28px; height: 28px; border-radius: 8px; background: var(--teal-pale); color: var(--teal-dark); display: grid; place-items: center; font-weight: 900; font-size: 14px; }
+  details.qa .plus{ margin-left: auto; flex: none; align-self: center; width: 20px; height: 20px; position: relative; transition: transform .2s; }
+  details.qa .plus::before, details.qa .plus::after{ content: ""; position: absolute; inset: 0; margin: auto; background: var(--ink-soft); }
+  details.qa .plus::before{ width: 12px; height: 2px; }
+  details.qa .plus::after{ width: 2px; height: 12px; }
+  details.qa[open] .plus{ transform: rotate(45deg); }
+  details.qa .body{ padding: 2px 22px 20px 64px; color: var(--ink-soft); font-size: 14px; }
+
+  /* --- 相談フォーム（Supabase方式） --- */
+  .lead-form{ display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 480px; padding: 20px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--white); box-shadow: var(--shadow); }
+  .lead-form .lf-row{ display: flex; gap: 12px; flex-wrap: wrap; }
+  .lead-form .lf-row > label{ flex: 1 1 45%; }
+  .lead-form label{ display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; font-weight: 700; color: var(--ink); }
+  .lead-form input, .lead-form select, .lead-form textarea{ padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 14px; font-family: inherit; background: var(--paper); color: var(--ink); }
+  .lead-form textarea{ resize: vertical; }
+  .lead-form .req{ color: var(--coral); font-size: 11px; margin-left: 5px; font-weight: 800; }
+  .lead-form button{ margin-top: 2px; border: none; cursor: pointer; }
+  .lead-form .lf-msg{ font-size: 13px; margin: 0; min-height: 18px; }
+  .lead-form .lf-msg.err{ color: var(--coral); font-weight: 700; }
+  .lead-form .lf-msg.ok{ color: var(--teal-dark); font-weight: 700; }
+  .lf-alt{ font-size: 12.5px; color: var(--ink-soft); margin: 11px 0 0; }
+  .lf-alt a{ color: var(--teal-dark); font-weight: 700; }
+
+  /* --- レスポンシブ --- */
+  @media (max-width: 940px){
+    .nav-toggle{ display: flex; }
+    .nav-links{
+      position: absolute; top: 100%; left: 0; right: 0;
+      display: none; flex-direction: column; align-items: stretch; gap: 0;
+      padding: 8px 0 12px; background: var(--white);
+      border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+    .site-header.nav-open .nav-links{ display: flex; }
+    .site-header.nav-open .nav-links > a:not(.btn){ display: block; padding: 13px 24px; font-size: 15px; border-bottom: 1px solid #eef4f5; }
+    .site-header.nav-open .menu-cta{ display: flex; margin: 12px 24px 4px; }
+    .header-tel .tel-note{ display: none; }
+    .header-cta .cta-sub{ display: none; }
+    .trust-grid{ grid-template-columns: repeat(2, 1fr); }
+    .reason-grid{ grid-template-columns: repeat(2, 1fr); }
+    .portal-grid{ grid-template-columns: repeat(2, 1fr); }
+    .price-wrap{ grid-template-columns: 1fr; }
+  }
+  @media (max-width: 640px){
+    .nav{ gap: 10px; }
+    .brand{ font-size: 16px; }
+    .header-actions{ gap: 8px; }
+    .header-actions .btn{ width: auto; }
+    .header-tel .tel-num .num{ display: none; }
+    .header-tel .tel-num{ width: 40px; height: 40px; justify-content: center; border: 1px solid var(--line); border-radius: 10px; }
+    .header-tel .tel-num svg{ width: 18px; height: 18px; }
+    .cta-x{ display: none; }
+    .trust-grid{ grid-template-columns: 1fr; gap: 10px; }
+    .trust-badge{ border-radius: 14px; }
+    .reason-grid{ grid-template-columns: 1fr; }
+    .portal-grid{ grid-template-columns: 1fr; }
+    .svc-cat-head{ flex-wrap: wrap; gap: 10px; }
+    details.qa summary{ font-size: 15px; }
+    details.qa .body{ padding-left: 22px; }
+  }
+</style>
 </head>
 <body>
-<header class="site-header">
+<header class="site-header" id="siteHeader">
     <div class="container nav">
       <a class="brand" href="#top" aria-label="株式会社エイト トップへ">株式会社エイト<small>EIGHT INC.</small></a>
-      <nav class="nav-links" aria-label="メインナビゲーション">
-        <a href="#problems">よくある課題</a>
-        <a href="#services">支援内容</a>
-        <a href="#flow">導入の流れ</a>
-        <a class="btn btn-primary btn-small" href="#contact">無料相談</a>
+      <nav class="nav-links" id="navLinks" aria-label="メインナビゲーション">
+        <a href="#reason">選ばれる理由</a>
+        <a href="#services">サービス</a>
+        <a href="#price">料金</a>
+        <a href="#results">実績</a>
+        <a href="#faq">よくある質問</a>
+        <a class="btn btn-primary btn-small menu-cta" href="#contact">無料相談・お見積り</a>
       </nav>
+      <div class="header-actions">
+        <a class="header-tel" href="tel:0364335025" aria-label="電話 03-6433-5025 平日9時から18時">
+          <span class="tel-num"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6.6 10.8a15.5 15.5 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.5.56 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1 11.4 11.4 0 0 0 .56 3.5 1 1 0 0 1-.25 1l-2.2 2.2Z"/></svg><span class="num">03-6433-5025</span></span>
+          <span class="tel-note">平日9:00-18:00</span>
+        </a>
+        <div class="header-cta">
+          <a class="btn btn-primary btn-small" href="#contact">無料相談<span class="cta-x">・お見積り</span></a>
+          <span class="cta-sub">見積無料・お気軽に</span>
+        </div>
+      </div>
+      <button class="nav-toggle" id="navToggle" type="button" aria-label="メニューを開閉" aria-expanded="false" aria-controls="navLinks">
+        <span></span><span></span><span></span>
+      </button>
     </div>
   </header>
 
@@ -39,13 +193,14 @@
     <section class="hero">
       <div class="container hero-grid">
         <div class="hero-copy">
-          <p class="eyebrow">DX・AI・IT総合支援</p>
-          <h1><span class="accent">DX</span>の課題、<br>整理から一緒に。</h1>
-          <p class="lead">「何を導入すべきか分からない」段階で大丈夫です。PCやインフラの整備からAI活用、システム開発、運用まで、バラバラなIT課題をひとつの計画にまとめます。</p>
+          <p class="eyebrow">情シスポータル｜社外のIT部門</p>
+          <h1>御社の<span class="accent">情シス</span>を、<br>まるごとおまかせ。</h1>
+          <p class="lead">PCの手配から日々のIT運用、AI活用・システム開発まで。社内に情シス担当がいなくても、散らばったIT課題をひとつの窓口でまとめてお任せいただけます。</p>
           <div class="hero-actions">
-            <a class="btn btn-primary" href="#diagnosis">2問で相談内容を整理 <span class="arrow">→</span></a>
-            <a class="btn btn-outline" href="#contact">30〜60分の無料相談</a>
+            <a class="btn btn-primary" href="#contact">無料相談・お見積り <span class="arrow">→</span></a>
+            <a class="btn btn-outline" href="#diagnosis">2問で相談内容を整理</a>
           </div>
+          <p class="hero-sub">見積無料・お気軽に｜相談・お見積りは無料です</p>
           <div class="micro-list" aria-label="相談の特徴">
             <span>要件が曖昧でもOK</span>
             <span>相談・見積もり無料</span>
@@ -53,25 +208,64 @@
           </div>
         </div>
         <div class="hero-visual">
-          <img src="assets/hero-dx.webp" alt="PC・クラウド・AI・サーバー・社内データの課題を、担当者とDXコンサルタントが一つの計画に整理しているイラスト" width="1200" height="900">
-          <div class="visual-note"><b>ひとつの窓口で</b><br>整理 → 設計 → 導入 → 運用</div>
+          <img src="assets/hero-dx.webp" alt="PC・クラウド・AI・サーバー・社内データの課題を、担当者とITコンサルタントが一つの計画に整理しているイラスト" width="1200" height="900">
+          <div class="visual-note"><b>ひとつの窓口で</b><br>そろえる → まかせる → つくる</div>
         </div>
       </div>
     </section>
 
-    <section class="stats" aria-label="株式会社エイトの実績">
+    <section class="trust-band" aria-label="株式会社エイトの信頼の実績">
       <div class="container">
-        <div class="stats-grid">
-          <div class="stat"><strong>20年以上</strong><span>IT事業の経験</span></div>
-          <div class="stat"><strong>250社＋</strong><span>累計支援企業数</span></div>
-          <div class="stat"><strong>98%</strong><span>継続契約率</span></div>
-          <div class="stat"><strong>40件＋</strong><span>DX伴走プロジェクト</span></div>
+        <div class="trust-grid">
+          <div class="trust-badge">
+            <span class="tb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><circle cx="12" cy="8" r="5"/><path d="M8.5 12.6 7 22l5-3 5 3-1.5-9.4"/></svg></span>
+            <span class="tb-text"><span class="tb-num">20年超</span><span class="tb-label">創業からのIT事業</span></span>
+          </div>
+          <div class="trust-badge coral">
+            <span class="tb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M3 21h18M5 21V7l7-4 7 4v14"/><path d="M9 21v-4h6v4M9 10h.01M15 10h.01M9 13.5h.01M15 13.5h.01"/></svg></span>
+            <span class="tb-text"><span class="tb-num">250社+</span><span class="tb-label">累計導入企業</span></span>
+          </div>
+          <div class="trust-badge">
+            <span class="tb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M4 12a8 8 0 0 1 13.4-5.9L20 8"/><path d="M20 3.5V8h-4.5"/><path d="M20 12a8 8 0 0 1-13.4 5.9L4 16"/><path d="M4 20.5V16h4.5"/></svg></span>
+            <span class="tb-text"><span class="tb-num">98%</span><span class="tb-label">継続契約率</span></span>
+          </div>
+          <div class="trust-badge coral">
+            <span class="tb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m4 12.5 5 5L20 6.5"/></svg></span>
+            <span class="tb-text"><span class="tb-num">40件+</span><span class="tb-label">DX伴走プロジェクト</span></span>
+          </div>
         </div>
-        <p class="stat-source">株式会社エイト公式サイト掲載実績（2026年7月確認）：
-          <a href="company.html">会社情報</a> /
-          <a href="company.html">導入実績</a> /
-          <a href="ai-dev.html">DX・AI支援</a>
-        </p>
+      </div>
+    </section>
+
+    <section id="reason" class="section section-soft">
+      <div class="container">
+        <div class="center">
+          <p class="eyebrow">Why Eight</p>
+          <h2>「社外の情シス」に、<br class="only-pc">エイトが選ばれる理由。</h2>
+          <p class="lead">コンサル・開発・IT保守を別々に探さなくても、ひとつの窓口で前に進められます。</p>
+        </div>
+        <div class="reason-grid">
+          <article class="reason-card">
+            <span class="reason-no">01</span>
+            <h3>PC・情シス・AI・開発をワンストップ</h3>
+            <p>「機材だけ」「AIだけ」で終わらせず、必要な範囲を1社に集約。窓口が分かれる手間とコストを減らせます。</p>
+          </article>
+          <article class="reason-card">
+            <span class="reason-no">02</span>
+            <h3>20年以上のIT実績で伴走</h3>
+            <p>現場の制約や既存環境を踏まえ、理想論ではなく実行できる進め方を組み立てます。</p>
+          </article>
+          <article class="reason-card">
+            <span class="reason-no">03</span>
+            <h3>小さく始めてコスト最適</h3>
+            <p>必要なものだけを組み合わせ、購入前の検証や段階的な導入も可能。過剰な投資を避けられます。</p>
+          </article>
+          <article class="reason-card">
+            <span class="reason-no">04</span>
+            <h3>課題整理から一緒に</h3>
+            <p>「何から始める？」の段階からご相談OK。優先順位・費用・体制・運用まで整理します。</p>
+          </article>
+        </div>
       </div>
     </section>
 
@@ -155,67 +349,88 @@
       <div class="container">
         <div class="center">
           <p class="eyebrow">Services</p>
-          <h2>5つの支援を、ひとつの窓口で。</h2>
-          <p class="lead">単体でも、複数の組み合わせでも。相談内容に合わせて必要な範囲だけをご提案します。</p>
+          <h2>情シスの仕事を、3つの領域でまるごと。</h2>
+          <p class="lead">「そろえる・まかせる・つくる」。単体でも、組み合わせでも。相談内容に合わせて必要な範囲だけをご提案します。</p>
         </div>
-        <div class="service-grid">
-          <article class="service-card">
+
+        <div class="svc-cat">
+          <div class="svc-cat-head">
+            <span class="svc-cat-badge">そろえる</span>
             <div>
-              <span class="service-no">01</span>
-              <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
+              <h3>機材</h3>
+              <p>必要なPC・機材を、必要なときに、必要なだけ。</p>
             </div>
-            <div>
-              <h3>レンタルパソコン</h3>
+          </div>
+          <div class="portal-grid">
+            <a class="portal-card" href="pc.html">
+              <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
+              <h4>PCレンタル</h4>
               <p>研修・イベント・代替機に。利用目的に合わせた端末をキッティングし、すぐ使える状態でお届けします。</p>
               <div class="service-meta"><span class="tag">短期利用</span><span class="tag">複数台</span><span class="tag">初期設定</span></div>
-            </div>
-          </article>
-          <article class="service-card">
+              <span class="portal-more">詳しく見る <span class="arrow">→</span></span>
+            </a>
+            <a class="portal-card" href="/shop/">
+              <div class="icon coral"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.4 12.3a1.5 1.5 0 0 0 1.5 1.2h8.2a1.5 1.5 0 0 0 1.5-1.2L21 7H6"/></svg></div>
+              <h4>中古PC・周辺機器販売</h4>
+              <p>整備済みの中古ノートPC・デスクトップ・カメラ・周辺機器を販売。まとまった台数のご相談も承ります。</p>
+              <div class="service-meta"><span class="tag">整備済み</span><span class="tag">法人対応</span><span class="tag">まとめ買い</span></div>
+              <span class="portal-more">詳しく見る <span class="arrow">→</span></span>
+            </a>
+            <a class="portal-card" href="/rental/">
+              <div class="icon pink"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M21 8 12 3 3 8v8l9 5 9-5V8Z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg></div>
+              <h4>機材レンタル</h4>
+              <p>PC以外の機材も。イベント・現場・短期プロジェクトに合わせて、必要な機材を手配します。</p>
+              <div class="service-meta"><span class="tag">短期</span><span class="tag">現場</span><span class="tag">スポット</span></div>
+              <span class="portal-more">詳しく見る <span class="arrow">→</span></span>
+            </a>
+          </div>
+        </div>
+
+        <div class="svc-cat">
+          <div class="svc-cat-head">
+            <span class="svc-cat-badge">まかせる</span>
             <div>
-              <span class="service-no">02</span>
-              <div class="icon coral"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3 4 7v5c0 5 3.4 8 8 9 4.6-1 8-4 8-9V7l-8-4Z"/><path d="m9 12 2 2 4-4"/></svg></div>
+              <h3>運用</h3>
+              <p>専任の情シスがいなくても、日々のIT運用を任せられる。</p>
             </div>
-            <div>
-              <h3>クラウド情シス</h3>
-              <p>専任担当者の代わりに、端末・アカウント・ネットワーク・セキュリティなど日々のIT運用を支援します。</p>
+          </div>
+          <div class="portal-grid">
+            <a class="portal-card" href="cloud.html">
+              <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3 4 7v5c0 5 3.4 8 8 9 4.6-1 8-4 8-9V7l-8-4Z"/><path d="m9 12 2 2 4-4"/></svg></div>
+              <h4>クラウド情シス</h4>
+              <p>専任担当者の代わりに、端末・アカウント・ネットワーク・セキュリティなど日々のIT運用と問い合わせ窓口を支援します。</p>
               <div class="service-meta"><span class="tag">運用代行</span><span class="tag">セキュリティ</span><span class="tag">問い合わせ窓口</span></div>
-            </div>
-          </article>
-          <article class="service-card">
+              <span class="portal-more">詳しく見る <span class="arrow">→</span></span>
+            </a>
+          </div>
+        </div>
+
+        <div class="svc-cat">
+          <div class="svc-cat-head">
+            <span class="svc-cat-badge">つくる</span>
             <div>
-              <span class="service-no">03</span>
-              <div class="icon pink"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 17.5V6.8c0-.9.7-1.6 1.6-1.6H18"/><path d="m7 14 3-3 2 2 6-6"/><path d="M14 7h4v4"/></svg></div>
+              <h3>開発</h3>
+              <p>AI・システムで、現場の業務をラクにする。</p>
             </div>
-            <div>
-              <h3>AI・業務システム開発</h3>
+          </div>
+          <div class="portal-grid">
+            <a class="portal-card" href="ai-dev.html">
+              <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 17.5V6.8c0-.9.7-1.6 1.6-1.6H18"/><path d="m7 14 3-3 2 2 6-6"/><path d="M14 7h4v4"/></svg></div>
+              <h4>AI・業務システム開発</h4>
               <p>業務整理、要件定義、プロトタイプ、本開発、運用改善まで。現場で使える仕組みに落とし込みます。</p>
               <div class="service-meta"><span class="tag">生成AI</span><span class="tag">RAG</span><span class="tag">業務システム</span></div>
-            </div>
-          </article>
-          <article class="service-card">
-            <div>
-              <span class="service-no">04</span>
+              <span class="portal-more">詳しく見る <span class="arrow">→</span></span>
+            </a>
+            <a class="portal-card" href="ai-dev.html">
               <div class="icon coral"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 5h16v5H4zM4 14h16v5H4z"/><path d="M7 7.5h.01M7 16.5h.01M16 7.5h2M16 16.5h2"/></svg></div>
-            </div>
-            <div>
-              <h3>AIサーバー レンタル・構築</h3>
-              <p>GPUサーバーやローカルLLMの検証環境を提供。機密性や費用対効果を見ながら段階的に導入できます。</p>
-              <div class="service-meta"><span class="tag">GPU</span><span class="tag">ローカルLLM</span><span class="tag">PoC</span></div>
-            </div>
-          </article>
-          <article class="service-card">
-            <div>
-              <span class="service-no">05</span>
-              <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="5" cy="12" r="2.5"/><circle cx="19" cy="6" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="m7.3 11 9.2-4M7.3 13l9.2 4"/></svg></div>
-            </div>
-            <div>
-              <h3>MCP・社内データ連携</h3>
-              <p>AIと社内ツール・データを安全に接続。アクセス権、監査ログ、運用ルールまで含め、PoCから本番まで設計します。</p>
-              <div class="service-meta"><span class="tag">MCP</span><span class="tag">SaaS連携</span><span class="tag">権限・監査</span></div>
-            </div>
-            <a class="btn btn-outline btn-small" href="#diagnosis">相談先を診断 <span class="arrow">→</span></a>
-          </article>
+              <h4>AIサーバー・MCP連携</h4>
+              <p>GPUサーバーやローカルLLMの検証環境から、AIと社内ツール・データを安全につなぐMCP連携まで。権限・監査も含めて設計します。</p>
+              <div class="service-meta"><span class="tag">GPU・ローカルLLM</span><span class="tag">MCP連携</span><span class="tag">権限・監査</span></div>
+              <span class="portal-more">詳しく見る <span class="arrow">→</span></span>
+            </a>
+          </div>
         </div>
+
         <p class="price-note">※費用は対象範囲・期間・台数・開発規模により異なります。無料相談後に目安をご案内します。</p>
       </div>
     </section>
@@ -263,29 +478,36 @@
       </div>
     </section>
 
-    <section class="section section-soft">
+    <section id="price" class="section section-soft">
       <div class="container">
         <div class="center">
-          <p class="eyebrow">Why Eight</p>
-          <h2>整理だけで終わらず、実装と運用まで。</h2>
-          <p class="lead">コンサルティング会社、開発会社、IT保守会社を別々に探す負担を減らし、同じ窓口で前へ進めます。</p>
+          <p class="eyebrow">Pricing</p>
+          <h2>料金は、必要な分だけ。</h2>
+          <p class="lead">対象範囲・期間・台数・開発規模によって変わるため、まずは無料でお見積りします。小さく始めて、必要に応じて広げられます。</p>
         </div>
-        <div class="why-grid">
-          <article class="why-card">
-            <span class="big-no">POINT 01</span>
-            <h3>20年以上のIT事業経験</h3>
-            <p>現場の制約や既存環境を踏まえ、理想論ではなく実行可能な進め方を組み立てます。</p>
-          </article>
-          <article class="why-card">
-            <span class="big-no">POINT 02</span>
-            <h3>構想と開発がつながる</h3>
-            <p>経営課題の整理から、要件定義、プロトタイプ、本開発まで分断せずに進められます。</p>
-          </article>
-          <article class="why-card">
-            <span class="big-no">POINT 03</span>
-            <h3>導入後も同じ窓口</h3>
-            <p>端末・インフラ・セキュリティ・システムの運用改善まで、状況に応じて継続支援します。</p>
-          </article>
+        <div class="price-wrap">
+          <div class="price-card">
+            <span class="svc-cat-badge">そろえる</span>
+            <h3>機材</h3>
+            <p>PCレンタル／中古販売／機材レンタル。台数・期間・用途に応じてお見積りします。</p>
+            <span class="price-tag">個別見積・無料相談</span>
+          </div>
+          <div class="price-card">
+            <span class="svc-cat-badge">まかせる</span>
+            <h3>運用</h3>
+            <p>クラウド情シス。支援範囲（端末・アカウント・セキュリティ等）に応じた月額制です。</p>
+            <span class="price-tag">個別見積・無料相談</span>
+          </div>
+          <div class="price-card">
+            <span class="svc-cat-badge">つくる</span>
+            <h3>開発</h3>
+            <p>AI・システム開発／サーバー・MCP連携。要件・規模に応じてPoCから段階的に進めます。</p>
+            <span class="price-tag">個別見積・無料相談</span>
+          </div>
+        </div>
+        <div class="price-cta center">
+          <a class="btn btn-primary" href="#contact">無料で見積りを依頼する <span class="arrow">→</span></a>
+          <p class="price-note">相談・お見積りは無料です。1〜2営業日以内にご連絡します。</p>
         </div>
       </div>
     </section>
@@ -322,6 +544,29 @@
       </div>
     </section>
 
+
+    <section id="results" class="section">
+      <div class="container">
+        <div class="center">
+          <p class="eyebrow">Track Record</p>
+          <h2>数字で見る、エイトの実績。</h2>
+          <p class="lead">20年以上IT事業に取り組み、規模や業種の異なる企業のIT・DXを支援してきました。</p>
+        </div>
+        <div class="results-band">
+          <div class="stats-grid">
+            <div class="stat"><strong>20年以上</strong><span>IT事業の経験</span></div>
+            <div class="stat"><strong>250社＋</strong><span>累計支援企業数</span></div>
+            <div class="stat"><strong>98%</strong><span>継続契約率</span></div>
+            <div class="stat"><strong>40件＋</strong><span>DX伴走プロジェクト</span></div>
+          </div>
+        </div>
+        <p class="stat-source">株式会社エイト公式サイト掲載実績（2026年7月確認）：
+          <a href="company.html">会社情報</a> /
+          <a href="company.html">導入実績</a> /
+          <a href="ai-dev.html">DX・AI支援</a>
+        </p>
+      </div>
+    </section>
 
     <section id="products" class="section section-soft">
       <div class="container">
@@ -487,20 +732,91 @@
       </div>
     </section>
 
+    <section id="faq" class="section section-soft">
+      <div class="container">
+        <div class="center">
+          <p class="eyebrow">FAQ</p>
+          <h2>よくあるご質問</h2>
+          <p class="lead">ここに載っていないことも、お気軽にお問い合わせください。</p>
+        </div>
+        <div class="faq-list">
+          <details class="qa" open>
+            <summary><span class="q">Q</span><span>レンタルは最短どれくらいで手配できますか？</span><span class="plus" aria-hidden="true"></span></summary>
+            <div class="body">最短1日からご利用いただけます。在庫状況により、午前中のご注文で当日発送できる場合もあります。展示会・イベント・故障時の代替機など、短期のご利用も承ります。</div>
+          </details>
+          <details class="qa">
+            <summary><span class="q">Q</span><span>最低何台から頼めますか？</span><span class="plus" aria-hidden="true"></span></summary>
+            <div class="body">1台からご依頼いただけます。大量導入（100台以上）にも対応し、会場やオフィスへの直送・回収まで一貫してサポートします。</div>
+          </details>
+          <details class="qa">
+            <summary><span class="q">Q</span><span>情シスの支援はどこまで任せられますか？</span><span class="plus" aria-hidden="true"></span></summary>
+            <div class="body">端末・アカウント・ネットワーク・セキュリティといった日々のIT運用や、社員からの問い合わせ窓口まで対応します。社内に残す業務と外部へ任せる業務を整理したうえで、必要な範囲だけをご提案します。</div>
+          </details>
+          <details class="qa">
+            <summary><span class="q">Q</span><span>AIの導入は初めてでも相談できますか？</span><span class="plus" aria-hidden="true"></span></summary>
+            <div class="body">はい。「何から始めればよいか分からない」段階からご相談いただけます。業務課題の整理から、PoC（試験導入）・段階的な本導入まで、費用対効果を見ながら進めます。</div>
+          </details>
+          <details class="qa">
+            <summary><span class="q">Q</span><span>法人の請求書払いには対応していますか？</span><span class="plus" aria-hidden="true"></span></summary>
+            <div class="body">対応しています。月末締め・翌月末払いが標準ですが、貴社の規定に合わせて調整可能です。与信審査後、電子契約または書面でご契約いたします。</div>
+          </details>
+          <details class="qa">
+            <summary><span class="q">Q</span><span>相談・見積もりは無料ですか？</span><span class="plus" aria-hidden="true"></span></summary>
+            <div class="body">無料です。30〜60分のオンライン面談で現状を伺い、着手すべき優先順位とお見積りをご案内します。ご連絡は1〜2営業日以内に差し上げます。</div>
+          </details>
+        </div>
+      </div>
+    </section>
+
     <section id="contact" class="contact">
       <div class="container contact-box">
         <div>
           <p class="eyebrow">Free Consultation</p>
           <h2>まだ整理できていない課題ほど、<br class="only-pc">早めにご相談ください。</h2>
-          <p>30〜60分のオンライン面談で、今どこから着手すべきかを一緒に整理します。相談・見積もりは無料です。</p>
+          <p>30〜60分のオンライン面談で、今どこから着手すべきかを一緒に整理します。相談・お見積りは無料です。1〜2営業日以内にご連絡します。</p>
           <div class="contact-meta">
             <span>電話：03-6433-5025（平日9:00〜18:00）</span>
             <span>メール：contact@8grp.co.jp</span>
           </div>
         </div>
         <div class="contact-actions">
-          <a class="btn btn-primary" href="mailto:contact@8grp.co.jp?subject=DX・AI・IT支援の無料相談">無料相談フォームへ <span class="arrow">→</span></a>
-          <a class="btn btn-outline" href="mailto:contact@8grp.co.jp?subject=DX・AI・IT支援についての相談">メールで相談する</a>
+          <form id="topContactForm" class="lead-form" novalidate aria-label="無料相談・お見積りフォーム">
+            <div class="lf-row">
+              <label>お名前<span class="req">必須</span><input name="name" autocomplete="name" required></label>
+              <label>会社名<input name="company" autocomplete="organization"></label>
+            </div>
+            <div class="lf-row">
+              <label>メール<input type="email" name="email" autocomplete="email"></label>
+              <label>電話<input name="phone" autocomplete="tel" inputmode="tel"></label>
+            </div>
+            <label>ご相談種別<select name="inquiry_type"><option>お見積もり</option><option>ご相談</option><option>その他</option></select></label>
+            <label>内容<textarea name="message" rows="4" placeholder="ご相談内容（PCレンタル／情シス／AI・開発など）をご記入ください"></textarea></label>
+            <button type="submit" class="btn btn-primary">送信する <span class="arrow">→</span></button>
+            <p class="lf-msg" id="topContactMsg" role="status" aria-live="polite"></p>
+          </form>
+          <p class="lf-alt">またはメール <a href="mailto:contact@8grp.co.jp?subject=無料相談・お見積り">contact@8grp.co.jp</a> ／ 電話 <a href="tel:0364335025">03-6433-5025</a></p>
+          <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+          <script>
+          (function(){
+            var form=document.getElementById('topContactForm');
+            if(!form||!window.supabase)return;
+            var sb=window.supabase.createClient("https://htglvascsuqkixpmclwr.supabase.co","sb_publishable_yZCcrwdqjuf0u_5WBWlHIw_AxdvteEV");
+            var msg=document.getElementById('topContactMsg');
+            form.addEventListener('submit',async function(e){
+              e.preventDefault();
+              var f=new FormData(form), name=(f.get('name')||'').trim();
+              if(!name){msg.textContent='お名前を入力してください';msg.className='lf-msg err';return;}
+              var btn=form.querySelector('button[type=submit]');
+              btn.disabled=true;msg.textContent='送信中…';msg.className='lf-msg';
+              try{
+                var res=await sb.rpc('contact_public_submit',{p_source:'top',p_name:name,p_company:f.get('company')||null,p_email:f.get('email')||null,p_phone:f.get('phone')||null,p_message:f.get('message')||null,p_inquiry_type:f.get('inquiry_type')||null});
+                if(res.error)throw res.error;
+                form.reset();msg.textContent='送信しました。1〜2営業日以内にご連絡します。';msg.className='lf-msg ok';
+              }catch(err){msg.textContent='送信に失敗しました。お手数ですがメール・お電話でご連絡ください。';msg.className='lf-msg err';}
+              btn.disabled=false;
+            });
+          })();
+          </script>
         </div>
       </div>
     </section>
@@ -566,6 +882,31 @@
         question1.querySelector('button').focus();
       });
     })();
+  </script>
+
+  <script>
+  (function(){
+    var header=document.getElementById('siteHeader');
+    var toggle=document.getElementById('navToggle');
+    var nav=document.getElementById('navLinks');
+    if(header&&toggle&&nav){
+      toggle.addEventListener('click',function(){
+        var open=header.classList.toggle('nav-open');
+        toggle.setAttribute('aria-expanded',open?'true':'false');
+      });
+      nav.addEventListener('click',function(e){
+        if(e.target.closest('a')){header.classList.remove('nav-open');toggle.setAttribute('aria-expanded','false');}
+      });
+      document.addEventListener('keydown',function(e){
+        if(e.key==='Escape'&&header.classList.contains('nav-open')){header.classList.remove('nav-open');toggle.setAttribute('aria-expanded','false');}
+      });
+    }
+    if(header){
+      var onScroll=function(){ header.classList.toggle('scrolled', window.scrollY>8); };
+      onScroll();
+      window.addEventListener('scroll',onScroll,{passive:true});
+    }
+  })();
   </script>
 
 </body>
