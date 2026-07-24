@@ -7,16 +7,15 @@
 <meta name="robots" content="noindex, nofollow">
 <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800&display=swap" rel="stylesheet">
 <style>
   :root{
-    --navy:#0f1a36; --navy2:#1a2540; --navy3:#2c3e6b;
-    --gold:#ffd700; --gold2:#ffb347;
-    --bg:#f7f8fc; --panel:#fff; --line:#e3e7f0;
-    --text:#1a2540; --mute:#6b7593; --blue:#4a6bd6; --blue2:#3a55b8;
-    --green:#2e9d4a; --red:#d63a3a; --amber:#e8a13a; --purple:#7d6be8; --gray:#aab4c8;
+    --navy:#123240; --navy2:#0e2a38; --gold:#0088b0; --gold2:#ff7f72;
+    --bg:#f4fbfc; --panel:#fff; --line:#d9e7ea; --text:#122c3c; --mute:#47616e;
+    --blue:#0088b0; --blue2:#006c88; --green:#2e9d4a; --red:#d63a3a; --amber:#c98a1e; --purple:#7d6be8; --gray:#8aa0aa;
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:-apple-system,"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;background:var(--bg);color:var(--text);line-height:1.85}
+  body{font-family:"Noto Sans JP",-apple-system,"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;background:var(--bg);color:var(--text);line-height:1.85}
   .material-icons-outlined{vertical-align:middle;line-height:1}
   a{color:inherit;text-decoration:none}
   .wrap{max-width:1080px;margin:0 auto;padding:0 20px}
@@ -30,7 +29,7 @@
   .topbar a.btn.gold{background:linear-gradient(135deg,var(--gold),var(--gold2));color:var(--navy2);border-color:transparent;font-weight:700}
   .topbar button.btn:hover{background:rgba(255,255,255,.22)}
 
-  .hero{background:radial-gradient(circle at 88% 10%,rgba(255,215,0,.18),transparent 34%),linear-gradient(135deg,#fff,#eef4ff 60%,#f9fbff);border-bottom:1px solid var(--line);padding:30px 0}
+  .hero{background:radial-gradient(circle at 88% 10%,rgba(0,136,176,.18),transparent 34%),linear-gradient(135deg,#fff,#eef4ff 60%,#f9fbff);border-bottom:1px solid var(--line);padding:30px 0}
   .hero .inner{display:grid;grid-template-columns:1fr 320px;gap:26px;align-items:center;max-width:1080px;margin:0 auto;padding:0 20px}
   .hero .eyebrow{font-size:12px;font-weight:800;color:var(--blue2);letter-spacing:.08em;display:inline-flex;align-items:center;gap:6px;background:#eaf0fd;padding:5px 11px;border-radius:20px}
   .hero h1{font-size:clamp(24px,3.4vw,34px);color:var(--navy);margin-top:12px;line-height:1.35}
@@ -59,7 +58,7 @@
   .tip.red{background:#fdeeee;border-color:#f2cfca;color:#8a2b20}
   .tip.red .material-icons-outlined{color:var(--red)}
 
-  .band{background:linear-gradient(135deg,#0f1a36,#22345f);color:#fff;border-radius:22px;padding:28px 24px;margin-bottom:20px}
+  .band{background:linear-gradient(135deg,#122c3c,#22345f);color:#fff;border-radius:22px;padding:28px 24px;margin-bottom:20px}
   .band h2{font-size:21px;display:flex;align-items:center;gap:10px;margin-bottom:4px}
   .band h2 .material-icons-outlined{color:var(--gold)}
   .band p{font-size:13.5px;color:#c8d3ec}
@@ -129,7 +128,7 @@
     <svg viewBox="0 0 320 210" role="img" aria-label="EC在庫管理のイメージ">
       <rect width="320" height="210" rx="16" fill="#eef4ff"/>
       <rect x="24" y="30" width="130" height="150" rx="12" fill="#fff" stroke="#d7e0f4"/>
-      <rect x="40" y="48" width="98" height="12" rx="6" fill="#4a6bd6"/>
+      <rect x="40" y="48" width="98" height="12" rx="6" fill="#0088b0"/>
       <rect x="40" y="72" width="70" height="9" rx="4.5" fill="#c3cee6"/>
       <rect x="40" y="90" width="84" height="9" rx="4.5" fill="#c3cee6"/>
       <rect x="40" y="112" width="60" height="46" rx="6" fill="#f5f8ff" stroke="#dbe5fb"/>
@@ -137,9 +136,9 @@
       <rect x="50" y="134" width="30" height="8" rx="2" fill="#aab4c8"/>
       <rect x="50" y="146" width="24" height="8" rx="2" fill="#aab4c8"/>
       <rect x="172" y="30" width="120" height="66" rx="12" fill="#fff" stroke="#d7e0f4"/>
-      <text x="184" y="50" font-size="11" font-weight="800" fill="#1a2540">出品状況</text>
+      <text x="184" y="50" font-size="11" font-weight="800" fill="#123240">出品状況</text>
       <rect x="184" y="58" width="34" height="16" rx="8" fill="#e7f6ec"/><text x="201" y="70" text-anchor="middle" font-size="9" font-weight="700" fill="#1f7a44">メルカリ</text>
-      <rect x="222" y="58" width="34" height="16" rx="8" fill="#eef2fb"/><text x="239" y="70" text-anchor="middle" font-size="9" font-weight="700" fill="#3a55b8">ヤフオク</text>
+      <rect x="222" y="58" width="34" height="16" rx="8" fill="#eef2fb"/><text x="239" y="70" text-anchor="middle" font-size="9" font-weight="700" fill="#006c88">ヤフオク</text>
       <rect x="184" y="78" width="34" height="16" rx="8" fill="#fdeeee"/><text x="201" y="90" text-anchor="middle" font-size="9" font-weight="700" fill="#b02a2a">楽天</text>
       <rect x="172" y="108" width="120" height="72" rx="12" fill="#eaf6ee" stroke="#bfe6cb"/>
       <circle cx="196" cy="140" r="16" fill="#2e9d4a"/><path d="M189 140 l5 5 l9 -11" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
@@ -161,28 +160,28 @@
         <line x1="70" y1="55" x2="910" y2="55" stroke="rgba(255,255,255,.28)" stroke-width="3" stroke-dasharray="6 7"/>
         <g font-family="-apple-system,sans-serif">
           <!-- 1 登録 -->
-          <circle cx="70" cy="55" r="30" fill="#22345f" stroke="#ffd700" stroke-width="2"/>
+          <circle cx="70" cy="55" r="30" fill="#22345f" stroke="#0088b0" stroke-width="2"/>
           <g transform="translate(58,43)" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="9"/><path d="M12 8 v8 M8 12 h8"/>
           </g>
           <text x="70" y="112" text-anchor="middle" font-size="13" font-weight="800" fill="#fff">①商品を登録</text>
           <text x="70" y="130" text-anchor="middle" font-size="11" fill="#c8d3ec">仕入値・管理番号</text>
           <!-- 2 出品 -->
-          <circle cx="280" cy="55" r="30" fill="#22345f" stroke="#ffd700" stroke-width="2"/>
+          <circle cx="280" cy="55" r="30" fill="#22345f" stroke="#0088b0" stroke-width="2"/>
           <g transform="translate(268,43)" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M4 10 l3 -7 h10 l3 7 z"/><rect x="6" y="10" width="12" height="9" rx="1"/>
           </g>
           <text x="280" y="112" text-anchor="middle" font-size="13" font-weight="800" fill="#fff">②出品する</text>
           <text x="280" y="130" text-anchor="middle" font-size="11" fill="#c8d3ec">メルカリ・ヤフオク等</text>
           <!-- 3 売れた -->
-          <circle cx="490" cy="55" r="30" fill="#22345f" stroke="#ffd700" stroke-width="2"/>
+          <circle cx="490" cy="55" r="30" fill="#22345f" stroke="#0088b0" stroke-width="2"/>
           <g transform="translate(478,43)" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="9"/><path d="M8 12 l3 3 l6 -6"/>
           </g>
           <text x="490" y="112" text-anchor="middle" font-size="13" font-weight="800" fill="#fff">③売れたボタン</text>
           <text x="490" y="130" text-anchor="middle" font-size="11" fill="#c8d3ec">受注情報を登録</text>
           <!-- 4 在庫引き・発送 -->
-          <circle cx="700" cy="55" r="30" fill="#22345f" stroke="#ffd700" stroke-width="2"/>
+          <circle cx="700" cy="55" r="30" fill="#22345f" stroke="#0088b0" stroke-width="2"/>
           <g transform="translate(686,42)" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="2" y="6" width="14" height="12" rx="2"/><path d="M16 10 h7 l4 4 v4 h-11 z"/><circle cx="8" cy="20" r="2.4"/><circle cx="22" cy="20" r="2.4"/>
           </g>
@@ -222,16 +221,16 @@
         <g transform="translate(43,32)" fill="none" stroke="#2e9d4a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21 v-9 M8 15 l4 -4 l4 4"/><path d="M20 16 v3 a2 2 0 0 1 -2 2 H6 a2 2 0 0 1 -2 -2 v-3"/></g>
         <text x="55" y="82" text-anchor="middle" font-size="10" font-weight="700" fill="#1f7a44">仕入CSV</text>
         <path d="M96 43 L128 43" stroke="#c3cee6" stroke-width="2" stroke-dasharray="4 4" marker-end="url(#a1)"/>
-        <defs><marker id="a1" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#4a6bd6"/></marker></defs>
+        <defs><marker id="a1" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#0088b0"/></marker></defs>
         <rect x="134" y="18" width="146" height="50" rx="8" fill="#fff" stroke="#dbe5fb"/>
-        <text x="144" y="34" font-size="10" font-weight="800" fill="#1a2540">20260714-6579-1</text>
+        <text x="144" y="34" font-size="10" font-weight="800" fill="#123240">20260714-6579-1</text>
         <text x="144" y="48" font-size="9" fill="#41506e">DELL 3070MFF ／ 仕入 ¥16,533</text>
         <text x="144" y="60" font-size="9" fill="#1f7a44">参考売値 ¥25,000（仕入×1.5）</text>
         <rect x="20" y="82" width="260" height="52" rx="8" fill="#eef4ff" stroke="#c9d6f5"/>
-        <text x="30" y="100" font-size="10" font-weight="800" fill="#3a55b8">出品先を選択して「出品済みにする」</text>
+        <text x="30" y="100" font-size="10" font-weight="800" fill="#006c88">出品先を選択して「出品済みにする」</text>
         <g font-family="-apple-system,sans-serif" font-size="9" font-weight="700">
-          <rect x="30" y="108" width="52" height="18" rx="9" fill="#fff" stroke="#c9d6f5"/><text x="56" y="120" text-anchor="middle" fill="#3a55b8">☑メルカリ</text>
-          <rect x="88" y="108" width="46" height="18" rx="9" fill="#fff" stroke="#c9d6f5"/><text x="111" y="120" text-anchor="middle" fill="#3a55b8">☑楽天</text>
+          <rect x="30" y="108" width="52" height="18" rx="9" fill="#fff" stroke="#c9d6f5"/><text x="56" y="120" text-anchor="middle" fill="#006c88">☑メルカリ</text>
+          <rect x="88" y="108" width="46" height="18" rx="9" fill="#fff" stroke="#c9d6f5"/><text x="111" y="120" text-anchor="middle" fill="#006c88">☑楽天</text>
           <rect x="188" y="108" width="82" height="18" rx="9" fill="#2e9d4a"/><text x="229" y="120" text-anchor="middle" fill="#fff">出品済みにする</text>
         </g>
       </svg>
@@ -252,12 +251,12 @@
     <div class="art">
       <svg viewBox="0 0 300 120" aria-label="型番で相場検索のイラスト">
         <rect width="300" height="120" rx="12" fill="#fff" stroke="#e4ecfb"/>
-        <text x="20" y="30" font-size="11" font-weight="800" fill="#1a2540">型番「3070MFF」の相場を見る →</text>
+        <text x="20" y="30" font-size="11" font-weight="800" fill="#123240">型番「3070MFF」の相場を見る →</text>
         <g font-family="-apple-system,sans-serif" font-size="10" font-weight="700">
-          <rect x="20" y="42" width="60" height="20" rx="10" fill="#eef2ff" stroke="#d8e2fb"/><text x="50" y="56" text-anchor="middle" fill="#3a55b8">メルカリ</text>
-          <rect x="86" y="42" width="58" height="20" rx="10" fill="#eef2ff" stroke="#d8e2fb"/><text x="115" y="56" text-anchor="middle" fill="#3a55b8">ヤフオク</text>
-          <rect x="150" y="42" width="44" height="20" rx="10" fill="#eef2ff" stroke="#d8e2fb"/><text x="172" y="56" text-anchor="middle" fill="#3a55b8">楽天</text>
-          <rect x="200" y="42" width="54" height="20" rx="10" fill="#eef2ff" stroke="#d8e2fb"/><text x="227" y="56" text-anchor="middle" fill="#3a55b8">Amazon</text>
+          <rect x="20" y="42" width="60" height="20" rx="10" fill="#eef2ff" stroke="#d8e2fb"/><text x="50" y="56" text-anchor="middle" fill="#006c88">メルカリ</text>
+          <rect x="86" y="42" width="58" height="20" rx="10" fill="#eef2ff" stroke="#d8e2fb"/><text x="115" y="56" text-anchor="middle" fill="#006c88">ヤフオク</text>
+          <rect x="150" y="42" width="44" height="20" rx="10" fill="#eef2ff" stroke="#d8e2fb"/><text x="172" y="56" text-anchor="middle" fill="#006c88">楽天</text>
+          <rect x="200" y="42" width="54" height="20" rx="10" fill="#eef2ff" stroke="#d8e2fb"/><text x="227" y="56" text-anchor="middle" fill="#006c88">Amazon</text>
         </g>
         <rect x="20" y="76" width="260" height="28" rx="7" fill="#f5f8ff" stroke="#dbe5fb"/>
         <text x="30" y="94" font-size="10" fill="#41506e">クリック → 楽天でその型番が検索された状態で開く</text>
@@ -283,10 +282,10 @@
         <rect width="300" height="130" rx="12" fill="#fff" stroke="#e4ecfb"/>
         <text x="20" y="28" font-size="11" font-weight="800" fill="#6b7593">商品情報</text>
         <rect x="20" y="36" width="120" height="20" rx="6" fill="#f5f8ff" stroke="#dbe5fb"/><text x="28" y="50" font-size="10" fill="#41506e">管理番号 L06090410-396</text>
-        <rect x="150" y="36" width="60" height="20" rx="6" fill="#eaf0fd"/><text x="180" y="50" text-anchor="middle" font-size="10" fill="#3a55b8">NTPC</text>
+        <rect x="150" y="36" width="60" height="20" rx="6" fill="#eaf0fd"/><text x="180" y="50" text-anchor="middle" font-size="10" fill="#006c88">NTPC</text>
         <rect x="20" y="64" width="80" height="20" rx="6" fill="#f5f8ff" stroke="#dbe5fb"/><text x="28" y="78" font-size="10" fill="#41506e">仕入日</text>
         <rect x="108" y="64" width="80" height="20" rx="6" fill="#f5f8ff" stroke="#dbe5fb"/><text x="116" y="78" font-size="10" fill="#41506e">仕入値 ¥20,000</text>
-        <rect x="20" y="92" width="80" height="24" rx="8" fill="#4a6bd6"/><text x="60" y="108" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">追加する</text>
+        <rect x="20" y="92" width="80" height="24" rx="8" fill="#0088b0"/><text x="60" y="108" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">追加する</text>
       </svg>
     </div>
   </div></div>
@@ -305,7 +304,7 @@
     <div class="art">
       <svg viewBox="0 0 300 120" aria-label="出品チップのイラスト">
         <rect width="300" height="120" rx="12" fill="#f7faff" stroke="#dbe5fb"/>
-        <text x="20" y="28" font-size="11" font-weight="800" fill="#1a2540">L06090410-396</text>
+        <text x="20" y="28" font-size="11" font-weight="800" fill="#123240">L06090410-396</text>
         <g font-family="-apple-system,sans-serif" font-size="10" font-weight="700">
           <rect x="20" y="40" width="60" height="20" rx="10" fill="#e7f6ec"/><text x="50" y="53" text-anchor="middle" fill="#1f7a44">メルカリ</text>
           <rect x="86" y="40" width="60" height="20" rx="10" fill="#fdeeee"/><text x="116" y="53" text-anchor="middle" fill="#b02a2a">ヤフオク</text>
@@ -332,10 +331,10 @@
       <svg viewBox="0 0 300 130" aria-label="売れたボタンのイラスト">
         <rect width="300" height="130" rx="12" fill="#fff" stroke="#e4ecfb"/>
         <rect x="20" y="20" width="260" height="28" rx="8" fill="#f5f8ff" stroke="#dbe5fb"/>
-        <text x="30" y="38" font-size="11" fill="#1a2540">L06090410-396 / NTPC</text>
+        <text x="30" y="38" font-size="11" fill="#123240">L06090410-396 / NTPC</text>
         <rect x="210" y="26" width="58" height="18" rx="9" fill="#2e9d4a"/><text x="239" y="39" text-anchor="middle" font-size="10" font-weight="800" fill="#fff">売れた</text>
-        <path d="M150 55 L150 68" stroke="#4a6bd6" stroke-width="2" marker-end="url(#ar3)"/>
-        <defs><marker id="ar3" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#4a6bd6"/></marker></defs>
+        <path d="M150 55 L150 68" stroke="#0088b0" stroke-width="2" marker-end="url(#ar3)"/>
+        <defs><marker id="ar3" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#0088b0"/></marker></defs>
         <rect x="30" y="74" width="240" height="46" rx="10" fill="#eaf6ee" stroke="#bfe6cb"/>
         <text x="42" y="90" font-size="10" font-weight="800" fill="#1f7a44">販売日時 / 売上 / 販売先</text>
         <text x="42" y="105" font-size="10" fill="#3f8a5c">購入者・電話番号・発送先住所</text>
@@ -360,10 +359,10 @@
         <rect width="300" height="140" rx="12" fill="#fdeeee" stroke="#f2cfca"/>
         <text x="20" y="28" font-size="11" font-weight="800" fill="#b02a2a">在庫引き待ちの商品</text>
         <rect x="20" y="38" width="260" height="34" rx="8" fill="#fff" stroke="#f2cfca"/>
-        <text x="30" y="58" font-size="11" font-weight="800" fill="#1a2540">L06090410-396</text>
+        <text x="30" y="58" font-size="11" font-weight="800" fill="#123240">L06090410-396</text>
         <rect x="150" y="45" width="120" height="20" rx="10" fill="#d63a3a"/><text x="210" y="59" text-anchor="middle" font-size="10" font-weight="800" fill="#fff">ヤフオクを取下げ→済</text>
         <rect x="20" y="80" width="260" height="34" rx="8" fill="#fff" stroke="#f2cfca"/>
-        <text x="30" y="100" font-size="11" font-weight="800" fill="#1a2540">L06090411-402</text>
+        <text x="30" y="100" font-size="11" font-weight="800" fill="#123240">L06090411-402</text>
         <rect x="150" y="87" width="120" height="20" rx="10" fill="#aab4c8"/><text x="210" y="101" text-anchor="middle" font-size="10" font-weight="800" fill="#fff">対応済み</text>
       </svg>
     </div>
@@ -398,7 +397,7 @@
     <div class="lg"><div class="t"><span class="dot" style="background:#d63a3a"></span>在庫引き</div><div class="d">他サイトの出品がまだ残っている、対応が必要な商品</div></div>
     <div class="lg"><div class="t"><span class="dot" style="background:#2e9d4a"></span>販売済み一覧</div><div class="d">発送・在庫引きの<strong>両方が完了</strong>した商品</div></div>
     <div class="lg"><div class="t"><span class="dot" style="background:#c0392b"></span>返品・クレーム</div><div class="d">返品・クレームを記録した商品。未対応件数も表示</div></div>
-    <div class="lg"><div class="t"><span class="dot" style="background:#0f1a36"></span>全在庫一覧</div><div class="d">まだ売れていない在庫。仕入額の合計も表示</div></div>
+    <div class="lg"><div class="t"><span class="dot" style="background:#122c3c"></span>全在庫一覧</div><div class="d">まだ売れていない在庫。仕入額の合計も表示</div></div>
   </div>
   <div class="tip" style="margin-bottom:20px"><span class="material-icons-outlined">schedule</span>「全在庫一覧」表示中は、上に<strong>仕入からの経過期間タブ（3ヶ月・6ヶ月・1年以上）</strong>が出ます。長期在庫は値下げや出品先の見直しの目安に使えます。</div>
 
@@ -437,7 +436,7 @@
       <svg viewBox="0 0 300 120" aria-label="8 SHOP公開設定のイラスト">
         <rect width="300" height="120" rx="12" fill="#f5f8ff" stroke="#dbe5fb"/>
         <rect x="20" y="24" width="16" height="16" rx="4" fill="#2e9d4a"/><path d="M23 32 l3 3 l6 -6" stroke="#fff" stroke-width="2" fill="none"/>
-        <text x="44" y="36" font-size="11" font-weight="800" fill="#1a2540">8/shop に公開する</text>
+        <text x="44" y="36" font-size="11" font-weight="800" fill="#123240">8/shop に公開する</text>
         <rect x="20" y="50" width="260" height="16" rx="5" fill="#fff" stroke="#dbe5fb"/><text x="28" y="62" font-size="9" fill="#6b7593">ショップ表示名</text>
         <rect x="20" y="70" width="126" height="16" rx="5" fill="#fff" stroke="#dbe5fb"/><text x="28" y="82" font-size="9" fill="#6b7593">販売価格 ¥28,000</text>
         <rect x="154" y="70" width="126" height="16" rx="5" fill="#fff" stroke="#dbe5fb"/><text x="162" y="82" font-size="9" fill="#6b7593">Stripe決済リンク</text>
@@ -463,11 +462,11 @@
         <g transform="translate(53,52)" fill="none" stroke="#2e9d4a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21 v-9 M8 15 l4 -4 l4 4"/><path d="M20 16 v3 a2 2 0 0 1 -2 2 H6 a2 2 0 0 1 -2 -2 v-3"/></g>
         <text x="65" y="112" text-anchor="middle" font-size="11" font-weight="700" fill="#1f7a44">取り込み</text>
         <path d="M112 65 L150 65" stroke="#c3cee6" stroke-width="2" stroke-dasharray="4 4"/>
-        <rect x="150" y="46" width="40" height="38" rx="6" fill="#4a6bd6"/><g transform="translate(160,55)" fill="none" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"><rect x="2" y="3" width="16" height="14" rx="2"/><line x1="2" y1="8" x2="18" y2="8"/><line x1="9" y1="8" x2="9" y2="17"/></g>
+        <rect x="150" y="46" width="40" height="38" rx="6" fill="#0088b0"/><g transform="translate(160,55)" fill="none" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"><rect x="2" y="3" width="16" height="14" rx="2"/><line x1="2" y1="8" x2="18" y2="8"/><line x1="9" y1="8" x2="9" y2="17"/></g>
         <path d="M200 65 L238 65" stroke="#c3cee6" stroke-width="2" stroke-dasharray="4 4"/>
         <rect x="200" y="34" width="70" height="62" rx="8" fill="#eaf0fd" stroke="#c9d6f5"/>
-        <g transform="translate(223,52)" fill="none" stroke="#3a55b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 v11 M8 10 l4 4 l4 -4"/><path d="M4 18 v1 a2 2 0 0 0 2 2 h12 a2 2 0 0 0 2 -2 v-1"/></g>
-        <text x="235" y="112" text-anchor="middle" font-size="11" font-weight="700" fill="#3a55b8">書き出し</text>
+        <g transform="translate(223,52)" fill="none" stroke="#006c88" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 v11 M8 10 l4 4 l4 -4"/><path d="M4 18 v1 a2 2 0 0 0 2 2 h12 a2 2 0 0 0 2 -2 v-1"/></g>
+        <text x="235" y="112" text-anchor="middle" font-size="11" font-weight="700" fill="#006c88">書き出し</text>
       </svg>
     </div>
   </div></div>
@@ -482,10 +481,10 @@
     <div class="art">
       <svg viewBox="0 0 300 130" aria-label="月次集計のイラスト">
         <rect width="300" height="130" rx="12" fill="#fff" stroke="#e4ecfb"/>
-        <text x="20" y="26" font-size="11" font-weight="800" fill="#1a2540">2026年</text>
+        <text x="20" y="26" font-size="11" font-weight="800" fill="#123240">2026年</text>
         <g font-family="Inter,sans-serif">
           <rect x="20" y="36" width="260" height="18" rx="4" fill="#f3f6fc"/><text x="28" y="49" font-size="10" fill="#6b7593">月　　販売数　売上合計　粗利合計</text>
-          <rect x="20" y="56" width="260" height="18" rx="4" fill="#eaf0fd"/><text x="28" y="69" font-size="10" font-weight="700" fill="#3a55b8">6月　　8　　　¥312,000　　¥98,500</text>
+          <rect x="20" y="56" width="260" height="18" rx="4" fill="#eaf0fd"/><text x="28" y="69" font-size="10" font-weight="700" fill="#006c88">6月　　8　　　¥312,000　　¥98,500</text>
           <rect x="20" y="76" width="260" height="18" rx="4" fill="#fff"/><text x="28" y="89" font-size="10" fill="#41506e">7月　　5　　　¥198,000　　¥61,200</text>
         </g>
       </svg>
