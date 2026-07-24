@@ -443,8 +443,58 @@
           </div>
         </div>
         <div class="contact-actions">
-          <a class="btn btn-primary" href="mailto:contact@8grp.co.jp?subject=PCレンタルの無料見積もり">無料で見積もりを依頼 <span class="arrow">→</span></a>
-          <a class="btn btn-outline" href="tel:0364335025">電話で相談する</a>
+          <style>
+            .lead-form{display:flex;flex-direction:column;gap:12px;width:100%;max-width:480px;background:var(--white);border:1px solid var(--line);border-radius:var(--radius-sm);padding:20px;box-shadow:var(--shadow)}
+            .lead-form .lf-row{display:flex;gap:12px;flex-wrap:wrap}
+            .lead-form .lf-row>label{flex:1 1 45%}
+            .lead-form label{display:flex;flex-direction:column;gap:5px;font-size:12.5px;font-weight:700;color:var(--ink)}
+            .lead-form input,.lead-form select,.lead-form textarea{padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:14px;font-family:inherit;background:var(--paper);color:var(--ink)}
+            .lead-form textarea{resize:vertical}
+            .lead-form .req{color:var(--coral);font-size:11px;margin-left:5px;font-weight:800}
+            .lead-form button{margin-top:2px;border:none;cursor:pointer}
+            .lead-form .lf-msg{font-size:13px;margin:0;min-height:18px}
+            .lead-form .lf-msg.err{color:var(--coral);font-weight:700}
+            .lead-form .lf-msg.ok{color:var(--teal-dark);font-weight:700}
+            .lf-alt{font-size:12.5px;color:var(--ink-soft);margin:11px 0 0}
+            .lf-alt a{color:var(--teal-dark);font-weight:700}
+          </style>
+          <form id="pcContactForm" class="lead-form" novalidate aria-label="PCレンタルお問い合わせ・お見積もり">
+            <div class="lf-row">
+              <label>お名前<span class="req">必須</span><input name="name" autocomplete="name" required></label>
+              <label>会社名<input name="company" autocomplete="organization"></label>
+            </div>
+            <div class="lf-row">
+              <label>メール<input type="email" name="email" autocomplete="email"></label>
+              <label>電話<input name="phone" autocomplete="tel" inputmode="tel"></label>
+            </div>
+            <label>ご相談種別<select name="inquiry_type"><option>お見積もり</option><option>ご相談</option><option>その他</option></select></label>
+            <label>内容<textarea name="message" rows="4" placeholder="台数・利用期間・用途などをご記入ください"></textarea></label>
+            <button type="submit" class="btn btn-primary">送信する <span class="arrow">→</span></button>
+            <p class="lf-msg" id="pcContactMsg" role="status" aria-live="polite"></p>
+          </form>
+          <p class="lf-alt">またはメール <a href="mailto:contact@8grp.co.jp?subject=PCレンタルの無料見積もり">contact@8grp.co.jp</a> ／ 電話 <a href="tel:0364335025">03-6433-5025</a></p>
+          <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+          <script>
+          (function(){
+            var form=document.getElementById('pcContactForm');
+            if(!form||!window.supabase)return;
+            var sb=window.supabase.createClient("https://htglvascsuqkixpmclwr.supabase.co","sb_publishable_yZCcrwdqjuf0u_5WBWlHIw_AxdvteEV");
+            var msg=document.getElementById('pcContactMsg');
+            form.addEventListener('submit',async function(e){
+              e.preventDefault();
+              var f=new FormData(form), name=(f.get('name')||'').trim();
+              if(!name){msg.textContent='お名前を入力してください';msg.className='lf-msg err';return;}
+              var btn=form.querySelector('button[type=submit]');
+              btn.disabled=true;msg.textContent='送信中…';msg.className='lf-msg';
+              try{
+                var res=await sb.rpc('contact_public_submit',{p_source:'pc',p_name:name,p_company:f.get('company')||null,p_email:f.get('email')||null,p_phone:f.get('phone')||null,p_message:f.get('message')||null,p_inquiry_type:f.get('inquiry_type')||null});
+                if(res.error)throw res.error;
+                form.reset();msg.textContent='送信しました。1〜2営業日以内にご連絡します。';msg.className='lf-msg ok';
+              }catch(err){msg.textContent='送信に失敗しました。お手数ですがメール・お電話でご連絡ください。';msg.className='lf-msg err';}
+              btn.disabled=false;
+            });
+          })();
+          </script>
         </div>
       </div>
     </section>
