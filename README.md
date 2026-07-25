@@ -105,6 +105,21 @@ Vercel プロジェクトの **Settings → Domains** で `8ec.jp` を追加し�
 | 2 | `shop/supabase-shop-setup.sql` | 公開ショップが読む `shop_products` ビュー |
 | 3 | `admin/contact/supabase-setup.sql` | 問い合わせ・見積もりフォームの受信テーブル |
 | 4 | `rental/supabase-setup.sql` | レンタル機材 |
+| 5 | `admin/contact/slack-notify-setup.sql` | 問い合わせ内容を Slack に自動通知（任意） |
+
+### 問い合わせの Slack 通知
+
+各ページのフォームから送信があるたびに、Slack へ自動で投稿できます。
+`admin/contact/slack-notify-setup.sql` にファイル内の手順（Slack の Incoming Webhook 作成 →
+`pg_net` 有効化 → URL の登録 → トリガー作成）がそのまま書いてあるので、
+**Webhook URL の1行だけ差し替えて** SQL Editor で実行してください。
+
+Slack の Webhook URL は **Supabase の Vault に暗号化して保管** し、
+データベースのトリガーがサーバー側で送信します。ブラウザ側のコードには一切含めません
+（含めると URL を知った第三者が自由にチャンネルへ投稿できてしまうため）。
+
+通知が失敗しても、お客様のフォーム送信は必ず成功するようにしてあります
+（Slack 側の障害や URL 未設定で問い合わせを取りこぼさないため）。
 
 ### Edge Function（Stripe 決済リンクの自動生成）
 
