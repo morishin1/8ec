@@ -23,7 +23,8 @@
     :root{
       --navy:#092b61;--blue:#2479e9;--blue2:#0c5dce;--sky:#eaf4ff;
       --pale:#f6faff;--line:#dce9f7;--text:#19385f;--muted:#647b99;
-      --white:#fff;--shadow:0 16px 44px rgba(32,78,135,.09)
+      --white:#fff;--shadow:0 16px 44px rgba(32,78,135,.09);
+      --orange:#f2762b;--orange2:#dd5f16;--teal:#1c7a52;--teal2:#15633f
     }
     *{box-sizing:border-box}
     html{scroll-behavior:smooth}
@@ -32,6 +33,8 @@
     img{max-width:100%}
     .wrap{width:min(1180px,calc(100% - 48px));margin:auto}
     header{position:sticky;top:0;z-index:30;border-bottom:1px solid rgba(207,225,244,.85);background:rgba(255,255,255,.93);backdrop-filter:blur(16px)}
+    /* ヘッダーが固定なので、アンカーで飛んだ先が隠れないように余白をとる */
+    section[id],main[id]{scroll-margin-top:88px}
     .header-inner{min-height:76px;display:flex;align-items:center;gap:38px}
     .brand{display:flex;align-items:center;gap:11px;color:var(--navy)}
     .brand-mark{width:39px;height:39px;display:grid;place-items:center;border-radius:12px 12px 19px 12px;background:linear-gradient(145deg,var(--blue),#64abff);box-shadow:0 8px 20px rgba(37,121,233,.24);color:#fff;font-size:25px;font-weight:900;font-style:italic}
@@ -83,6 +86,66 @@
     .item-actions{display:flex;align-items:center;gap:8px;margin-top:11px}.quote-item{min-width:112px;height:38px;border:0;border-radius:8px;background:var(--navy);color:#fff;font-size:10px;font-weight:900;cursor:pointer}.maker-detail{color:var(--blue);font-size:9px;font-weight:900}.media-note{margin:12px 0 0;color:#798ca4;font-size:9px;line-height:1.6}
     .not-found{padding:15px;line-height:1.75}.not-found a{color:var(--blue);font-weight:900}.not-found .nf-actions{margin-top:13px}.not-found .btn-primary{color:#fff;min-height:44px;padding:0 20px;font-size:12px}
 
+    /* 選べる2つの見積り方法 */
+    .qmethods{padding:52px 0 46px;background:#fff}
+    .qm-head{display:flex;align-items:center;justify-content:center;gap:16px;margin:0 0 34px}
+    .qm-head:before,.qm-head:after{content:"";height:1px;flex:1;max-width:190px;background:var(--line)}
+    .qm-head h2{margin:0;color:var(--navy);font-size:clamp(19px,2.2vw,25px);letter-spacing:.01em;white-space:nowrap}
+    .qm-head h2 em{color:var(--orange);font-style:normal;font-size:1.18em;font-family:"Inter",sans-serif}
+    .qm-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;max-width:840px;margin:0 auto}
+    .qm-card{position:relative;display:block;padding:30px 22px 22px;border-radius:14px;text-align:center;color:#fff;box-shadow:0 10px 24px rgba(32,78,135,.16);transition:.18s}
+    .qm-card:hover{transform:translateY(-3px);box-shadow:0 16px 32px rgba(32,78,135,.24)}
+    .qm-card.orange{background:linear-gradient(180deg,var(--orange),var(--orange2))}
+    .qm-card.teal{background:linear-gradient(180deg,var(--teal),var(--teal2))}
+    .qm-tag{position:absolute;left:50%;top:-13px;transform:translateX(-50%);white-space:nowrap;padding:6px 17px;border-radius:8px;background:#fff;color:var(--navy);font-size:12px;font-weight:800;box-shadow:0 3px 10px rgba(32,78,135,.14)}
+    .qm-card.orange .qm-tag{color:var(--orange2)}.qm-card.teal .qm-tag{color:var(--teal2)}
+    .qm-main{display:flex;align-items:center;justify-content:center;gap:12px;font-size:clamp(22px,2.6vw,30px);font-weight:900;letter-spacing:.02em}
+    .qm-arrow{display:grid;place-items:center;width:30px;height:30px;flex:none;border-radius:50%;background:rgba(255,255,255,.26);font-size:17px;line-height:1}
+    .qm-sub{margin:9px 0 0;font-size:12px;opacity:.94;line-height:1.7}
+    .qm-note{margin:26px auto 0;max-width:840px;text-align:center;color:var(--muted);font-size:12px;line-height:1.9}
+    /* 見積りの流れ（3ステップ） */
+    .qflow{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:840px;margin:30px auto 0}
+    .qflow .st{position:relative;padding:16px 14px;border:1px solid var(--line);border-radius:13px;background:var(--pale);text-align:center}
+    .qflow .st b{display:block;color:var(--blue);font-size:11px;font-weight:900;letter-spacing:.1em;font-family:"Inter",sans-serif}
+    .qflow .st strong{display:block;margin:5px 0 3px;color:var(--navy);font-size:14px}
+    .qflow .st span{color:var(--muted);font-size:11px;line-height:1.7}
+    .qflow .st:not(:last-child):after{content:"›";position:absolute;right:-10px;top:50%;transform:translateY(-50%);color:#a9c3e2;font-size:22px;font-weight:900;z-index:1}
+    /* フローティングCTA */
+    .float-cta{position:fixed;left:0;right:0;bottom:0;z-index:60;padding:9px 12px calc(9px + env(safe-area-inset-bottom));background:rgba(255,255,255,.96);backdrop-filter:blur(8px);border-top:1px solid var(--line);box-shadow:0 -6px 22px rgba(32,78,135,.13);transform:translateY(115%);transition:transform .28s cubic-bezier(.2,.9,.3,1.05);visibility:hidden}
+    .float-cta.on{transform:translateY(0);visibility:visible}
+    .fc-label{text-align:center;color:var(--navy);font-size:11.5px;font-weight:800;margin-bottom:6px}
+    .fc-btns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;max-width:660px;margin:0 auto}
+    .fc-btn{display:flex;align-items:center;justify-content:center;gap:8px;min-height:50px;padding:0 14px;border:0;border-radius:11px;color:#fff;font:inherit;font-size:15px;font-weight:900;cursor:pointer;text-align:center;line-height:1.25}
+    .fc-btn.orange{background:linear-gradient(180deg,var(--orange),var(--orange2))}
+    .fc-btn.teal{background:linear-gradient(180deg,var(--teal),var(--teal2))}
+    .fc-btn small{display:block;font-size:9.5px;font-weight:700;opacity:.9}
+    .fc-btn .qm-arrow{width:22px;height:22px;font-size:13px}
+    /* かんたん診断モーダル */
+    .dg-ov{position:fixed;inset:0;z-index:120;background:rgba(9,27,60,.55);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;padding:18px}
+    .dg-ov.on{display:flex}
+    .dg-box{width:min(560px,100%);max-height:90vh;overflow:auto;background:#fff;border-radius:18px;box-shadow:0 28px 70px rgba(9,27,60,.35)}
+    .dg-head{position:sticky;top:0;display:flex;align-items:center;gap:12px;padding:16px 18px;background:linear-gradient(135deg,var(--teal),var(--teal2));color:#fff}
+    .dg-head h3{margin:0;font-size:16px;font-weight:900}
+    .dg-head p{margin:2px 0 0;font-size:11px;opacity:.9}
+    .dg-x{margin-left:auto;width:32px;height:32px;flex:none;border:0;border-radius:50%;background:rgba(255,255,255,.2);color:#fff;font-size:19px;line-height:1;cursor:pointer}
+    .dg-bar{display:flex;gap:5px;padding:12px 18px 0}
+    .dg-bar i{height:4px;flex:1;border-radius:3px;background:#e3edf9}
+    .dg-bar i.on{background:var(--teal)}
+    .dg-body{padding:14px 18px 20px}
+    .dg-q{color:var(--navy);font-size:16px;font-weight:900;margin:6px 0 14px}
+    .dg-opts{display:grid;gap:9px}
+    .dg-opt{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;border:1.5px solid var(--line);border-radius:11px;background:#fff;color:var(--navy);font:inherit;font-size:14px;font-weight:800;text-align:left;cursor:pointer;transition:.15s}
+    .dg-opt:hover{border-color:var(--teal);background:#f2fbf6}
+    .dg-opt:after{content:"›";color:#a9c3e2;font-size:19px;font-weight:900}
+    .dg-check{display:flex;align-items:center;gap:9px;margin-top:14px;padding:12px 14px;border:1.5px solid var(--line);border-radius:11px;font-size:13px;font-weight:700;color:var(--navy);cursor:pointer}
+    .dg-check input{width:17px;height:17px;accent-color:var(--teal)}
+    .dg-back{margin-top:14px;border:0;background:none;color:var(--muted);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;text-decoration:underline}
+    .dg-sum{border:1px solid var(--line);border-radius:12px;background:var(--pale);padding:14px 16px;margin-bottom:14px}
+    .dg-sum dl{display:grid;grid-template-columns:auto 1fr;gap:7px 14px;margin:0;font-size:13px}
+    .dg-sum dt{color:var(--muted);font-weight:700;white-space:nowrap}
+    .dg-sum dd{margin:0;color:var(--navy);font-weight:800}
+    .dg-go{display:block;width:100%;min-height:52px;border:0;border-radius:12px;background:linear-gradient(180deg,var(--orange),var(--orange2));color:#fff;font:inherit;font-size:15.5px;font-weight:900;cursor:pointer}
+    .dg-note{margin:11px 0 0;color:var(--muted);font-size:11.5px;line-height:1.8;text-align:center}
     .catalog-section{background:var(--pale)}
     .maker-chip-row{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:0 0 26px}
     .maker-chip{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--navy);font:inherit;font-size:12px;font-weight:800;cursor:pointer;transition:.15s}
@@ -205,6 +268,11 @@
       .wrap{width:calc(100% - 30px)}.header-inner{min-height:68px}.brand-mark{width:34px;height:34px}.brand strong{font-size:11px}.brand small{font-size:8px}.header-cta{min-height:39px;padding:0 12px;font-size:11px}
       .hero{padding:44px 0 78px}h1{font-size:36px}.hero-lead{font-size:13px}.hero-lead br{display:none}.search-shell{padding:22px 18px}.search-intro{display:block}.search-intro span{display:block;margin-top:8px}.model-search-row{grid-template-columns:1fr 76px}.model-search-row button{grid-column:1/-1}.model-search-label small{display:none}.inventory-item{grid-template-columns:100px 1fr;padding:11px}.inventory-media{min-height:105px}.inventory-media img{height:105px}.item-actions{align-items:flex-start;flex-direction:column}.quote-item{width:100%}.actions{flex-direction:column}.actions .btn{width:100%}.trust{display:grid;grid-template-columns:1fr 1fr;text-align:left}.art-frame{border-radius:24px 24px 56px 24px}.support-chip{right:8px;bottom:-16px}
       section{padding:74px 0}.section-head h2,.intro h2,.split-head h2,.security-copy h2{font-size:29px}.service-grid,.category-grid,.equipment-grid,.choice-grid,.security-points{grid-template-columns:1fr}.service-card p{min-height:0}.partner-note{display:block;text-align:center}.partner-note strong{display:block;margin-bottom:5px}.step{grid-template-columns:46px 1fr;gap:14px;padding:17px}.choice-card{padding:29px}.cloud-panel{width:calc(100% - 20px);gap:34px;padding:42px 25px;border-radius:24px}.cloud-list{grid-template-columns:1fr;padding:16px}.contact h2{font-size:29px}.contact h2 br{display:none}.contact-inner{width:calc(100% - 30px)}.proof-panel{grid-template-columns:1fr}.proof-copy{grid-column:auto}.proof-stat{border-right:0;border-bottom:1px solid #e2edf8}.proof-stat:last-child{border-bottom:0}.catalog-grid{grid-template-columns:1fr}.catalog-toolbar{flex-direction:column;align-items:stretch}.catalog-filter{max-width:none}
+      .qmethods{padding:40px 0 34px}.qm-head{gap:10px;margin-bottom:28px}.qm-head:before,.qm-head:after{max-width:40px}.qm-head h2{font-size:17px;white-space:normal}
+      .qm-grid{grid-template-columns:1fr;gap:26px}.qm-card{padding:26px 18px 18px}.qm-main{font-size:23px}
+      .qflow{grid-template-columns:1fr;gap:9px}.qflow .st:not(:last-child):after{content:"⌄";right:50%;top:auto;bottom:-13px;transform:translateX(50%)}
+      .fc-btn{font-size:13px;min-height:46px;gap:5px}.fc-btn small{font-size:9px}.fc-btns{gap:8px}
+      .dg-box{border-radius:14px}.dg-q{font-size:15px}
     }
   </style>
 </head>
@@ -230,13 +298,37 @@
           <p class="eyebrow">2004年創業・株式会社エイトが運営</p>
           <h1><em>40万点以上</em>のIT機器を、<br>選定から運用まで。</h1>
           <p class="hero-lead">パソコン、サーバー、ネットワーク、セキュリティ機器まで。<br>機器選定・販売・レンタル・設定・設置から情シス運用まで、まとめて支援します。</p>
-          <div class="actions"><a class="btn btn-primary" href="#model-search">IT機器を探す →</a><a class="btn btn-outline" href="#contact">構成選定を相談する</a></div>
+          <div class="actions"><a class="btn btn-primary" href="#model-search">10秒見積り（型番で探す）→</a><button class="btn btn-outline" type="button" onclick="openDiag()">かんたん診断で見積り</button></div>
           <ul class="trust"><li>40万点以上の品揃え</li><li>セキュリティ機器に強い</li><li>法人請求書払い</li><li>設定・設置まで対応</li></ul>
         </div>
         <div class="hero-art">
           <div class="art-frame"><img src="assets/eight-commerce-hero-v2.png" alt="ソフトウェア、クラウド、PC、サーバー、ネットワーク、セキュリティをワンストップで支援するイラスト"></div>
           <div class="support-chip"><span class="chip-check">✓</span><span><small>導入後も安心</small><strong>情シスが継続サポート</strong></span></div>
         </div>
+      </div>
+    </section>
+
+    <section class="qmethods" id="quote-methods">
+      <div class="wrap">
+        <div class="qm-head"><h2>選べる<em>2</em>つの見積り方法</h2></div>
+        <div class="qm-grid">
+          <a class="qm-card orange" href="#model-search">
+            <span class="qm-tag">すぐに価格が確認できる！</span>
+            <span class="qm-main">10秒見積り<span class="qm-arrow">›</span></span>
+            <p class="qm-sub">型番・商品名がお決まりの方はこちら。<br>在庫と参考価格をその場で確認できます。</p>
+          </a>
+          <button class="qm-card teal" type="button" onclick="openDiag()">
+            <span class="qm-tag">1分でぴったりの構成がわかる！</span>
+            <span class="qm-main">かんたん診断見積り<span class="qm-arrow">›</span></span>
+            <p class="qm-sub">型番が決まっていなくても大丈夫。<br>3つの質問に答えるだけで担当者がご提案します。</p>
+          </button>
+        </div>
+        <div class="qflow">
+          <div class="st"><b>STEP 01</b><strong>条件を入力</strong><span>型番、または用途・台数・時期をお知らせください</span></div>
+          <div class="st"><b>STEP 02</b><strong>担当者が構成を選定</strong><span>40万点以上の取扱商材から最適な機器をご提案</span></div>
+          <div class="st"><b>STEP 03</b><strong>無料見積りをご提示</strong><span>1〜2営業日以内にご連絡。設定・設置もまとめて対応</span></div>
+        </div>
+        <p class="qm-note">見積りは<strong>無料</strong>です。ご相談だけでもお気軽にどうぞ。1点から大量導入まで対応します。</p>
       </div>
     </section>
 
@@ -287,7 +379,7 @@
       <div class="wrap proof-panel">
         <div class="proof-copy"><small>OPERATED BY EIGHT INC.</small><strong>株式会社エイトが運営しています。</strong><span>ITインフラから導入・運用まで、企業の現場を20年以上支援。</span></div>
         <div class="proof-stat"><strong>2004年</strong><span>創業</span></div>
-        <div class="proof-stat"><strong>40万点以上</strong><span>SB C&amp;S取扱商材から提案</span></div>
+        <div class="proof-stat"><strong>40万点以上</strong><span>取扱商材から選定・提案</span></div>
         <div class="proof-stat"><strong>777件</strong><span>2026年7月在庫データ連携</span></div>
       </div>
     </section>
@@ -311,7 +403,7 @@
           <article class="category-card"><span class="cat-icon">DEVICE</span><h3>周辺機器・オフィス機器</h3><p>モニター、プリンター、Web会議、防犯・入退室機器</p></article>
           <article class="category-card"><span class="cat-icon">AI</span><h3>AI・DXソリューション</h3><p>生成AI、業務自動化、データ活用、システム連携</p></article>
         </div>
-        <div class="partner-note"><strong>SB C&amp;Sの40万点以上の取扱商材を活用</strong><span>現在は提供在庫表777商品を型番検索できます。掲載外の商品も、エイトコマースが選定・見積もり・導入を一つの窓口で支援します。</span></div>
+        <div class="partner-note"><strong>40万点以上の取扱商材からご提案</strong><span>サイト上では在庫連携中の777商品を型番検索できます。掲載外の商品も、エイトコマースが選定・見積もり・導入を一つの窓口で支援します。</span></div>
       </div>
     </section>
 
@@ -462,6 +554,27 @@
       <small>© EIGHT COMMERCE. All Rights Reserved.</small>
     </div>
   </footer>
+  <!-- フローティングCTA（スクロール中は常に見積りへ進める） -->
+  <div class="float-cta" id="floatCta">
+    <div class="fc-label">＼ 選べる2つの見積り方法 ／</div>
+    <div class="fc-btns">
+      <a class="fc-btn orange" href="#model-search"><span>10秒見積り<small>型番がわかる方</small></span><span class="qm-arrow">›</span></a>
+      <button class="fc-btn teal" type="button" onclick="openDiag()"><span>かんたん診断<small>型番が未定の方</small></span><span class="qm-arrow">›</span></button>
+    </div>
+  </div>
+
+  <!-- かんたん診断見積り -->
+  <div class="dg-ov" id="dgOv" role="dialog" aria-modal="true" aria-labelledby="dgTitle">
+    <div class="dg-box">
+      <div class="dg-head">
+        <div><h3 id="dgTitle">かんたん診断見積り</h3><p>3つの質問に答えるだけ・1分で完了</p></div>
+        <button class="dg-x" type="button" onclick="closeDiag()" aria-label="閉じる">×</button>
+      </div>
+      <div class="dg-bar" id="dgBar"><i></i><i></i><i></i></div>
+      <div class="dg-body" id="dgBody"></div>
+    </div>
+  </div>
+
   <script src="assets/inventory-data.js"></script>
   <script>
     (() => {
@@ -515,7 +628,7 @@
         if (!matches.length) {
           const subject = encodeURIComponent(`【無料見積もり・お取り寄せ確認】${query}`);
           const body = encodeURIComponent(`以下の商品について、無料お見積もり・お取り寄せ可否の確認を希望します。\n\n商品・型番：${query}\n数量：${quantity.value}点\n設置・設定：要相談\n\n会社名：\nご担当者名：\n電話番号：`);
-          result.innerHTML = `<div class="not-found">「<strong>${escapeHtml(query)}</strong>」は今回の在庫表（777商品）には見つかりませんでした。ご指定の型番がデータに無いだけの場合もあります。SB C&amp;Sの40万点以上の取扱候補から、無料でお見積り・お取り寄せ可否をご回答します。<div class="nf-actions"><a class="btn btn-primary" href="mailto:nw@8grp.co.jp?subject=${subject}&body=${body}">無料見積もり・お問い合わせ →</a></div></div>`;
+          result.innerHTML = `<div class="not-found">「<strong>${escapeHtml(query)}</strong>」は今回の在庫表（777商品）には見つかりませんでした。ご指定の型番がサイトに掲載されていないだけの場合もあります。40万点以上の取扱候補から、無料でお見積り・お取り寄せ可否をご回答します。<div class="nf-actions"><a class="btn btn-primary" href="mailto:nw@8grp.co.jp?subject=${subject}&body=${body}">無料見積もり・お問い合わせ →</a></div></div>`;
           result.classList.add('is-visible');
           return;
         }
@@ -570,14 +683,146 @@
         showSearchResults(product);
       });
 
+      /* ---------- かんたん診断見積り（型番が決まっていない方向け） ---------- */
+      const DIAG_STEPS = [
+        {
+          key: 'use', q: 'どんな機器をお探しですか？',
+          opts: ['PC・タブレット', 'ディスプレイ', 'ネットワーク機器（ルーター・スイッチ・Wi-Fi）',
+                 'セキュリティ機器（UTM・ファイアウォール）', 'サーバー・NAS・周辺機器', 'まだ決まっていない／相談したい']
+        },
+        {
+          key: 'qty', q: '台数の目安を教えてください',
+          opts: ['1〜4台', '5〜9台', '10〜29台', '30台以上', '未定']
+        },
+        {
+          key: 'when', q: 'ご希望の時期はいつ頃ですか？',
+          opts: ['できるだけ早く', '1ヶ月以内', '3ヶ月以内', '時期は未定・情報収集中']
+        }
+      ];
+      const diag = { step: 0, use: '', qty: '', when: '', setup: false };
+      const dgOv = document.getElementById('dgOv');
+      const dgBody = document.getElementById('dgBody');
+      const dgBar = document.getElementById('dgBar');
+
+      const renderDiagBar = () => {
+        [...dgBar.children].forEach((el, i) => el.classList.toggle('on', i <= Math.min(diag.step, 2)));
+      };
+      const renderDiag = () => {
+        renderDiagBar();
+        if (diag.step < DIAG_STEPS.length) {
+          const s = DIAG_STEPS[diag.step];
+          dgBody.innerHTML =
+            `<p class="dg-q">${escapeHtml(s.q)}</p>` +
+            `<div class="dg-opts">${s.opts.map((o, i) =>
+              `<button type="button" class="dg-opt" data-pick="${i}">${escapeHtml(o)}</button>`).join('')}</div>` +
+            (diag.step === DIAG_STEPS.length - 1
+              ? `<label class="dg-check"><input type="checkbox" id="dgSetup"${diag.setup ? ' checked' : ''}>設定・キッティング／設置もあわせて依頼したい</label>` : '') +
+            (diag.step > 0 ? '<button type="button" class="dg-back" data-back="1">← 前の質問に戻る</button>' : '');
+
+          dgBody.querySelectorAll('[data-pick]').forEach((b) => {
+            b.addEventListener('click', () => {
+              const chk = document.getElementById('dgSetup');
+              if (chk) diag.setup = chk.checked;
+              diag[DIAG_STEPS[diag.step].key] = s.opts[Number(b.dataset.pick)];
+              diag.step += 1;
+              renderDiag();
+            });
+          });
+          const back = dgBody.querySelector('[data-back]');
+          if (back) back.addEventListener('click', () => { diag.step -= 1; renderDiag(); });
+          return;
+        }
+        // 結果画面
+        dgBody.innerHTML =
+          '<p class="dg-q">この内容で無料見積りをご依頼いただけます</p>' +
+          '<div class="dg-sum"><dl>' +
+            `<dt>お探しの機器</dt><dd>${escapeHtml(diag.use)}</dd>` +
+            `<dt>台数の目安</dt><dd>${escapeHtml(diag.qty)}</dd>` +
+            `<dt>ご希望時期</dt><dd>${escapeHtml(diag.when)}</dd>` +
+            `<dt>設定・設置</dt><dd>${diag.setup ? '依頼したい' : '不要／未定'}</dd>` +
+          '</dl></div>' +
+          '<button type="button" class="dg-go" id="dgGo">この内容で無料見積りを依頼する →</button>' +
+          '<p class="dg-note">送信後、担当者が最適な機器・構成を選定し、1〜2営業日以内にご連絡します。<br>お見積りは無料です。</p>' +
+          '<button type="button" class="dg-back" data-back="1">← 前の質問に戻る</button>';
+        document.getElementById('dgGo').addEventListener('click', diagToForm);
+        dgBody.querySelector('[data-back]').addEventListener('click', () => { diag.step -= 1; renderDiag(); });
+      };
+      // 診断結果を問い合わせフォームに引き継いで送信画面へ
+      const diagToForm = () => {
+        const lines = [
+          '【かんたん診断見積りの内容】',
+          'お探しの機器：' + diag.use,
+          '台数の目安：' + diag.qty,
+          'ご希望時期：' + diag.when,
+          '設定・設置：' + (diag.setup ? '依頼したい' : '不要／未定'),
+          '',
+          '上記の条件で無料お見積りをお願いします。'
+        ];
+        const ta = document.querySelector('#topContactForm textarea[name="message"]');
+        if (ta) {
+          const cur = ta.value.trim();
+          ta.value = (cur ? cur + '\n\n' : '') + lines.join('\n');
+          ta.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        const sel = document.querySelector('#topContactForm select[name="inquiry_type"]');
+        if (sel) sel.value = 'お見積もり';
+        closeDiag();
+        const contact = document.getElementById('contact');
+        if (contact) contact.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        setTimeout(() => {
+          const name = document.querySelector('#topContactForm input[name="name"]');
+          if (name) name.focus({ preventScroll: true });
+        }, 600);
+      };
+      window.openDiag = () => {
+        diag.step = 0; diag.use = ''; diag.qty = ''; diag.when = ''; diag.setup = false;
+        renderDiag();
+        dgOv.classList.add('on');
+        document.body.style.overflow = 'hidden';
+        const fc = document.getElementById('floatCta');
+        if (fc) fc.classList.remove('on');   // モーダル表示中はフローティングCTAを隠す
+      };
+      window.closeDiag = () => {
+        dgOv.classList.remove('on');
+        document.body.style.overflow = '';
+        window.dispatchEvent(new Event('scroll'));   // CTAの表示状態を戻す
+      };
+      dgOv.addEventListener('click', (e) => { if (e.target === dgOv) window.closeDiag(); });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && dgOv.classList.contains('on')) window.closeDiag();
+      });
+
+      /* ---------- フローティングCTA（ヒーローを過ぎたら出し、問い合わせ欄では隠す） ---------- */
+      const floatCta = document.getElementById('floatCta');
+      if (floatCta) {
+        const syncFloat = () => {
+          if (dgOv.classList.contains('on')) { floatCta.classList.remove('on'); return; }
+          const y = window.scrollY || document.documentElement.scrollTop || 0;
+          const contact = document.getElementById('contact');
+          const nearContact = contact
+            ? contact.getBoundingClientRect().top < window.innerHeight * 0.9
+            : false;
+          floatCta.classList.toggle('on', y > 420 && !nearContact);
+        };
+        let ticking = false;
+        const onScroll = () => {
+          if (ticking) return;
+          ticking = true;
+          requestAnimationFrame(() => { syncFloat(); ticking = false; });
+        };
+        window.addEventListener('scroll', onScroll, { passive: true });
+        window.addEventListener('resize', onScroll);
+        syncFloat();
+      }
+
       /* ---------- 商品一覧・取扱いメーカー（カタログ） ---------- */
       const CATALOG_CATEGORIES = [
         { key: 'all', label: 'すべて' },
-        { key: 'SB C&S Cisco/Meraki', label: 'Cisco・Meraki' },
-        { key: 'SB C&S Fortinet', label: 'Fortinet' },
-        { key: 'SB C&S PC', label: 'PC' },
-        { key: 'SB C&S Display', label: 'ディスプレイ' },
-        { key: 'LES', label: 'PC周辺機器' }
+        { key: 'PC・タブレット', label: 'PC・タブレット' },
+        { key: 'ディスプレイ', label: 'ディスプレイ' },
+        { key: 'ネットワーク機器', label: 'ネットワーク機器' },
+        { key: 'セキュリティ機器', label: 'セキュリティ機器' },
+        { key: 'PC周辺機器', label: 'PC周辺機器' }
       ];
       const PAGE_SIZE = 24;
       const catalogState = { category: 'all', maker: null, text: '', page: 1 };
@@ -588,9 +833,9 @@
         .trim();
 
       const displayMaker = (item) => {
-        if (item.source === 'SB C&S Cisco/Meraki') return 'Cisco Meraki';
-        if (item.source === 'SB C&S Fortinet') return 'Fortinet';
-        if (item.maker && item.maker !== 'IB1') return toHalfWidth(item.maker);
+        if (item.source === 'ネットワーク機器') return 'Cisco Meraki';
+        if (item.source === 'セキュリティ機器') return 'Fortinet';
+        if (item.maker) return toHalfWidth(item.maker);
         return null;
       };
 
