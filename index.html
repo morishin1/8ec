@@ -160,6 +160,16 @@
     .contact{background:radial-gradient(circle at 50% 0,rgba(74,151,240,.11),transparent 35%),#f6faff;text-align:center}
     .contact-inner{width:min(800px,calc(100% - 48px));margin:auto}.contact h2{margin:0;color:var(--navy);font-size:clamp(31px,3.4vw,47px);line-height:1.5}.contact-inner>p:not(.eyebrow){margin:18px 0 0;color:var(--muted);font-size:13px;line-height:1.9}
     .contact .actions{justify-content:center}.phone{min-width:210px;flex-direction:column;gap:2px;border:1px solid #cbdced;background:#fff;color:var(--navy);font-size:17px}.phone small{color:var(--muted);font-size:9px}
+    .quote-form{text-align:left;display:flex;flex-direction:column;gap:12px;max-width:560px;margin:28px auto 0;padding:26px 28px;border:1px solid var(--line);border-radius:18px;background:#fff;box-shadow:var(--shadow)}
+    .quote-form .qf-row{display:flex;gap:12px;flex-wrap:wrap}.quote-form .qf-row>label{flex:1 1 45%}
+    .quote-form label{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:700;color:var(--navy)}
+    .quote-form .req{color:#e0674a;font-size:10px;margin-left:4px;font-weight:800}
+    .quote-form input,.quote-form select,.quote-form textarea{padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:14px;font-family:inherit;background:#fff;color:var(--text);outline:none}
+    .quote-form input:focus,.quote-form select:focus,.quote-form textarea:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(36,121,233,.1)}
+    .quote-form textarea{resize:vertical}.quote-form button{margin-top:2px;border:0;cursor:pointer;width:100%}
+    .qf-msg{font-size:12.5px;margin:0;min-height:16px}.qf-msg.err{color:#e0674a;font-weight:700}.qf-msg.ok{color:var(--blue2);font-weight:700}
+    .qf-alt a{color:var(--blue);font-weight:700}
+    @media(max-width:640px){.quote-form{padding:20px 18px}}
     footer{padding:42px 0;background:#071f48;color:#fff}.footer-grid{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:35px}.footer-grid>p{color:#9db1cc;font-size:10px}.footer-grid>small{color:#7990ae;font-size:9px}.footer-grid .brand{color:#fff}.footer-grid .brand small{color:#91a9c7}
     @media(max-width:960px){
       nav{display:none}.header-cta{margin-left:auto}.hero-grid,.flow-grid,.security-grid{grid-template-columns:1fr}.hero-copy{text-align:center}.hero .eyebrow,.actions,.trust,.hero-number{justify-content:center}.hero-art{max-width:720px;margin:auto}.search-intro{align-items:flex-start}.search-intro span{text-align:left}.inventory-results{grid-template-columns:1fr}.service-grid,.category-grid{grid-template-columns:repeat(2,1fr)}.flow-grid{gap:42px}.intro,.security-copy{text-align:center}.flow-art{margin-top:0}.equipment-grid{grid-template-columns:repeat(2,1fr)}.split-head{grid-template-columns:1fr;gap:12px;text-align:center}.cloud-panel{grid-template-columns:1fr;padding:54px}.footer-grid{grid-template-columns:1fr;justify-items:center;text-align:center}.proof-panel{grid-template-columns:1fr 1fr}.proof-copy{grid-column:1/-1;border-right:0;border-bottom:1px solid #e2edf8;text-align:center}.proof-stat:nth-child(3){border-right:0}
@@ -180,7 +190,7 @@
       </a>
       <nav aria-label="メインナビゲーション">
         <a href="#categories">IT商材を探す</a><a href="#rental">購入・レンタル</a>
-        <a href="#setup">設定・設置</a><a href="#support">クラウド情シス</a>
+        <a href="#setup">設定・設置</a><a href="/cloud.html">クラウド情シス</a>
       </nav>
       <a class="header-cta" href="#contact">法人見積もり</a>
     </div>
@@ -343,7 +353,7 @@
           <p class="eyebrow">CLOUD IT SUPPORT</p>
           <h2>導入後の「困った」も、<br>クラウド情シスにお任せ。</h2>
           <p>入退社時のPC設定、故障・不具合、アカウントやライセンス管理、社内からのIT問い合わせまで継続的に支援します。</p>
-          <a class="btn btn-white" href="#contact">クラウド情シスを見る →</a>
+          <a class="btn btn-white" href="/cloud.html">クラウド情シスを見る →</a>
         </div>
         <div class="cloud-list">
           <span><i>✓</i>入退社時のPC設定</span><span><i>✓</i>故障・不具合対応</span>
@@ -358,10 +368,43 @@
         <p class="eyebrow">CONTACT</p>
         <h2>欲しい機器が決まっていなくても、<br>まずはご相談ください。</h2>
         <p>用途・台数・ご予算を伺い、購入・レンタル・設定・設置をまとめてご提案します。</p>
-        <div class="actions">
-          <a class="btn btn-primary" href="mailto:nw@8grp.co.jp">法人見積もりを依頼する →</a>
-          <a class="btn phone" href="tel:0364335025"><small>平日 10:00〜18:00</small>03-6433-5025</a>
-        </div>
+        <form id="topContactForm" class="quote-form" novalidate aria-label="法人見積もり・お問い合わせ">
+          <div class="qf-row">
+            <label>お名前<span class="req">必須</span><input name="name" autocomplete="name" required></label>
+            <label>会社名<input name="company" autocomplete="organization"></label>
+          </div>
+          <div class="qf-row">
+            <label>メール<input type="email" name="email" autocomplete="email"></label>
+            <label>電話<input name="phone" autocomplete="tel" inputmode="tel"></label>
+          </div>
+          <label>ご相談種別<select name="inquiry_type"><option>お見積もり</option><option>ご相談</option><option>その他</option></select></label>
+          <label>内容<textarea name="message" rows="3" placeholder="ご希望の機器・台数・ご予算などをご記入ください"></textarea></label>
+          <button type="submit" class="btn btn-primary">法人見積もりを依頼する <span class="arrow">→</span></button>
+          <p class="qf-msg" id="topContactMsg" role="status" aria-live="polite"></p>
+        </form>
+        <p class="qf-alt">またはメール <a href="mailto:nw@8grp.co.jp">nw@8grp.co.jp</a> ／ 電話 <a href="tel:0364335025">03-6433-5025</a>（平日10:00〜18:00）</p>
+        <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+        <script>
+        (function(){
+          var form=document.getElementById('topContactForm');
+          if(!form||!window.supabase)return;
+          var sb=window.supabase.createClient("https://htglvascsuqkixpmclwr.supabase.co","sb_publishable_yZCcrwdqjuf0u_5WBWlHIw_AxdvteEV");
+          var msg=document.getElementById('topContactMsg');
+          form.addEventListener('submit',async function(e){
+            e.preventDefault();
+            var f=new FormData(form), name=(f.get('name')||'').trim();
+            if(!name){msg.textContent='お名前を入力してください';msg.className='qf-msg err';return;}
+            var btn=form.querySelector('button[type=submit]');
+            btn.disabled=true;msg.textContent='送信中…';msg.className='qf-msg';
+            try{
+              var res=await sb.rpc('contact_public_submit',{p_source:'top',p_name:name,p_company:f.get('company')||null,p_email:f.get('email')||null,p_phone:f.get('phone')||null,p_message:f.get('message')||null,p_inquiry_type:f.get('inquiry_type')||null});
+              if(res.error)throw res.error;
+              form.reset();msg.textContent='送信しました。1〜2営業日以内にご連絡します。';msg.className='qf-msg ok';
+            }catch(err){msg.textContent='送信に失敗しました。お手数ですがメール・お電話でご連絡ください。';msg.className='qf-msg err';}
+            btn.disabled=false;
+          });
+        })();
+        </script>
       </div>
     </section>
   </main>

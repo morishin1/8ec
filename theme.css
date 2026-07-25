@@ -540,6 +540,19 @@
       color: #bdd0e5;
       font-size: 12px;
     }
+    .lead-form { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 480px; background: var(--white); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 20px; box-shadow: var(--shadow); }
+    .lead-form .lf-row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .lead-form .lf-row > label { flex: 1 1 45%; }
+    .lead-form label { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; font-weight: 700; color: var(--ink); }
+    .lead-form input, .lead-form select, .lead-form textarea { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 14px; font-family: inherit; background: var(--paper); color: var(--ink); }
+    .lead-form textarea { resize: vertical; }
+    .lead-form .req { color: var(--coral); font-size: 11px; margin-left: 5px; font-weight: 800; }
+    .lead-form button { margin-top: 2px; border: none; cursor: pointer; }
+    .lead-form .lf-msg { font-size: 13px; margin: 0; min-height: 18px; }
+    .lead-form .lf-msg.err { color: var(--coral); font-weight: 700; }
+    .lead-form .lf-msg.ok { color: var(--teal-dark); font-weight: 700; }
+    .lf-alt { font-size: 12.5px; color: var(--ink-soft); margin: 11px 0 0; }
+    .lf-alt a { color: var(--teal-dark); font-weight: 700; }
     .site-footer { padding: 29px 0; border-top: 1px solid #dce9f7; }
     .footer-inner {
       display: flex;
