@@ -21,10 +21,10 @@
 
   <style>
     :root{
-      --navy:#092b61;--blue:#2479e9;--blue2:#0c5dce;--sky:#eaf4ff;
-      --pale:#f6faff;--line:#dce9f7;--text:#19385f;--muted:#647b99;
-      --white:#fff;--shadow:0 16px 44px rgba(32,78,135,.09);
-      --orange:#f2762b;--orange2:#dd5f16;--teal:#1c7a52;--teal2:#15633f
+      --navy:#0e2a54;--blue:#1f6bdd;--blue2:#1552b8;--sky:#e9f2ff;
+      --pale:#f5f9ff;--line:#dbe7f6;--text:#1a3358;--muted:#5e739b;
+      --white:#fff;--shadow:0 16px 44px rgba(24,68,128,.09);
+      --orange:#f2762b;--orange2:#dd5f16;--teal:#155ec4;--teal2:#0d3f8f
     }
     *{box-sizing:border-box}
     html{scroll-behavior:smooth}
@@ -146,6 +146,57 @@
     .dg-sum dd{margin:0;color:var(--navy);font-weight:800}
     .dg-go{display:block;width:100%;min-height:52px;border:0;border-radius:12px;background:linear-gradient(180deg,var(--orange),var(--orange2));color:#fff;font:inherit;font-size:15.5px;font-weight:900;cursor:pointer}
     .dg-note{margin:11px 0 0;color:var(--muted);font-size:11.5px;line-height:1.8;text-align:center}
+    /* 共通CTA（コンバージョン＝オレンジで統一） */
+    .btn-cta{background:linear-gradient(180deg,var(--orange),var(--orange2));box-shadow:0 12px 26px rgba(221,95,22,.28);color:#fff}
+    .btn-cta:hover{filter:brightness(1.05)}
+    /* ヒーロー内の見積りパネル */
+    .hero-quote{position:relative;padding:26px 26px 22px;border:1px solid #cfe0f4;border-radius:20px;background:#fff;box-shadow:0 22px 55px rgba(20,62,120,.14)}
+    .hero-quote .hq-tag{position:absolute;left:22px;top:-14px;padding:5px 14px;border-radius:8px;background:linear-gradient(180deg,var(--orange),var(--orange2));color:#fff;font-size:12px;font-weight:900;letter-spacing:.04em;box-shadow:0 6px 14px rgba(221,95,22,.3)}
+    .hero-quote h2{margin:6px 0 4px;color:var(--navy);font-size:19px;line-height:1.5}
+    .hero-quote .hq-sub{margin:0 0 13px;color:var(--muted);font-size:11.5px}
+    .hq-row{display:grid;grid-template-columns:1fr 96px;gap:9px}
+    .hq-row input{min-width:0;height:52px;padding:0 15px;border:1.5px solid #c3d8ef;border-radius:11px;background:#fbfdff;color:var(--navy);font:inherit;font-size:14px;outline:none}
+    .hq-row input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(31,107,221,.12)}
+    .hq-row button{height:52px;border:0;border-radius:11px;font:inherit;font-size:13.5px;font-weight:900;cursor:pointer}
+    .hq-ex{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px;color:var(--muted);font-size:10.5px}
+    .hq-ex button{padding:5px 11px;border:1px solid var(--line);border-radius:999px;background:var(--pale);color:var(--blue2);font:inherit;font-size:10.5px;font-weight:800;cursor:pointer}
+    .hq-ex button:hover{border-color:var(--blue)}
+    .hq-alt{margin-top:14px;padding-top:13px;border-top:1px dashed var(--line);text-align:center}
+    .hq-alt button{display:inline-flex;align-items:center;justify-content:center;gap:7px;width:100%;min-height:46px;border:1.5px solid #b9d0ec;border-radius:11px;background:linear-gradient(180deg,#f8fbff,#eef5ff);color:var(--navy);font:inherit;font-size:13px;font-weight:900;cursor:pointer}
+    .hq-alt button:hover{border-color:var(--blue);color:var(--blue2)}
+    .hq-alt small{display:block;margin-bottom:7px;color:var(--muted);font-size:10.5px;font-weight:700}
+    /* 商品ピックアップ */
+    .picks{background:#fff}
+    .pick-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+    .pick-card{display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--line);border-radius:16px;background:#fff;box-shadow:0 8px 22px rgba(24,68,128,.06);transition:.18s}
+    .pick-card:hover{transform:translateY(-3px);box-shadow:0 16px 34px rgba(24,68,128,.12)}
+    .pick-media{position:relative;display:grid;place-items:center;aspect-ratio:4/3;background:linear-gradient(160deg,#f4f9ff,#e9f2fc);border-bottom:1px solid var(--line)}
+    .pick-media img{width:100%;height:100%;object-fit:contain;padding:14px;background:#fff}
+    .pick-media svg{width:74px;height:74px;color:#9db9dd}
+    .pick-media .pm-fb{display:none;place-items:center;width:100%;height:100%}
+    .pick-media.pm-noimg img{display:none}
+    .pick-media.pm-noimg .pm-fb{display:grid}
+    .pick-media .pm-badge{position:absolute;left:10px;top:10px;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.94);color:var(--blue2);font-size:9.5px;font-weight:900;box-shadow:0 3px 8px rgba(24,68,128,.12)}
+    .pick-body{display:flex;flex-direction:column;flex:1;gap:6px;padding:14px 15px 15px}
+    .pick-body h3{margin:0;color:var(--navy);font-size:13px;line-height:1.55;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    .pick-body .pk-sub{color:var(--muted);font-size:10.5px}
+    .pick-body .pk-price{margin-top:auto;padding-top:8px;color:var(--navy);font-size:13px;font-weight:900}
+    .pick-body .pk-price small{color:var(--muted);font-size:9.5px;font-weight:700}
+    .pick-body .pk-btn{margin-top:9px;min-height:41px;border:0;border-radius:10px;font:inherit;font-size:12px;font-weight:900;cursor:pointer}
+    .pick-body .pk-shop{margin-top:7px;text-align:center;color:var(--blue2);font-size:11px;font-weight:800}
+    .pick-more{display:flex;justify-content:center;gap:28px;flex-wrap:wrap;margin:30px 0 0}
+    /* 設置・工事サービス */
+    .works-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+    .work-card{display:flex;flex-direction:column;gap:9px;padding:22px 20px 18px;border:1px solid #dde9f8;border-radius:16px;background:linear-gradient(150deg,#fff,#f6faff);transition:.18s}
+    .work-card:hover{transform:translateY(-3px);border-color:#a9c9ef;box-shadow:0 14px 30px rgba(24,68,128,.1)}
+    .work-card .wk-ic{display:grid;place-items:center;width:52px;height:52px;border-radius:14px;background:var(--sky);color:var(--blue)}
+    .work-card .wk-ic svg{width:26px;height:26px}
+    .work-card h3{margin:4px 0 0;color:var(--navy);font-size:15px;line-height:1.5}
+    .work-card p{margin:0;color:var(--muted);font-size:11px;line-height:1.75;flex:1}
+    .work-card button{align-self:flex-start;margin-top:6px;padding:0;border:0;background:none;color:var(--blue2);font:inherit;font-size:12px;font-weight:900;cursor:pointer}
+    .work-card button:hover{text-decoration:underline;text-underline-offset:3px}
+    .works-note{margin:30px auto 0;max-width:760px;padding:16px 22px;border-radius:13px;background:var(--pale);border:1px solid var(--line);color:var(--muted);font-size:12px;line-height:1.9;text-align:center}
+    .works-note strong{color:var(--navy)}
     .catalog-section{background:var(--pale)}
     .maker-chip-row{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:0 0 26px}
     .maker-chip{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--navy);font:inherit;font-size:12px;font-weight:800;cursor:pointer;transition:.15s}
@@ -264,6 +315,7 @@
     footer{padding:42px 0;background:#071f48;color:#fff}.footer-grid{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:35px}.footer-grid>p{color:#9db1cc;font-size:10px}.footer-grid>small{color:#7990ae;font-size:9px}.footer-grid .brand{color:#fff}.footer-grid .brand small{color:#91a9c7}
     @media(max-width:960px){
       nav{display:none}.header-cta{margin-left:auto}.hero-grid,.flow-grid,.security-grid{grid-template-columns:1fr}.hero-copy{text-align:center}.hero .eyebrow,.actions,.trust,.hero-number{justify-content:center}.hero-art{max-width:720px;margin:auto}.search-intro{align-items:flex-start}.search-intro span{text-align:left}.inventory-results{grid-template-columns:1fr}.service-grid,.category-grid{grid-template-columns:repeat(2,1fr)}.flow-grid{gap:42px}.intro,.security-copy{text-align:center}.flow-art{margin-top:0}.equipment-grid{grid-template-columns:repeat(2,1fr)}.split-head{grid-template-columns:1fr;gap:12px;text-align:center}.cloud-panel{grid-template-columns:1fr;padding:54px}.footer-grid{grid-template-columns:1fr;justify-items:center;text-align:center}.proof-panel{grid-template-columns:1fr 1fr}.proof-copy{grid-column:1/-1;border-right:0;border-bottom:1px solid #e2edf8;text-align:center}.proof-stat:nth-child(3){border-right:0}.catalog-grid{grid-template-columns:repeat(2,1fr)}
+      .pick-grid,.works-grid{grid-template-columns:repeat(2,1fr)}.hero-quote{max-width:560px;margin:8px auto 0}
     }
     @media(max-width:640px){
       .wrap{width:calc(100% - 30px)}.header-inner{min-height:68px}.brand-mark{width:34px;height:34px}.brand strong{font-size:11px}.brand small{font-size:8px}.header-cta{min-height:39px;padding:0 12px;font-size:11px}
@@ -274,6 +326,9 @@
       .qflow{grid-template-columns:1fr;gap:9px}.qflow .st:not(:last-child):after{content:"⌄";right:50%;top:auto;bottom:-13px;transform:translateX(50%)}
       .fc-btn{font-size:13px;min-height:46px;gap:5px}.fc-btn small{font-size:9px}.fc-btns{gap:8px}
       .dg-box{border-radius:14px}.dg-q{font-size:15px}
+      .pick-grid{grid-template-columns:repeat(2,1fr);gap:10px}.works-grid{grid-template-columns:1fr}.pick-media svg{width:56px;height:56px}
+      .hero-quote{padding:22px 16px 16px}.hq-row{grid-template-columns:1fr}.hq-row button{height:48px}
+      .pick-more{gap:14px;flex-direction:column;align-items:center}
     }
   </style>
 </head>
@@ -285,10 +340,10 @@
         <span><strong>EIGHT COMMERCE</strong><small>法人IT調達・導入・情シス支援</small><span class="operated">株式会社エイトが運営</span></span>
       </a>
       <nav aria-label="メインナビゲーション">
-        <a href="#categories">IT商材を探す</a><a href="#catalog">商品一覧</a><a href="#rental">購入・レンタル</a>
-        <a href="#setup">設定・設置</a><a href="/cloud.html">クラウド情シス</a>
+        <a href="#products">商品を探す</a><a href="#categories">設置・工事</a><a href="#catalog">商品一覧</a>
+        <a href="/cloud.html">クラウド情シス</a><a href="/shop/">ショップ</a>
       </nav>
-      <a class="header-cta" href="#contact">法人見積もり</a>
+      <a class="header-cta" href="#contact">無料見積もり</a>
     </div>
   </header>
 
@@ -297,39 +352,38 @@
       <div class="wrap hero-grid">
         <div class="hero-copy">
           <p class="eyebrow">2004年創業・株式会社エイトが運営</p>
-          <h1><em>40万点以上</em>のIT機器を、<br>選定から運用まで。</h1>
-          <p class="hero-lead">パソコン、サーバー、ネットワーク、セキュリティ機器まで。<br>機器選定・販売・レンタル・設定・設置から情シス運用まで、まとめて支援します。</p>
-          <div class="actions"><a class="btn btn-primary" href="#model-search">10秒見積り（型番で探す）→</a><button class="btn btn-outline" type="button" onclick="openDiag()">かんたん診断で見積り</button></div>
-          <ul class="trust"><li>40万点以上の品揃え</li><li>セキュリティ機器に強い</li><li>法人請求書払い</li><li>設定・設置まで対応</li></ul>
+          <h1><em>40万点以上</em>から選定。<br>設置・工事までワンストップ。</h1>
+          <p class="hero-lead">パソコン1台の調達から、オフィス移転・店舗・データセンターの設置工事まで。<br>商品を選んで、そのまま無料見積もりを依頼できます。</p>
+          <ul class="trust"><li>見積もり無料・1〜2営業日回答</li><li>設置・施工まで一括対応</li><li>法人請求書払い</li><li>導入後の情シス支援</li></ul>
         </div>
-        <div class="hero-art">
-          <div class="art-frame"><img src="assets/eight-commerce-hero-v2.png" alt="ソフトウェア、クラウド、PC、サーバー、ネットワーク、セキュリティをワンストップで支援するイラスト"></div>
-          <div class="support-chip"><span class="chip-check">✓</span><span><small>導入後も安心</small><strong>情シスが継続サポート</strong></span></div>
+        <div class="hero-quote">
+          <span class="hq-tag">＼ 10秒見積り ／</span>
+          <h2>型番・商品名から探す</h2>
+          <p class="hq-sub">在庫と参考価格をその場で確認し、そのまま見積もり依頼できます。</p>
+          <form id="hero-search" role="search" aria-label="型番・商品名検索">
+            <div class="hq-row">
+              <input id="hero-q" type="search" placeholder="例：FortiGate 60F、MR28-HW" aria-label="型番・商品名">
+              <button type="submit" class="btn-primary" style="border-radius:11px">検索</button>
+            </div>
+          </form>
+          <div class="hq-ex"><span>例：</span><button type="button" data-model="FG-60F-US">FortiGate 60F</button><button type="button" data-model="MR28-HW">Meraki MR28</button><button type="button" data-model="CF-FV5TDAAS">Let’s note</button></div>
+          <div class="hq-alt">
+            <small>型番が決まっていない方は</small>
+            <button type="button" onclick="openDiag()">かんたん診断見積り（3つの質問・1分）→</button>
+          </div>
         </div>
       </div>
     </section>
 
-    <section class="qmethods" id="quote-methods">
+    <section class="picks" id="products">
       <div class="wrap">
-        <div class="qm-head"><h2>選べる<em>2</em>つの見積り方法</h2></div>
-        <div class="qm-grid">
-          <a class="qm-card orange" href="#model-search">
-            <span class="qm-tag">すぐに価格が確認できる！</span>
-            <span class="qm-main">10秒見積り<span class="qm-arrow">›</span></span>
-            <p class="qm-sub">型番・商品名がお決まりの方はこちら。<br>在庫と参考価格をその場で確認できます。</p>
-          </a>
-          <button class="qm-card teal" type="button" onclick="openDiag()">
-            <span class="qm-tag">1分でぴったりの構成がわかる！</span>
-            <span class="qm-main">かんたん診断見積り<span class="qm-arrow">›</span></span>
-            <p class="qm-sub">型番が決まっていなくても大丈夫。<br>3つの質問に答えるだけで担当者がご提案します。</p>
-          </button>
+        <div class="section-head">
+          <p class="eyebrow">PICK UP</p>
+          <h2>注目の商品から<span>そのまま見積もり</span></h2>
+          <p>「この商品を見積もる」を押すと、下のフォームに商品名が入った状態で依頼できます。掲載外の商品もご相談ください。</p>
         </div>
-        <div class="qflow">
-          <div class="st"><b>STEP 01</b><strong>条件を入力</strong><span>型番、または用途・台数・時期をお知らせください</span></div>
-          <div class="st"><b>STEP 02</b><strong>担当者が構成を選定</strong><span>40万点以上の取扱商材から最適な機器をご提案</span></div>
-          <div class="st"><b>STEP 03</b><strong>無料見積りをご提示</strong><span>1〜2営業日以内にご連絡。設定・設置もまとめて対応</span></div>
-        </div>
-        <p class="qm-note">見積りは<strong>無料</strong>です。ご相談だけでもお気軽にどうぞ。1点から大量導入まで対応します。</p>
+        <div class="pick-grid" id="pickGrid"></div>
+        <p class="pick-more"><a class="text-link" href="#catalog">777商品の一覧・メーカー別に探す →</a><a class="text-link" href="/shop/">オンラインショップで購入する →</a></p>
       </div>
     </section>
 
@@ -388,56 +442,53 @@
     <section class="category-area" id="categories">
       <div class="wrap">
         <div class="section-head">
-          <p class="eyebrow">40万点以上の豊富なラインアップ</p>
-          <h2>ソフトウェアからハードウェアまで<br><span>必要なIT商材がまとめて揃う</span></h2>
-          <p>製品名が分からなくても、課題・用途・予算から担当者が選定します。</p>
+          <p class="eyebrow">INSTALLATION &amp; CONSTRUCTION</p>
+          <h2>商品の選定から、<span>設置・工事まで一括対応</span></h2>
+          <p>機器を届けて終わりではありません。現地での設置・配線・施工まで、ひとつの窓口でまとめて依頼できます。</p>
         </div>
-        <div class="category-tools"><a class="search-box" href="#model-search"><b>⌕</b><span>型番検索・法人見積もりへ　例：FortiGate 60Fを3台、設置込みで</span></a></div>
-        <p class="catalog-link-note"><a class="text-link" href="#catalog">777商品の一覧・取扱いメーカーを見る →</a></p>
-        <div class="category-grid">
-          <article class="category-card"><span class="cat-icon">SW</span><h3>ソフトウェア</h3><p>業務ソフト、資産管理、バックアップ、開発・設計ツール</p></article>
-          <article class="category-card"><span class="cat-icon">CLOUD</span><h3>クラウドサービス</h3><p>Microsoft 365、グループウェア、オンライン会議、SaaS</p></article>
-          <article class="category-card"><span class="cat-icon">PC</span><h3>PC・デバイス</h3><p>ノートPC、デスクトップ、タブレット、GPU端末</p></article>
-          <article class="category-card"><span class="cat-icon">SERVER</span><h3>サーバー・ストレージ</h3><p>サーバー、NAS、バックアップ、UPS、データ保管</p></article>
-          <article class="category-card"><span class="cat-icon">NET</span><h3>ネットワーク</h3><p>ルーター、スイッチ、Wi-Fi、VPN、拠点間接続</p></article>
-          <article class="category-card"><span class="cat-icon">SEC</span><h3>セキュリティ</h3><p>EDR、UTM、認証、メール・Web対策、監視サービス</p></article>
-          <article class="category-card"><span class="cat-icon">DEVICE</span><h3>周辺機器・オフィス機器</h3><p>モニター、プリンター、Web会議、防犯・入退室機器</p></article>
-          <article class="category-card"><span class="cat-icon">AI</span><h3>AI・DXソリューション</h3><p>生成AI、業務自動化、データ活用、システム連携</p></article>
+        <div class="works-grid">
+          <article class="work-card">
+            <span class="wk-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span>
+            <h3>パソコン・モニターの一括設置</h3><p>複数拠点・大量台数の搬入、開梱、設置、配線、動作確認までまとめて対応します。</p>
+            <button type="button" onclick="quoteWork('パソコン・モニターの一括設置')">この作業を見積もる →</button>
+          </article>
+          <article class="work-card">
+            <span class="wk-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 21h18M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/><path d="M9 10h.01M15 10h.01"/></svg></span>
+            <h3>オフィス移転に伴うIT機器設置</h3><p>移転前の計画づくりから、当日の機器移設・ネットワーク切り替えまで伴走します。</p>
+            <button type="button" onclick="quoteWork('オフィス移転に伴うIT機器設置')">この作業を見積もる →</button>
+          </article>
+          <article class="work-card">
+            <span class="wk-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 12a10 10 0 0 1 14 0M8.5 15.5a5 5 0 0 1 7 0"/><circle cx="12" cy="19" r="1.3" fill="currentColor" stroke="none"/><rect x="16.5" y="3" width="5" height="7" rx="1.2"/><circle cx="19" cy="8" r=".8" fill="currentColor" stroke="none"/></svg></span>
+            <h3>LAN・Wi-Fi・防犯カメラ工事</h3><p>配線工事からアクセスポイント・カメラの設置、設定、電波調査まで一括で行います。</p>
+            <button type="button" onclick="quoteWork('LAN・Wi-Fi・防犯カメラ工事')">この作業を見積もる →</button>
+          </article>
+          <article class="work-card">
+            <span class="wk-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="13" height="9" rx="1.5"/><path d="M7 21h10M9.5 12v3M19 8h2v13"/><path d="M6 15h7v6H6z"/></svg></span>
+            <h3>店舗のPOS・サイネージ設置</h3><p>開店・改装のスケジュールに合わせて、POSレジやサイネージの設置・初期設定を行います。</p>
+            <button type="button" onclick="quoteWork('店舗のPOS・サイネージ設置')">この作業を見積もる →</button>
+          </article>
+          <article class="work-card">
+            <span class="wk-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h8M8 10h8M8 14h8"/><circle cx="17" cy="18" r=".9" fill="currentColor" stroke="none"/></svg></span>
+            <h3>サーバーラック・ネットワーク機器設置</h3><p>ラッキング、配線、ラベリング、通電・疎通確認まで、手順書に沿って丁寧に実施します。</p>
+            <button type="button" onclick="quoteWork('サーバーラック・ネットワーク機器設置')">この作業を見積もる →</button>
+          </article>
+          <article class="work-card">
+            <span class="wk-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 6h9M4 12h16M4 18h12"/><circle cx="17" cy="6" r="2"/><circle cx="8" cy="18" r="2"/></svg></span>
+            <h3>データセンター内のキッティング・配線</h3><p>入館ルールに準拠した作業員の手配と、DC内でのキッティング・配線作業を代行します。</p>
+            <button type="button" onclick="quoteWork('データセンター内のキッティング・配線')">この作業を見積もる →</button>
+          </article>
+          <article class="work-card">
+            <span class="wk-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M13 2 5 13h5l-1 9 8-11h-5l1-9z"/></svg></span>
+            <h3>EV充電器・蓄電池の施工補助</h3><p>電気工事会社さまと連携し、EV充電器・蓄電池の設置・施工の補助作業を担います。</p>
+            <button type="button" onclick="quoteWork('EV充電器・蓄電池の施工補助')">この作業を見積もる →</button>
+          </article>
+          <article class="work-card">
+            <span class="wk-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"/><path d="M9 3v2M15 3v2M9 19v2M15 19v2M3 9h2M3 15h2M19 9h2M19 15h2"/></svg></span>
+            <h3>半導体設備の保守補助</h3><p>クリーンルームでの保守・部材交換などの補助人員を、必要な期間・人数で手配します。</p>
+            <button type="button" onclick="quoteWork('半導体設備の保守補助')">この作業を見積もる →</button>
+          </article>
         </div>
-        <div class="partner-note"><strong>40万点以上の取扱商材からご提案</strong><span>サイト上では在庫連携中の777商品を型番検索できます。掲載外の商品も、エイトコマースが選定・見積もり・導入を一つの窓口で支援します。</span></div>
-      </div>
-    </section>
-
-    <section class="security" id="security">
-      <div class="wrap security-grid">
-        <div class="security-copy">
-          <p class="eyebrow">OUR STRENGTH</p>
-          <h2>セキュリティ機器と<br><span>ハードウェア選定</span>に強い。</h2>
-          <p>単に商品を販売するのではなく、利用人数・拠点数・ネットワーク構成・運用体制を確認し、過不足のない機器構成をご提案します。オフィス開設や移転も、現地設置までまとめて対応します。</p>
-          <a class="text-link" href="#contact">オフィスIT環境を相談する →</a>
-        </div>
-        <div class="security-points">
-          <article class="security-point"><span>SEC</span><b>セキュリティ設計</b><p>UTM、EDR、認証、バックアップを組み合わせ、守る範囲と運用を設計。</p></article>
-          <article class="security-point"><span>HW</span><b>機器・構成選定</b><p>PC、サーバー、NAS、Wi-Fiなどを用途・予算・将来拡張から選定。</p></article>
-          <article class="security-point"><span>SET</span><b>キッティング・設置</b><p>初期設定、配線、ネットワーク構築、複数拠点や社員宅への配送に対応。</p></article>
-          <article class="security-point"><span>OPS</span><b>導入後の情シス支援</b><p>問い合わせ、故障、入退社、アカウント・ライセンス管理を継続支援。</p></article>
-        </div>
-      </div>
-    </section>
-
-    <section id="products">
-      <div class="wrap">
-        <div class="section-head">
-          <p class="eyebrow">PRODUCTS &amp; SERVICES</p>
-          <h2>調達だけではない。<br><span>導入して、使える状態まで。</span></h2>
-          <p>機器を売って終わりではなく、選定から導入後の運用までひとつの窓口で対応します。</p>
-        </div>
-        <div class="service-grid">
-          <article class="service-card"><div class="icon">SELECT</div><h3>製品・構成を選定</h3><p>課題・利用人数・予算から、ソフトと機器を横断して選定します。</p><a href="#contact">選定を相談する →</a></article>
-          <article class="service-card"><div class="icon">BUY</div><h3>販売・レンタル</h3><p>購入とレンタルを使い分け、コストと利用期間に合う形で調達。</p><a href="#contact">見積もりを依頼 →</a></article>
-          <article class="service-card"><div class="icon">SET</div><h3>設定・キッティング</h3><p>端末、アカウント、ライセンス、セキュリティを事前設定します。</p><a href="#contact">設定を相談する →</a></article>
-          <article class="service-card"><div class="icon">INSTALL</div><h3>設置・運用支援</h3><p>配送、現地設置、ネットワーク構築、導入後の保守まで対応。</p><a href="#contact">設置を依頼する →</a></article>
-        </div>
+        <div class="works-note"><strong>作業のみのご依頼も歓迎です。</strong>機器はお持ちで設置だけ頼みたい、繁忙期だけ人手が欲しい——そうしたご相談も、規模・場所・時期をお聞きして無料でお見積もりします。</div>
       </div>
     </section>
 
@@ -456,33 +507,6 @@
           <article class="step"><span class="num">04</span><div><h3>運用・情シス支援</h3><p>故障対応、入退社設定、ライセンス管理、問い合わせ窓口を継続支援。</p></div></article>
         </div>
         <div class="flow-art"><img src="assets/eight-commerce-onestop.png" alt="IT機器の設定、配送、現地設置、ヘルプデスクまで一括して支援するイラスト"></div>
-      </div>
-    </section>
-
-    <section>
-      <div class="wrap">
-        <div class="split-head">
-          <div><p class="eyebrow">EQUIPMENT</p><h2>PC以外のIT・セキュリティ機器も<br><span>販売・レンタル・設置</span>できます。</h2></div>
-          <p>オフィス移転、拠点開設、入社対応、セキュリティ強化など、目的に合わせて必要な機器をまとめてご用意します。</p>
-        </div>
-        <div class="equipment-grid">
-          <article class="equipment"><span class="tag">PC</span><h3>ノート・デスクトップPC</h3><p>新入社員用から高性能・AI/GPU端末まで</p></article>
-          <article class="equipment"><span class="tag">MON</span><h3>モニター・プリンター</h3><p>周辺機器や消耗品もまとめて調達</p></article>
-          <article class="equipment"><span class="tag">Wi-Fi</span><h3>Wi-Fi・ネットワーク</h3><p>ルーター、AP、スイッチ、拠点間接続</p></article>
-          <article class="equipment"><span class="tag">UTM</span><h3>UTM・ファイアウォール</h3><p>不正アクセスや情報漏えいへの対策</p></article>
-          <article class="equipment"><span class="tag">NAS</span><h3>NAS・バックアップ</h3><p>社内データの共有・保管・復旧体制</p></article>
-          <article class="equipment"><span class="tag">CAM</span><h3>防犯・入退室管理</h3><p>カメラや入退室機器の選定から設置</p></article>
-        </div>
-      </div>
-    </section>
-
-    <section class="choice" id="rental">
-      <div class="wrap">
-        <div class="section-head"><p class="eyebrow">PURCHASE OR RENTAL</p><h2>導入方法も、運用に合わせて<br><span>選べます。</span></h2></div>
-        <div class="choice-grid">
-          <article class="choice-card"><span class="label">長期利用・資産化に</span><h3>IT機器を購入</h3><p>必要なスペックと予算に合わせ、1台から大量導入までお見積もりします。</p><ul><li>メーカー保証付き</li><li>法人請求書払い</li><li>キッティング対応</li></ul></article>
-          <article class="choice-card featured"><span class="label">短期・台数変動に</span><h3>IT機器をレンタル</h3><p>研修、イベント、短期プロジェクトなど、必要な期間と台数だけ利用できます。</p><ul><li>必要な期間だけ利用</li><li>初期費用を抑制</li><li>故障時の交換相談</li></ul></article>
-        </div>
       </div>
     </section>
 
@@ -505,8 +529,8 @@
     <section class="contact" id="contact">
       <div class="contact-inner">
         <p class="eyebrow">CONTACT</p>
-        <h2>欲しい機器が決まっていなくても、<br>まずはご相談ください。</h2>
-        <p>用途・台数・ご予算を伺い、購入・レンタル・設定・設置をまとめてご提案します。</p>
+        <h2>見積もりは無料。<br>1〜2営業日以内にご回答します。</h2>
+        <p>機器が決まっていなくても大丈夫です。用途・台数・ご予算を伺い、調達から設置・工事までまとめてご提案します。</p>
         <form id="topContactForm" class="quote-form" novalidate aria-label="法人見積もり・お問い合わせ">
           <div class="qf-row">
             <label>お名前<span class="req">必須</span><input name="name" autocomplete="name" required></label>
@@ -519,7 +543,7 @@
           <label>ご相談種別<select name="inquiry_type"><option>お見積もり</option><option>ご相談</option><option>その他</option></select></label>
           <label>内容<textarea name="message" rows="3" placeholder="ご希望の機器・台数・ご予算などをご記入ください"></textarea></label>
           <div class="hp-field" aria-hidden="true"><label>Webサイト<input name="website" type="text" tabindex="-1" autocomplete="off"></label></div>
-          <button type="submit" class="btn btn-primary">法人見積もりを依頼する <span class="arrow">→</span></button>
+          <button type="submit" class="btn btn-cta">無料見積もりを依頼する <span class="arrow">→</span></button>
           <p class="qf-msg" id="topContactMsg" role="status" aria-live="polite"></p>
         </form>
         <p class="qf-alt">またはメール <a href="mailto:nw@8grp.co.jp">nw@8grp.co.jp</a> ／ 電話 <a href="tel:0364335025">03-6433-5025</a>（平日10:00〜18:00）</p>
@@ -612,12 +636,38 @@
         ? `参考標準価格 ¥${Number(item.listPrice).toLocaleString('ja-JP')}（税抜）`
         : '価格は個別見積もり';
 
-      const mailLink = (item) => {
-        const product = `${item.model} ${item.name || ''}`.trim();
-        const subject = encodeURIComponent(`【見積依頼】${item.model}`);
-        const body = encodeURIComponent(`以下の商品について見積もりを希望します。\n\n商品・型番：${product}\n商品コード：${item.productCode || ''}\n数量：${quantity.value}点\n設置・設定：要相談\n\n会社名：\nご担当者名：\n電話番号：`);
-        return `mailto:nw@8grp.co.jp?subject=${subject}&body=${body}`;
+      /* ---------- 見積もり内容をページ内フォームへ引き継ぐ（メールソフトは開かない） ---------- */
+      const sendToForm = (lines) => {
+        const ta = document.querySelector('#topContactForm textarea[name="message"]');
+        if (ta) {
+          const cur = ta.value.trim();
+          ta.value = (cur ? cur + '\n\n' : '') + lines.join('\n');
+          ta.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        const sel = document.querySelector('#topContactForm select[name="inquiry_type"]');
+        if (sel) sel.value = 'お見積もり';
+        const contact = document.getElementById('contact');
+        if (contact) contact.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        setTimeout(() => {
+          const name = document.querySelector('#topContactForm input[name="name"]');
+          if (name) name.focus({ preventScroll: true });
+        }, 600);
       };
+      const requestQuote = (item, qty) => sendToForm([
+        '【お見積もり希望商品】',
+        '商品・型番：' + `${item.model || ''} ${item.name || ''}`.trim(),
+        item.productCode ? '商品コード：' + item.productCode : null,
+        '数量：' + (qty || (quantity ? quantity.value : '1')) + '点',
+        '設置・設定：要相談',
+        '',
+        '上記の条件で無料お見積もりをお願いします。'
+      ].filter(Boolean));
+      window.quoteWork = (title) => sendToForm([
+        '【設置・工事のご相談】',
+        'ご希望の作業：' + title,
+        '',
+        '場所・時期・規模（台数や拠点数）など、わかる範囲でご記入ください。'
+      ]);
 
       const showSearchResults = (query) => {
         const needle = normalize(query);
@@ -630,10 +680,16 @@
         }).slice(0, 20);
 
         if (!matches.length) {
-          const subject = encodeURIComponent(`【無料見積もり・お取り寄せ確認】${query}`);
-          const body = encodeURIComponent(`以下の商品について、無料お見積もり・お取り寄せ可否の確認を希望します。\n\n商品・型番：${query}\n数量：${quantity.value}点\n設置・設定：要相談\n\n会社名：\nご担当者名：\n電話番号：`);
-          result.innerHTML = `<div class="not-found">「<strong>${escapeHtml(query)}</strong>」は今回の在庫表（777商品）には見つかりませんでした。ご指定の型番がサイトに掲載されていないだけの場合もあります。40万点以上の取扱候補から、無料でお見積り・お取り寄せ可否をご回答します。<div class="nf-actions"><a class="btn btn-primary" href="mailto:nw@8grp.co.jp?subject=${subject}&body=${body}">無料見積もり・お問い合わせ →</a></div></div>`;
+          result.innerHTML = `<div class="not-found">「<strong>${escapeHtml(query)}</strong>」は今回の在庫表（777商品）には見つかりませんでした。ご指定の型番がサイトに掲載されていないだけの場合もあります。40万点以上の取扱候補から、無料でお見積り・お取り寄せ可否をご回答します。<div class="nf-actions"><button type="button" class="btn btn-cta" id="nfQuoteBtn">この内容で無料見積もりを依頼 →</button></div></div>`;
           result.classList.add('is-visible');
+          document.getElementById('nfQuoteBtn').addEventListener('click', () => sendToForm([
+            '【無料見積もり・お取り寄せ確認】',
+            '商品・型番：' + query,
+            '数量：' + quantity.value + '点',
+            '設置・設定：要相談',
+            '',
+            '取扱可否とお見積もりのご回答をお願いします。'
+          ]));
           return;
         }
 
@@ -668,15 +724,20 @@
         result.classList.add('is-visible');
         result.querySelectorAll('[data-result-index]').forEach((button) => {
           button.addEventListener('click', () => {
-            window.location.href = mailLink(matches[Number(button.dataset.resultIndex)]);
+            requestQuote(matches[Number(button.dataset.resultIndex)]);
           });
         });
       };
 
+      const scrollToSearch = () => {
+        const target = document.getElementById('model-search');
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      };
       document.querySelectorAll('[data-model]').forEach((button) => {
         button.addEventListener('click', () => {
           model.value = button.dataset.model;
           showSearchResults(model.value);
+          scrollToSearch();
         });
       });
 
@@ -686,6 +747,128 @@
         if (!product) return;
         showSearchResults(product);
       });
+
+      // ヒーローの検索窓 → メインの検索に引き継いで結果までスクロール
+      const heroForm = document.getElementById('hero-search');
+      if (heroForm) {
+        heroForm.addEventListener('submit', (event) => {
+          event.preventDefault();
+          const q = document.getElementById('hero-q').value.trim();
+          if (!q) return;
+          model.value = q;
+          showSearchResults(q);
+          scrollToSearch();
+        });
+      }
+
+      /* ---------- 注目の商品（トップの8商品ピックアップ） ----------
+         公開ショップ（管理画面から出品した商品）を最優先で表示し、
+         取得できない・未出品のときは在庫データから代表8商品を表示する。 */
+      const pickGrid = document.getElementById('pickGrid');
+      const DEVICE_SVG = {
+        'PC・タブレット': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M2 19h20"/></svg>',
+        'ディスプレイ': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="18" height="13" rx="1.5"/><path d="M9 21h6M12 16v5"/></svg>',
+        'ネットワーク機器': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 10a11 11 0 0 1 16 0M7.5 13.5a6.5 6.5 0 0 1 9 0"/><circle cx="12" cy="17.5" r="1.4" fill="currentColor" stroke="none"/></svg>',
+        'セキュリティ機器': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z"/><path d="M9.5 12l2 2 3.5-4"/></svg>',
+        'PC周辺機器': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="4" y="7" width="16" height="10" rx="1.5"/><path d="M7 10h.01M10 10h.01M13 10h.01M16 10h.01M7 13h10"/></svg>'
+      };
+      const FEATURED_FALLBACK = (() => {
+        if (!inventory.length) return [];
+        const picks = inventory.filter((item) => item.image);
+        const bySource = ['PC・タブレット', 'ディスプレイ', 'ネットワーク機器', 'セキュリティ機器', 'PC周辺機器'];
+        for (const source of bySource) {
+          if (picks.length >= 8) break;
+          const found = inventory.find((item) => item.source === source && item.listPrice && !picks.includes(item));
+          if (found) picks.push(found);
+        }
+        for (const item of inventory) {
+          if (picks.length >= 8) break;
+          if (item.listPrice && !picks.includes(item)) picks.push(item);
+        }
+        return picks.slice(0, 8);
+      })();
+      const pickCardHtml = (card, index) => `
+        <article class="pick-card">
+          <div class="pick-media${card.img ? '' : ' pm-noimg'}">
+            ${card.img ? `<img src="${escapeHtml(card.img)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.closest('.pick-media').classList.add('pm-noimg')">` : ''}
+            <span class="pm-fb" aria-hidden="true">${DEVICE_SVG[card.cat] || DEVICE_SVG['PC周辺機器']}</span>
+            <span class="pm-badge">${escapeHtml(card.badge)}</span>
+          </div>
+          <div class="pick-body">
+            <h3>${escapeHtml(card.title)}</h3>
+            ${card.sub ? `<div class="pk-sub">${escapeHtml(card.sub)}</div>` : ''}
+            <div class="pk-price">${escapeHtml(card.price)}${card.priceNote ? ` <small>${escapeHtml(card.priceNote)}</small>` : ''}</div>
+            <button type="button" class="pk-btn btn-cta" data-pick-index="${index}">この商品を見積もる</button>
+            ${card.shopLink ? '<a class="pk-shop" href="/shop/">ショップで購入する →</a>' : ''}
+          </div>
+        </article>`;
+      const renderPicks = (cards) => {
+        if (!pickGrid || !cards.length) return;
+        pickGrid.innerHTML = cards.map(pickCardHtml).join('');
+        pickGrid.querySelectorAll('[data-pick-index]').forEach((button) => {
+          button.addEventListener('click', () => {
+            const card = cards[Number(button.dataset.pickIndex)];
+            sendToForm(card.quoteLines);
+          });
+        });
+      };
+      const invToCard = (item) => ({
+        img: item.image || '',
+        cat: item.source,
+        badge: item.source,
+        title: (item.name && item.name !== item.model ? `${item.model}｜${item.name}` : (item.model || item.name || '商品')).slice(0, 60),
+        sub: stockText(item),
+        price: item.listPrice ? `¥${Number(item.listPrice).toLocaleString('ja-JP')}` : '個別見積もり',
+        priceNote: item.listPrice ? '参考標準価格・税抜' : '',
+        shopLink: false,
+        quoteLines: [
+          '【お見積もり希望商品】',
+          '商品・型番：' + `${item.model || ''} ${item.name || ''}`.trim(),
+          item.productCode ? '商品コード：' + item.productCode : null,
+          '数量：1点',
+          '設置・設定：要相談',
+          '',
+          '上記の条件で無料お見積もりをお願いします。'
+        ].filter(Boolean)
+      });
+      const shopToCard = (row) => {
+        const shots = Array.isArray(row.images) ? row.images.filter((u) => typeof u === 'string' && u) : [];
+        return {
+          img: shots[0] || row.image_url || '',
+          cat: row.category || 'PC周辺機器',
+          badge: 'ショップ掲載中',
+          title: row.title || row.model || row.mgmt_no || '商品',
+          sub: [row.category, row.model].filter(Boolean).join('　'),
+          price: row.price ? `¥${Number(row.price).toLocaleString('ja-JP')}` : '個別見積もり',
+          priceNote: row.price ? '税込' : '',
+          shopLink: true,
+          quoteLines: [
+            '【お見積もり希望商品】',
+            '商品：' + (row.title || row.model || row.mgmt_no || ''),
+            row.mgmt_no ? '管理番号：' + row.mgmt_no : null,
+            '数量：1点',
+            '設置・設定：要相談',
+            '',
+            '上記の条件で無料お見積もりをお願いします。'
+          ].filter(Boolean)
+        };
+      };
+      renderPicks(FEATURED_FALLBACK.map(invToCard));
+      (async () => {
+        try {
+          const SUPA_URL = 'https://htglvascsuqkixpmclwr.supabase.co';
+          const SUPA_KEY = 'sb_publishable_yZCcrwdqjuf0u_5WBWlHIw_AxdvteEV';
+          const controller = new AbortController();
+          setTimeout(() => controller.abort(), 6000);
+          const res = await fetch(
+            `${SUPA_URL}/rest/v1/shop_products?select=id,mgmt_no,title,category,model,price,image_url,images&order=updated_at.desc&limit=8`,
+            { headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }, signal: controller.signal }
+          );
+          if (!res.ok) return;
+          const rows = await res.json();
+          if (Array.isArray(rows) && rows.length) renderPicks(rows.map(shopToCard));
+        } catch (_) { /* 取得できないときは在庫データの代表商品を表示したまま */ }
+      })();
 
       /* ---------- かんたん診断見積り（型番が決まっていない方向け） ---------- */
       const DIAG_STEPS = [
@@ -753,7 +936,8 @@
       };
       // 診断結果を問い合わせフォームに引き継いで送信画面へ
       const diagToForm = () => {
-        const lines = [
+        closeDiag();
+        sendToForm([
           '【かんたん診断見積りの内容】',
           'お探しの機器：' + diag.use,
           '台数の目安：' + diag.qty,
@@ -761,22 +945,7 @@
           '設定・設置：' + (diag.setup ? '依頼したい' : '不要／未定'),
           '',
           '上記の条件で無料お見積りをお願いします。'
-        ];
-        const ta = document.querySelector('#topContactForm textarea[name="message"]');
-        if (ta) {
-          const cur = ta.value.trim();
-          ta.value = (cur ? cur + '\n\n' : '') + lines.join('\n');
-          ta.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-        const sel = document.querySelector('#topContactForm select[name="inquiry_type"]');
-        if (sel) sel.value = 'お見積もり';
-        closeDiag();
-        const contact = document.getElementById('contact');
-        if (contact) contact.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        setTimeout(() => {
-          const name = document.querySelector('#topContactForm input[name="name"]');
-          if (name) name.focus({ preventScroll: true });
-        }, 600);
+        ]);
       };
       window.openDiag = () => {
         diag.step = 0; diag.use = ''; diag.qty = ''; diag.when = ''; diag.setup = false;
@@ -899,7 +1068,7 @@
           const visible = matches.slice(0, catalogState.page * PAGE_SIZE);
 
           if (!matches.length) {
-            catalogGrid.innerHTML = `<div class="catalog-empty">条件に一致する商品が見つかりませんでした。掲載外の商品も無料でお見積もりします。<br><a href="mailto:nw@8grp.co.jp">nw@8grp.co.jp</a> へお気軽にお問い合わせください。</div>`;
+            catalogGrid.innerHTML = `<div class="catalog-empty">条件に一致する商品が見つかりませんでした。掲載外の商品も無料でお見積もりします。<br><a href="#contact">お問い合わせフォームへ →</a></div>`;
             catalogStatus.textContent = '0件';
             catalogMoreBtn.style.display = 'none';
             return;
@@ -912,7 +1081,7 @@
 
           catalogGrid.querySelectorAll('[data-catalog-index]').forEach((button) => {
             button.addEventListener('click', () => {
-              window.location.href = mailLink(visible[Number(button.dataset.catalogIndex)]);
+              requestQuote(visible[Number(button.dataset.catalogIndex)], '1');
             });
           });
         };
