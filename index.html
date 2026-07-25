@@ -81,7 +81,7 @@
     .inventory-body{min-width:0}.inventory-item h3{margin:0;color:var(--navy);font-size:13px;line-height:1.5}.inventory-item p{margin:5px 0 0;color:#5e7693;font-size:10px;line-height:1.55}
     .item-meta{display:flex;flex-wrap:wrap;gap:5px 9px;margin-top:7px;color:#6d829b;font-size:9px}.item-meta b{color:#2b608e}
     .item-actions{display:flex;align-items:center;gap:8px;margin-top:11px}.quote-item{min-width:112px;height:38px;border:0;border-radius:8px;background:var(--navy);color:#fff;font-size:10px;font-weight:900;cursor:pointer}.maker-detail{color:var(--blue);font-size:9px;font-weight:900}.media-note{margin:12px 0 0;color:#798ca4;font-size:9px;line-height:1.6}
-    .not-found{padding:15px}.not-found a{color:var(--blue);font-weight:900}
+    .not-found{padding:15px;line-height:1.75}.not-found a{color:var(--blue);font-weight:900}.not-found .nf-actions{margin-top:13px}.not-found .btn-primary{color:#fff;min-height:44px;padding:0 20px;font-size:12px}
     .actions{display:flex;gap:12px;margin-top:28px}
     .btn{min-height:52px;display:inline-flex;align-items:center;justify-content:center;padding:0 24px;border-radius:11px;font-size:14px;font-weight:800;transition:.2s}
     .btn:hover{transform:translateY(-2px)}
@@ -359,8 +359,8 @@
         <h2>欲しい機器が決まっていなくても、<br>まずはご相談ください。</h2>
         <p>用途・台数・ご予算を伺い、購入・レンタル・設定・設置をまとめてご提案します。</p>
         <div class="actions">
-          <a class="btn btn-primary" href="mailto:info@8ec.jp">法人見積もりを依頼する →</a>
-          <a class="btn phone" href="tel:0357720607"><small>平日 10:00〜18:00</small>03-5772-0607</a>
+          <a class="btn btn-primary" href="mailto:nw@8grp.co.jp">法人見積もりを依頼する →</a>
+          <a class="btn phone" href="tel:0364335025"><small>平日 10:00〜18:00</small>03-6433-5025</a>
         </div>
       </div>
     </section>
@@ -410,7 +410,7 @@
         const product = `${item.model} ${item.name || ''}`.trim();
         const subject = encodeURIComponent(`【見積依頼】${item.model}`);
         const body = encodeURIComponent(`以下の商品について見積もりを希望します。\n\n商品・型番：${product}\n商品コード：${item.productCode || ''}\n数量：${quantity.value}点\n設置・設定：要相談\n\n会社名：\nご担当者名：\n電話番号：`);
-        return `mailto:info@8ec.jp?subject=${subject}&body=${body}`;
+        return `mailto:nw@8grp.co.jp?subject=${subject}&body=${body}`;
       };
 
       const showSearchResults = (query) => {
@@ -424,9 +424,9 @@
         }).slice(0, 20);
 
         if (!matches.length) {
-          const subject = encodeURIComponent(`【商品確認・見積依頼】${query}`);
-          const body = encodeURIComponent(`以下の商品について確認・見積もりを希望します。\n\n商品・型番：${query}\n数量：${quantity.value}点\n設置・設定：要相談\n\n会社名：\nご担当者名：\n電話番号：`);
-          result.innerHTML = `<div class="not-found"><strong>「${escapeHtml(query)}」</strong>は今回の在庫表777商品では見つかりませんでした。40万点以上の取扱候補から確認できます。 <a href="mailto:info@8ec.jp?subject=${subject}&body=${body}">この型番で見積もりを依頼する →</a></div>`;
+          const subject = encodeURIComponent(`【無料見積もり・お取り寄せ確認】${query}`);
+          const body = encodeURIComponent(`以下の商品について、無料お見積もり・お取り寄せ可否の確認を希望します。\n\n商品・型番：${query}\n数量：${quantity.value}点\n設置・設定：要相談\n\n会社名：\nご担当者名：\n電話番号：`);
+          result.innerHTML = `<div class="not-found">「<strong>${escapeHtml(query)}</strong>」は今回の在庫表（777商品）には見つかりませんでした。ご指定の型番がデータに無いだけの場合もあります。SB C&amp;Sの40万点以上の取扱候補から、無料でお見積り・お取り寄せ可否をご回答します。<div class="nf-actions"><a class="btn btn-primary" href="mailto:nw@8grp.co.jp?subject=${subject}&body=${body}">無料見積もり・お問い合わせ →</a></div></div>`;
           result.classList.add('is-visible');
           return;
         }
