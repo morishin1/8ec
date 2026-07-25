@@ -553,6 +553,8 @@
     .lead-form .lf-msg.ok { color: var(--teal-dark); font-weight: 700; }
     .lf-alt { font-size: 12.5px; color: var(--ink-soft); margin: 11px 0 0; }
     .lf-alt a { color: var(--teal-dark); font-weight: 700; }
+    /* 自動投稿よけ。人には見えず、読み上げ・タブ移動の対象にもしない */
+    .hp-field { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
     .site-footer { padding: 29px 0; border-top: 1px solid #dce9f7; }
     .footer-inner {
       display: flex;
