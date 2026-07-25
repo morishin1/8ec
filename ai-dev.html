@@ -111,9 +111,10 @@
     <div class="container nav">
       <a class="brand" href="/" aria-label="株式会社エイト トップへ">株式会社エイト<small>EIGHT INC.</small></a>
       <nav class="nav-links" aria-label="メインナビゲーション">
-        <a href="/#services" aria-current="page">支援内容</a>
-        <a href="/#flow">導入の流れ</a>
+        <a href="/#categories">支援内容</a>
+        <a href="/#setup">導入の流れ</a>
         <a href="/rental/">レンタル</a>
+        <a href="/cloud.html">クラウド情シス</a>
         <a href="/shop/">ショップ</a>
         <a class="btn btn-primary btn-small" href="#contact">無料相談</a>
       </nav>
@@ -534,8 +535,43 @@
           </div>
         </div>
         <div class="contact-actions">
-          <a class="btn btn-primary" href="mailto:nw@8grp.co.jp?subject=AI・業務システム開発の無料相談">無料で相談する <span class="arrow">→</span></a>
-          <a class="btn btn-outline" href="/">他のサービスも見る</a>
+          <form id="aidevContactForm" class="lead-form" novalidate aria-label="AI・業務システム開発お問い合わせ・お見積もり">
+            <div class="lf-row">
+              <label>お名前<span class="req">必須</span><input name="name" autocomplete="name" required></label>
+              <label>会社名<input name="company" autocomplete="organization"></label>
+            </div>
+            <div class="lf-row">
+              <label>メール<input type="email" name="email" autocomplete="email"></label>
+              <label>電話<input name="phone" autocomplete="tel" inputmode="tel"></label>
+            </div>
+            <label>ご相談種別<select name="inquiry_type"><option>お見積もり</option><option>ご相談</option><option>その他</option></select></label>
+            <label>内容<textarea name="message" rows="4" placeholder="実現したいこと・課題感などをご記入ください"></textarea></label>
+            <button type="submit" class="btn btn-primary">送信する <span class="arrow">→</span></button>
+            <p class="lf-msg" id="aidevContactMsg" role="status" aria-live="polite"></p>
+          </form>
+          <p class="lf-alt">またはメール <a href="mailto:nw@8grp.co.jp?subject=AI・業務システム開発の無料相談">nw@8grp.co.jp</a> ／ 電話 <a href="tel:0364335025">03-6433-5025</a> ／ <a href="/">他のサービスも見る</a></p>
+          <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+          <script>
+          (function(){
+            var form=document.getElementById('aidevContactForm');
+            if(!form||!window.supabase)return;
+            var sb=window.supabase.createClient("https://htglvascsuqkixpmclwr.supabase.co","sb_publishable_yZCcrwdqjuf0u_5WBWlHIw_AxdvteEV");
+            var msg=document.getElementById('aidevContactMsg');
+            form.addEventListener('submit',async function(e){
+              e.preventDefault();
+              var f=new FormData(form), name=(f.get('name')||'').trim();
+              if(!name){msg.textContent='お名前を入力してください';msg.className='lf-msg err';return;}
+              var btn=form.querySelector('button[type=submit]');
+              btn.disabled=true;msg.textContent='送信中…';msg.className='lf-msg';
+              try{
+                var res=await sb.rpc('contact_public_submit',{p_source:'ai-dev',p_name:name,p_company:f.get('company')||null,p_email:f.get('email')||null,p_phone:f.get('phone')||null,p_message:f.get('message')||null,p_inquiry_type:f.get('inquiry_type')||null});
+                if(res.error)throw res.error;
+                form.reset();msg.textContent='送信しました。1〜2営業日以内にご連絡します。';msg.className='lf-msg ok';
+              }catch(err){msg.textContent='送信に失敗しました。お手数ですがメール・お電話でご連絡ください。';msg.className='lf-msg err';}
+              btn.disabled=false;
+            });
+          })();
+          </script>
         </div>
       </div>
     </section>
