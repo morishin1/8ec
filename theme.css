@@ -1,17 +1,17 @@
 /* 8ec.jp 共通デザインシステム（トップページのデザインから抽出） */
 :root {
-      --ink: #122c3c;
-      --ink-soft: #47616e;
-      --teal: #0088b0;
-      --teal-dark: #006c88;
-      --teal-pale: #e9f8fb;
-      --cyan-pale: #f4fbfc;
-      --coral: #ff7f72;
-      --pink: #e85b88;
-      --paper: #fffdf9;
+      --ink: #17335c;
+      --ink-soft: #647b99;
+      --teal: #2479e9;
+      --teal-dark: #0c5dce;
+      --teal-pale: #eaf4ff;
+      --cyan-pale: #f6faff;
+      --coral: #f2994a;
+      --pink: #2b7fe0;
+      --paper: #ffffff;
       --white: #fff;
-      --line: #d9e7ea;
-      --shadow: 0 18px 45px rgba(22, 76, 92, .11);
+      --line: #dce9f7;
+      --shadow: 0 18px 45px rgba(32, 78, 132, .11);
       --radius: 22px;
       --radius-sm: 14px;
       --max: 1180px;
@@ -97,11 +97,11 @@
     .btn:hover { transform: translateY(-2px); }
     .btn-primary {
       color: var(--white);
-      background: linear-gradient(135deg, var(--teal), #12a3b9);
-      box-shadow: 0 12px 28px rgba(0, 136, 176, .25);
+      background: linear-gradient(135deg, var(--teal), #0c5dce);
+      box-shadow: 0 12px 28px rgba(36, 121, 233, .25);
     }
-    .btn-primary:hover { box-shadow: 0 16px 32px rgba(0, 136, 176, .32); }
-    .btn-outline { border-color: #aacbd3; background: rgba(255,255,255,.8); }
+    .btn-primary:hover { box-shadow: 0 16px 32px rgba(36, 121, 233, .32); }
+    .btn-outline { border-color: #bdd5ed; background: rgba(255,255,255,.8); }
     .btn-outline:hover { background: var(--teal-pale); }
     .btn-small { min-height: 44px; padding: 10px 18px; font-size: 14px; }
     .arrow { font-size: 1.1em; }
@@ -109,8 +109,8 @@
       position: sticky;
       z-index: 50;
       top: 0;
-      border-bottom: 1px solid rgba(204, 225, 229, .8);
-      background: rgba(255, 253, 249, .91);
+      border-bottom: 1px solid rgba(207, 225, 244, .8);
+      background: rgba(255, 255, 255, .91);
       backdrop-filter: blur(14px);
     }
     .nav {
@@ -136,7 +136,7 @@
     }
     .nav-links { display: flex; align-items: center; gap: 22px; }
     .nav-links > a:not(.btn) {
-      color: #34515f;
+      color: #34506f;
       font-size: 14px;
       font-weight: 700;
       text-decoration: none;
@@ -158,12 +158,12 @@
     .hero::before {
       width: 420px; height: 420px;
       top: -180px; left: -170px;
-      background: rgba(66, 197, 215, .12);
+      background: rgba(70, 153, 250, .12);
     }
     .hero::after {
       width: 360px; height: 360px;
       right: -160px; bottom: -210px;
-      background: rgba(255, 127, 114, .10);
+      background: rgba(242, 153, 74, .10);
     }
     .hero-grid {
       display: grid;
@@ -192,9 +192,9 @@
     .hero-visual {
       position: relative;
       padding: 18px;
-      border: 1px solid #d8ecef;
+      border: 1px solid #d8e6f5;
       border-radius: 34px;
-      background: #f2fbfc;
+      background: #f6faff;
       box-shadow: var(--shadow);
     }
     .hero-visual img {
@@ -209,10 +209,10 @@
       bottom: 24px;
       max-width: 215px;
       padding: 13px 15px;
-      border: 1px solid #d2e7eb;
+      border: 1px solid #d5e3f4;
       border-radius: 15px;
       background: rgba(255,255,255,.95);
-      box-shadow: 0 10px 24px rgba(25, 70, 82, .12);
+      box-shadow: 0 10px 24px rgba(32, 78, 132, .12);
       font-size: 12px;
       font-weight: 800;
       line-height: 1.55;
@@ -244,7 +244,7 @@
     .stat span { color: var(--ink-soft); font-size: 12px; font-weight: 700; }
     .stat-source {
       margin: 13px 0 0;
-      color: #69808a;
+      color: #69809a;
       font-size: 10px;
       text-align: center;
     }
@@ -260,7 +260,7 @@
       border: 1px solid var(--line);
       border-radius: var(--radius);
       background: var(--white);
-      box-shadow: 0 8px 22px rgba(25, 70, 82, .055);
+      box-shadow: 0 8px 22px rgba(32, 78, 132, .055);
     }
     .pain-card { padding: 25px; }
     .icon {
@@ -272,8 +272,8 @@
       background: var(--teal-pale);
       color: var(--teal-dark);
     }
-    .icon.coral { color: #b8485d; background: #fff0ed; }
-    .icon.pink { color: #a9426b; background: #fff0f5; }
+    .icon.coral { color: #c67c1a; background: #fdf1e4; }
+    .icon.pink { color: #2b7fe0; background: #e9f2fd; }
     .icon svg { width: 28px; height: 28px; }
     .pain-card p { margin-bottom: 0; color: var(--ink-soft); font-size: 14px; }
 
@@ -289,8 +289,8 @@
       background: var(--ink);
       color: var(--white);
     }
-    .one-window .eyebrow { color: #7fe0ed; }
-    .one-window p { color: #c5d7de; }
+    .one-window .eyebrow { color: #82bdff; }
+    .one-window p { color: #c7d9f1; }
     .solution-map {
       display: grid;
       grid-template-columns: 1fr 64px 1fr;
@@ -310,7 +310,7 @@
       font-size: 13px;
       font-weight: 700;
     }
-    .map-pill span { color: #78dbe7; font-size: 18px; }
+    .map-pill span { color: #82bdff; font-size: 18px; }
     .map-arrow {
       display: grid;
       width: 54px; height: 54px;
@@ -333,11 +333,11 @@
       margin: 0 auto 13px;
       place-items: center;
       border-radius: 20px;
-      background: rgba(117, 224, 237, .17);
+      background: rgba(130, 189, 255, .17);
       font-size: 29px;
     }
     .map-result strong { display: block; font-size: 20px; }
-    .map-result small { color: #c5d7de; }
+    .map-result small { color: #c7d9f1; }
 
     .service-grid {
       display: grid;
@@ -357,7 +357,7 @@
       align-items: center;
     }
     .service-no {
-      color: #aac3ca;
+      color: #aebfd8;
       font-size: 13px;
       font-weight: 900;
       letter-spacing: .1em;
@@ -373,14 +373,14 @@
       display: inline-flex;
       padding: 5px 10px;
       border-radius: 999px;
-      background: #eff7f8;
-      color: #48636e;
+      background: #eef4fb;
+      color: #4a6285;
       font-size: 11px;
       font-weight: 800;
     }
     .price-note {
       margin-top: 20px;
-      color: #617984;
+      color: #61799a;
       font-size: 11px;
       text-align: right;
     }
@@ -409,7 +409,7 @@
       height: 5px;
       flex: 1;
       border-radius: 99px;
-      background: #e3eef0;
+      background: #e3ecf6;
     }
     .diag-progress .active { background: var(--teal); }
     .diag-label {
@@ -424,7 +424,7 @@
     .choice {
       width: 100%;
       padding: 14px 16px;
-      border: 1px solid #cddfe3;
+      border: 1px solid #cdddf1;
       border-radius: 13px;
       background: #fff;
       cursor: pointer;
@@ -442,7 +442,7 @@
     .diag-result {
       display: none;
       padding: 22px;
-      border: 1px solid #b8e2e8;
+      border: 1px solid #bcd8f5;
       border-radius: 17px;
       background: var(--teal-pale);
     }
@@ -493,7 +493,7 @@
       position: absolute;
       top: 24px;
       right: 8px;
-      color: #9ec6ce;
+      color: #9ec0e0;
       content: "→";
       font-size: 23px;
       font-weight: 900;
@@ -514,8 +514,8 @@
       padding: 82px 0;
       color: var(--white);
       background:
-        radial-gradient(circle at 8% 20%, rgba(40, 193, 208, .22), transparent 32%),
-        radial-gradient(circle at 92% 85%, rgba(255, 127, 114, .16), transparent 30%),
+        radial-gradient(circle at 8% 20%, rgba(74, 151, 240, .22), transparent 32%),
+        radial-gradient(circle at 92% 85%, rgba(242, 153, 74, .16), transparent 30%),
         var(--ink);
     }
     .contact-box {
@@ -524,8 +524,8 @@
       align-items: center;
       gap: 50px;
     }
-    .contact .eyebrow { color: #78dce8; }
-    .contact p { color: #c9d9df; }
+    .contact .eyebrow { color: #82bdff; }
+    .contact p { color: #c9d9f1; }
     .contact-actions { display: grid; gap: 11px; }
     .contact-actions .btn-outline {
       color: var(--white);
@@ -537,10 +537,10 @@
       flex-wrap: wrap;
       gap: 8px 18px;
       margin-top: 20px;
-      color: #bdd0d7;
+      color: #bdd0e5;
       font-size: 12px;
     }
-    .site-footer { padding: 29px 0; border-top: 1px solid #d9e7ea; }
+    .site-footer { padding: 29px 0; border-top: 1px solid #dce9f7; }
     .footer-inner {
       display: flex;
       align-items: center;
@@ -606,7 +606,7 @@
         left: 12px;
         display: block;
       }
-      .mobile-cta .btn { min-height: 50px; box-shadow: 0 12px 30px rgba(0, 74, 96, .34); }
+      .mobile-cta .btn { min-height: 50px; box-shadow: 0 12px 30px rgba(32, 78, 132, .34); }
       body { padding-bottom: 68px; }
     }
 

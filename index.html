@@ -1,572 +1,486 @@
 <!doctype html>
 <html lang="ja">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DX・AI・IT支援｜課題整理から一緒に｜株式会社エイト</title>
-<meta name="description" content="株式会社エイトの法人向けDX・AI・IT支援。課題整理から設計、開発、導入、運用まで、ひとつの窓口で伴走します。">
-<meta name="theme-color" content="#007f9e">
-<meta name="robots" content="index,follow,max-image-preview:large">
-<link rel="canonical" href="https://8ec.jp/">
-<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
-<meta property="og:type" content="website">
-<meta property="og:site_name" content="株式会社エイト">
-<meta property="og:title" content="DX・AI・IT支援｜課題整理から一緒に｜株式会社エイト">
-<meta property="og:description" content="課題整理から設計・開発・導入・運用まで、ひとつの窓口で伴走する法人向けDX・AI・IT支援。">
-<meta property="og:url" content="https://8ec.jp/">
-<meta property="og:locale" content="ja_JP">
-<meta property="og:image" content="https://8ec.jp/assets/ai-poc.jpg">
-<meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="theme.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="40万点以上の法人向けIT機器を型番・メーカー・商品名から検索。創業20年以上の株式会社エイトが、パソコンやセキュリティ機器の選定、販売、レンタル、設置から情シス運用まで支援します。">
+  <title>エイトコマース｜40万点以上のIT機器を検索・法人見積もり</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+  <meta name="theme-color" content="#092b61">
+  <meta name="robots" content="index,follow,max-image-preview:large">
+  <link rel="canonical" href="https://8ec.jp/">
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="株式会社エイト">
+  <meta property="og:title" content="エイトコマース｜40万点以上のIT機器を検索・法人見積もり">
+  <meta property="og:description" content="40万点以上の法人向けIT機器を型番・メーカー・商品名から検索。株式会社エイトが選定・販売・レンタル・情シス運用まで支援します。">
+  <meta property="og:url" content="https://8ec.jp/">
+  <meta property="og:locale" content="ja_JP">
+  <meta property="og:image" content="https://8ec.jp/assets/eight-commerce-hero-v2.png">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <style>
+    :root{
+      --navy:#092b61;--blue:#2479e9;--blue2:#0c5dce;--sky:#eaf4ff;
+      --pale:#f6faff;--line:#dce9f7;--text:#19385f;--muted:#647b99;
+      --white:#fff;--shadow:0 16px 44px rgba(32,78,135,.09)
+    }
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{margin:0;color:var(--text);background:#fff;font-family:"Noto Sans JP","Yu Gothic",Meiryo,sans-serif}
+    a{color:inherit;text-decoration:none}
+    img{max-width:100%}
+    .wrap{width:min(1180px,calc(100% - 48px));margin:auto}
+    header{position:sticky;top:0;z-index:30;border-bottom:1px solid rgba(207,225,244,.85);background:rgba(255,255,255,.93);backdrop-filter:blur(16px)}
+    .header-inner{min-height:76px;display:flex;align-items:center;gap:38px}
+    .brand{display:flex;align-items:center;gap:11px;color:var(--navy)}
+    .brand-mark{width:39px;height:39px;display:grid;place-items:center;border-radius:12px 12px 19px 12px;background:linear-gradient(145deg,var(--blue),#64abff);box-shadow:0 8px 20px rgba(37,121,233,.24);color:#fff;font-size:25px;font-weight:900;font-style:italic}
+    .brand strong,.brand small{display:block}
+    .brand strong{font-size:14px;line-height:1.1;letter-spacing:.11em}
+    .brand small{margin-top:4px;color:#7186a3;font-size:9px}
+    nav{display:flex;gap:29px;margin-left:auto;color:#405b7c;font-size:13px;font-weight:700}
+    nav a:hover{color:var(--blue)}
+    .header-cta{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 19px;border-radius:10px;background:var(--navy);color:#fff;font-size:13px;font-weight:800}
+    .operated{display:block;margin-top:3px;color:#6c84a0;font-size:8px;font-weight:700;letter-spacing:.04em}
+    .hero{position:relative;overflow:hidden;padding:72px 0 92px;background:radial-gradient(circle at 82% 16%,rgba(70,153,250,.14),transparent 27%),linear-gradient(135deg,#fff 0%,#f9fbff 53%,#eef6ff 100%)}
+    .hero:before{content:"";position:absolute;width:500px;height:500px;right:-190px;top:-270px;border:1px solid rgba(54,138,236,.11);border-radius:50%;box-shadow:0 0 0 65px rgba(54,138,236,.025),0 0 0 130px rgba(54,138,236,.018)}
+    .hero-grid{position:relative;z-index:2;display:grid;grid-template-columns:.91fr 1.09fr;gap:38px;align-items:center}
+    .eyebrow{margin:0 0 17px;color:var(--blue);font-size:11px;font-weight:900;letter-spacing:.17em}
+    .hero .eyebrow{display:flex;align-items:center;gap:10px}
+    .hero .eyebrow:before{content:"";width:29px;height:3px;border-radius:5px;background:linear-gradient(90deg,#1b7afa 0 32%,#35c3a8 32% 59%,#ffbe3d 59%)}
+    h1{margin:0;color:var(--navy);font-size:clamp(40px,4vw,60px);line-height:1.28;letter-spacing:.02em}
+    h1 em{color:var(--blue);font-style:normal}
+    .hero-lead{margin:22px 0 0;color:#476382;font-size:15px;line-height:1.9}
+    .hero-number{display:flex;align-items:baseline;gap:8px;margin:18px 0 0;color:var(--navy);font-weight:900}.hero-number strong{color:var(--blue);font-size:36px;line-height:1}.hero-number span{font-size:12px}
+    .product-search-section{position:relative;z-index:5;padding:0;background:linear-gradient(180deg,#fff 0,#fff 75%,#f7fbff 75%)}
+    .search-shell{transform:translateY(-38px);padding:28px 30px 25px;border:1px solid #c9def4;border-radius:24px;background:#fff;box-shadow:0 22px 58px rgba(22,78,143,.15)}
+    .search-intro{display:flex;align-items:end;justify-content:space-between;gap:28px;margin-bottom:17px}
+    .search-intro p{margin:0 0 6px;color:var(--blue);font-size:10px;font-weight:900;letter-spacing:.13em}
+    .search-intro h2{margin:0;color:var(--navy);font-size:24px;line-height:1.45}
+    .search-intro span{max-width:420px;color:#6b819c;font-size:11px;line-height:1.7;text-align:right}
+    .model-search-label{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px;color:var(--navy);font-size:12px;font-weight:900}
+    .model-search-label small{color:#7489a4;font-size:9px;font-weight:700}
+    .model-search-row{display:grid;grid-template-columns:1fr 100px 170px;gap:10px}
+    .model-search input,.model-search select{min-width:0;height:58px;padding:0 16px;border:1px solid #cadcef;border-radius:12px;background:#fff;color:var(--navy);font:inherit;font-size:14px;outline:none}
+    .model-search input:focus,.model-search select:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(36,121,233,.1)}
+    .model-search button{height:58px;border:0;border-radius:12px;background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;font:inherit;font-size:13px;font-weight:900;cursor:pointer}
+    .search-hint{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px;color:#758aa4;font-size:9px}
+    .search-hint button{height:auto;padding:5px 8px;border:1px solid #d8e6f5;border-radius:20px;background:#f6faff;color:#5d7796;font-size:9px;font-weight:700}
+    .data-status{display:flex;align-items:center;gap:8px;margin-top:10px;color:#587493;font-size:10px;font-weight:700}
+    .data-status:before{content:"";width:7px;height:7px;border-radius:50%;background:#1db785;box-shadow:0 0 0 4px rgba(29,183,133,.12)}
+    .quote-result{display:none;margin-top:18px;border:1px solid #d5e8f8;border-radius:17px;background:#f7fbff;color:#395c82;font-size:11px;line-height:1.65;overflow:hidden}
+    .quote-result.is-visible{display:block}.quote-result strong{color:var(--navy)}
+    .result-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid #d5e8f8}
+    .result-head small{color:#6f87a2;font-size:9px}
+    .inventory-results{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;max-height:660px;padding:14px;overflow:auto}
+    .inventory-item{display:grid;grid-template-columns:138px 1fr;gap:16px;padding:15px;border:1px solid #dce9f7;border-radius:15px;background:#fff;box-shadow:0 8px 24px rgba(32,78,132,.05)}
+    .inventory-media{position:relative;display:grid;place-items:center;min-height:135px;overflow:hidden;border-radius:12px;background:#f3f7fb}
+    .inventory-media img{width:100%;height:135px;object-fit:contain;padding:9px;background:#fff}
+    .inventory-media .image-fallback{display:grid;place-items:center;width:68px;height:68px;border-radius:20px;background:#e3effc;color:var(--blue);font-size:11px;font-weight:900;text-align:center}
+    .inventory-media small{position:absolute;right:7px;bottom:5px;padding:2px 5px;border-radius:4px;background:rgba(255,255,255,.9);color:#778ba4;font-size:7px}
+    .inventory-body{min-width:0}.inventory-item h3{margin:0;color:var(--navy);font-size:13px;line-height:1.5}.inventory-item p{margin:5px 0 0;color:#5e7693;font-size:10px;line-height:1.55}
+    .item-meta{display:flex;flex-wrap:wrap;gap:5px 9px;margin-top:7px;color:#6d829b;font-size:9px}.item-meta b{color:#2b608e}
+    .item-actions{display:flex;align-items:center;gap:8px;margin-top:11px}.quote-item{min-width:112px;height:38px;border:0;border-radius:8px;background:var(--navy);color:#fff;font-size:10px;font-weight:900;cursor:pointer}.maker-detail{color:var(--blue);font-size:9px;font-weight:900}.media-note{margin:12px 0 0;color:#798ca4;font-size:9px;line-height:1.6}
+    .not-found{padding:15px;line-height:1.75}.not-found a{color:var(--blue);font-weight:900}.not-found .nf-actions{margin-top:13px}.not-found .btn-primary{color:#fff;min-height:44px;padding:0 20px;font-size:12px}
+    .actions{display:flex;gap:12px;margin-top:28px}
+    .btn{min-height:52px;display:inline-flex;align-items:center;justify-content:center;padding:0 24px;border-radius:11px;font-size:14px;font-weight:800;transition:.2s}
+    .btn:hover{transform:translateY(-2px)}
+    .btn-primary{background:linear-gradient(135deg,var(--blue),var(--blue2));box-shadow:0 12px 28px rgba(22,105,218,.25);color:#fff}
+    .btn-outline{border:1px solid #bdd5ed;background:rgba(255,255,255,.85);color:var(--navy)}
+    .trust{display:flex;flex-wrap:wrap;gap:8px 15px;margin:23px 0 0;padding:0;list-style:none}
+    .trust li{position:relative;padding-left:17px;color:#647b98;font-size:10px;font-weight:700}
+    .trust li:before{content:"✓";position:absolute;left:0;color:var(--blue);font-weight:900}
+    .hero-art{position:relative}
+    .art-frame{overflow:hidden;border-radius:34px 34px 80px 34px;background:rgba(255,255,255,.7);box-shadow:0 25px 65px rgba(37,94,165,.13)}
+    .art-frame img{width:100%;display:block;aspect-ratio:1.36/1;object-fit:cover}
+    .support-chip{position:absolute;right:-13px;bottom:13px;display:flex;align-items:center;gap:11px;padding:13px 17px;border:1px solid var(--line);border-radius:15px;background:rgba(255,255,255,.95);box-shadow:0 15px 32px rgba(33,84,145,.15)}
+    .chip-check{width:35px;height:35px;display:grid;place-items:center;border-radius:50%;background:var(--sky);color:var(--blue);font-weight:900}
+    .support-chip small,.support-chip strong{display:block}.support-chip small{color:#7589a5;font-size:9px}.support-chip strong{margin-top:2px;color:var(--navy);font-size:12px}
+    .hero:after{content:"";position:absolute;right:0;bottom:0;left:0;height:6px;background:linear-gradient(90deg,var(--blue) 0 42%,#53a1ff 42% 68%,#b7dcff 68%)}
+    section{padding:98px 0}
+    .section-head{text-align:center;margin-bottom:46px}
+    .section-head h2,.intro h2{margin:0;color:var(--navy);font-size:clamp(30px,3vw,43px);line-height:1.45}
+    .section-head h2 span,.intro h2 span{color:var(--blue)}
+    .section-head>p:last-child{margin:15px 0 0;color:var(--muted);font-size:14px;line-height:1.9}
+    .service-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+    .service-card{padding:28px 25px 24px;border:1px solid #e0ecf8;border-radius:20px;background:#fff;box-shadow:var(--shadow);transition:.25s}
+    .service-card:hover{transform:translateY(-6px);box-shadow:0 22px 48px rgba(30,77,133,.14)}
+    .icon{width:72px;height:72px;display:grid;place-items:center;border-radius:22px 22px 32px 22px;background:linear-gradient(145deg,#edf6ff,#dceeff);color:var(--blue);font-size:15px;font-weight:900}
+    .service-card h3{margin:22px 0 10px;color:var(--navy);font-size:18px}
+    .service-card p{min-height:66px;margin:0;color:var(--muted);font-size:12px;line-height:1.85}
+    .service-card a,.text-link{display:inline-flex;margin-top:18px;color:var(--blue);font-size:12px;font-weight:900}
+    .category-area{padding-top:74px;background:#fff}
+    .category-tools{display:flex;justify-content:center;margin:0 auto 34px}.search-box{width:min(620px,100%);min-height:58px;display:flex;align-items:center;gap:12px;padding:0 18px;border:1px solid #bed6ef;border-radius:14px;background:#fff;box-shadow:0 10px 28px rgba(31,81,140,.08);color:#7186a0;font-size:13px}.search-box b{color:var(--blue);font-size:20px}
+    .category-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+    .category-card{min-height:180px;padding:24px;border:1px solid #e0ebf7;border-radius:18px;background:linear-gradient(145deg,#fff,#f5f9ff);transition:.2s}.category-card:hover{transform:translateY(-4px);border-color:#9fc7f3}.category-card .cat-icon{width:49px;height:49px;display:grid;place-items:center;border-radius:15px;background:#e5f1ff;color:var(--blue);font-size:10px;font-weight:900}.category-card h3{margin:17px 0 8px;color:var(--navy);font-size:16px}.category-card p{margin:0;color:var(--muted);font-size:11px;line-height:1.75}
+    .partner-note{display:flex;align-items:center;justify-content:center;gap:18px;margin:38px 0 0;padding:20px 24px;border-radius:14px;background:#f2f7fd;color:#536b89;font-size:12px;line-height:1.7}.partner-note strong{color:var(--navy);font-size:14px}
+    .proof{padding:0;background:#fff}
+    .proof-panel{display:grid;grid-template-columns:1.2fr repeat(3,.8fr);border:1px solid #dce9f7;border-radius:20px;background:#fff;box-shadow:var(--shadow)}
+    .proof-copy,.proof-stat{min-height:142px;display:flex;flex-direction:column;justify-content:center;padding:27px 30px}
+    .proof-copy{border-right:1px solid #e2edf8}.proof-copy small{color:var(--blue);font-size:10px;font-weight:900;letter-spacing:.13em}.proof-copy strong{margin-top:9px;color:var(--navy);font-size:20px;line-height:1.5}.proof-copy span{margin-top:5px;color:var(--muted);font-size:10px}
+    .proof-stat{align-items:center;border-right:1px solid #e2edf8;text-align:center}.proof-stat:last-child{border-right:0}.proof-stat strong{color:var(--blue);font-size:28px}.proof-stat span{margin-top:6px;color:#5c7390;font-size:10px;font-weight:800}
+    .security{background:linear-gradient(180deg,#f7fbff,#eef6ff)}
+    .security-grid{display:grid;grid-template-columns:.85fr 1.15fr;gap:60px;align-items:center}
+    .security-copy h2{margin:0;color:var(--navy);font-size:clamp(30px,3vw,43px);line-height:1.45}.security-copy h2 span{color:var(--blue)}.security-copy>p:not(.eyebrow){margin:20px 0 0;color:var(--muted);font-size:13px;line-height:1.9}
+    .security-points{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+    .security-point{padding:23px;border:1px solid #d9e8f7;border-radius:17px;background:#fff;box-shadow:0 9px 24px rgba(32,78,132,.05)}
+    .security-point b{display:block;color:var(--navy);font-size:14px}.security-point p{margin:8px 0 0;color:var(--muted);font-size:10px;line-height:1.7}.security-point span{display:grid;place-items:center;width:38px;height:38px;margin-bottom:14px;border-radius:12px;background:#e6f2ff;color:var(--blue);font-size:10px;font-weight:900}
+    .flow{background:var(--pale)}
+    .flow-grid{display:grid;grid-template-columns:.8fr 1.2fr;gap:88px;align-items:center}
+    .intro>p:not(.eyebrow){margin:23px 0 0;color:var(--muted);font-size:13px;line-height:2}
+    .steps{display:grid;gap:12px}
+    .flow-art{grid-column:1/-1;margin-top:-38px;padding:22px;border:1px solid #dfeaf7;border-radius:24px;background:#fff;box-shadow:var(--shadow)}.flow-art img{display:block;width:100%;border-radius:15px}
+    .step{display:grid;grid-template-columns:54px 1fr;gap:20px;align-items:center;padding:20px 23px;border:1px solid #dfebf8;border-radius:15px;background:#fff;box-shadow:0 8px 24px rgba(32,78,132,.05)}
+    .num{width:46px;height:46px;display:grid;place-items:center;border-radius:14px;background:var(--sky);color:var(--blue);font-size:13px;font-weight:900}
+    .step h3{margin:0 0 5px;color:var(--navy);font-size:16px}.step p{margin:0;color:var(--muted);font-size:11px;line-height:1.7}
+    .split-head{display:grid;grid-template-columns:1.25fr .75fr;gap:70px;align-items:end;margin-bottom:44px}
+    .split-head h2{margin:0;color:var(--navy);font-size:clamp(30px,3vw,43px);line-height:1.45}.split-head h2 span{color:var(--blue)}
+    .split-head>p{margin:0;color:var(--muted);font-size:14px;line-height:1.9}
+    .equipment-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:17px}
+    .equipment{position:relative;min-height:220px;padding:27px;border-radius:18px;background:#f4f9fe}
+    .equipment .tag{display:inline-grid;place-items:center;width:58px;height:58px;margin-bottom:20px;border-radius:50%;background:#dcecff;color:var(--blue);font-size:12px;font-weight:900}
+    .equipment h3{margin:0 0 9px;color:var(--navy);font-size:16px}.equipment p{margin:0;color:var(--muted);font-size:11px;line-height:1.8}
+    .choice{background:linear-gradient(180deg,#f8fbff,#eef6ff)}
+    .choice-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:880px;margin:auto}
+    .choice-card{padding:37px;border:1px solid var(--line);border-radius:22px;background:#fff;box-shadow:var(--shadow)}
+    .choice-card.featured{border-color:#99c5f5;background:linear-gradient(145deg,#fff,#f0f7ff)}
+    .label{display:inline-flex;padding:6px 10px;border-radius:6px;background:var(--sky);color:var(--blue);font-size:10px;font-weight:900}
+    .choice-card h3{margin:16px 0 11px;color:var(--navy);font-size:24px}.choice-card p{margin:0;color:var(--muted);font-size:12px;line-height:1.8}
+    .choice-card ul{display:grid;gap:8px;margin:22px 0 0;padding:18px 0 0;border-top:1px solid #e5eef8;list-style:none}
+    .choice-card li{position:relative;padding-left:20px;color:#3e5879;font-size:12px;font-weight:700}.choice-card li:before{content:"✓";position:absolute;left:0;color:var(--blue)}
+    .cloud{padding:88px 0}
+    .cloud-panel{position:relative;overflow:hidden;display:grid;grid-template-columns:1.03fr .97fr;gap:58px;align-items:center;padding:65px 72px;border-radius:30px;background:linear-gradient(135deg,#09285b,#0b4da5);box-shadow:0 25px 65px rgba(15,63,122,.2)}
+    .cloud-panel:after{content:"";position:absolute;width:450px;height:450px;right:-190px;bottom:-260px;border:1px solid rgba(255,255,255,.13);border-radius:50%;box-shadow:0 0 0 60px rgba(255,255,255,.025),0 0 0 120px rgba(255,255,255,.02)}
+    .cloud-copy,.cloud-list{position:relative;z-index:2}.cloud .eyebrow{color:#82bdff}
+    .cloud h2{margin:0;color:#fff;font-size:clamp(30px,3vw,42px);line-height:1.45}.cloud-copy>p:not(.eyebrow){margin:20px 0 25px;color:#c7d9f1;font-size:13px;line-height:1.9}
+    .btn-white{background:#fff;color:var(--navy)}
+    .cloud-list{display:grid;grid-template-columns:1fr 1fr;gap:11px;padding:25px;border:1px solid rgba(255,255,255,.14);border-radius:20px;background:rgba(255,255,255,.08)}
+    .cloud-list span{min-height:50px;display:flex;align-items:center;gap:9px;padding:0 12px;border-radius:10px;background:rgba(255,255,255,.08);color:#fff;font-size:11px;font-weight:700}
+    .cloud-list i{width:21px;height:21px;display:grid;place-items:center;flex:none;border-radius:50%;background:#fff;color:var(--blue);font-size:10px;font-style:normal}
+    .contact{background:radial-gradient(circle at 50% 0,rgba(74,151,240,.11),transparent 35%),#f6faff;text-align:center}
+    .contact-inner{width:min(800px,calc(100% - 48px));margin:auto}.contact h2{margin:0;color:var(--navy);font-size:clamp(31px,3.4vw,47px);line-height:1.5}.contact-inner>p:not(.eyebrow){margin:18px 0 0;color:var(--muted);font-size:13px;line-height:1.9}
+    .contact .actions{justify-content:center}.phone{min-width:210px;flex-direction:column;gap:2px;border:1px solid #cbdced;background:#fff;color:var(--navy);font-size:17px}.phone small{color:var(--muted);font-size:9px}
+    footer{padding:42px 0;background:#071f48;color:#fff}.footer-grid{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:35px}.footer-grid>p{color:#9db1cc;font-size:10px}.footer-grid>small{color:#7990ae;font-size:9px}.footer-grid .brand{color:#fff}.footer-grid .brand small{color:#91a9c7}
+    @media(max-width:960px){
+      nav{display:none}.header-cta{margin-left:auto}.hero-grid,.flow-grid,.security-grid{grid-template-columns:1fr}.hero-copy{text-align:center}.hero .eyebrow,.actions,.trust,.hero-number{justify-content:center}.hero-art{max-width:720px;margin:auto}.search-intro{align-items:flex-start}.search-intro span{text-align:left}.inventory-results{grid-template-columns:1fr}.service-grid,.category-grid{grid-template-columns:repeat(2,1fr)}.flow-grid{gap:42px}.intro,.security-copy{text-align:center}.flow-art{margin-top:0}.equipment-grid{grid-template-columns:repeat(2,1fr)}.split-head{grid-template-columns:1fr;gap:12px;text-align:center}.cloud-panel{grid-template-columns:1fr;padding:54px}.footer-grid{grid-template-columns:1fr;justify-items:center;text-align:center}.proof-panel{grid-template-columns:1fr 1fr}.proof-copy{grid-column:1/-1;border-right:0;border-bottom:1px solid #e2edf8;text-align:center}.proof-stat:nth-child(3){border-right:0}
+    }
+    @media(max-width:640px){
+      .wrap{width:calc(100% - 30px)}.header-inner{min-height:68px}.brand-mark{width:34px;height:34px}.brand strong{font-size:11px}.brand small{font-size:8px}.header-cta{min-height:39px;padding:0 12px;font-size:11px}
+      .hero{padding:44px 0 78px}h1{font-size:36px}.hero-lead{font-size:13px}.hero-lead br{display:none}.search-shell{padding:22px 18px}.search-intro{display:block}.search-intro span{display:block;margin-top:8px}.model-search-row{grid-template-columns:1fr 76px}.model-search-row button{grid-column:1/-1}.model-search-label small{display:none}.inventory-item{grid-template-columns:100px 1fr;padding:11px}.inventory-media{min-height:105px}.inventory-media img{height:105px}.item-actions{align-items:flex-start;flex-direction:column}.quote-item{width:100%}.actions{flex-direction:column}.actions .btn{width:100%}.trust{display:grid;grid-template-columns:1fr 1fr;text-align:left}.art-frame{border-radius:24px 24px 56px 24px}.support-chip{right:8px;bottom:-16px}
+      section{padding:74px 0}.section-head h2,.intro h2,.split-head h2,.security-copy h2{font-size:29px}.service-grid,.category-grid,.equipment-grid,.choice-grid,.security-points{grid-template-columns:1fr}.service-card p{min-height:0}.partner-note{display:block;text-align:center}.partner-note strong{display:block;margin-bottom:5px}.step{grid-template-columns:46px 1fr;gap:14px;padding:17px}.choice-card{padding:29px}.cloud-panel{width:calc(100% - 20px);gap:34px;padding:42px 25px;border-radius:24px}.cloud-list{grid-template-columns:1fr;padding:16px}.contact h2{font-size:29px}.contact h2 br{display:none}.contact-inner{width:calc(100% - 30px)}.proof-panel{grid-template-columns:1fr}.proof-copy{grid-column:auto}.proof-stat{border-right:0;border-bottom:1px solid #e2edf8}.proof-stat:last-child{border-bottom:0}
+    }
+  </style>
 </head>
 <body>
-<header class="site-header">
-    <div class="container nav">
-      <a class="brand" href="#top" aria-label="株式会社エイト トップへ">株式会社エイト<small>EIGHT INC.</small></a>
-      <nav class="nav-links" aria-label="メインナビゲーション">
-        <a href="#problems">よくある課題</a>
-        <a href="#services">支援内容</a>
-        <a href="#flow">導入の流れ</a>
-        <a class="btn btn-primary btn-small" href="#contact">無料相談</a>
+  <header>
+    <div class="wrap header-inner">
+      <a class="brand" href="#top" aria-label="エイトコマース トップ">
+        <span class="brand-mark">8</span>
+        <span><strong>EIGHT COMMERCE</strong><small>法人IT調達・導入・情シス支援</small><span class="operated">株式会社エイトが運営</span></span>
+      </a>
+      <nav aria-label="メインナビゲーション">
+        <a href="#categories">IT商材を探す</a><a href="#rental">購入・レンタル</a>
+        <a href="#setup">設定・設置</a><a href="#support">クラウド情シス</a>
       </nav>
+      <a class="header-cta" href="#contact">法人見積もり</a>
     </div>
   </header>
 
-  <main id="top">
-    <section class="hero">
-      <div class="container hero-grid">
+  <main>
+    <section class="hero" id="top">
+      <div class="wrap hero-grid">
         <div class="hero-copy">
-          <p class="eyebrow">DX・AI・IT総合支援</p>
-          <h1><span class="accent">DX</span>の課題、<br>整理から一緒に。</h1>
-          <p class="lead">「何を導入すべきか分からない」段階で大丈夫です。PCやインフラの整備からAI活用、システム開発、運用まで、バラバラなIT課題をひとつの計画にまとめます。</p>
-          <div class="hero-actions">
-            <a class="btn btn-primary" href="#diagnosis">2問で相談内容を整理 <span class="arrow">→</span></a>
-            <a class="btn btn-outline" href="#contact">30〜60分の無料相談</a>
-          </div>
-          <div class="micro-list" aria-label="相談の特徴">
-            <span>要件が曖昧でもOK</span>
-            <span>相談・見積もり無料</span>
-            <span>1〜2営業日以内にご連絡</span>
-          </div>
+          <p class="eyebrow">2004年創業・株式会社エイトが運営</p>
+          <h1><em>40万点以上</em>のIT機器を、<br>選定から運用まで。</h1>
+          <p class="hero-lead">パソコン、サーバー、ネットワーク、セキュリティ機器まで。<br>機器選定・販売・レンタル・設定・設置から情シス運用まで、まとめて支援します。</p>
+          <div class="actions"><a class="btn btn-primary" href="#model-search">IT機器を探す →</a><a class="btn btn-outline" href="#contact">構成選定を相談する</a></div>
+          <ul class="trust"><li>40万点以上の品揃え</li><li>セキュリティ機器に強い</li><li>法人請求書払い</li><li>設定・設置まで対応</li></ul>
         </div>
-        <div class="hero-visual">
-          <img src="assets/hero-dx.webp" alt="PC・クラウド・AI・サーバー・社内データの課題を、担当者とDXコンサルタントが一つの計画に整理しているイラスト" width="1200" height="900">
-          <div class="visual-note"><b>ひとつの窓口で</b><br>整理 → 設計 → 導入 → 運用</div>
+        <div class="hero-art">
+          <div class="art-frame"><img src="assets/eight-commerce-hero-v2.png" alt="ソフトウェア、クラウド、PC、サーバー、ネットワーク、セキュリティをワンストップで支援するイラスト"></div>
+          <div class="support-chip"><span class="chip-check">✓</span><span><small>導入後も安心</small><strong>情シスが継続サポート</strong></span></div>
         </div>
       </div>
     </section>
 
-    <section class="stats" aria-label="株式会社エイトの実績">
-      <div class="container">
-        <div class="stats-grid">
-          <div class="stat"><strong>20年以上</strong><span>IT事業の経験</span></div>
-          <div class="stat"><strong>250社＋</strong><span>累計支援企業数</span></div>
-          <div class="stat"><strong>98%</strong><span>継続契約率</span></div>
-          <div class="stat"><strong>40件＋</strong><span>DX伴走プロジェクト</span></div>
-        </div>
-        <p class="stat-source">株式会社エイト公式サイト掲載実績（2026年7月確認）：
-          <a href="company.html">会社情報</a> /
-          <a href="company.html">導入実績</a> /
-          <a href="ai-dev.html">DX・AI支援</a>
-        </p>
-      </div>
-    </section>
-
-    <section id="problems" class="section">
-      <div class="container">
-        <div class="center">
-          <p class="eyebrow">Challenges</p>
-          <h2>こんな状態で、止まっていませんか？</h2>
-          <p class="lead">サービス名が決まっていなくても、今の困りごとから最適な進め方を整理できます。</p>
-        </div>
-        <div class="pain-grid">
-          <article class="pain-card">
-            <div class="icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
-            </div>
-            <h3>PCを急ぎでそろえたい</h3>
-            <p>研修・イベント・増員に合わせ、必要な台数をキッティング済みで用意したい。</p>
-          </article>
-          <article class="pain-card">
-            <div class="icon coral">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3 4 7v5c0 5 3.4 8 8 9 4.6-1 8-4 8-9V7l-8-4Z"/><path d="m9 12 2 2 4-4"/></svg>
-            </div>
-            <h3>情シス担当が足りない</h3>
-            <p>ネットワーク、アカウント、セキュリティを兼任担当者だけで抱えている。</p>
-          </article>
-          <article class="pain-card">
-            <div class="icon pink">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M9 1v3m6-3v3M9 20v3m6-3v3M1 9h3m-3 6h3m16-6h3m-3 6h3"/><path d="m10 13 1.3 1.3L14.5 11"/></svg>
-            </div>
-            <h3>AIを業務で使いたい</h3>
-            <p>ChatGPTの個人利用から先へ進めず、業務への組み込み方とルールが見えない。</p>
-          </article>
-          <article class="pain-card">
-            <div class="icon coral">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 5h16v5H4zM4 14h16v5H4z"/><path d="M7 7.5h.01M7 16.5h.01M16 7.5h2M16 16.5h2"/></svg>
-            </div>
-            <h3>安全なAI環境が必要</h3>
-            <p>機密情報を外部に出さず、ローカルLLMやGPUサーバーで検証・運用したい。</p>
-          </article>
-          <article class="pain-card">
-            <div class="icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="5" cy="12" r="2.5"/><circle cx="19" cy="6" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="m7.3 11 9.2-4M7.3 13l9.2 4"/></svg>
-            </div>
-            <h3>社内データをAIとつなぎたい</h3>
-            <p>会計・顧客・案件データを、権限や監査も含めて安全に連携したい。</p>
-          </article>
-          <article class="pain-card">
-            <div class="icon pink">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-8l-5 4v-4H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M8 9h8M8 13h5"/></svg>
-            </div>
-            <h3>そもそも何から始める？</h3>
-            <p>課題はあるが、製品選定・開発・運用のどこから相談すべきか分からない。</p>
-          </article>
-        </div>
-
-        <div class="one-window">
-          <div>
-            <p class="eyebrow">One Stop Support</p>
-            <h2>「機材だけ」「AIだけ」で終わらせない。</h2>
-            <p>個別の依頼を受けるだけでなく、経営・現場の課題から優先順位を整理。必要なものだけを組み合わせ、実際に使われる状態まで支援します。</p>
+    <section class="product-search-section" id="model-search">
+      <div class="wrap">
+        <div class="search-shell">
+          <div class="search-intro">
+            <div><p>PRODUCT SEARCH</p><h2>型番・商品名からIT機器を探す</h2></div>
+            <span>商品写真・仕様・在庫を確認し、そのまま法人見積もりを依頼できます。</span>
           </div>
-          <div class="solution-map" aria-label="複数の課題を一つのDX計画に整理する図">
-            <div class="map-side">
-              <div class="map-pill"><span>●</span>PC・インフラ</div>
-              <div class="map-pill"><span>●</span>情シス・セキュリティ</div>
-              <div class="map-pill"><span>●</span>AI・システム開発</div>
-              <div class="map-pill"><span>●</span>サーバー・データ連携</div>
+          <form class="model-search" id="product-search-form">
+            <div class="model-search-label"><span>メーカー名・型番・商品名を入力</span><small>見積もり無料／1点から大量導入まで</small></div>
+            <div class="model-search-row">
+              <input id="model-number" name="model" type="search" placeholder="例：FortiGate 60F、MR28-HW、Let’s note..." aria-label="型番・メーカー名・商品名" required>
+              <select id="model-quantity" name="quantity" aria-label="数量">
+                <option value="1">1点</option><option value="5">5点</option><option value="10">10点</option><option value="20">20点</option><option value="50">50点</option><option value="100">100点</option>
+              </select>
+              <button type="submit">商品を検索する →</button>
             </div>
-            <div class="map-arrow" aria-hidden="true">→</div>
-            <div class="map-result">
-              <div class="result-icon" aria-hidden="true">✓</div>
-              <strong>DX実行プラン</strong>
-              <small>優先順位・費用・体制・運用を整理</small>
-            </div>
-          </div>
+            <div class="search-hint"><span>画像・詳細付き検索例：</span><button type="button" data-model="FG-60F-US">FortiGate 60F</button><button type="button" data-model="MR28-HW">Cisco Meraki MR28</button><button type="button" data-model="CF-FV5TDAAS">Let’s note FV5</button></div>
+            <div class="data-status" id="data-status">2026年7月在庫表 777商品を検索可能</div>
+            <p class="media-note">商品写真・仕様はメーカーまたは仕入先の提供情報を利用します。掲載情報は予告なく変更される場合があります。</p>
+            <div class="quote-result" id="quote-result" role="status" aria-live="polite"></div>
+          </form>
         </div>
       </div>
     </section>
 
-    <section id="services" class="section section-soft">
-      <div class="container">
-        <div class="center">
-          <p class="eyebrow">Services</p>
-          <h2>5つの支援を、ひとつの窓口で。</h2>
-          <p class="lead">単体でも、複数の組み合わせでも。相談内容に合わせて必要な範囲だけをご提案します。</p>
+    <section class="proof" aria-label="運営会社と実績">
+      <div class="wrap proof-panel">
+        <div class="proof-copy"><small>OPERATED BY EIGHT INC.</small><strong>株式会社エイトが運営しています。</strong><span>ITインフラから導入・運用まで、企業の現場を20年以上支援。</span></div>
+        <div class="proof-stat"><strong>2004年</strong><span>創業</span></div>
+        <div class="proof-stat"><strong>40万点以上</strong><span>SB C&amp;S取扱商材から提案</span></div>
+        <div class="proof-stat"><strong>777件</strong><span>2026年7月在庫データ連携</span></div>
+      </div>
+    </section>
+
+    <section class="category-area" id="categories">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="eyebrow">40万点以上の豊富なラインアップ</p>
+          <h2>ソフトウェアからハードウェアまで<br><span>必要なIT商材がまとめて揃う</span></h2>
+          <p>製品名が分からなくても、課題・用途・予算から担当者が選定します。</p>
+        </div>
+        <div class="category-tools"><a class="search-box" href="#model-search"><b>⌕</b><span>型番検索・法人見積もりへ　例：FortiGate 60Fを3台、設置込みで</span></a></div>
+        <div class="category-grid">
+          <article class="category-card"><span class="cat-icon">SW</span><h3>ソフトウェア</h3><p>業務ソフト、資産管理、バックアップ、開発・設計ツール</p></article>
+          <article class="category-card"><span class="cat-icon">CLOUD</span><h3>クラウドサービス</h3><p>Microsoft 365、グループウェア、オンライン会議、SaaS</p></article>
+          <article class="category-card"><span class="cat-icon">PC</span><h3>PC・デバイス</h3><p>ノートPC、デスクトップ、タブレット、GPU端末</p></article>
+          <article class="category-card"><span class="cat-icon">SERVER</span><h3>サーバー・ストレージ</h3><p>サーバー、NAS、バックアップ、UPS、データ保管</p></article>
+          <article class="category-card"><span class="cat-icon">NET</span><h3>ネットワーク</h3><p>ルーター、スイッチ、Wi-Fi、VPN、拠点間接続</p></article>
+          <article class="category-card"><span class="cat-icon">SEC</span><h3>セキュリティ</h3><p>EDR、UTM、認証、メール・Web対策、監視サービス</p></article>
+          <article class="category-card"><span class="cat-icon">DEVICE</span><h3>周辺機器・オフィス機器</h3><p>モニター、プリンター、Web会議、防犯・入退室機器</p></article>
+          <article class="category-card"><span class="cat-icon">AI</span><h3>AI・DXソリューション</h3><p>生成AI、業務自動化、データ活用、システム連携</p></article>
+        </div>
+        <div class="partner-note"><strong>SB C&amp;Sの40万点以上の取扱商材を活用</strong><span>現在は提供在庫表777商品を型番検索できます。掲載外の商品も、エイトコマースが選定・見積もり・導入を一つの窓口で支援します。</span></div>
+      </div>
+    </section>
+
+    <section class="security" id="security">
+      <div class="wrap security-grid">
+        <div class="security-copy">
+          <p class="eyebrow">OUR STRENGTH</p>
+          <h2>セキュリティ機器と<br><span>ハードウェア選定</span>に強い。</h2>
+          <p>単に商品を販売するのではなく、利用人数・拠点数・ネットワーク構成・運用体制を確認し、過不足のない機器構成をご提案します。オフィス開設や移転も、現地設置までまとめて対応します。</p>
+          <a class="text-link" href="#contact">オフィスIT環境を相談する →</a>
+        </div>
+        <div class="security-points">
+          <article class="security-point"><span>SEC</span><b>セキュリティ設計</b><p>UTM、EDR、認証、バックアップを組み合わせ、守る範囲と運用を設計。</p></article>
+          <article class="security-point"><span>HW</span><b>機器・構成選定</b><p>PC、サーバー、NAS、Wi-Fiなどを用途・予算・将来拡張から選定。</p></article>
+          <article class="security-point"><span>SET</span><b>キッティング・設置</b><p>初期設定、配線、ネットワーク構築、複数拠点や社員宅への配送に対応。</p></article>
+          <article class="security-point"><span>OPS</span><b>導入後の情シス支援</b><p>問い合わせ、故障、入退社、アカウント・ライセンス管理を継続支援。</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="products">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="eyebrow">PRODUCTS &amp; SERVICES</p>
+          <h2>調達だけではない。<br><span>導入して、使える状態まで。</span></h2>
+          <p>機器を売って終わりではなく、選定から導入後の運用までひとつの窓口で対応します。</p>
         </div>
         <div class="service-grid">
-          <article class="service-card">
-            <div>
-              <span class="service-no">01</span>
-              <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
-            </div>
-            <div>
-              <h3>レンタルパソコン</h3>
-              <p>研修・イベント・代替機に。利用目的に合わせた端末をキッティングし、すぐ使える状態でお届けします。</p>
-              <div class="service-meta"><span class="tag">短期利用</span><span class="tag">複数台</span><span class="tag">初期設定</span></div>
-            </div>
-          </article>
-          <article class="service-card">
-            <div>
-              <span class="service-no">02</span>
-              <div class="icon coral"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3 4 7v5c0 5 3.4 8 8 9 4.6-1 8-4 8-9V7l-8-4Z"/><path d="m9 12 2 2 4-4"/></svg></div>
-            </div>
-            <div>
-              <h3>クラウド情シス</h3>
-              <p>専任担当者の代わりに、端末・アカウント・ネットワーク・セキュリティなど日々のIT運用を支援します。</p>
-              <div class="service-meta"><span class="tag">運用代行</span><span class="tag">セキュリティ</span><span class="tag">問い合わせ窓口</span></div>
-            </div>
-          </article>
-          <article class="service-card">
-            <div>
-              <span class="service-no">03</span>
-              <div class="icon pink"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 17.5V6.8c0-.9.7-1.6 1.6-1.6H18"/><path d="m7 14 3-3 2 2 6-6"/><path d="M14 7h4v4"/></svg></div>
-            </div>
-            <div>
-              <h3>AI・業務システム開発</h3>
-              <p>業務整理、要件定義、プロトタイプ、本開発、運用改善まで。現場で使える仕組みに落とし込みます。</p>
-              <div class="service-meta"><span class="tag">生成AI</span><span class="tag">RAG</span><span class="tag">業務システム</span></div>
-            </div>
-          </article>
-          <article class="service-card">
-            <div>
-              <span class="service-no">04</span>
-              <div class="icon coral"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 5h16v5H4zM4 14h16v5H4z"/><path d="M7 7.5h.01M7 16.5h.01M16 7.5h2M16 16.5h2"/></svg></div>
-            </div>
-            <div>
-              <h3>AIサーバー レンタル・構築</h3>
-              <p>GPUサーバーやローカルLLMの検証環境を提供。機密性や費用対効果を見ながら段階的に導入できます。</p>
-              <div class="service-meta"><span class="tag">GPU</span><span class="tag">ローカルLLM</span><span class="tag">PoC</span></div>
-            </div>
-          </article>
-          <article class="service-card">
-            <div>
-              <span class="service-no">05</span>
-              <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="5" cy="12" r="2.5"/><circle cx="19" cy="6" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="m7.3 11 9.2-4M7.3 13l9.2 4"/></svg></div>
-            </div>
-            <div>
-              <h3>MCP・社内データ連携</h3>
-              <p>AIと社内ツール・データを安全に接続。アクセス権、監査ログ、運用ルールまで含め、PoCから本番まで設計します。</p>
-              <div class="service-meta"><span class="tag">MCP</span><span class="tag">SaaS連携</span><span class="tag">権限・監査</span></div>
-            </div>
-            <a class="btn btn-outline btn-small" href="#diagnosis">相談先を診断 <span class="arrow">→</span></a>
-          </article>
-        </div>
-        <p class="price-note">※費用は対象範囲・期間・台数・開発規模により異なります。無料相談後に目安をご案内します。</p>
-      </div>
-    </section>
-
-    <section id="diagnosis" class="section">
-      <div class="container diagnosis-wrap">
-        <div class="diagnosis-copy">
-          <p class="eyebrow">Quick Diagnosis</p>
-          <h2>2問で、相談内容を整理。</h2>
-          <p class="lead">サービス名が分からなくても大丈夫です。今のお悩みと開始時期から、最初に相談すべき領域を表示します。</p>
-        </div>
-        <div class="diagnosis" aria-live="polite">
-          <div class="diag-progress" aria-hidden="true"><span id="bar1" class="active"></span><span id="bar2"></span></div>
-          <div id="question1">
-            <div class="diag-label">QUESTION 1 / 2</div>
-            <h3 class="diag-title">いま、一番近いお悩みは？</h3>
-            <div class="choices">
-              <button class="choice" data-service="レンタルパソコン" data-desc="必要な期間・台数・用途を確認し、端末選定とキッティング内容を整理します。">研修・イベント・増員でPCが必要</button>
-              <button class="choice" data-service="クラウド情シス" data-desc="現在のIT運用を棚卸しし、社内に残す業務と外部へ任せる業務を整理します。">情シス担当が不在・兼任で手が回らない</button>
-              <button class="choice" data-service="AI・業務システム開発" data-desc="業務課題から逆算し、AI活用・システム化の優先順位と検証方法を整理します。">AIやシステムで業務を効率化したい</button>
-              <button class="choice" data-service="AIサーバー レンタル・構築" data-desc="利用データ・機密性・必要性能を確認し、購入前の検証環境からご提案します。">機密情報を守れるAI環境を用意したい</button>
-              <button class="choice" data-service="MCP・社内データ連携" data-desc="接続対象、アクセス権、監査方法を確認し、安全な連携範囲を整理します。">AIと社内ツール・データをつなぎたい</button>
-              <button class="choice" data-service="DX課題整理・無料相談" data-desc="現状と実現したいことを伺い、製品導入・開発・運用のどこから始めるべきか一緒に整理します。">何から相談すべきか分からない</button>
-            </div>
-          </div>
-          <div id="question2" hidden>
-            <div class="diag-label">QUESTION 2 / 2</div>
-            <h3 class="diag-title">いつ頃から始めたいですか？</h3>
-            <div class="choices">
-              <button class="choice timeline" data-time="なるべく早く">なるべく早く（1週間以内）</button>
-              <button class="choice timeline" data-time="1ヶ月以内">1ヶ月以内を目安に</button>
-              <button class="choice timeline" data-time="時期未定">情報収集・時期未定</button>
-            </div>
-          </div>
-          <div id="result" class="diag-result">
-            <div class="diag-label">RECOMMENDATION</div>
-            <p style="margin-bottom:4px">最初の相談先</p>
-            <h3 id="resultName"></h3>
-            <p id="resultDesc"></p>
-            <p><strong>ご希望時期：</strong><span id="resultTime"></span></p>
-            <a class="btn btn-primary" href="#contact">この内容で無料相談 <span class="arrow">→</span></a>
-            <button id="resetDiag" class="reset" type="button">診断をやり直す</button>
-          </div>
+          <article class="service-card"><div class="icon">SELECT</div><h3>製品・構成を選定</h3><p>課題・利用人数・予算から、ソフトと機器を横断して選定します。</p><a href="#contact">選定を相談する →</a></article>
+          <article class="service-card"><div class="icon">BUY</div><h3>販売・レンタル</h3><p>購入とレンタルを使い分け、コストと利用期間に合う形で調達。</p><a href="#contact">見積もりを依頼 →</a></article>
+          <article class="service-card"><div class="icon">SET</div><h3>設定・キッティング</h3><p>端末、アカウント、ライセンス、セキュリティを事前設定します。</p><a href="#contact">設定を相談する →</a></article>
+          <article class="service-card"><div class="icon">INSTALL</div><h3>設置・運用支援</h3><p>配送、現地設置、ネットワーク構築、導入後の保守まで対応。</p><a href="#contact">設置を依頼する →</a></article>
         </div>
       </div>
     </section>
 
-    <section class="section section-soft">
-      <div class="container">
-        <div class="center">
-          <p class="eyebrow">Why Eight</p>
-          <h2>整理だけで終わらず、実装と運用まで。</h2>
-          <p class="lead">コンサルティング会社、開発会社、IT保守会社を別々に探す負担を減らし、同じ窓口で前へ進めます。</p>
+    <section class="flow" id="setup">
+      <div class="wrap flow-grid">
+        <div class="intro">
+          <p class="eyebrow">ONE STOP SUPPORT</p>
+          <h2>選ぶところから、<br><span>使い続けるところ</span>まで。</h2>
+          <p>PCやIT機器の導入に必要な作業を分断せず、エイトコマースが一括して進行。担当者の手間と導入トラブルを減らします。</p>
+          <a class="text-link" href="#contact">導入について相談する →</a>
         </div>
-        <div class="why-grid">
-          <article class="why-card">
-            <span class="big-no">POINT 01</span>
-            <h3>20年以上のIT事業経験</h3>
-            <p>現場の制約や既存環境を踏まえ、理想論ではなく実行可能な進め方を組み立てます。</p>
-          </article>
-          <article class="why-card">
-            <span class="big-no">POINT 02</span>
-            <h3>構想と開発がつながる</h3>
-            <p>経営課題の整理から、要件定義、プロトタイプ、本開発まで分断せずに進められます。</p>
-          </article>
-          <article class="why-card">
-            <span class="big-no">POINT 03</span>
-            <h3>導入後も同じ窓口</h3>
-            <p>端末・インフラ・セキュリティ・システムの運用改善まで、状況に応じて継続支援します。</p>
-          </article>
+        <div class="steps">
+          <article class="step"><span class="num">01</span><div><h3>選定・お見積もり</h3><p>用途・予算・台数を伺い、最適な機器と導入方法をご提案。</p></div></article>
+          <article class="step"><span class="num">02</span><div><h3>調達・初期設定</h3><p>端末の調達からアカウント、ソフト、セキュリティ設定まで実施。</p></div></article>
+          <article class="step"><span class="num">03</span><div><h3>配送・現地設置</h3><p>各拠点や社員宅への配送、配線、Wi-Fiや周辺機器の設置にも対応。</p></div></article>
+          <article class="step"><span class="num">04</span><div><h3>運用・情シス支援</h3><p>故障対応、入退社設定、ライセンス管理、問い合わせ窓口を継続支援。</p></div></article>
+        </div>
+        <div class="flow-art"><img src="assets/eight-commerce-onestop.png" alt="IT機器の設定、配送、現地設置、ヘルプデスクまで一括して支援するイラスト"></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <div class="split-head">
+          <div><p class="eyebrow">EQUIPMENT</p><h2>PC以外のIT・セキュリティ機器も<br><span>販売・レンタル・設置</span>できます。</h2></div>
+          <p>オフィス移転、拠点開設、入社対応、セキュリティ強化など、目的に合わせて必要な機器をまとめてご用意します。</p>
+        </div>
+        <div class="equipment-grid">
+          <article class="equipment"><span class="tag">PC</span><h3>ノート・デスクトップPC</h3><p>新入社員用から高性能・AI/GPU端末まで</p></article>
+          <article class="equipment"><span class="tag">MON</span><h3>モニター・プリンター</h3><p>周辺機器や消耗品もまとめて調達</p></article>
+          <article class="equipment"><span class="tag">Wi-Fi</span><h3>Wi-Fi・ネットワーク</h3><p>ルーター、AP、スイッチ、拠点間接続</p></article>
+          <article class="equipment"><span class="tag">UTM</span><h3>UTM・ファイアウォール</h3><p>不正アクセスや情報漏えいへの対策</p></article>
+          <article class="equipment"><span class="tag">NAS</span><h3>NAS・バックアップ</h3><p>社内データの共有・保管・復旧体制</p></article>
+          <article class="equipment"><span class="tag">CAM</span><h3>防犯・入退室管理</h3><p>カメラや入退室機器の選定から設置</p></article>
         </div>
       </div>
     </section>
 
-    <section id="flow" class="section">
-      <div class="container">
-        <div class="center">
-          <p class="eyebrow">Process</p>
-          <h2>相談から運用まで、4ステップ。</h2>
-          <p class="lead">最初から要件書を用意する必要はありません。現状の困りごとを、そのままお聞かせください。</p>
-        </div>
-        <div class="flow">
-          <article class="flow-step">
-            <div class="step-no">01</div>
-            <h3>無料相談</h3>
-            <p>フォームからご連絡。1〜2営業日以内に担当者がご案内します。</p>
-          </article>
-          <article class="flow-step">
-            <div class="step-no">02</div>
-            <h3>課題整理</h3>
-            <p>目的・現状・優先順位・予算感を確認し、必要な支援範囲を整理します。</p>
-          </article>
-          <article class="flow-step">
-            <div class="step-no">03</div>
-            <h3>ご提案・実行</h3>
-            <p>進め方、体制、費用をご提案。合意後に設計・準備・開発を進めます。</p>
-          </article>
-          <article class="flow-step">
-            <div class="step-no">04</div>
-            <h3>導入・運用改善</h3>
-            <p>導入して終わりではなく、利用状況を見ながら定着と改善を支援します。</p>
-          </article>
+    <section class="choice" id="rental">
+      <div class="wrap">
+        <div class="section-head"><p class="eyebrow">PURCHASE OR RENTAL</p><h2>導入方法も、運用に合わせて<br><span>選べます。</span></h2></div>
+        <div class="choice-grid">
+          <article class="choice-card"><span class="label">長期利用・資産化に</span><h3>IT機器を購入</h3><p>必要なスペックと予算に合わせ、1台から大量導入までお見積もりします。</p><ul><li>メーカー保証付き</li><li>法人請求書払い</li><li>キッティング対応</li></ul></article>
+          <article class="choice-card featured"><span class="label">短期・台数変動に</span><h3>IT機器をレンタル</h3><p>研修、イベント、短期プロジェクトなど、必要な期間と台数だけ利用できます。</p><ul><li>必要な期間だけ利用</li><li>初期費用を抑制</li><li>故障時の交換相談</li></ul></article>
         </div>
       </div>
     </section>
 
-
-    <section id="products" class="section section-soft">
-      <div class="container">
-        <div class="center">
-          <p class="eyebrow">For Sale</p>
-          <h2>販売中の中古PC・周辺機器</h2>
-          <p class="lead">整備済みの中古ノートPC・デスクトップ・カメラ・周辺機器などを販売中。まとまった台数やレンタルのご相談も承ります。</p>
+    <section class="cloud" id="support">
+      <div class="wrap cloud-panel">
+        <div class="cloud-copy">
+          <p class="eyebrow">CLOUD IT SUPPORT</p>
+          <h2>導入後の「困った」も、<br>クラウド情シスにお任せ。</h2>
+          <p>入退社時のPC設定、故障・不具合、アカウントやライセンス管理、社内からのIT問い合わせまで継続的に支援します。</p>
+          <a class="btn btn-white" href="#contact">クラウド情シスを見る →</a>
         </div>
-        <style>
-          .prod-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-top:14px}
-          @media(max-width:900px){.prod-grid{grid-template-columns:repeat(2,1fr)}}
-          @media(max-width:520px){.prod-grid{grid-template-columns:1fr}}
-          .prod-card{display:flex;flex-direction:column;background:var(--white);border:1px solid var(--line);border-radius:var(--radius-sm);overflow:hidden;box-shadow:var(--shadow)}
-          .prod-thumb{aspect-ratio:4/3;display:grid;place-items:center;font-size:52px;background:var(--teal-pale)}
-          .prod-thumb.cat-nb{background:#e9f3ff}.prod-thumb.cat-dt{background:#eef1f8}.prod-thumb.cat-game{background:#efeaff}
-          .prod-thumb.cat-ph{background:#ffeef3}.prod-thumb.cat-vr{background:#e7f7f4}.prod-thumb.cat-pr{background:#fff2e8}
-          .prod-thumb.cat-cam{background:#e9f8fb}.prod-thumb.cat-sim{background:#fdeaea}.prod-thumb.cat-ac{background:#eef7ea}.prod-thumb.cat-etc{background:var(--cyan-pale)}
-          .prod-body{display:flex;flex-direction:column;gap:7px;padding:14px 15px 16px;flex:1}
-          .prod-cat{font-size:11px;font-weight:800;color:var(--teal-dark);letter-spacing:.04em}
-          .prod-name{font-size:14.5px;line-height:1.5;margin:0;min-height:2.9em}
-          .prod-price{font-size:20px;font-weight:800;color:var(--ink)}
-          .prod-price small{font-size:11px;color:var(--ink-soft);font-weight:600}
-          .prod-meta{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--ink-soft);margin-bottom:4px}
-          .prod-cond{background:var(--teal-pale);color:var(--teal-dark);font-weight:800;font-size:11px;padding:2px 8px;border-radius:99px}
-          .prod-card .btn-small{margin-top:auto}
-        </style>
-        <div class="prod-grid">
-      <article class="prod-card">
-        <div class="prod-thumb cat-sim"><span aria-hidden="true">🏎️</span></div>
-        <div class="prod-body">
-          <span class="prod-cat">シミュレーター</span>
-          <h3 class="prod-name" title="MOZA RACING R5 レーシングシミュレーターバンドル ステアリング・ペダル付き">MOZA RACING R5 レーシングシミュレーターバンドル ステアリング・ペダル付き</h3>
-          <div class="prod-price">¥55,000 <small>税込</small></div>
-          <div class="prod-meta"><span class="prod-cond">中古</span><span>在庫1</span></div>
-          <a class="btn btn-outline btn-small" href="https://item.rakuten.co.jp/8commerce/20260714-0050/" target="_blank" rel="noopener">楽天市場店で見る</a>
-        </div>
-      </article>
-      <article class="prod-card">
-        <div class="prod-thumb cat-nb"><span aria-hidden="true">💻</span></div>
-        <div class="prod-body">
-          <span class="prod-cat">ノートPC</span>
-          <h3 class="prod-name" title="DYNABOOK G83/KW ノートパソコン Core i5-1235U メモリ16GB SSD256GB 13.3インチ Windows11Pro">DYNABOOK G83/KW ノートパソコン Core i5-1235U メモリ16GB…</h3>
-          <div class="prod-price">¥52,000 <small>税込</small></div>
-          <div class="prod-meta"><span class="prod-cond">中古</span><span>在庫1</span></div>
-          <a class="btn btn-outline btn-small" href="https://item.rakuten.co.jp/8commerce/20260714-0566/" target="_blank" rel="noopener">楽天市場店で見る</a>
-        </div>
-      </article>
-      <article class="prod-card">
-        <div class="prod-thumb cat-nb"><span aria-hidden="true">💻</span></div>
-        <div class="prod-body">
-          <span class="prod-cat">ノートPC</span>
-          <h3 class="prod-name" title="HP PROBOOK 450 G8 ノートパソコン Core i5-1135G7 メモリ8GB 15.6インチ Windows11Pro テンキー付き">HP PROBOOK 450 G8 ノートパソコン Core i5-1135G7 メモリ8…</h3>
-          <div class="prod-price">¥38,000 <small>税込</small></div>
-          <div class="prod-meta"><span class="prod-cond">中古</span><span>在庫1</span></div>
-          <a class="btn btn-outline btn-small" href="https://item.rakuten.co.jp/8commerce/20260714-0528/" target="_blank" rel="noopener">楽天市場店で見る</a>
-        </div>
-      </article>
-      <article class="prod-card">
-        <div class="prod-thumb cat-game"><span aria-hidden="true">🎮</span></div>
-        <div class="prod-body">
-          <span class="prod-cat">ゲーム機</span>
-          <h3 class="prod-name" title="SONY PlayStation 5 PS5 CFI-2000 本体 1TB SSD ホワイト 8K対応 Wi-Fi Bluetooth 純正箱付き">SONY PlayStation 5 PS5 CFI-2000 本体 1TB SSD ホワ…</h3>
-          <div class="prod-price">¥52,000 <small>税込</small></div>
-          <div class="prod-meta"><span class="prod-cond">中古</span><span>在庫1</span></div>
-          <a class="btn btn-outline btn-small" href="https://item.rakuten.co.jp/8commerce/20260714-0048/" target="_blank" rel="noopener">楽天市場店で見る</a>
-        </div>
-      </article>
-      <article class="prod-card">
-        <div class="prod-thumb cat-ph"><span aria-hidden="true">📱</span></div>
-        <div class="prod-body">
-          <span class="prod-cat">スマートフォン</span>
-          <h3 class="prod-name" title="Google Pixel 6 256GB ブラック SIMロック解除済み 6.4インチ 有機EL Wi-Fi Bluetooth">Google Pixel 6 256GB ブラック SIMロック解除済み 6.4インチ 有…</h3>
-          <div class="prod-price">¥28,000 <small>税込</small></div>
-          <div class="prod-meta"><span class="prod-cond">中古</span><span>在庫1</span></div>
-          <a class="btn btn-outline btn-small" href="https://item.rakuten.co.jp/8commerce/20260714-0037/" target="_blank" rel="noopener">楽天市場店で見る</a>
-        </div>
-      </article>
-      <article class="prod-card">
-        <div class="prod-thumb cat-vr"><span aria-hidden="true">🥽</span></div>
-        <div class="prod-body">
-          <span class="prod-cat">スマートグラス</span>
-          <h3 class="prod-name" title="REALWEAR T1200G スマートグラス 通電確認済み 現状品 電源ケーブル付き">REALWEAR T1200G スマートグラス 通電確認済み 現状品 電源ケーブル付き</h3>
-          <div class="prod-price">¥85,000 <small>税込</small></div>
-          <div class="prod-meta"><span class="prod-cond">中古</span><span>在庫2</span></div>
-          <a class="btn btn-outline btn-small" href="https://item.rakuten.co.jp/8commerce/20260714-0665-1/" target="_blank" rel="noopener">楽天市場店で見る</a>
-        </div>
-      </article>
-      <article class="prod-card">
-        <div class="prod-thumb cat-pr"><span aria-hidden="true">🖨️</span></div>
-        <div class="prod-body">
-          <span class="prod-cat">プリンター</span>
-          <h3 class="prod-name" title="EPSON PX-M6010F プリンター 完全検査済み 純正箱付き">EPSON PX-M6010F プリンター 完全検査済み 純正箱付き</h3>
-          <div class="prod-price">¥22,000 <small>税込</small></div>
-          <div class="prod-meta"><span class="prod-cond">中古</span><span>在庫2</span></div>
-          <a class="btn btn-outline btn-small" href="https://item.rakuten.co.jp/8commerce/20260714-7804-1/" target="_blank" rel="noopener">楽天市場店で見る</a>
-        </div>
-      </article>
-      <article class="prod-card">
-        <div class="prod-thumb cat-pr"><span aria-hidden="true">🖨️</span></div>
-        <div class="prod-body">
-          <span class="prod-cat">プリンター</span>
-          <h3 class="prod-name" title="EPSON EW-M5610FT プリンター 完全検査済み 純正箱付き">EPSON EW-M5610FT プリンター 完全検査済み 純正箱付き</h3>
-          <div class="prod-price">¥18,000 <small>税込</small></div>
-          <div class="prod-meta"><span class="prod-cond">中古</span><span>在庫3</span></div>
-          <a class="btn btn-outline btn-small" href="https://item.rakuten.co.jp/8commerce/20260714-7810-1/" target="_blank" rel="noopener">楽天市場店で見る</a>
-        </div>
-      </article>
-      <article class="prod-card">
-        <div class="prod-thumb cat-dt"><span aria-hidden="true">🖥️</span></div>
-        <div class="prod-body">
-          <span class="prod-cat">デスクトップPC</span>
-          <h3 class="prod-name" title="DELL 3070MFF デスクトップPC Core i3-9100T メモリ8GB SSD512GB Windows11Pro 省スペース">DELL 3070MFF デスクトップPC Core i3-9100T メモリ8GB SS…</h3>
-          <div class="prod-price">¥22,000 <small>税込</small></div>
-          <div class="prod-meta"><span class="prod-cond">中古</span><span>在庫3</span></div>
-          <a class="btn btn-outline btn-small" href="https://item.rakuten.co.jp/8commerce/20260714-6579-1/" target="_blank" rel="noopener">楽天市場店で見る</a>
-        </div>
-      </article>
-      <article class="prod-card">
-        <div class="prod-thumb cat-cam"><span aria-hidden="true">📷</span></div>
-        <div class="prod-body">
-          <span class="prod-cat">カメラ</span>
-          <h3 class="prod-name" title="GoPro HERO13 Black アクションカメラ 27.6MP 5.3K Wi-Fi Bluetooth 防水 動作確認済み">GoPro HERO13 Black アクションカメラ 27.6MP 5.3K Wi-Fi…</h3>
-          <div class="prod-price">¥38,000 <small>税込</small></div>
-          <div class="prod-meta"><span class="prod-cond">中古</span><span>在庫1</span></div>
-          <a class="btn btn-outline btn-small" href="https://item.rakuten.co.jp/8commerce/20260714-8028/" target="_blank" rel="noopener">楽天市場店で見る</a>
-        </div>
-      </article>
-      <article class="prod-card">
-        <div class="prod-thumb cat-cam"><span aria-hidden="true">📷</span></div>
-        <div class="prod-body">
-          <span class="prod-cat">カメラ</span>
-          <h3 class="prod-name" title="Insta360 GO3 32GB ホワイト アクションカメラ Wi-Fi Bluetooth 防水 タッチ操作 動作確認済み">Insta360 GO3 32GB ホワイト アクションカメラ Wi-Fi Bluetoo…</h3>
-          <div class="prod-price">¥28,000 <small>税込</small></div>
-          <div class="prod-meta"><span class="prod-cond">中古</span><span>在庫2</span></div>
-          <a class="btn btn-outline btn-small" href="https://item.rakuten.co.jp/8commerce/20260714-8031-1/" target="_blank" rel="noopener">楽天市場店で見る</a>
-        </div>
-      </article>
-      <article class="prod-card">
-        <div class="prod-thumb cat-ac"><span aria-hidden="true">🔌</span></div>
-        <div class="prod-body">
-          <span class="prod-cat">周辺機器・アクセサリ</span>
-          <h3 class="prod-name" title="Apple A1357 ACアダプターセット 完全未検査 現状品">Apple A1357 ACアダプターセット 完全未検査 現状品</h3>
-          <div class="prod-price">¥800 <small>税込</small></div>
-          <div class="prod-meta"><span class="prod-cond">中古</span><span>在庫50</span></div>
-          <a class="btn btn-outline btn-small" href="https://item.rakuten.co.jp/8commerce/20260714-9170-1/" target="_blank" rel="noopener">楽天市場店で見る</a>
-        </div>
-      </article>
-      <article class="prod-card">
-        <div class="prod-thumb cat-ac"><span aria-hidden="true">🔌</span></div>
-        <div class="prod-body">
-          <span class="prod-cat">周辺機器・アクセサリ</span>
-          <h3 class="prod-name" title="Apple A2305 USB-C - Lightningケーブル 完全未検査 現状品">Apple A2305 USB-C - Lightningケーブル 完全未検査 現状品</h3>
-          <div class="prod-price">¥500 <small>税込</small></div>
-          <div class="prod-meta"><span class="prod-cond">中古</span><span>在庫50</span></div>
-          <a class="btn btn-outline btn-small" href="https://item.rakuten.co.jp/8commerce/20260714-9162-1/" target="_blank" rel="noopener">楽天市場店で見る</a>
-        </div>
-      </article>
-        </div>
-        <div class="center" style="margin-top:30px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
-          <a class="btn btn-primary" href="https://www.rakuten.co.jp/8commerce/" target="_blank" rel="noopener">楽天市場店で全商品を見る <span class="arrow">→</span></a>
-          <a class="btn btn-outline" href="pc.html">PCレンタルを相談する</a>
+        <div class="cloud-list">
+          <span><i>✓</i>入退社時のPC設定</span><span><i>✓</i>故障・不具合対応</span>
+          <span><i>✓</i>アカウント管理</span><span><i>✓</i>ライセンス管理</span>
+          <span><i>✓</i>セキュリティ対策</span><span><i>✓</i>IT問い合わせ窓口</span>
         </div>
       </div>
     </section>
 
-    <section id="contact" class="contact">
-      <div class="container contact-box">
-        <div>
-          <p class="eyebrow">Free Consultation</p>
-          <h2>まだ整理できていない課題ほど、<br class="only-pc">早めにご相談ください。</h2>
-          <p>30〜60分のオンライン面談で、今どこから着手すべきかを一緒に整理します。相談・見積もりは無料です。</p>
-          <div class="contact-meta">
-            <span>電話：03-6433-5025（平日9:00〜18:00）</span>
-            <span>メール：contact@8grp.co.jp</span>
-          </div>
-        </div>
-        <div class="contact-actions">
-          <a class="btn btn-primary" href="mailto:contact@8grp.co.jp?subject=DX・AI・IT支援の無料相談">無料相談フォームへ <span class="arrow">→</span></a>
-          <a class="btn btn-outline" href="mailto:contact@8grp.co.jp?subject=DX・AI・IT支援についての相談">メールで相談する</a>
+    <section class="contact" id="contact">
+      <div class="contact-inner">
+        <p class="eyebrow">CONTACT</p>
+        <h2>欲しい機器が決まっていなくても、<br>まずはご相談ください。</h2>
+        <p>用途・台数・ご予算を伺い、購入・レンタル・設定・設置をまとめてご提案します。</p>
+        <div class="actions">
+          <a class="btn btn-primary" href="mailto:nw@8grp.co.jp">法人見積もりを依頼する →</a>
+          <a class="btn phone" href="tel:0364335025"><small>平日 10:00〜18:00</small>03-6433-5025</a>
         </div>
       </div>
     </section>
   </main>
 
-  <footer class="site-footer">
-    <div class="container footer-inner">
-      <strong>株式会社エイト</strong>
-      <span>〒150-0001 東京都渋谷区神宮前6-33-14 2F</span>
-      <a href="privacy.html">プライバシーポリシー</a>
-      <span>© 2026 EIGHT INC.</span>
+  <footer>
+    <div class="wrap footer-grid">
+      <a class="brand" href="#top"><span class="brand-mark">8</span><span><strong>EIGHT COMMERCE</strong><small>法人IT調達・導入・情シス支援</small><span class="operated">株式会社エイトが運営</span></span></a>
+      <p>ソフトウェア・クラウド・IT機器の選定、販売、レンタル、設定、設置、運用支援</p>
+      <small>© EIGHT COMMERCE. All Rights Reserved.</small>
     </div>
   </footer>
-
-  <div class="mobile-cta">
-    <a class="btn btn-primary" href="#contact">無料相談する <span class="arrow">→</span></a>
-  </div>
-
+  <script src="assets/inventory-data.js"></script>
   <script>
     (() => {
-      const question1 = document.getElementById('question1');
-      const question2 = document.getElementById('question2');
-      const result = document.getElementById('result');
-      const bar1 = document.getElementById('bar1');
-      const bar2 = document.getElementById('bar2');
-      const resultName = document.getElementById('resultName');
-      const resultDesc = document.getElementById('resultDesc');
-      const resultTime = document.getElementById('resultTime');
-      const reset = document.getElementById('resetDiag');
-      let selected = null;
+      const form = document.getElementById('product-search-form');
+      const model = document.getElementById('model-number');
+      const quantity = document.getElementById('model-quantity');
+      const result = document.getElementById('quote-result');
+      const dataStatus = document.getElementById('data-status');
+      const inventory = window.EIGHT_INVENTORY?.records || [];
 
-      document.querySelectorAll('[data-service]').forEach((button) => {
+      if (window.EIGHT_INVENTORY) {
+        dataStatus.textContent = `2026年7月在庫表 ${window.EIGHT_INVENTORY.total.toLocaleString('ja-JP')}商品を検索可能`;
+      }
+
+      const escapeHtml = (text) => String(text ?? '').replace(/[&<>"']/g, (character) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+      })[character]);
+
+      const normalize = (text) => String(text ?? '').toLowerCase().replace(/[\s　・_\-/#]/g, '');
+
+      const stockText = (item) => {
+        if (item.stockLabel) return `在庫目安 ${item.stockLabel}`;
+        if (Number.isFinite(item.stock) && Number.isFinite(item.incomingAvailable) && item.incomingAvailable > item.stock) {
+          return `現在 ${item.stock.toLocaleString('ja-JP')}点・入荷後 ${item.incomingAvailable.toLocaleString('ja-JP')}点予定`;
+        }
+        if (Number.isFinite(item.stock)) return `引当可能 ${item.stock.toLocaleString('ja-JP')}点`;
+        return '在庫確認';
+      };
+
+      const priceText = (item) => item.listPrice
+        ? `参考標準価格 ¥${Number(item.listPrice).toLocaleString('ja-JP')}（税抜）`
+        : '価格は個別見積もり';
+
+      const mailLink = (item) => {
+        const product = `${item.model} ${item.name || ''}`.trim();
+        const subject = encodeURIComponent(`【見積依頼】${item.model}`);
+        const body = encodeURIComponent(`以下の商品について見積もりを希望します。\n\n商品・型番：${product}\n商品コード：${item.productCode || ''}\n数量：${quantity.value}点\n設置・設定：要相談\n\n会社名：\nご担当者名：\n電話番号：`);
+        return `mailto:nw@8grp.co.jp?subject=${subject}&body=${body}`;
+      };
+
+      const showSearchResults = (query) => {
+        const needle = normalize(query);
+        const matches = inventory.filter((item) => {
+          const searchable = normalize([
+            item.model, item.name, item.productCode, item.maker,
+            item.category, item.description, item.source
+          ].join(' '));
+          return searchable.includes(needle);
+        }).slice(0, 20);
+
+        if (!matches.length) {
+          const subject = encodeURIComponent(`【無料見積もり・お取り寄せ確認】${query}`);
+          const body = encodeURIComponent(`以下の商品について、無料お見積もり・お取り寄せ可否の確認を希望します。\n\n商品・型番：${query}\n数量：${quantity.value}点\n設置・設定：要相談\n\n会社名：\nご担当者名：\n電話番号：`);
+          result.innerHTML = `<div class="not-found">「<strong>${escapeHtml(query)}</strong>」は今回の在庫表（777商品）には見つかりませんでした。ご指定の型番がデータに無いだけの場合もあります。SB C&amp;Sの40万点以上の取扱候補から、無料でお見積り・お取り寄せ可否をご回答します。<div class="nf-actions"><a class="btn btn-primary" href="mailto:nw@8grp.co.jp?subject=${subject}&body=${body}">無料見積もり・お問い合わせ →</a></div></div>`;
+          result.classList.add('is-visible');
+          return;
+        }
+
+        result.innerHTML = `
+          <div class="result-head"><strong>${matches.length}件見つかりました</strong><small>在庫・価格は更新時点の参考情報です</small></div>
+          <div class="inventory-results">${matches.map((item, index) => `
+            <article class="inventory-item">
+              <div class="inventory-media">
+                ${item.image
+                  ? `<img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name || item.model)}のメーカー提供画像" loading="lazy" referrerpolicy="no-referrer">`
+                  : `<span class="image-fallback">${escapeHtml((item.maker || item.category || 'IT').slice(0, 8))}</span>`}
+                <small>${escapeHtml(item.imageCredit ? `${item.imageCredit} 提供` : '画像準備中')}</small>
+              </div>
+              <div class="inventory-body">
+                <h3>${escapeHtml(item.model)}｜${escapeHtml(item.name || item.model)}</h3>
+                <p>${escapeHtml(item.description || item.category || '')}</p>
+                <div class="item-meta">
+                  <span><b>${escapeHtml(item.source)}</b></span>
+                  ${item.maker ? `<span>${escapeHtml(item.maker)}</span>` : ''}
+                  ${item.productCode ? `<span>商品コード ${escapeHtml(item.productCode)}</span>` : ''}
+                  <span>${escapeHtml(stockText(item))}</span>
+                  <span>${escapeHtml(priceText(item))}</span>
+                  <span>更新 ${escapeHtml(item.updated)}</span>
+                </div>
+                <div class="item-actions">
+                  <button class="quote-item" type="button" data-result-index="${index}">この商品を見積もる</button>
+                  ${(item.manufacturerPage || item.url) ? `<a class="maker-detail" href="${escapeHtml(item.manufacturerPage || item.url)}" target="_blank" rel="noopener noreferrer">メーカー画像・詳細を見る ↗</a>` : ''}
+                </div>
+              </div>
+            </article>
+          `).join('')}</div>`;
+        result.classList.add('is-visible');
+        result.querySelectorAll('[data-result-index]').forEach((button) => {
+          button.addEventListener('click', () => {
+            window.location.href = mailLink(matches[Number(button.dataset.resultIndex)]);
+          });
+        });
+      };
+
+      document.querySelectorAll('[data-model]').forEach((button) => {
         button.addEventListener('click', () => {
-          selected = {
-            name: button.dataset.service,
-            desc: button.dataset.desc
-          };
-          question1.hidden = true;
-          question2.hidden = false;
-          bar2.classList.add('active');
-          question2.querySelector('button').focus();
+          model.value = button.dataset.model;
+          showSearchResults(model.value);
         });
       });
 
-      document.querySelectorAll('[data-time]').forEach((button) => {
-        button.addEventListener('click', () => {
-          if (!selected) return;
-          question2.hidden = true;
-          resultName.textContent = selected.name;
-          resultDesc.textContent = selected.desc;
-          resultTime.textContent = button.dataset.time;
-          result.classList.add('show');
-          result.querySelector('a').focus();
-        });
-      });
-
-      reset.addEventListener('click', () => {
-        selected = null;
-        result.classList.remove('show');
-        question2.hidden = true;
-        question1.hidden = false;
-        bar2.classList.remove('active');
-        question1.querySelector('button').focus();
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const product = model.value.trim();
+        if (!product) return;
+        showSearchResults(product);
       });
     })();
   </script>
-
 </body>
 </html>
