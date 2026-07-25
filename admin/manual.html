@@ -423,14 +423,18 @@
   <!-- STEP 7 8 SHOP -->
   <div class="step"><div class="grid">
     <div class="txt">
-      <div class="num"><span class="b">7</span>8 SHOPに公開する</div>
-      <h2>登録した商品をそのままショップへ</h2>
-      <p>ドロワーの<strong>「8 SHOP公開設定」</strong>で「8/shop に公開する」にチェックし、ショップ表示名・説明・販売価格・商品画像URL・Stripe決済リンクを入力すると、<a href="https://8grp.co.jp/8/shop/" target="_blank" rel="noopener" style="color:var(--blue2);font-weight:700">8/shop</a>に商品が並びます。</p>
+      <div class="num"><span class="b">7</span>自社ショップに出品する</div>
+      <h2>「ショップ出品」タブから、在庫をそのままショップへ</h2>
+      <p>上部の<strong>「ショップ出品」タブ</strong>を開くと、在庫の商品が一覧で並びます。<strong>写真を選び</strong>、<strong>表示名・販売価格・商品説明</strong>を入力して<strong>「ショップに公開する」</strong>を押すだけで <a href="/shop/" target="_blank" rel="noopener" style="color:var(--blue2);font-weight:700">8ec.jp/shop/</a> に商品が並びます（商品ごとにドロワーを開く必要はありません）。</p>
       <ul>
+        <li><span class="material-icons-outlined">photo_library</span><strong>写真は「写真を選ぶ」から、そのまま選ぶだけ</strong>。ドラッグ＆ドロップでも、スマホならその場で撮った写真でも追加できます。最大8枚まで並べられ、<strong>1枚目がメイン画像</strong>です（サムネイルの「メインに」で入れ替え）</li>
+        <li><span class="material-icons-outlined">credit_card</span><strong>決済リンクはボタン1つで自動作成</strong>。「決済リンクを作成」を押すと、Stripeに<strong>商品・価格・決済リンク</strong>がまとめて登録されます（手で作る必要はありません）</li>
+        <li><span class="material-icons-outlined">check_circle</span>中古品は1点ものなので、<strong>1回購入されるとリンクは自動で締め切られ</strong>、二重販売を防ぎます</li>
+        <li><span class="material-icons-outlined">check_circle</span>価格を変えたときは<strong>「決済リンクを作り直す」</strong>を押してください（古いリンクは無効化されます）。価格がずれている間は警告が出ます</li>
+        <li><span class="material-icons-outlined">check_circle</span>ショップに並ぶ条件は<strong>「公開する」＋「販売価格あり」＋「未販売」</strong>の3つ。価格を入れずに公開しようとすると警告が出ます</li>
         <li><span class="material-icons-outlined">check_circle</span>売れた商品（販売日時あり）は自動的にショップ一覧から外れます</li>
-        <li><span class="material-icons-outlined">check_circle</span>決済はStripeの決済リンクを商品ごとに登録して使います</li>
       </ul>
-      <div class="tip"><span class="material-icons-outlined">info</span>公開には初回のみ「8/shop/supabase-shop-setup.sql」の実行が必要です。</div>
+      <div class="tip"><span class="material-icons-outlined">info</span>初回のみ「admin/supabase-setup.sql」と「shop/supabase-shop-setup.sql」の実行、および Edge Function「create-payment-link」のデプロイ（＋STRIPE_SECRET_KEY の設定）が必要です。</div>
     </div>
     <div class="art">
       <svg viewBox="0 0 300 120" aria-label="8 SHOP公開設定のイラスト">

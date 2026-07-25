@@ -108,6 +108,14 @@
   .shop-thumb img { width: 100%; height: 100%; object-fit: cover; }
   .shop-thumb .ph { color: var(--teal); opacity: .55; }
   .shop-thumb .ph svg { width: 62px; height: 62px; }
+  /* 複数写真のサムネイル切り替え */
+  .shop-shots { display: flex; gap: 6px; padding: 8px 14px 0; flex-wrap: wrap; }
+  .shop-shots button {
+    width: 42px; height: 42px; padding: 0; border-radius: 8px; overflow: hidden;
+    border: 1.5px solid var(--line); background: #fff; cursor: pointer; flex: none;
+  }
+  .shop-shots button.on { border-color: var(--teal); }
+  .shop-shots button img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .shop-badge {
     position: absolute;
     left: 12px;
@@ -257,10 +265,36 @@
     function placeholderSvg() {
       return '<span class="ph" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span>';
     }
+    // 商品写真。images（複数枚）があればそれを、無ければ image_url を1枚だけ使う。
+    function shotsOf(p) {
+      const arr = Array.isArray(p.images) ? p.images.filter(u => typeof u === "string" && u) : [];
+      if (arr.length) return arr;
+      return p.image_url ? [p.image_url] : [];
+    }
     function thumb(p) {
-      return p.image_url
-        ? '<img src="' + esc(p.image_url) + '" alt="' + esc(p.title || p.mgmt_no || "商品") + '" loading="lazy">'
-        : placeholderSvg();
+      const shots = shotsOf(p);
+      if (!shots.length) return placeholderSvg();
+      const alt = esc(p.title || p.mgmt_no || "商品");
+      return '<img id="shot-' + esc(p.id) + '" src="' + esc(shots[0]) + '" alt="' + alt + '" loading="lazy">';
+    }
+    // サムネイル一覧（2枚以上のときだけ表示）
+    function shotStrip(p) {
+      const shots = shotsOf(p);
+      if (shots.length < 2) return "";
+      return '<div class="shop-shots">' + shots.map((u, i) =>
+        '<button type="button" class="' + (i === 0 ? "on" : "") + '"' +
+        ' onclick="showShot(\'' + esc(p.id) + '\',\'' + esc(u) + '\',this)"' +
+        ' aria-label="写真' + (i + 1) + 'を表示">' +
+        '<img src="' + esc(u) + '" alt="" loading="lazy"></button>'
+      ).join("") + "</div>";
+    }
+    function showShot(id, url, btn) {
+      const img = document.getElementById("shot-" + id);
+      if (img) img.src = url;
+      if (btn && btn.parentNode) {
+        [...btn.parentNode.children].forEach(b => b.classList.remove("on"));
+        btn.classList.add("on");
+      }
     }
     function productText(p) {
       return [p.title, p.mgmt_no, p.category, p.model, p.description, p.spec]
@@ -291,6 +325,7 @@
       ].join("");
       return '<article class="shop-card">' +
           '<div class="shop-thumb">' + thumb(p) + '<span class="shop-badge">在庫あり</span></div>' +
+          shotStrip(p) +
           '<div class="shop-body">' +
             '<h2 class="shop-name">' + esc(name) + "</h2>" +
             '<p class="shop-desc">' + esc(desc) + "</p>" +
