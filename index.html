@@ -82,6 +82,32 @@
     .item-meta{display:flex;flex-wrap:wrap;gap:5px 9px;margin-top:7px;color:#6d829b;font-size:9px}.item-meta b{color:#2b608e}
     .item-actions{display:flex;align-items:center;gap:8px;margin-top:11px}.quote-item{min-width:112px;height:38px;border:0;border-radius:8px;background:var(--navy);color:#fff;font-size:10px;font-weight:900;cursor:pointer}.maker-detail{color:var(--blue);font-size:9px;font-weight:900}.media-note{margin:12px 0 0;color:#798ca4;font-size:9px;line-height:1.6}
     .not-found{padding:15px;line-height:1.75}.not-found a{color:var(--blue);font-weight:900}.not-found .nf-actions{margin-top:13px}.not-found .btn-primary{color:#fff;min-height:44px;padding:0 20px;font-size:12px}
+
+    .catalog-section{background:var(--pale)}
+    .maker-chip-row{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:0 0 26px}
+    .maker-chip{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--navy);font:inherit;font-size:12px;font-weight:800;cursor:pointer;transition:.15s}
+    .maker-chip:hover{border-color:var(--blue);color:var(--blue)}
+    .maker-chip.on{border-color:var(--blue);background:var(--blue);color:#fff}
+    .maker-chip small{opacity:.7;font-weight:700}
+    .catalog-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin:0 0 18px;padding:14px 16px;border:1px solid var(--line);border-radius:14px;background:#fff}
+    .cat-tab-row{display:flex;flex-wrap:wrap;gap:6px}
+    .cat-tab{padding:8px 14px;border:1px solid var(--line);border-radius:999px;background:#f6faff;color:var(--muted);font:inherit;font-size:11.5px;font-weight:800;cursor:pointer}
+    .cat-tab.on{background:var(--navy);border-color:var(--navy);color:#fff}
+    .catalog-filter{min-width:200px;flex:1;max-width:280px;height:42px;padding:0 14px;border:1px solid #cadcef;border-radius:10px;font:inherit;font-size:13px;color:var(--navy);outline:none}
+    .catalog-filter:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(36,121,233,.1)}
+    .catalog-status{margin:0 0 14px;color:var(--muted);font-size:12px;font-weight:700}
+    .catalog-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+    .cat-card{display:flex;flex-direction:column;gap:7px;padding:16px 17px;border:1px solid var(--line);border-radius:14px;background:#fff;box-shadow:0 6px 18px rgba(32,78,132,.05)}
+    .cat-card .cc-cat{align-self:flex-start;padding:3px 9px;border-radius:6px;background:var(--sky);color:var(--blue);font-size:9px;font-weight:900}
+    .cat-card h3{margin:0;color:var(--navy);font-size:13px;line-height:1.55}
+    .cat-card .cc-maker{color:#5e7693;font-size:10.5px;font-weight:700}
+    .cat-card .cc-meta{display:flex;flex-wrap:wrap;gap:5px 9px;margin-top:2px;color:#6d829b;font-size:9.5px}
+    .cat-card .cc-price{margin-top:auto;padding-top:8px;border-top:1px dashed var(--line);color:var(--navy);font-size:11.5px;font-weight:800}
+    .cat-card .cc-btn{height:36px;border:0;border-radius:8px;background:var(--navy);color:#fff;font:inherit;font-size:10.5px;font-weight:900;cursor:pointer}
+    .catalog-empty{grid-column:1/-1;padding:40px 20px;text-align:center;color:var(--muted);font-size:13px;line-height:1.9}
+    .catalog-empty a{color:var(--blue);font-weight:900}
+    .catalog-more{display:flex;justify-content:center;margin-top:24px}
+    .catalog-more button:disabled{opacity:.4;cursor:default}
     .actions{display:flex;gap:12px;margin-top:28px}
     .btn{min-height:52px;display:inline-flex;align-items:center;justify-content:center;padding:0 24px;border-radius:11px;font-size:14px;font-weight:800;transition:.2s}
     .btn:hover{transform:translateY(-2px)}
@@ -110,7 +136,8 @@
     .service-card p{min-height:66px;margin:0;color:var(--muted);font-size:12px;line-height:1.85}
     .service-card a,.text-link{display:inline-flex;margin-top:18px;color:var(--blue);font-size:12px;font-weight:900}
     .category-area{padding-top:74px;background:#fff}
-    .category-tools{display:flex;justify-content:center;margin:0 auto 34px}.search-box{width:min(620px,100%);min-height:58px;display:flex;align-items:center;gap:12px;padding:0 18px;border:1px solid #bed6ef;border-radius:14px;background:#fff;box-shadow:0 10px 28px rgba(31,81,140,.08);color:#7186a0;font-size:13px}.search-box b{color:var(--blue);font-size:20px}
+    .category-tools{display:flex;justify-content:center;margin:0 auto 34px}
+    .catalog-link-note{text-align:center;margin:0 0 30px}.search-box{width:min(620px,100%);min-height:58px;display:flex;align-items:center;gap:12px;padding:0 18px;border:1px solid #bed6ef;border-radius:14px;background:#fff;box-shadow:0 10px 28px rgba(31,81,140,.08);color:#7186a0;font-size:13px}.search-box b{color:var(--blue);font-size:20px}
     .category-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
     .category-card{min-height:180px;padding:24px;border:1px solid #e0ebf7;border-radius:18px;background:linear-gradient(145deg,#fff,#f5f9ff);transition:.2s}.category-card:hover{transform:translateY(-4px);border-color:#9fc7f3}.category-card .cat-icon{width:49px;height:49px;display:grid;place-items:center;border-radius:15px;background:#e5f1ff;color:var(--blue);font-size:10px;font-weight:900}.category-card h3{margin:17px 0 8px;color:var(--navy);font-size:16px}.category-card p{margin:0;color:var(--muted);font-size:11px;line-height:1.75}
     .partner-note{display:flex;align-items:center;justify-content:center;gap:18px;margin:38px 0 0;padding:20px 24px;border-radius:14px;background:#f2f7fd;color:#536b89;font-size:12px;line-height:1.7}.partner-note strong{color:var(--navy);font-size:14px}
@@ -172,12 +199,12 @@
     @media(max-width:640px){.quote-form{padding:20px 18px}}
     footer{padding:42px 0;background:#071f48;color:#fff}.footer-grid{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:35px}.footer-grid>p{color:#9db1cc;font-size:10px}.footer-grid>small{color:#7990ae;font-size:9px}.footer-grid .brand{color:#fff}.footer-grid .brand small{color:#91a9c7}
     @media(max-width:960px){
-      nav{display:none}.header-cta{margin-left:auto}.hero-grid,.flow-grid,.security-grid{grid-template-columns:1fr}.hero-copy{text-align:center}.hero .eyebrow,.actions,.trust,.hero-number{justify-content:center}.hero-art{max-width:720px;margin:auto}.search-intro{align-items:flex-start}.search-intro span{text-align:left}.inventory-results{grid-template-columns:1fr}.service-grid,.category-grid{grid-template-columns:repeat(2,1fr)}.flow-grid{gap:42px}.intro,.security-copy{text-align:center}.flow-art{margin-top:0}.equipment-grid{grid-template-columns:repeat(2,1fr)}.split-head{grid-template-columns:1fr;gap:12px;text-align:center}.cloud-panel{grid-template-columns:1fr;padding:54px}.footer-grid{grid-template-columns:1fr;justify-items:center;text-align:center}.proof-panel{grid-template-columns:1fr 1fr}.proof-copy{grid-column:1/-1;border-right:0;border-bottom:1px solid #e2edf8;text-align:center}.proof-stat:nth-child(3){border-right:0}
+      nav{display:none}.header-cta{margin-left:auto}.hero-grid,.flow-grid,.security-grid{grid-template-columns:1fr}.hero-copy{text-align:center}.hero .eyebrow,.actions,.trust,.hero-number{justify-content:center}.hero-art{max-width:720px;margin:auto}.search-intro{align-items:flex-start}.search-intro span{text-align:left}.inventory-results{grid-template-columns:1fr}.service-grid,.category-grid{grid-template-columns:repeat(2,1fr)}.flow-grid{gap:42px}.intro,.security-copy{text-align:center}.flow-art{margin-top:0}.equipment-grid{grid-template-columns:repeat(2,1fr)}.split-head{grid-template-columns:1fr;gap:12px;text-align:center}.cloud-panel{grid-template-columns:1fr;padding:54px}.footer-grid{grid-template-columns:1fr;justify-items:center;text-align:center}.proof-panel{grid-template-columns:1fr 1fr}.proof-copy{grid-column:1/-1;border-right:0;border-bottom:1px solid #e2edf8;text-align:center}.proof-stat:nth-child(3){border-right:0}.catalog-grid{grid-template-columns:repeat(2,1fr)}
     }
     @media(max-width:640px){
       .wrap{width:calc(100% - 30px)}.header-inner{min-height:68px}.brand-mark{width:34px;height:34px}.brand strong{font-size:11px}.brand small{font-size:8px}.header-cta{min-height:39px;padding:0 12px;font-size:11px}
       .hero{padding:44px 0 78px}h1{font-size:36px}.hero-lead{font-size:13px}.hero-lead br{display:none}.search-shell{padding:22px 18px}.search-intro{display:block}.search-intro span{display:block;margin-top:8px}.model-search-row{grid-template-columns:1fr 76px}.model-search-row button{grid-column:1/-1}.model-search-label small{display:none}.inventory-item{grid-template-columns:100px 1fr;padding:11px}.inventory-media{min-height:105px}.inventory-media img{height:105px}.item-actions{align-items:flex-start;flex-direction:column}.quote-item{width:100%}.actions{flex-direction:column}.actions .btn{width:100%}.trust{display:grid;grid-template-columns:1fr 1fr;text-align:left}.art-frame{border-radius:24px 24px 56px 24px}.support-chip{right:8px;bottom:-16px}
-      section{padding:74px 0}.section-head h2,.intro h2,.split-head h2,.security-copy h2{font-size:29px}.service-grid,.category-grid,.equipment-grid,.choice-grid,.security-points{grid-template-columns:1fr}.service-card p{min-height:0}.partner-note{display:block;text-align:center}.partner-note strong{display:block;margin-bottom:5px}.step{grid-template-columns:46px 1fr;gap:14px;padding:17px}.choice-card{padding:29px}.cloud-panel{width:calc(100% - 20px);gap:34px;padding:42px 25px;border-radius:24px}.cloud-list{grid-template-columns:1fr;padding:16px}.contact h2{font-size:29px}.contact h2 br{display:none}.contact-inner{width:calc(100% - 30px)}.proof-panel{grid-template-columns:1fr}.proof-copy{grid-column:auto}.proof-stat{border-right:0;border-bottom:1px solid #e2edf8}.proof-stat:last-child{border-bottom:0}
+      section{padding:74px 0}.section-head h2,.intro h2,.split-head h2,.security-copy h2{font-size:29px}.service-grid,.category-grid,.equipment-grid,.choice-grid,.security-points{grid-template-columns:1fr}.service-card p{min-height:0}.partner-note{display:block;text-align:center}.partner-note strong{display:block;margin-bottom:5px}.step{grid-template-columns:46px 1fr;gap:14px;padding:17px}.choice-card{padding:29px}.cloud-panel{width:calc(100% - 20px);gap:34px;padding:42px 25px;border-radius:24px}.cloud-list{grid-template-columns:1fr;padding:16px}.contact h2{font-size:29px}.contact h2 br{display:none}.contact-inner{width:calc(100% - 30px)}.proof-panel{grid-template-columns:1fr}.proof-copy{grid-column:auto}.proof-stat{border-right:0;border-bottom:1px solid #e2edf8}.proof-stat:last-child{border-bottom:0}.catalog-grid{grid-template-columns:1fr}.catalog-toolbar{flex-direction:column;align-items:stretch}.catalog-filter{max-width:none}
     }
   </style>
 </head>
@@ -189,7 +216,7 @@
         <span><strong>EIGHT COMMERCE</strong><small>法人IT調達・導入・情シス支援</small><span class="operated">株式会社エイトが運営</span></span>
       </a>
       <nav aria-label="メインナビゲーション">
-        <a href="#categories">IT商材を探す</a><a href="#rental">購入・レンタル</a>
+        <a href="#categories">IT商材を探す</a><a href="#catalog">商品一覧</a><a href="#rental">購入・レンタル</a>
         <a href="#setup">設定・設置</a><a href="/cloud.html">クラウド情シス</a>
       </nav>
       <a class="header-cta" href="#contact">法人見積もり</a>
@@ -238,6 +265,24 @@
       </div>
     </section>
 
+    <section class="catalog-section" id="catalog">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="eyebrow">PRODUCT CATALOG</p>
+          <h2>取扱いメーカー・商品一覧</h2>
+          <p>在庫連携中の777商品を、メーカー・カテゴリから一覧で確認できます。掲載外の商品も無料でお見積もりします。</p>
+        </div>
+        <div class="maker-chip-row" id="makerChipRow" aria-label="取扱いメーカーで絞り込み"></div>
+        <div class="catalog-toolbar">
+          <div class="cat-tab-row" id="catTabRow" role="tablist" aria-label="カテゴリで絞り込み"></div>
+          <input type="search" id="catalogFilter" class="catalog-filter" placeholder="商品名・型番で絞り込み" aria-label="商品名・型番で絞り込み">
+        </div>
+        <div class="catalog-status" id="catalogStatus"></div>
+        <div class="catalog-grid" id="catalogGrid"></div>
+        <div class="catalog-more"><button type="button" id="catalogMoreBtn" class="btn btn-outline">もっと見る</button></div>
+      </div>
+    </section>
+
     <section class="proof" aria-label="運営会社と実績">
       <div class="wrap proof-panel">
         <div class="proof-copy"><small>OPERATED BY EIGHT INC.</small><strong>株式会社エイトが運営しています。</strong><span>ITインフラから導入・運用まで、企業の現場を20年以上支援。</span></div>
@@ -255,6 +300,7 @@
           <p>製品名が分からなくても、課題・用途・予算から担当者が選定します。</p>
         </div>
         <div class="category-tools"><a class="search-box" href="#model-search"><b>⌕</b><span>型番検索・法人見積もりへ　例：FortiGate 60Fを3台、設置込みで</span></a></div>
+        <p class="catalog-link-note"><a class="text-link" href="#catalog">777商品の一覧・取扱いメーカーを見る →</a></p>
         <div class="category-grid">
           <article class="category-card"><span class="cat-icon">SW</span><h3>ソフトウェア</h3><p>業務ソフト、資産管理、バックアップ、開発・設計ツール</p></article>
           <article class="category-card"><span class="cat-icon">CLOUD</span><h3>クラウドサービス</h3><p>Microsoft 365、グループウェア、オンライン会議、SaaS</p></article>
@@ -523,6 +569,144 @@
         if (!product) return;
         showSearchResults(product);
       });
+
+      /* ---------- 商品一覧・取扱いメーカー（カタログ） ---------- */
+      const CATALOG_CATEGORIES = [
+        { key: 'all', label: 'すべて' },
+        { key: 'SB C&S Cisco/Meraki', label: 'Cisco・Meraki' },
+        { key: 'SB C&S Fortinet', label: 'Fortinet' },
+        { key: 'SB C&S PC', label: 'PC' },
+        { key: 'SB C&S Display', label: 'ディスプレイ' },
+        { key: 'LES', label: 'PC周辺機器' }
+      ];
+      const PAGE_SIZE = 24;
+      const catalogState = { category: 'all', maker: null, text: '', page: 1 };
+
+      const toHalfWidth = (text) => String(text ?? '')
+        .replace(/[Ａ-Ｚａ-ｚ０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+        .replace(/　/g, ' ')
+        .trim();
+
+      const displayMaker = (item) => {
+        if (item.source === 'SB C&S Cisco/Meraki') return 'Cisco Meraki';
+        if (item.source === 'SB C&S Fortinet') return 'Fortinet';
+        if (item.maker && item.maker !== 'IB1') return toHalfWidth(item.maker);
+        return null;
+      };
+
+      const catalogGrid = document.getElementById('catalogGrid');
+      const catalogStatus = document.getElementById('catalogStatus');
+      const catalogMoreBtn = document.getElementById('catalogMoreBtn');
+      const catalogFilterInput = document.getElementById('catalogFilter');
+      const makerChipRow = document.getElementById('makerChipRow');
+      const catTabRow = document.getElementById('catTabRow');
+
+      if (catalogGrid && inventory.length) {
+        const makerStats = (() => {
+          const counts = new Map();
+          inventory.forEach((item) => {
+            const maker = displayMaker(item);
+            if (!maker) return;
+            counts.set(maker, (counts.get(maker) || 0) + 1);
+          });
+          return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+        })();
+
+        catTabRow.innerHTML = CATALOG_CATEGORIES.map((cat) => `
+          <button type="button" class="cat-tab${cat.key === 'all' ? ' on' : ''}" data-cat="${escapeHtml(cat.key)}" role="tab" aria-selected="${cat.key === 'all'}">${escapeHtml(cat.label)}</button>
+        `).join('');
+
+        makerChipRow.innerHTML = `<button type="button" class="maker-chip on" data-maker="">すべてのメーカー</button>` +
+          makerStats.map(([maker, count]) => `
+            <button type="button" class="maker-chip" data-maker="${escapeHtml(maker)}">${escapeHtml(maker)}<small>${count.toLocaleString('ja-JP')}</small></button>
+          `).join('');
+
+        const catCardHtml = (item, index) => `
+          <article class="cat-card">
+            <span class="cc-cat">${escapeHtml(item.category || item.source)}</span>
+            <h3>${escapeHtml(item.model)}｜${escapeHtml(item.name || item.model)}</h3>
+            ${displayMaker(item) ? `<div class="cc-maker">${escapeHtml(displayMaker(item))}</div>` : ''}
+            <div class="cc-meta"><span>${escapeHtml(stockText(item))}</span><span>更新 ${escapeHtml(item.updated)}</span></div>
+            <div class="cc-price">${escapeHtml(priceText(item))}</div>
+            <button class="cc-btn" type="button" data-catalog-index="${index}">この商品を見積もる</button>
+          </article>
+        `;
+
+        const filteredCatalog = () => {
+          const needle = normalize(catalogState.text);
+          return inventory.filter((item) => {
+            if (catalogState.category !== 'all' && item.source !== catalogState.category) return false;
+            if (catalogState.maker && displayMaker(item) !== catalogState.maker) return false;
+            if (needle) {
+              const searchable = normalize([item.model, item.name, item.category, item.description].join(' '));
+              if (!searchable.includes(needle)) return false;
+            }
+            return true;
+          });
+        };
+
+        const renderCatalog = () => {
+          const matches = filteredCatalog();
+          const visible = matches.slice(0, catalogState.page * PAGE_SIZE);
+
+          if (!matches.length) {
+            catalogGrid.innerHTML = `<div class="catalog-empty">条件に一致する商品が見つかりませんでした。掲載外の商品も無料でお見積もりします。<br><a href="mailto:nw@8grp.co.jp">nw@8grp.co.jp</a> へお気軽にお問い合わせください。</div>`;
+            catalogStatus.textContent = '0件';
+            catalogMoreBtn.style.display = 'none';
+            return;
+          }
+
+          catalogGrid.innerHTML = visible.map((item, index) => catCardHtml(item, index)).join('');
+          catalogStatus.textContent = `${matches.length.toLocaleString('ja-JP')}件中 ${visible.length.toLocaleString('ja-JP')}件を表示`;
+          catalogMoreBtn.style.display = visible.length < matches.length ? '' : 'none';
+          catalogMoreBtn.disabled = false;
+
+          catalogGrid.querySelectorAll('[data-catalog-index]').forEach((button) => {
+            button.addEventListener('click', () => {
+              window.location.href = mailLink(visible[Number(button.dataset.catalogIndex)]);
+            });
+          });
+        };
+
+        catTabRow.addEventListener('click', (event) => {
+          const button = event.target.closest('[data-cat]');
+          if (!button) return;
+          catalogState.category = button.dataset.cat;
+          catalogState.page = 1;
+          catTabRow.querySelectorAll('.cat-tab').forEach((el) => {
+            const isOn = el === button;
+            el.classList.toggle('on', isOn);
+            el.setAttribute('aria-selected', String(isOn));
+          });
+          renderCatalog();
+        });
+
+        makerChipRow.addEventListener('click', (event) => {
+          const button = event.target.closest('[data-maker]');
+          if (!button) return;
+          catalogState.maker = button.dataset.maker || null;
+          catalogState.page = 1;
+          makerChipRow.querySelectorAll('.maker-chip').forEach((el) => el.classList.toggle('on', el === button));
+          renderCatalog();
+        });
+
+        let filterTimer;
+        catalogFilterInput.addEventListener('input', () => {
+          clearTimeout(filterTimer);
+          filterTimer = setTimeout(() => {
+            catalogState.text = catalogFilterInput.value.trim();
+            catalogState.page = 1;
+            renderCatalog();
+          }, 200);
+        });
+
+        catalogMoreBtn.addEventListener('click', () => {
+          catalogState.page += 1;
+          renderCatalog();
+        });
+
+        renderCatalog();
+      }
     })();
   </script>
 </body>
