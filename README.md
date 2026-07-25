@@ -27,6 +27,10 @@
 ├── robots.txt
 ├── sitemap.xml
 │
+├── api/                Vercel サーバーレス関数（問い合わせ受付・Slack通知）
+├── admin/              管理画面（EC在庫・ショップ出品・問い合わせ・レンタル）
+├── shop/               公開ショップ（Stripe決済）
+├── rental/             機材レンタル
 ├── assets/             画像・ロゴ・favicon
 ├── blog/               CMS 貼り付け用の自己完結HTML（4種）※詳細は blog/README.md
 ├── notion-proxy/       Notion API プロキシ（Cloudflare Worker・別デプロイ／Vercel配信対象外）
@@ -128,6 +132,39 @@ supabase functions deploy create-checkout --no-verify-jwt
 
 > `create-payment-link` は呼び出し元が管理者（`zimu@8grp.co.jp`）かを JWT で検証し、
 > 価格は必ずサーバー側で DB から読み直します（金額をブラウザに信頼させません）。
+
+---
+
+## 問い合わせフォームと Slack 通知（Vercel 側の設定）
+
+各ページのフォームは **`/api/contact`（Vercel のサーバーレス関数）** に送信され、
+そこで Supabase への保存と Slack への通知をまとめて行います（`api/contact.js`）。
+
+### Vercel の環境変数
+
+プロジェクト → **Settings → Environment Variables** で設定します。
+変更後は再デプロイすると反映されます。
+
+| 変数名 | 必須 | 内容 |
+|---|:--:|---|
+| `SLACK_WEBHOOK_URL` | 任意 | Slack の受信 Webhook（`https://hooks.slack.com/services/...`）。**未設定でもフォームは動作します**（Slack 通知だけスキップ） |
+| `SUPABASE_URL` | 任意 | 既定値がコードに入っているため通常は不要 |
+| `SUPABASE_ANON_KEY` | 任意 | 同上（RLS で保護された公開鍵） |
+| `ADMIN_CONTACT_URL` | 任意 | Slack 通知のボタンの遷移先。既定 `https://www.8ec.jp/admin/contact/` |
+
+### Slack の受信 Webhook を作る
+
+1. <https://api.slack.com/apps> → 「Create New App」→「From scratch」
+2. アプリ名（例：8ec お問い合わせ通知）と通知先ワークスペースを選ぶ
+3. 左メニュー「Incoming Webhooks」を On にする
+4. 「Add New Webhook to Workspace」→ 通知したいチャンネルを選んで許可
+5. 表示された URL を、Vercel の `SLACK_WEBHOOK_URL` に貼る
+
+Webhook URL は **サーバー側の環境変数としてのみ参照** し、ブラウザに配信されるコードには
+一切含めません（含めると URL を知った第三者が自由にチャンネルへ投稿できてしまうため）。
+
+Slack 通知に失敗しても、お客様のフォーム送信は成功として扱います
+（Slack 側の障害や URL 未設定で問い合わせを取りこぼさないため）。
 
 ---
 

@@ -110,6 +110,7 @@ async function signOut(){await sb.auth.signOut();location.reload();}
 async function load(){
   const {data,error}=await sb.from('contact_submissions').select('*').order('created_at',{ascending:false});
   if(error){alert('読み込みエラー：'+error.message+'\n（admin/contact/supabase-setup.sql を実行してください）');return;}
+  // ※ 受信時のSlack通知は admin/contact/slack-notify-setup.sql（DBトリガー）で設定します。
   rows=data||[];
   const srcs=[...new Set(rows.map(r=>r.source).filter(Boolean))];
   document.getElementById('fSource').innerHTML='<option value="">全ページ</option>'+srcs.map(s=>`<option>${esc(s)}</option>`).join('');
