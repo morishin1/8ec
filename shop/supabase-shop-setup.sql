@@ -17,7 +17,14 @@ create index if not exists ec_items_shop_public_idx
 
 -- 公開ページが参照する列だけを持つビュー。
 -- ec_items 本体を anon に直接開放しないことで、仕入値・購入者情報などを公開しません。
-create or replace view public.shop_products as
+--
+-- ※ create or replace view は「末尾への列追加」しかできず、列の並べ替えや名前変更をすると
+--    ERROR: cannot change name of view column ... というエラーになります。
+--    列構成を変えても実行できるよう、いったん drop してから作り直します
+--    （このビューに依存するオブジェクトは無いため cascade は不要です）。
+drop view if exists public.shop_products;
+
+create view public.shop_products as
 select
   id,
   mgmt_no,
