@@ -316,6 +316,50 @@
   .lcard .lc-editlink{font-size:12px;color:var(--blue2);font-weight:700;background:none;border:none;cursor:pointer;text-decoration:underline}
   .lcard .ref.zero{color:var(--red)}
   .refwarn{display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:800;color:#b02a2a;background:#fdeaea;border:1px solid #f2c9c9;border-radius:16px;padding:2px 9px}
+  /* ショップ出品 */
+  .shop-head{display:flex;gap:14px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;margin-bottom:12px}
+  .shop-open-btn{display:inline-flex;align-items:center;gap:6px;background:var(--navy);color:#fff;border:none;border-radius:9px;padding:9px 15px;font-size:13px;font-weight:800;text-decoration:none;flex:none}
+  .shop-open-btn:hover{background:var(--navy2)}
+  .shop-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
+  .shop-stats .c{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .shop-stats .c .l{font-size:11.5px;color:var(--mute);font-weight:700}
+  .shop-stats .c .v{font-size:22px;font-weight:800;font-family:"Inter",sans-serif;color:var(--navy);margin-top:2px}
+  .shop-stats .c.live .v{color:#1f7a44}
+  .shop-stats .c.warn .v{color:var(--red)}
+  .shop-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+  .shop-filters{display:inline-flex;background:#fff;border:1px solid var(--line);border-radius:10px;padding:3px}
+  .shop-filters button{border:none;background:transparent;color:var(--mute);font-size:12.5px;font-weight:800;padding:7px 14px;border-radius:7px;cursor:pointer;font-family:inherit}
+  .shop-filters button.on{background:var(--blue);color:#fff}
+  .shop-toolbar input{flex:1;min-width:180px;max-width:340px;border:1px solid var(--line);border-radius:9px;padding:9px 12px;font-size:13px;font-family:inherit;color:var(--navy);background:#fff}
+  .scard{background:#fff;border:1px solid var(--line);border-radius:13px;padding:14px 16px;margin-bottom:11px}
+  .scard.is-live{border-color:#bfe6cb;background:#fcfffd}
+  .scard .sc-top{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start}
+  .scard .sc-id{font-size:11px;color:#aab4c8;font-weight:700;font-family:"Inter",sans-serif}
+  .scard .sc-name{font-size:15px;font-weight:800;color:var(--navy);margin-top:2px}
+  .scard .sc-sub{font-size:12px;color:var(--mute);margin-top:2px}
+  .scard .sc-badge{flex:none;font-size:11px;font-weight:800;border-radius:16px;padding:3px 10px}
+  .scard .sc-badge.live{background:#eaf6ee;color:#1f7a44}
+  .scard .sc-badge.draft{background:#eef2f8;color:#647b99}
+  .scard .sc-badge.warn{background:#fdeaea;color:#b02a2a}
+  .scard .sc-warn{margin-top:9px;background:#fff7e8;border:1px solid #f0dcae;border-radius:9px;padding:8px 11px;font-size:11.5px;color:#8a6412;line-height:1.6}
+  .scard .sc-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:11px}
+  .scard .sc-grid .full{grid-column:1/-1}
+  .scard .sc-f label{display:block;font-size:11px;font-weight:800;color:#3c4d68;margin-bottom:3px}
+  .scard .sc-f input,.scard .sc-f textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12.5px;font-family:inherit;color:var(--navy);background:#fbfdff}
+  .scard .sc-f textarea{resize:vertical;min-height:52px}
+  .scard .sc-cost{font-size:11.5px;color:var(--mute);margin-top:4px}
+  .scard .sc-cost b{color:var(--navy);font-family:"Inter",sans-serif}
+  .scard .sc-actions{margin-top:11px;border-top:1px dashed var(--line);padding-top:11px;display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+  .scard .sc-pub{border:none;border-radius:9px;padding:8px 14px;font-size:13px;font-weight:800;display:inline-flex;align-items:center;gap:6px;cursor:pointer;color:#fff}
+  .scard .sc-pub.on{background:var(--green)}.scard .sc-pub.on:hover{background:#26893f}
+  .scard .sc-pub.off{background:#8a99b5}.scard .sc-pub.off:hover{background:#78879f}
+  .scard .sc-save{background:#fff;border:1px solid var(--line);color:var(--navy);border-radius:9px;padding:8px 14px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit}
+  .scard .sc-save:hover{background:#eef2fb}
+  .scard .sc-save.dirty{background:var(--amber);border-color:transparent;color:#fff}
+  .scard .sc-save.dirty:hover{background:#b57a12}
+  .scard .sc-save.dirty::after{content:"（未保存）";font-weight:700}
+  .scard .sc-editlink{margin-left:auto;font-size:12px;color:var(--blue2);font-weight:700;background:none;border:none;cursor:pointer;text-decoration:underline}
+  @media(max-width:640px){.shop-stats{grid-template-columns:1fr}.scard .sc-grid{grid-template-columns:1fr}}
   /* 仕入CSVの詳細情報 */
   #sourceInfo .si-head{font-size:12px;font-weight:800;color:#3c4d68;margin:6px 0 6px;display:flex;align-items:center;gap:6px}
   #sourceInfo .si-head .material-icons-outlined{font-size:16px;color:var(--blue)}
@@ -404,6 +448,7 @@
   <div class="ec-viewtabs">
     <button id="vt-manage" class="on" onclick="setEcView('manage')"><span class="material-icons-outlined" style="font-size:17px">inventory_2</span>在庫・販売管理</button>
     <button id="vt-list" onclick="setEcView('list')"><span class="material-icons-outlined" style="font-size:17px">playlist_add_check</span>出品管理</button>
+    <button id="vt-shop" onclick="setEcView('shop')"><span class="material-icons-outlined" style="font-size:17px">storefront</span>ショップ出品</button>
     <button id="vt-report" onclick="setEcView('report')"><span class="material-icons-outlined" style="font-size:17px">bar_chart</span>月次集計</button>
   </div>
 
@@ -469,6 +514,26 @@
     </div>
     <div class="listing-note" id="listingImportMsg" style="display:none"></div>
     <div id="listingList"></div>
+  </div>
+
+  <div id="shopView" style="display:none">
+    <div class="shop-head">
+      <div>
+        <h2 style="font-size:16px;color:var(--navy);display:flex;align-items:center;gap:8px;margin-bottom:4px"><span class="material-icons-outlined" style="color:var(--blue)">storefront</span>ショップ出品（自社ショップ 8ec.jp/shop/ に公開）</h2>
+        <p style="font-size:12.5px;color:var(--mute);line-height:1.6">在庫の商品を<strong>自社ショップに直接出品</strong>できます。<strong>「公開する」＋「販売価格の入力」＋「未販売」</strong>の3つが揃った商品だけがショップに並びます。売れた商品（販売日時あり）は自動でショップから外れます。</p>
+      </div>
+      <a class="shop-open-btn" href="/shop/" target="_blank" rel="noopener"><span class="material-icons-outlined" style="font-size:18px">open_in_new</span>公開ショップを見る</a>
+    </div>
+    <div class="shop-stats" id="shopStats"></div>
+    <div class="shop-toolbar">
+      <div class="shop-filters">
+        <button id="sf-all" class="on" onclick="setShopFilter('all')">在庫すべて</button>
+        <button id="sf-live" onclick="setShopFilter('live')">公開中</button>
+        <button id="sf-draft" onclick="setShopFilter('draft')">未公開</button>
+      </div>
+      <input id="shopQ" placeholder="管理番号・商品名・型番で検索…" oninput="renderShop()" autocomplete="off">
+    </div>
+    <div id="shopList"></div>
   </div>
 </div></div>
 
@@ -537,7 +602,7 @@
             <div class="fg"><label>商品画像URL</label><input id="d-shop-image" placeholder="https://…"></div>
           </div>
           <div class="fg"><label>Stripe決済リンク</label><input id="d-stripe-link" placeholder="https://buy.stripe.com/…"></div>
-          <div style="font-size:11.5px;color:var(--mute);line-height:1.6">公開には「8/shop/supabase-shop-setup.sql」の実行が必要です。売れた商品（販売日時あり）はショップ一覧から自動で外れます。</div>
+          <div style="font-size:11.5px;color:var(--mute);line-height:1.6">複数の商品をまとめて出品するときは、上部の<strong>「ショップ出品」タブ</strong>が便利です。ショップに並ぶ条件は<strong>「公開する」＋「販売価格あり」＋「未販売」</strong>の3つ。売れた商品（販売日時あり）はショップ一覧から自動で外れます。初回のみ「admin/supabase-setup.sql」と「shop/supabase-shop-setup.sql」の実行が必要です。</div>
         </div>
       </div>
     </div>
@@ -709,7 +774,7 @@ function fillSelects(){
 /* ===== データ ===== */
 async function load(){
   const {data,error}=await sb.from(TABLE).select('*');
-  if(error){alert('読み込みエラー：'+error.message+'\n（ec/supabase-setup.sql を実行してください）');return;}
+  if(error){alert('読み込みエラー：'+error.message+'\n（admin/supabase-setup.sql を実行してください）');return;}
   items=data||[];render();
 }
 function nextSeq(){return items.reduce((m,t)=>Math.max(m,t.seq||0),0)+1;}
@@ -738,7 +803,7 @@ function filtered(){
     return true;
   });
 }
-function render(){renderStats();renderPullbar();renderAgebar();renderAgeTabs();renderList();renderBulkBar();if(ecView==='report')renderReport();if(ecView==='list')renderListing();}   // 作業フローカードは廃止
+function render(){renderStats();renderPullbar();renderAgebar();renderAgeTabs();renderList();renderBulkBar();if(ecView==='report')renderReport();if(ecView==='list')renderListing();if(ecView==='shop')renderShop();}   // 作業フローカードは廃止
 
 /* ===== 複数選択・一括操作 ===== */
 const selected=new Set();
@@ -781,12 +846,15 @@ function setEcView(v){
   ecView=v;
   document.getElementById('vt-manage').className=(v==='manage'?'on':'');
   document.getElementById('vt-list').className=(v==='list'?'on':'');
+  document.getElementById('vt-shop').className=(v==='shop'?'on':'');
   document.getElementById('vt-report').className=(v==='report'?'on':'');
   document.getElementById('manageView').style.display=(v==='manage')?'block':'none';
   document.getElementById('listingView').style.display=(v==='list')?'block':'none';
+  document.getElementById('shopView').style.display=(v==='shop')?'block':'none';
   document.getElementById('reportView').style.display=(v==='report')?'block':'none';
   if(v==='report'){selected.clear();renderBulkBar();renderReport();}
   if(v==='list'){selected.clear();renderBulkBar();renderListing();}
+  if(v==='shop'){selected.clear();renderBulkBar();renderShop();}
 }
 function repShiftYear(n){repYear+=n;renderReport();}
 function soldMonthKey(it){return it.sold_at?isoToLocal(it.sold_at).slice(0,7):'';}   // ローカル月 YYYY-MM
@@ -882,6 +950,129 @@ async function listAsListed(id){
   if(error){alert('更新エラー：'+error.message);return;}
   await load();   // render()→renderListing() で、出品済みになった商品は一覧から外れる
 }
+
+/* ===== ショップ出品ビュー（自社ショップ 8ec.jp/shop/ への出品） =====
+   公開ビュー shop_products の条件（shop_published=true / sold_at is null / shop_price>0）
+   と同じ判定をここで行い、「公開ONなのに実際は並んでいない」状態を可視化する。 */
+let shopFilter='all';                 // all | live | draft
+const shopEdits={};                   // {id:{title,desc,price,image,stripe}} 未保存の編集内容
+function shopIsLive(it){return !!it.shop_published && !it.sold_at && Number(it.shop_price||0)>0;}
+function shopIsIncomplete(it){return !!it.shop_published && !it.sold_at && !(Number(it.shop_price||0)>0);}
+function setShopFilter(f){
+  shopFilter=f;
+  ['all','live','draft'].forEach(k=>{const b=document.getElementById('sf-'+k);if(b)b.className=(k===f?'on':'');});
+  renderShop();
+}
+/* 入力を保持（検索やフィルタで再描画しても打ちかけの内容を失わない） */
+function shopMark(id){
+  const g=k=>{const el=document.getElementById('sh-'+k+'-'+id);return el?el.value:'';};
+  shopEdits[id]={title:g('title'),desc:g('desc'),price:g('price'),image:g('image'),stripe:g('stripe')};
+  const btn=document.getElementById('shsave-'+id);
+  if(btn)btn.className='sc-save dirty';
+}
+function shopCardHtml(it){
+  const e=shopEdits[it.id];
+  const cur={title:it.shop_title||'',desc:it.shop_description||'',price:(it.shop_price==null?'':it.shop_price),
+             image:it.shop_image_url||'',stripe:it.stripe_payment_link||''};
+  const v=e||cur;
+  const live=shopIsLive(it), incomplete=shopIsIncomplete(it);
+  const badge=live?'<span class="sc-badge live">ショップ公開中</span>'
+             :incomplete?'<span class="sc-badge warn">公開ON・価格未設定</span>'
+             :'<span class="sc-badge draft">未公開</span>';
+  const name=esc(it.product_name||((it.maker?it.maker+' ':'')+(it.model||''))||it.mgmt_no||'(名称なし)');
+  const sub=[it.category,it.maker,it.model,it.spec].filter(Boolean).map(esc).join('　');
+  const ref=refPrice(it.cost);
+  const warn=incomplete
+    ? '<div class="sc-warn"><b>この商品はショップに表示されていません。</b>公開はONですが販売価格が未設定です。価格を入力して保存すると表示されます。</div>' : '';
+  return `<div class="scard${live?' is-live':''}" id="scard-${it.id}">
+    <div class="sc-top">
+      <div style="min-width:0">
+        <div class="sc-id">${esc(it.mgmt_no||'')}　EC-${it.seq||'-'}</div>
+        <div class="sc-name">${name}</div>
+        <div class="sc-sub">${sub}</div>
+        <div class="sc-cost">仕入 <b>${yen(it.cost)}</b>${ref?` ／ 参考売値 <b>${yen(ref)}</b>（仕入×${REF_MARKUP}目安）`:''}</div>
+      </div>
+      ${badge}
+    </div>
+    ${warn}
+    <div class="sc-grid">
+      <div class="sc-f full"><label>ショップ表示名</label><input id="sh-title-${it.id}" oninput="shopMark('${it.id}')" value="${esc(v.title)}" placeholder="未入力なら型番または管理番号を表示"></div>
+      <div class="sc-f"><label>販売価格（円）※必須</label><input id="sh-price-${it.id}" type="number" inputmode="numeric" oninput="shopMark('${it.id}')" value="${esc(v.price)}" placeholder="例：39800"></div>
+      <div class="sc-f"><label>商品画像URL</label><input id="sh-image-${it.id}" oninput="shopMark('${it.id}')" value="${esc(v.image)}" placeholder="https://…"></div>
+      <div class="sc-f full"><label>商品説明</label><textarea id="sh-desc-${it.id}" oninput="shopMark('${it.id}')" placeholder="状態・付属品・おすすめポイント">${esc(v.desc)}</textarea></div>
+      <div class="sc-f full"><label>Stripe決済リンク（任意・未入力ならお問い合わせ扱い）</label><input id="sh-stripe-${it.id}" oninput="shopMark('${it.id}')" value="${esc(v.stripe)}" placeholder="https://buy.stripe.com/…"></div>
+    </div>
+    <div class="sc-actions">
+      <button class="sc-pub ${it.shop_published?'off':'on'}" onclick="toggleShopPub('${it.id}')">
+        <span class="material-icons-outlined" style="font-size:16px">${it.shop_published?'visibility_off':'storefront'}</span>${it.shop_published?'公開を停止する':'ショップに公開する'}</button>
+      <button class="sc-save${e?' dirty':''}" id="shsave-${it.id}" onclick="saveShopFields('${it.id}')">内容を保存</button>
+      <button class="sc-editlink" onclick="openDrawer('${it.id}')">商品の詳細を編集</button>
+    </div>
+  </div>`;
+}
+function renderShop(){
+  const host=document.getElementById('shopList');if(!host)return;
+  const inStock=items.filter(it=>!it.sold_at);
+  const live=inStock.filter(shopIsLive);
+  const incomplete=inStock.filter(shopIsIncomplete);
+  const draft=inStock.filter(it=>!it.shop_published);
+  const unit='<small style="font-size:12px;color:var(--mute);font-weight:600"> 点</small>';
+  const stats=document.getElementById('shopStats');
+  if(stats){
+    stats.innerHTML=
+      `<div class="c live"><div class="l">ショップ公開中（実際に並んでいる）</div><div class="v">${live.length}${unit}</div></div>`+
+      `<div class="c"><div class="l">未公開の在庫</div><div class="v">${draft.length}${unit}</div></div>`+
+      `<div class="c${incomplete.length?' warn':''}"><div class="l">公開ONだが価格未設定</div><div class="v">${incomplete.length}${unit}</div></div>`;
+  }
+  let list = shopFilter==='live'  ? inStock.filter(it=>!!it.shop_published)
+           : shopFilter==='draft' ? draft
+           : inStock;
+  const qEl=document.getElementById('shopQ');
+  const q=(qEl?qEl.value:'').trim().toLowerCase();
+  if(q)list=list.filter(it=>`${it.mgmt_no||''} ${it.product_name||''} ${it.maker||''} ${it.model||''} ${it.shop_title||''} ${it.spec||''} ${it.category||''}`.toLowerCase().includes(q));
+  list=list.slice().sort((a,b)=>{
+    const pa=a.shop_published?0:1, pb=b.shop_published?0:1;
+    if(pa!==pb)return pa-pb;                      // 公開中を上に
+    return (b.seq||0)-(a.seq||0);
+  });
+  if(!list.length){host.innerHTML='<div class="empty"><span class="material-icons-outlined">storefront</span>該当する在庫がありません</div>';return;}
+  host.innerHTML=list.map(shopCardHtml).join('');
+}
+async function toggleShopPub(id){
+  const it=items.find(x=>x.id===id);if(!it)return;
+  const willPublish=!it.shop_published;
+  const el=document.getElementById('sh-price-'+id);
+  const price=Number((el?el.value:'').trim()||0);
+  if(willPublish&&!(price>0)){
+    alert('販売価格を入力してから公開してください。\n\n価格が未設定の商品は、公開をONにしてもショップには表示されません。');
+    if(el)el.focus();
+    return;
+  }
+  await saveShopFields(id,{publish:willPublish});
+}
+async function saveShopFields(id,opts){
+  opts=opts||{};
+  const it=items.find(x=>x.id===id);if(!it)return;
+  const g=k=>{const el=document.getElementById('sh-'+k+'-'+id);return el?el.value:'';};
+  const numv=v=>{v=String(v||'').trim();return v===''?null:Number(v);};
+  const rec={
+    shop_title:g('title').trim()||null,
+    shop_description:g('desc').trim()||null,
+    shop_price:numv(g('price')),
+    shop_image_url:g('image').trim()||null,
+    stripe_payment_link:g('stripe').trim()||null,
+    shop_published:('publish' in opts)?opts.publish:!!it.shop_published,
+    updated_at:new Date().toISOString()
+  };
+  const {error}=await sb.from(TABLE).update(rec).eq('id',id);
+  if(error){
+    alert('保存エラー：'+error.message+'\n\nショップ用の列がまだ作られていない可能性があります。\nSupabase の SQL Editor で「admin/supabase-setup.sql」と「shop/supabase-shop-setup.sql」を実行してください。');
+    return;
+  }
+  delete shopEdits[id];
+  await load();   // render()→renderShop() で最新状態に更新
+}
+
 async function importAuctionCsv(input){
   const file=input.files&&input.files[0];input.value='';if(!file)return;
   const msg=document.getElementById('listingImportMsg');
@@ -1060,7 +1251,7 @@ async function markShipped(id,opts){
   const it=items.find(x=>x.id===id);
   if(!opts.skipConfirm&&!confirm(`「${it?(it.mgmt_no||'この商品'):'この商品'}」を発送済みにしますか？（出荷日＝今日）`))return;
   const {error}=await sb.from(TABLE).update({shipped_at:todayStr(),updated_at:new Date().toISOString()}).eq('id',id);
-  if(error){alert('更新エラー：'+error.message+'\n（出荷日の列が未作成の可能性があります。ec/supabase-setup.sql を再実行してください）');return;}
+  if(error){alert('更新エラー：'+error.message+'\n（出荷日の列が未作成の可能性があります。admin/supabase-setup.sql を再実行してください）');return;}
   await load();
 }
 function renderStats(){
@@ -1338,7 +1529,7 @@ async function uploadShipFiles(input){
     const safe=file.name.replace(/[^\w.\-]+/g,'_');
     const path=`${(editId||'new')}/${randId()}_${safe}`;
     const {error}=await sb.storage.from(SHIP_BUCKET).upload(path,file,{upsert:false});
-    if(error){msg.textContent='アップロード失敗：'+error.message+'（ec/supabase-setup.sql のストレージ設定を実行してください）';return;}
+    if(error){msg.textContent='アップロード失敗：'+error.message+'（admin/supabase-setup.sql のストレージ設定を実行してください）';return;}
     drawerFiles.push({name:file.name,path});
   }
   renderShipFiles();msg.textContent='添付しました（保存で確定）';
@@ -1420,7 +1611,7 @@ async function saveItem(){
       error=await put({...r});
     }
     if(!error&&dropped.length){
-      setTimeout(()=>alert('保存はできましたが、次の項目はデータベースの準備が済んでいないため保存されませんでした：\n・'+dropped.join('\n・')+'\n\n事務担当に「ec/supabase-setup.sql（および 8/shop/supabase-shop-setup.sql）の実行」を依頼してください。'),50);
+      setTimeout(()=>alert('保存はできましたが、次の項目はデータベースの準備が済んでいないため保存されませんでした：\n・'+dropped.join('\n・')+'\n\n事務担当に「admin/supabase-setup.sql（および shop/supabase-shop-setup.sql）の実行」を依頼してください。'),50);
     }
     if(error)throw error;
     clearDraft();closeDrawer();await load();
