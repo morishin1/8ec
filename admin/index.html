@@ -359,6 +359,33 @@
   .scard .sc-save.dirty:hover{background:#b57a12}
   .scard .sc-save.dirty::after{content:"（未保存）";font-weight:700}
   .scard .sc-editlink{margin-left:auto;font-size:12px;color:var(--blue2);font-weight:700;background:none;border:none;cursor:pointer;text-decoration:underline}
+  /* 商品写真（メルカリ風に選ぶ・並べ替える） */
+  .scard .sc-imgs{margin-top:11px}
+  .scard .sc-imglabel{font-size:11px;font-weight:800;color:#3c4d68;margin-bottom:5px;display:flex;align-items:center;gap:6px}
+  .scard .sc-imglabel small{font-weight:700;color:var(--mute)}
+  .scard .sc-imgdrop{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;border:1.5px dashed #c3d6ee;border-radius:11px;padding:10px;background:#fbfdff}
+  .scard .sc-imgdrop.over{border-color:var(--blue);background:#eef5ff}
+  .scard .sc-addimg{width:78px;height:78px;flex:none;border:1.5px dashed #b9cee9;border-radius:10px;background:#fff;color:var(--blue2);display:grid;place-items:center;align-content:center;gap:1px;cursor:pointer;font-size:10.5px;font-weight:800;font-family:inherit;text-align:center;line-height:1.3}
+  .scard .sc-addimg:hover{background:#eef5ff;border-color:var(--blue)}
+  .scard .sc-thumb{position:relative;width:78px;height:78px;flex:none;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:#fff}
+  .scard .sc-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+  .scard .sc-thumb .mainbadge{position:absolute;left:0;top:0;background:var(--blue);color:#fff;font-size:9px;font-weight:800;padding:1px 6px;border-bottom-right-radius:7px}
+  .scard .sc-thumb .rm{position:absolute;right:2px;top:2px;width:20px;height:20px;border-radius:50%;border:none;background:rgba(9,43,97,.72);color:#fff;cursor:pointer;display:grid;place-items:center;padding:0}
+  .scard .sc-thumb .rm:hover{background:var(--red)}
+  .scard .sc-thumb .setmain{position:absolute;left:0;right:0;bottom:0;border:none;background:rgba(9,43,97,.72);color:#fff;font-size:9.5px;font-weight:800;padding:3px 0;cursor:pointer;font-family:inherit}
+  .scard .sc-thumb .setmain:hover{background:var(--blue)}
+  .scard .sc-imgmsg{font-size:11px;color:var(--mute);margin-top:5px;min-height:14px}
+  .scard .sc-imgmsg.err{color:var(--red);font-weight:700}
+  /* Stripe決済リンク */
+  .scard .sc-stripe{margin-top:11px;border:1px solid var(--line);border-radius:11px;padding:10px 12px;background:#fbfdff}
+  .scard .sc-stripe .st-h{font-size:11px;font-weight:800;color:#3c4d68;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+  .scard .sc-stripe .st-row{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+  .scard .sc-stripe .st-btn{background:#635bff;color:#fff;border:none;border-radius:9px;padding:8px 14px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:6px}
+  .scard .sc-stripe .st-btn:hover{background:#5147e0}
+  .scard .sc-stripe .st-btn:disabled{background:#b9b5f2;cursor:default}
+  .scard .sc-stripe .st-link{font-size:11.5px;color:var(--blue2);font-weight:700;word-break:break-all}
+  .scard .sc-stripe .st-none{font-size:11.5px;color:var(--mute)}
+  .scard .sc-stripe .st-stale{margin-top:7px;background:#fff7e8;border:1px solid #f0dcae;border-radius:8px;padding:7px 10px;font-size:11px;color:#8a6412;line-height:1.6}
   @media(max-width:640px){.shop-stats{grid-template-columns:1fr}.scard .sc-grid{grid-template-columns:1fr}}
   /* 仕入CSVの詳細情報 */
   #sourceInfo .si-head{font-size:12px;font-weight:800;color:#3c4d68;margin:6px 0 6px;display:flex;align-items:center;gap:6px}
@@ -597,10 +624,8 @@
           <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:800;color:var(--navy);margin-bottom:10px"><input type="checkbox" id="d-shop-pub" style="width:auto"> 8/shop に公開する</label>
           <div class="fg"><label>ショップ表示名</label><input id="d-shop-title" placeholder="未入力なら型番または管理番号を表示"></div>
           <div class="fg"><label>ショップ説明</label><textarea id="d-shop-desc" placeholder="商品の状態・付属品・おすすめポイント"></textarea></div>
-          <div class="fg2">
-            <div class="fg"><label>ショップ販売価格（円）</label><input type="number" id="d-shop-price" inputmode="numeric"></div>
-            <div class="fg"><label>商品画像URL</label><input id="d-shop-image" placeholder="https://…"></div>
-          </div>
+          <div class="fg"><label>ショップ販売価格（円）</label><input type="number" id="d-shop-price" inputmode="numeric"></div>
+          <div class="fg"><label>メイン画像URL <span style="font-weight:400;color:var(--mute)">※写真の追加・削除は「ショップ出品」タブから</span></label><input id="d-shop-image" readonly placeholder="「ショップ出品」タブで写真を選ぶと自動で入ります" style="background:#f3f6fb;color:var(--mute)"></div>
           <div class="fg"><label>Stripe決済リンク</label><input id="d-stripe-link" placeholder="https://buy.stripe.com/…"></div>
           <div style="font-size:11.5px;color:var(--mute);line-height:1.6">複数の商品をまとめて出品するときは、上部の<strong>「ショップ出品」タブ</strong>が便利です。ショップに並ぶ条件は<strong>「公開する」＋「販売価格あり」＋「未販売」</strong>の3つ。売れた商品（販売日時あり）はショップ一覧から自動で外れます。初回のみ「admin/supabase-setup.sql」と「shop/supabase-shop-setup.sql」の実行が必要です。</div>
         </div>
@@ -691,6 +716,8 @@ const SHIP_ACTIONS=['発送','発送済み','確認中','JOAクレーム申請']
 // 販売先ごとの手数料率（％）。販売先を選ぶと自動セット・編集可。AmazonはPC・周辺機器の8.4%。
 const CHANNEL_FEE={mercari:10, yahuoku:10, yahoo_free:5, rakuten:10, amazon:8.4};
 const SHIP_BUCKET='ec-ship';
+const SHOP_IMG_BUCKET='shop-images';   // 商品写真（公開バケット。ショップ表示とStripeの商品画像に使う）
+const SHOP_IMG_MAX=8;                  // Stripeの商品画像の上限に合わせる
 // 出品先サイトの相場検索URL（型番を入れて検索した状態で開く）
 const CH_SEARCH={
   mercari:   q=>'https://jp.mercari.com/search?keyword='+encodeURIComponent(q)+'&status=on_sale',
@@ -966,14 +993,58 @@ function setShopFilter(f){
 /* 入力を保持（検索やフィルタで再描画しても打ちかけの内容を失わない） */
 function shopMark(id){
   const g=k=>{const el=document.getElementById('sh-'+k+'-'+id);return el?el.value:'';};
-  shopEdits[id]={title:g('title'),desc:g('desc'),price:g('price'),image:g('image'),stripe:g('stripe')};
+  shopEdits[id]={title:g('title'),desc:g('desc'),price:g('price'),stripe:g('stripe')};
   const btn=document.getElementById('shsave-'+id);
   if(btn)btn.className='sc-save dirty';
 }
+/* 商品写真の配列。旧データ（画像URLを手入力していたもの）も1枚目として扱う */
+function shopImagesOf(it){
+  const arr=Array.isArray(it.shop_images)?it.shop_images.filter(u=>typeof u==='string'&&u):[];
+  if(arr.length)return arr;
+  return it.shop_image_url?[it.shop_image_url]:[];
+}
+function shopImgsHtml(it){
+  const imgs=shopImagesOf(it);
+  const thumbs=imgs.map((u,i)=>`<div class="sc-thumb">
+      <img src="${esc(u)}" alt="商品写真${i+1}" loading="lazy">
+      ${i===0?'<span class="mainbadge">メイン</span>':`<button class="setmain" onclick="shopImgSetMain('${it.id}',${i})" title="この写真をメインにする">メインに</button>`}
+      <button class="rm" onclick="shopImgRemove('${it.id}',${i})" title="この写真を外す"><span class="material-icons-outlined" style="font-size:14px">close</span></button>
+    </div>`).join('');
+  const canAdd=imgs.length<SHOP_IMG_MAX;
+  const add=canAdd?`<button type="button" class="sc-addimg" onclick="document.getElementById('shfile-${it.id}').click()">
+      <span class="material-icons-outlined" style="font-size:22px">add_a_photo</span>写真を選ぶ</button>`:'';
+  return `<div class="sc-imgs">
+    <div class="sc-imglabel"><span class="material-icons-outlined" style="font-size:15px;color:var(--blue)">photo_library</span>商品写真 <small>（${imgs.length}/${SHOP_IMG_MAX}枚・1枚目がメイン画像になります）</small></div>
+    <div class="sc-imgdrop" ondragover="shopDragOver(event)" ondragleave="shopDragLeave(event)" ondrop="shopDrop(event,'${it.id}')">
+      ${add}${thumbs}
+      ${(!imgs.length&&!canAdd)?'':''}
+      ${!imgs.length?'<div style="align-self:center;font-size:11.5px;color:var(--mute);line-height:1.6">写真をドラッグ＆ドロップ、または「写真を選ぶ」から追加できます。<br>スマホなら、その場で撮影した写真も選べます。</div>':''}
+    </div>
+    <input type="file" id="shfile-${it.id}" accept="image/*" multiple style="display:none" onchange="uploadShopImages('${it.id}',this)">
+    <div class="sc-imgmsg" id="shimg-msg-${it.id}"></div>
+  </div>`;
+}
+function shopStripeHtml(it,curPrice){
+  const link=it.stripe_payment_link||'';
+  const synced=Number(it.stripe_synced_price||0);
+  const price=Number(curPrice||0);
+  const stale=!!link&&!!it.stripe_payment_link_id&&synced>0&&price>0&&synced!==price;
+  return `<div class="sc-stripe">
+    <div class="st-h"><span class="material-icons-outlined" style="font-size:15px;color:#635bff">credit_card</span>Stripe決済リンク</div>
+    <div class="st-row">
+      <button class="st-btn" id="shstripe-${it.id}" onclick="makePaymentLink('${it.id}')">
+        <span class="material-icons-outlined" style="font-size:16px">${link?'autorenew':'add_link'}</span>${link?'決済リンクを作り直す':'決済リンクを作成'}</button>
+      ${link
+        ? `<a class="st-link" href="${esc(link)}" target="_blank" rel="noopener">${esc(link)}</a>`
+        : '<span class="st-none">未作成です。作成すると、Stripeに商品・価格・決済リンクをまとめて登録します。</span>'}
+    </div>
+    ${stale?`<div class="st-stale"><b>価格が変わっています。</b>現在のリンクは ${yen(synced)} のままです（入力中の価格：${yen(price)}）。「決済リンクを作り直す」を押すと、新しい価格のリンクを発行して古いリンクを無効化します。</div>`:''}
+    <div class="sc-f" style="margin-top:8px"><label>手動で貼り付ける場合（任意）</label><input id="sh-stripe-${it.id}" oninput="shopMark('${it.id}')" value="${esc(it.stripe_payment_link||'')}" placeholder="https://buy.stripe.com/…"></div>
+  </div>`;
+}
 function shopCardHtml(it){
   const e=shopEdits[it.id];
-  const cur={title:it.shop_title||'',desc:it.shop_description||'',price:(it.shop_price==null?'':it.shop_price),
-             image:it.shop_image_url||'',stripe:it.stripe_payment_link||''};
+  const cur={title:it.shop_title||'',desc:it.shop_description||'',price:(it.shop_price==null?'':it.shop_price)};
   const v=e||cur;
   const live=shopIsLive(it), incomplete=shopIsIncomplete(it);
   const badge=live?'<span class="sc-badge live">ショップ公開中</span>'
@@ -995,13 +1066,13 @@ function shopCardHtml(it){
       ${badge}
     </div>
     ${warn}
+    ${shopImgsHtml(it)}
     <div class="sc-grid">
       <div class="sc-f full"><label>ショップ表示名</label><input id="sh-title-${it.id}" oninput="shopMark('${it.id}')" value="${esc(v.title)}" placeholder="未入力なら型番または管理番号を表示"></div>
-      <div class="sc-f"><label>販売価格（円）※必須</label><input id="sh-price-${it.id}" type="number" inputmode="numeric" oninput="shopMark('${it.id}')" value="${esc(v.price)}" placeholder="例：39800"></div>
-      <div class="sc-f"><label>商品画像URL</label><input id="sh-image-${it.id}" oninput="shopMark('${it.id}')" value="${esc(v.image)}" placeholder="https://…"></div>
+      <div class="sc-f full"><label>販売価格（円）※必須</label><input id="sh-price-${it.id}" type="number" inputmode="numeric" oninput="shopMark('${it.id}')" value="${esc(v.price)}" placeholder="例：39800"></div>
       <div class="sc-f full"><label>商品説明</label><textarea id="sh-desc-${it.id}" oninput="shopMark('${it.id}')" placeholder="状態・付属品・おすすめポイント">${esc(v.desc)}</textarea></div>
-      <div class="sc-f full"><label>Stripe決済リンク（任意・未入力ならお問い合わせ扱い）</label><input id="sh-stripe-${it.id}" oninput="shopMark('${it.id}')" value="${esc(v.stripe)}" placeholder="https://buy.stripe.com/…"></div>
     </div>
+    ${shopStripeHtml(it,(v.price===''||v.price==null)?0:Number(v.price))}
     <div class="sc-actions">
       <button class="sc-pub ${it.shop_published?'off':'on'}" onclick="toggleShopPub('${it.id}')">
         <span class="material-icons-outlined" style="font-size:16px">${it.shop_published?'visibility_off':'storefront'}</span>${it.shop_published?'公開を停止する':'ショップに公開する'}</button>
@@ -1009,6 +1080,98 @@ function shopCardHtml(it){
       <button class="sc-editlink" onclick="openDrawer('${it.id}')">商品の詳細を編集</button>
     </div>
   </div>`;
+}
+
+/* ---- 商品写真のアップロード（メルカリのように選ぶだけ／ドラッグ＆ドロップ対応） ---- */
+function shopDragOver(e){e.preventDefault();if(e.currentTarget)e.currentTarget.classList.add('over');}
+function shopDragLeave(e){if(e.currentTarget)e.currentTarget.classList.remove('over');}
+function shopDrop(e,id){
+  e.preventDefault();
+  if(e.currentTarget)e.currentTarget.classList.remove('over');
+  const files=[...((e.dataTransfer&&e.dataTransfer.files)||[])];
+  if(files.length)addShopImageFiles(id,files);
+}
+function uploadShopImages(id,input){
+  const files=[...(input.files||[])];input.value='';
+  if(files.length)addShopImageFiles(id,files);
+}
+async function addShopImageFiles(id,files){
+  const it=items.find(x=>x.id===id);if(!it)return;
+  const msg=document.getElementById('shimg-msg-'+id);
+  const setMsg=(t,err)=>{if(msg){msg.textContent=t;msg.className='sc-imgmsg'+(err?' err':'');}};
+  const next=shopImagesOf(it).slice();
+  let added=0;
+  for(const file of files){
+    if(next.length>=SHOP_IMG_MAX){setMsg(`写真は${SHOP_IMG_MAX}枚までです`,true);break;}
+    if(!/^image\//.test(file.type||'')){setMsg(`「${file.name}」は画像ファイルではありません`,true);continue;}
+    if(file.size>10*1024*1024){setMsg(`「${file.name}」は10MBを超えています`,true);continue;}
+    setMsg(`アップロード中… ${file.name}`);
+    const ext=((file.name.match(/\.[A-Za-z0-9]+$/)||['.jpg'])[0]).toLowerCase();
+    const path=`${id}/${randId()}${ext}`;
+    const {error}=await sb.storage.from(SHOP_IMG_BUCKET).upload(path,file,{upsert:false,contentType:file.type});
+    if(error){setMsg('アップロード失敗：'+error.message+'（admin/supabase-setup.sql のストレージ設定を実行してください）',true);return;}
+    const {data}=sb.storage.from(SHOP_IMG_BUCKET).getPublicUrl(path);
+    if(data&&data.publicUrl){next.push(data.publicUrl);added++;}
+  }
+  if(!added)return;
+  setMsg(`${added}枚追加しました`);
+  await saveShopFields(id,{images:next});
+}
+async function shopImgSetMain(id,i){
+  const it=items.find(x=>x.id===id);if(!it)return;
+  const imgs=shopImagesOf(it).slice();
+  if(i<=0||i>=imgs.length)return;
+  const [m]=imgs.splice(i,1);imgs.unshift(m);
+  await saveShopFields(id,{images:imgs});
+}
+async function shopImgRemove(id,i){
+  const it=items.find(x=>x.id===id);if(!it)return;
+  const imgs=shopImagesOf(it).slice();
+  if(i<0||i>=imgs.length)return;
+  if(!confirm('この写真を商品から外しますか？'))return;
+  imgs.splice(i,1);
+  await saveShopFields(id,{images:imgs});
+}
+
+/* ---- Stripe: 商品・価格・決済リンクをまとめて自動生成 ---- */
+async function makePaymentLink(id){
+  const it=items.find(x=>x.id===id);if(!it)return;
+  const el=document.getElementById('sh-price-'+id);
+  const price=Number((el?el.value:'').trim()||0);
+  if(!(price>0)){alert('販売価格を入力してから決済リンクを作成してください。');if(el)el.focus();return;}
+  const again=!!it.stripe_payment_link_id;
+  if(!confirm(`Stripeに「商品・価格・決済リンク」を作成します。\n\n販売価格：${yen(price)}\n`+
+    (again?'\n現在の決済リンクは無効化され、新しいリンクが発行されます。\n':'')+
+    '\n※1点ものとして、1回購入されるとリンクは自動で締め切られます。'))return;
+  const btn=document.getElementById('shstripe-'+id);
+  const label=btn?btn.innerHTML:'';
+  if(btn){btn.disabled=true;btn.textContent='Stripeで作成中…';}
+  try{
+    // 入力途中の表示名・価格・説明を先に保存してから、その内容でリンクを作る
+    const ok=await saveShopFields(id,{silent:true});
+    if(!ok)return;
+    const {data:{session}}=await sb.auth.getSession();
+    const res=await fetch(SUPA_URL+'/functions/v1/create-payment-link',{
+      method:'POST',
+      headers:{'Content-Type':'application/json',apikey:SUPA_KEY,Authorization:'Bearer '+(session?session.access_token:'')},
+      body:JSON.stringify({id})
+    });
+    let out={};
+    try{out=await res.json();}catch(_){out={};}
+    if(!res.ok||out.error){
+      alert('決済リンクを作成できませんでした：\n'+(out.error||('HTTP '+res.status))+
+        '\n\nEdge Function「create-payment-link」のデプロイと、STRIPE_SECRET_KEY の設定をご確認ください。');
+      return;
+    }
+    if(out.warning)alert(out.warning);
+    await load();
+    alert('決済リンクを作成しました。\n\n'+(out.url||''));
+  }catch(e){
+    alert('決済リンクの作成に失敗しました：'+(e&&e.message?e.message:e));
+  }finally{
+    const b=document.getElementById('shstripe-'+id);
+    if(b){b.disabled=false;if(label)b.innerHTML=label;}
+  }
 }
 function renderShop(){
   const host=document.getElementById('shopList');if(!host)return;
@@ -1052,14 +1215,16 @@ async function toggleShopPub(id){
 }
 async function saveShopFields(id,opts){
   opts=opts||{};
-  const it=items.find(x=>x.id===id);if(!it)return;
+  const it=items.find(x=>x.id===id);if(!it)return false;
   const g=k=>{const el=document.getElementById('sh-'+k+'-'+id);return el?el.value:'';};
   const numv=v=>{v=String(v||'').trim();return v===''?null:Number(v);};
+  const imgs=opts.images?opts.images:shopImagesOf(it);
   const rec={
     shop_title:g('title').trim()||null,
     shop_description:g('desc').trim()||null,
     shop_price:numv(g('price')),
-    shop_image_url:g('image').trim()||null,
+    shop_images:imgs,
+    shop_image_url:imgs[0]||null,          // メイン画像＝1枚目（ショップ一覧とStripeで使う）
     stripe_payment_link:g('stripe').trim()||null,
     shop_published:('publish' in opts)?opts.publish:!!it.shop_published,
     updated_at:new Date().toISOString()
@@ -1067,10 +1232,11 @@ async function saveShopFields(id,opts){
   const {error}=await sb.from(TABLE).update(rec).eq('id',id);
   if(error){
     alert('保存エラー：'+error.message+'\n\nショップ用の列がまだ作られていない可能性があります。\nSupabase の SQL Editor で「admin/supabase-setup.sql」と「shop/supabase-shop-setup.sql」を実行してください。');
-    return;
+    return false;
   }
   delete shopEdits[id];
-  await load();   // render()→renderShop() で最新状態に更新
+  if(!opts.silent)await load();   // render()→renderShop() で最新状態に更新
+  return true;
 }
 
 async function importAuctionCsv(input){
@@ -1584,7 +1750,8 @@ async function saveItem(){
     shipped_at:g('shipped')||null, tracking_no:g('track').trim()||null,
     shop_published:document.getElementById('d-shop-pub').checked, shop_title:g('shop-title').trim()||null,
     shop_description:g('shop-desc').trim()||null, shop_price:numv(g('shop-price')),
-    shop_image_url:g('shop-image').trim()||null, stripe_payment_link:g('stripe-link').trim()||null,
+    // 商品写真（shop_images / shop_image_url）は「ショップ出品」タブで管理するため、ここでは触らない
+    stripe_payment_link:g('stripe-link').trim()||null,
     memo:g('memo').trim()||null, updated_at:new Date().toISOString()
   };
   // 売れたら、販売先サイトの出品状況を自動で「売り切れ」に

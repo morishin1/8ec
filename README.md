@@ -93,6 +93,44 @@ Vercel プロジェクトの **Settings → Domains** で `8ec.jp` を追加し�
 
 ---
 
+## Supabase のセットアップ（管理画面・ショップ・フォーム）
+
+`/admin/`（EC在庫管理・ショップ出品）、`/shop/`（公開ショップ）、各ページの
+見積もりフォームは Supabase を使います。**SQL Editor で下記を上から順に実行**してください。
+いずれも `create ... if not exists` 形式で、何度実行しても安全です。
+
+| # | ファイル | 内容 |
+|---|---|---|
+| 1 | `admin/supabase-setup.sql` | `ec_items` テーブル本体・商品写真用ストレージ（`shop-images`）・発送添付用ストレージ |
+| 2 | `shop/supabase-shop-setup.sql` | 公開ショップが読む `shop_products` ビュー |
+| 3 | `admin/contact/supabase-setup.sql` | 問い合わせ・見積もりフォームの受信テーブル |
+| 4 | `rental/supabase-setup.sql` | レンタル機材 |
+
+### Edge Function（Stripe 決済リンクの自動生成）
+
+管理画面の「ショップ出品」タブで決済リンクをボタン1つで発行するために、
+Stripe の Products / Prices / Payment Links API を呼ぶ Edge Function をデプロイします。
+
+```bash
+# 管理者だけが叩く関数なので --no-verify-jwt は付けない
+supabase functions deploy create-payment-link
+
+# 公開ショップから呼ぶ動的チェックアウト（こちらは匿名アクセスのため --no-verify-jwt）
+supabase functions deploy create-checkout --no-verify-jwt
+```
+
+デプロイ後、Supabase ダッシュボード → Edge Functions → 各関数の **Secrets** に設定します。
+
+| Secret | 用途 |
+|---|---|
+| `STRIPE_SECRET_KEY` | Stripe のシークレットキー（`sk_live_…` / テストは `sk_test_…`） |
+| `SHOP_URL` | 任意。決済完了後の戻り先。既定は `https://www.8ec.jp/shop/` |
+
+> `create-payment-link` は呼び出し元が管理者（`zimu@8grp.co.jp`）かを JWT で検証し、
+> 価格は必ずサーバー側で DB から読み直します（金額をブラウザに信頼させません）。
+
+---
+
 ## notion-proxy（Cloudflare Worker）
 
 `notion-proxy/` は Notion のデータを安全に取得するためのプロキシで、

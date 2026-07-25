@@ -73,8 +73,20 @@ alter table public.ec_items add column if not exists shop_published boolean defa
 alter table public.ec_items add column if not exists shop_title text;
 alter table public.ec_items add column if not exists shop_description text;
 alter table public.ec_items add column if not exists shop_price numeric;
-alter table public.ec_items add column if not exists shop_image_url text;
-alter table public.ec_items add column if not exists stripe_payment_link text;
+alter table public.ec_items add column if not exists shop_image_url text;      -- メイン画像（shop_images の1枚目と同じものが入る）
+alter table public.ec_items add column if not exists stripe_payment_link text; -- Stripe決済リンクのURL
+
+-- 商品画像（メルカリのように複数枚アップロードして並べ替えできる）
+--   ["https://…/shop-images/xxx.jpg", ...] の形で公開URLを保持。1枚目がメイン画像。
+alter table public.ec_items add column if not exists shop_images jsonb default '[]'::jsonb;
+
+-- Stripe連携（Products / Prices / Payment Links API で自動生成したオブジェクトのID）
+--   価格を変更したときは Price を作り直す必要があるため、作成し直した際は
+--   古い Payment Link を active=false にしてから新しいリンクを発行します。
+alter table public.ec_items add column if not exists stripe_product_id      text;
+alter table public.ec_items add column if not exists stripe_price_id        text;
+alter table public.ec_items add column if not exists stripe_payment_link_id text;
+alter table public.ec_items add column if not exists stripe_synced_price    numeric;  -- リンク発行時の価格（価格変更の検知用）
 
 -- 手数料・利用料（粗利計算用）
 alter table public.ec_items add column if not exists commission_rate numeric;   -- サイト手数料率（％。販売先で自動設定・編集可）
@@ -114,6 +126,35 @@ drop policy if exists "ec-ship zimu all" on storage.objects;
 create policy "ec-ship zimu all" on storage.objects for all to authenticated
   using      (bucket_id = 'ec-ship' and public.zimu_is_admin())
   with check (bucket_id = 'ec-ship' and public.zimu_is_admin());
+
+-- ============================================================
+-- 3-2) 商品画像用ストレージ（Storage）
+--     こちらは「公開」バケットです。ショップの閲覧者に画像を表示する必要があり、
+--     さらに Stripe の商品画像は公開URLでないと登録できないためです。
+--     アップロード・削除は zimu共有アカウントのみ。
+-- ============================================================
+insert into storage.buckets (id, name, public)
+values ('shop-images', 'shop-images', true)
+on conflict (id) do update set public = true;
+
+-- 閲覧：誰でも可（ショップ表示・Stripeの商品画像取得のため）
+drop policy if exists "shop-images public read" on storage.objects;
+create policy "shop-images public read" on storage.objects for select to public
+  using (bucket_id = 'shop-images');
+
+-- 追加・更新・削除：管理者のみ
+drop policy if exists "shop-images admin insert" on storage.objects;
+create policy "shop-images admin insert" on storage.objects for insert to authenticated
+  with check (bucket_id = 'shop-images' and public.zimu_is_admin());
+
+drop policy if exists "shop-images admin update" on storage.objects;
+create policy "shop-images admin update" on storage.objects for update to authenticated
+  using      (bucket_id = 'shop-images' and public.zimu_is_admin())
+  with check (bucket_id = 'shop-images' and public.zimu_is_admin());
+
+drop policy if exists "shop-images admin delete" on storage.objects;
+create policy "shop-images admin delete" on storage.objects for delete to authenticated
+  using (bucket_id = 'shop-images' and public.zimu_is_admin());
 
 -- ============================================================
 -- 4) PostgREST スキーマキャッシュを再読み込み

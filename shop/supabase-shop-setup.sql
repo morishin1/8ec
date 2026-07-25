@@ -10,6 +10,7 @@ alter table public.ec_items add column if not exists shop_description text;
 alter table public.ec_items add column if not exists shop_price numeric;
 alter table public.ec_items add column if not exists shop_image_url text;
 alter table public.ec_items add column if not exists stripe_payment_link text;
+alter table public.ec_items add column if not exists shop_images jsonb default '[]'::jsonb;
 
 create index if not exists ec_items_shop_public_idx
   on public.ec_items (shop_published, sold_at, updated_at desc);
@@ -27,6 +28,7 @@ select
   shop_description as description,
   shop_price as price,
   shop_image_url as image_url,
+  coalesce(shop_images, '[]'::jsonb) as images,   -- 商品画像（複数枚。1枚目がメイン）
   stripe_payment_link,
   updated_at
 from public.ec_items
