@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ファイルサーバーが散らかったままAIを入れても回答は当たりません。着手順と、回線・Wi-Fiで先に潰しておく前提条件を整理します。">
+  <title>AIを使う前に、社内のデータとネットワークはどこまで整えるべきか｜法人IT調達コラム｜エイトコマース</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/column/column.css">
+  <meta name="theme-color" content="#16305c">
+  <meta name="robots" content="index,follow,max-image-preview:large">
+  <link rel="canonical" href="https://8ec.jp/column/ai-ready-data-and-network.html">
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="株式会社エイト">
+  <meta property="og:title" content="AIを使う前に、社内のデータとネットワークはどこまで整えるべきか｜法人IT調達コラム｜エイトコマース">
+  <meta property="og:description" content="ファイルサーバーが散らかったままAIを入れても回答は当たりません。着手順と、回線・Wi-Fiで先に潰しておく前提条件を整理します。">
+  <meta property="og:url" content="https://8ec.jp/column/ai-ready-data-and-network.html">
+  <meta property="og:locale" content="ja_JP">
+  <meta property="og:image" content="https://8ec.jp/assets/eight-commerce-hero-v2.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Article",
+      "headline": "AIを使う前に、社内のデータとネットワークはどこまで整えるべきか",
+      "description": "ファイルサーバーが散らかったままAIを入れても回答は当たりません。着手順と、回線・Wi-Fiで先に潰しておく前提条件を整理します。",
+      "datePublished": "2026-08-01",
+      "dateModified": "2026-08-01",
+      "inLanguage": "ja",
+      "mainEntityOfPage": {
+        "@type": "WebPage",
+        "@id": "https://8ec.jp/column/ai-ready-data-and-network.html"
+      },
+      "author": {
+        "@type": "Organization",
+        "name": "株式会社エイト",
+        "url": "https://8ec.jp/"
+      },
+      "publisher": {
+        "@type": "Organization",
+        "name": "株式会社エイト",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://8ec.jp/assets/eight-logo.svg"
+        }
+      }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "ホーム",
+          "item": "https://8ec.jp/"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "IT調達コラム",
+          "item": "https://8ec.jp/column/"
+        },
+        {
+          "@type": "ListItem",
+          "position": 3,
+          "name": "AIを使う前に、社内のデータとネットワークはどこまで整えるべきか",
+          "item": "https://8ec.jp/column/ai-ready-data-and-network.html"
+        }
+      ]
+    }
+  ]
+}
+  </script>
+</head>
+<body>
+
+<header>
+  <div class="wrap hd">
+    <a class="brand" href="/" aria-label="エイトコマース トップ">
+      <span class="brand-mark">8</span>
+      <span><b>EIGHT COMMERCE</b><small>法人IT調達・導入・情シス支援</small></span>
+    </a>
+    <nav aria-label="メインナビゲーション">
+      <a href="/#search">商品を探す</a>
+      <a href="/#setup">設定・構築</a>
+      <a href="/column/">IT調達コラム</a>
+      <a href="/#flow">導入の流れ</a>
+      <a href="/cloud.html">クラウド情シス</a>
+      <a href="/shop/">ショップ</a>
+      <a class="nav-cta" href="/#contact">無料見積もり →</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap crumb"><a href="/">ホーム</a> ＞ <a href="/column/">IT調達コラム</a> ＞ AIを使う前に、社内のデータとネットワークはどこまで整えるべきか</div>
+
+  <article class="article">
+    <div class="col-meta">
+      <span class="col-cat">AI活用</span>
+      <span class="col-date">2026.08.01</span>
+      <span class="col-read">読了 9分</span>
+    </div>
+    <h1>AIを使う前に、社内のデータとネットワークはどこまで整えるべきか</h1>
+    <p class="lead">ファイルサーバーが散らかったままAIを入れても回答は当たりません。着手順と、回線・Wi-Fiで先に潰しておく前提条件を整理します。</p>
+    <h2>AIの回答が当たらない原因は、たいていAIの外側にある</h2>
+    <p>「社内文書を読ませたのに、的外れな回答しか返ってこない」というご相談をよくいただきます。モデルの性能を疑う前に確認したいのが、読ませている側の状態です。同じ規程の新旧が3世代並んでいるファイルサーバーを指定すれば、AIはどれが最新か判断できません。人間が「これは古いやつ」と暗黙に読み飛ばしていた情報を、機械は等価に扱ってしまいます。</p>
+    <p>つまり<strong>これまで人の記憶で吸収していた曖昧さが、AI導入で一気に表面化する</strong>という構図です。裏を返せば、整理の効果が最も出やすいのもここです。</p>
+
+    <h2>全部を整える必要はない。着手順を決める</h2>
+    <p>「まずデータ整備から」と全社のファイルサーバーに手を付けると、たいてい終わりません。AIに読ませる範囲だけを先に切り出すのが現実的です。</p>
+    <ol>
+      <li><strong>対象を1業務分に絞る</strong>——問い合わせ対応なら、製品マニュアルとFAQだけ</li>
+      <li><strong>最新版を1箇所に集める</strong>——「_最新」「_v3」「(修正)」が混在するなら、1本に決めて他は別フォルダへ退避</li>
+      <li><strong>形式を揃える</strong>——スキャンしただけのPDFは文字として読めないことがあります。テキストが選択できるか確認を</li>
+      <li><strong>権限を確認する</strong>——全社が読める場所に人事情報が置かれていないか。AI経由で参照できてしまいます</li>
+    </ol>
+    <div class="note">
+      <p><strong>目安：</strong>1業務分なら文書50〜200点程度に収まることがほとんどです。この規模なら数日〜2週間で整理できます。全社1万点を対象にすると年単位になり、その間に成果が出ないため社内の熱が冷めます。</p>
+    </div>
+
+    <h2>先に潰しておきたいネットワーク側の前提</h2>
+    <p>データが整っていても、回線とWi-Fiが細いままだと体感は改善しません。特に次の3つは、AI利用が増えると顕在化します。</p>
+    <h3>1. 会議室と執務エリアのWi-Fi</h3>
+    <p>音声・画面共有を伴うAI会議ツールを使い始めると、1人あたりの通信量が増えます。アクセスポイントが数年前の規格のままだと、人が集まる会議室から先に詰まります。台数を足す前に、電波調査で「どこが弱いのか」を測ってから判断した方が、結果的に安く済みます。</p>
+    <h3>2. 上り（アップロード）の帯域</h3>
+    <p>ファイルをAIに読ませる用途は上り方向の通信です。一般的な回線は下り重視の設計になっているため、下りは速いのに資料の読み込みだけ遅い、という現象が起きます。契約プランの上り速度を一度確認してください。</p>
+    <h3>3. 拠点間・在宅からのアクセス経路</h3>
+    <p>VPN経由で本社のファイルサーバーを参照している場合、その経路がボトルネックになります。AI利用を機に、対象データだけクラウドストレージへ寄せる判断も選択肢です。</p>
+
+    <h2>やらなくていいこと</h2>
+    <p>逆に、初期段階では手を付けなくてよいものもあります。</p>
+    <ul>
+      <li><strong>全社データの棚卸し</strong>——対象業務が広がってから順次で問題ありません</li>
+      <li><strong>自社専用モデルの構築</strong>——既存サービスで成果が出ない状態で作っても、原因はデータ側のままです</li>
+      <li><strong>高性能なサーバーの調達</strong>——クラウド型で始める限り、社内に重い機材は要りません</li>
+    </ul>
+
+    <h2>進め方のまとめ</h2>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr><th>時期</th><th>やること</th><th>確認するもの</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>1ヶ月目</td><td>対象業務を1つ決め、文書を1箇所に集約</td><td>最新版がどれか判別できる状態か</td></tr>
+          <tr><td>1〜2ヶ月目</td><td>会議室のWi-Fiと回線の上り速度を実測</td><td>体感の遅さが再現するか</td></tr>
+          <tr><td>2〜3ヶ月目</td><td>少人数で試用し、回答精度を記録</td><td>外れたときの原因が文書側か質問側か</td></tr>
+          <tr><td>3ヶ月目以降</td><td>対象業務を隣の業務へ広げる</td><td>同じ手順が再現できるか</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>データ整理とネットワークの見直しは、担当者が本業と兼務のまま進めると止まりがちな工程です。電波調査、アクセスポイントの設置、クラウドストレージへの移行と権限設計は、実作業ごと外部に出せます。</p>
+  </article>
+
+  <div class="wrap">
+<section class="cta">
+  <h2>この記事の内容、自社ならどうなるか見積もれます</h2>
+  <p>機器の選定から、キッティング・ネットワーク構築・クラウド設定まで一括でお請けします。
+  型番が決まっていなくても、用途と台数だけで無料お見積もりが可能です。1〜2営業日以内にご回答します。</p>
+  <div class="cta-btns">
+    <a class="btn btn-navy" href="/#contact">無料で見積もりを依頼する →</a>
+    <a class="btn btn-ghost" href="/?q=アクセスポイント">「アクセスポイント」の在庫と価格を見る →</a>
+  </div>
+</section>
+  </div>
+<section class="more-list wrap">
+  <h2>あわせて読みたい</h2>
+  <div class="col-grid">
+      <a class="col-card" href="/column/smb-ai-first-step.html">
+        <div class="col-meta">
+          <span class="col-cat">AI活用</span>
+          <span class="col-date">2026.08.01</span>
+          <span class="col-read">読了 7分</span>
+        </div>
+        <h3>社員10人の会社が最初に入れるAIツールと、失敗する入れ方</h3>
+        <p>全社導入から始めて誰も使わなくなる、が典型的な失敗。まず1業務に絞る決め方と、社内PCがAIに耐えられるかの見極めをまとめました。</p>
+        <span class="col-more">続きを読む →</span>
+      </a>
+      <a class="col-card" href="/column/old-pc-hidden-cost.html">
+        <div class="col-meta">
+          <span class="col-cat">コスト</span>
+          <span class="col-date">2026.08.01</span>
+          <span class="col-read">読了 8分</span>
+        </div>
+        <h3>古いPCを使い続けるコストを、実際の数字で出してみる</h3>
+        <p>本体価格だけ見ると買い替えは高く見えます。起動待ち・故障対応・情シスの工数まで含めて、5年分を試算しました。</p>
+        <span class="col-more">続きを読む →</span>
+      </a>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap ft">
+    <div class="brand">
+      <span class="brand-mark" style="width:26px;height:26px;font-size:13px">8</span>
+      <span style="font-size:12px;color:var(--muted)">EIGHT COMMERCE ／ 株式会社エイトが運営</span>
+    </div>
+    <div class="ft-links">
+      <a href="/company.html">会社概要</a><a href="/pc.html">レンタルPC</a>
+      <a href="/cloud.html">クラウド情シス</a><a href="/ai-dev.html">AI・開発支援</a>
+      <a href="/shop/">ショップ</a><a href="/privacy.html">プライバシーポリシー</a>
+      <a href="/terms.html">利用規約</a><a href="/tokushou.html">特定商取引法に基づく表記</a>
+    </div>
+    <small>© EIGHT COMMERCE. All Rights Reserved.</small>
+  </div>
+</footer>
+</body>
+</html>
