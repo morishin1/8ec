@@ -1,0 +1,103 @@
+name: 週次コラム生成
+
+# 毎週月曜の朝、コラムを1本書いてプルリクエストを作る。
+# 直接 main へ push はしない。内容を確認してマージした時点で本番に出る。
+on:
+  schedule:
+    - cron: '0 0 * * 1'   # UTC 00:00 = 日本時間 月曜 09:00
+  workflow_dispatch:       # 手動でも回せるようにしておく
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  write:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # APIキーが未登録のうちは、失敗させずに黙って終わる
+      - name: APIキーの有無を確認
+        id: guard
+        env:
+          KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "ANTHROPIC_API_KEY が未設定のため、今回はスキップします。"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.guard.outputs.ready == 'true'
+        with:
+          python-version: '3.12'
+
+      - name: 未使用テーマを取り出す
+        if: steps.guard.outputs.ready == 'true'
+        id: topics
+        run: |
+          {
+            echo 'list<<TOPICS_EOF'
+            python3 tools/new-column.py --topics
+            echo 'TOPICS_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Claude Code に記事を書かせる
+        if: steps.guard.outputs.ready == 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            エイトコマース（法人IT調達・キッティング・ネットワーク構築・情シス支援）のサイトに、
+            IT調達コラムを1本追加してください。読者は中小企業のIT担当者・経営者です。
+
+            手順は column/README.md に書いてあります。要点だけ再掲します。
+
+            1. 下の候補から、まだ書かれていないテーマを1つ選ぶ
+            2. `python3 tools/new-column.py --slug ... --title ... --description ... --category ... --read ... --query ...`
+               を実行して目次に登録し、本文の雛形を作る
+            3. `column/_content/<slug>.html` に本文を書く。既存3本
+               （smb-ai-first-step / old-pc-hidden-cost / ai-ready-data-and-network）と
+               同じ構成・語り口に合わせること
+            4. `python3 tools/build-columns.py` を実行して記事ページと一覧を出力する
+
+            テーマ候補:
+            ${{ steps.topics.outputs.list }}
+
+            書き方の条件:
+            - 一般論で終わらせない。読者が自社に当てはめて計算・判断できる数字、表、
+              チェック項目のいずれかを必ず入れる
+            - 断定できない数値は「概算」「目安」と明示する。前提条件も書く
+            - 自社の実績・導入事例・顧客名など、裏を取れない固有の事実は書かない。
+              提供しているサービス（調達・キッティング・ネットワーク構築・クラウド設定・
+              情シス支援）の範囲を超える約束もしない
+            - 煽り表現や誇張は使わない。落ち着いた実務的な文体で
+            - 最後に、その記事の内容に対応する機器の在庫検索か見積もりへつなぐ
+              （--query に検索キーワードを入れると記事末のボタンに反映される）
+
+            本文以外のファイル（index.html、assets/inventory-data.js、tools/ 配下など）は
+            変更しないでください。
+          claude_args: '--allowed-tools Read,Write,Edit,Glob,Grep,Bash'
+
+      - name: プルリクエストを作る
+        if: steps.guard.outputs.ready == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: column/auto-${{ github.run_number }}
+          commit-message: 'コラムを1本追加（週次自動生成）'
+          title: 'コラム追加（週次自動生成 #${{ github.run_number }}）'
+          body: |
+            週次コラム生成ワークフローが書いた記事です。
+
+            マージ前に確認してください。
+            - [ ] 数字と前提条件に無理がないか
+            - [ ] 裏の取れない実績・事例を書いていないか
+            - [ ] 記事末の見積もり導線が記事内容と合っているか
+            - [ ] プレビューURLで表示崩れがないか
+
+            内容を直したいときは、このブランチに追加でコミットしてください。
+            見送るときはPRを閉じれば、サイトには何も反映されません。
+          delete-branch: true

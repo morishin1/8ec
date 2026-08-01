@@ -1,0 +1,33 @@
+{
+  "updated": "2026-08-01",
+  "note": "コラムの目次。tools/new-column.py で追記し、トップページとヘッダーのコラム一覧がこれを読む。",
+  "articles": [
+    {
+      "slug": "smb-ai-first-step",
+      "title": "社員10人の会社が最初に入れるAIツールと、失敗する入れ方",
+      "description": "全社導入から始めて誰も使わなくなる、が典型的な失敗。まず1業務に絞る決め方と、社内PCがAIに耐えられるかの見極めをまとめました。",
+      "category": "AI活用",
+      "date": "2026-08-01",
+      "readMinutes": 7,
+      "relatedQuery": "ノートPC"
+    },
+    {
+      "slug": "old-pc-hidden-cost",
+      "title": "古いPCを使い続けるコストを、実際の数字で出してみる",
+      "description": "本体価格だけ見ると買い替えは高く見えます。起動待ち・故障対応・情シスの工数まで含めて、5年分を試算しました。",
+      "category": "コスト",
+      "date": "2026-08-01",
+      "readMinutes": 8,
+      "relatedQuery": "Let’s note"
+    },
+    {
+      "slug": "ai-ready-data-and-network",
+      "title": "AIを使う前に、社内のデータとネットワークはどこまで整えるべきか",
+      "description": "ファイルサーバーが散らかったままAIを入れても回答は当たりません。着手順と、回線・Wi-Fiで先に潰しておく前提条件を整理します。",
+      "category": "AI活用",
+      "date": "2026-08-01",
+      "readMinutes": 9,
+      "relatedQuery": "アクセスポイント"
+    }
+  ]
+}

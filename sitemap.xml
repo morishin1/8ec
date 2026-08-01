@@ -40,4 +40,11 @@
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>
   </url>
+
+  <!-- column:start -->
+  <url><loc>https://8ec.jp/column/</loc><lastmod>2026-08-01</lastmod><changefreq>weekly</changefreq></url>
+  <url><loc>https://8ec.jp/column/smb-ai-first-step.html</loc><lastmod>2026-08-01</lastmod><changefreq>weekly</changefreq></url>
+  <url><loc>https://8ec.jp/column/old-pc-hidden-cost.html</loc><lastmod>2026-08-01</lastmod><changefreq>weekly</changefreq></url>
+  <url><loc>https://8ec.jp/column/ai-ready-data-and-network.html</loc><lastmod>2026-08-01</lastmod><changefreq>weekly</changefreq></url>
+  <!-- column:end -->
 </urlset>

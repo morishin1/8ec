@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="40万点以上の法人向けIT機器を型番・メーカー・商品名から検索。創業20年以上の株式会社エイトが、選定・調達からキッティング、ネットワーク構築、クラウド設定、導入後の情シス支援までワンストップで対応します。">
+  <meta name="description" content="20年以上の法人向けメーカー取扱い実績。40万点以上のIT機器を型番・メーカー・商品名から検索し、そのまま無料で法人見積もり。キッティング・ネットワーク構築・クラウド設定・導入後の情シス支援までワンストップで対応します。">
   <title>エイトコマース｜法人IT調達をソフトからハードまでワンストップで</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -15,11 +15,52 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="株式会社エイト">
   <meta property="og:title" content="エイトコマース｜法人IT調達をソフトからハードまでワンストップで">
-  <meta property="og:description" content="40万点以上の商材から選定し、キッティング・ネットワーク構築・クラウド設定まで一括対応。型番で検索して、そのまま無料で法人見積もりを依頼できます。">
+  <meta property="og:description" content="20年以上の法人向けメーカー取扱い実績。各種40万点以上の商材から選定し、キッティング・ネットワーク構築・クラウド設定まで一括対応。型番で検索して、そのまま無料で法人見積もりを依頼できます。">
   <meta property="og:url" content="https://8ec.jp/">
   <meta property="og:locale" content="ja_JP">
   <meta property="og:image" content="https://8ec.jp/assets/eight-commerce-hero-v2.png">
   <meta name="twitter:card" content="summary_large_image">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "https://8ec.jp/#organization",
+        "name": "株式会社エイト",
+        "alternateName": "エイトコマース",
+        "url": "https://8ec.jp/",
+        "logo": "https://8ec.jp/assets/eight-logo.svg",
+        "foundingDate": "2004",
+        "email": "nw@8grp.co.jp",
+        "telephone": "+81-3-6433-5025",
+        "description": "法人向けIT機器の調達・キッティング・ネットワーク構築・クラウド設定・情シス運用支援",
+        "contactPoint": {
+          "@type": "ContactPoint",
+          "telephone": "+81-3-6433-5025",
+          "email": "nw@8grp.co.jp",
+          "contactType": "sales",
+          "areaServed": "JP",
+          "availableLanguage": "Japanese"
+        }
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://8ec.jp/#website",
+        "url": "https://8ec.jp/",
+        "name": "エイトコマース",
+        "publisher": { "@id": "https://8ec.jp/#organization" },
+        "inLanguage": "ja",
+        "potentialAction": {
+          "@type": "SearchAction",
+          "target": { "@type": "EntryPoint", "urlTemplate": "https://8ec.jp/?q={search_term_string}" },
+          "query-input": "required name=search_term_string"
+        }
+      }
+    ]
+  }
+  </script>
 
   <style>
     :root{
@@ -166,6 +207,16 @@
     .spec .sp-r:last-child{border-bottom:none}
     .spec .sp-r dt{font-size:12px;color:var(--dim);margin:0}
     .spec .sp-r dd{font-size:12.5px;color:var(--body);line-height:1.7;margin:0}
+    /* 型番詳細から設定・構築へつなぐブロック */
+    .dt-svc{margin-top:22px;background:var(--soft);border:1px solid #c9d3f4;border-radius:10px;padding:14px}
+    .dt-svc-t{font-size:12.5px;font-weight:700;color:var(--navy);margin:0 0 10px}
+    .dt-svc-b{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:#fff;border:1px solid var(--line);border-radius:9px;padding:11px 13px;margin-bottom:8px;cursor:pointer;font-family:inherit}
+    .dt-svc-b:last-child{margin-bottom:0}
+    .dt-svc-b:hover{border-color:var(--indigo)}
+    .dt-svc-b b{display:block;font-size:12.5px;font-weight:700;color:var(--navy);line-height:1.5}
+    .dt-svc-b small{display:block;font-size:11.5px;color:var(--muted);line-height:1.6;margin-top:3px}
+    .dt-svc-x{flex:none;font-size:11.5px;font-weight:500;color:var(--chip-fg);background:var(--chip);border-radius:7px;padding:6px 10px;white-space:nowrap}
+    .dt-svc-b.in .dt-svc-x{background:#e7f6f0;color:var(--ok)}
     .faq-t,.rel-t{font-size:13px;font-weight:700;color:var(--navy);margin:0 0 10px}
     .faq-i{border-top:1px solid #f2f5fa;padding:11px 0}
     .faq-i .q{font-size:13px;font-weight:500;color:var(--body);margin:0 0 5px}
@@ -210,15 +261,18 @@
     .cloud-tags span{font-size:12px;color:#3f4a5c;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 12px}
 
     /* ---------- コラム ---------- */
-    .col-head{display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:22px}
+    .col-head{display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:12px 20px;margin-bottom:22px}
+    .col-head>div{flex:1 1 460px}
     .col-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
     .col-card{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:20px;display:flex;flex-direction:column;box-shadow:var(--sh)}
+    .col-card:hover{border-color:#c3cee0}
+    .col-card:hover h3{color:var(--indigo)}
     .col-meta{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
     .col-cat{font-size:10.5px;font-weight:500;color:var(--chip-fg);background:var(--chip);border-radius:6px;padding:4px 8px}
     .col-soon{font-size:10.5px;color:var(--dim);border:1px solid var(--line);border-radius:6px;padding:3px 7px;margin-left:auto}
     .col-card h3{font-size:15px;font-weight:700;color:var(--navy);line-height:1.6;margin:0 0 8px}
     .col-card p{font-size:12.5px;color:var(--muted);line-height:1.85;margin:0 0 14px}
-    .col-btn{margin-top:auto;align-self:flex-start;font-size:12.5px;font-weight:500;color:var(--indigo);background:none;border:none;padding:0;cursor:pointer;font-family:inherit}
+    .col-btn{margin-top:auto;align-self:flex-start;font-size:12.5px;font-weight:500;color:var(--indigo)}
     .col-btn:hover{text-decoration:underline}
     .col-mail{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;margin-top:16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
     .col-mail p{font-size:13px;color:var(--muted);line-height:1.8;margin:0}
@@ -243,6 +297,13 @@
     .qty .n{font-size:13px;font-weight:500;min-width:22px;text-align:center}
     .qty .rm{width:auto;padding:0 4px;font-size:11px;color:#9aa4b6;background:none;border:none}
     .qty .rm:hover{color:var(--err)}
+    /* 機器だけ入っているときに構築作業を足してもらうブロック */
+    .cart-up{padding:14px 20px;background:var(--soft);border-top:1px solid var(--line2)}
+    .cart-up p{font-size:12px;color:var(--muted);line-height:1.7;margin:0 0 10px}
+    .cart-up-b{display:block;width:100%;text-align:left;font-size:12.5px;font-weight:500;color:var(--navy);background:#fff;border:1px solid #cfd8e6;border-radius:8px;padding:10px 12px;margin-bottom:8px;cursor:pointer;font-family:inherit}
+    .cart-up-b:hover{border-color:var(--indigo);color:var(--chip-fg)}
+    .cart-up-all{font-size:12px;color:var(--indigo);background:none;border:none;padding:0;cursor:pointer;font-family:inherit}
+    .cart-up-all:hover{text-decoration:underline}
     .cart-foot{padding:16px 20px;background:var(--soft);border-radius:0 0 var(--r-lg) var(--r-lg);font-size:12px;color:var(--muted);line-height:1.8}
     .cart-foot b{color:var(--navy)}
     .form-body{padding:20px}
@@ -333,7 +394,7 @@
     <nav aria-label="メインナビゲーション">
       <a href="#search">商品を探す</a>
       <a href="#setup">設定・構築</a>
-      <a href="#column">IT調達コラム</a>
+      <a href="/column/">IT調達コラム</a>
       <a href="#flow">導入の流れ</a>
       <a href="/cloud.html">クラウド情シス</a>
       <a href="/shop/">ショップ</a>
@@ -356,7 +417,7 @@
       <div>
         <span class="badge">2004年創業・株式会社エイトが運営</span>
         <h1>法人IT調達を、ソフトからハードまでワンストップで。</h1>
-        <p class="hero-lead">40万点以上の商材から選定し、キッティング・ネットワーク構築・クラウド設定まで一括対応。型番で検索して、そのまま無料で法人見積もりを依頼できます。</p>
+        <p class="hero-lead">20年以上の法人向けメーカー取扱い実績、各種40万点以上の商材から選定し、キッティング・ネットワーク構築・クラウド設定まで一括対応。型番で検索して、そのまま無料で法人見積もりを依頼できます。</p>
         <ul class="hero-checks">
           <li>見積もり無料・1〜2営業日回答</li>
           <li>設定・構築まで一括対応</li>
@@ -497,9 +558,10 @@
     <div class="col-head">
       <div>
         <p class="eyebrow">IT PROCUREMENT COLUMN</p>
-        <h2 class="sec">法人IT調達コラム</h2>
-        <p class="sec-lead" style="margin:0">機器の選び方、コスト比較、情シス運用のノウハウを、現場の実例をもとに順次公開します。先に知りたいテーマは、そのままご相談いただけます。</p>
+        <h2 class="sec">中小企業のAI・IT機器の悩みを解決するコラム</h2>
+        <p class="sec-lead" style="margin:0">「AIを入れたいが何から手を付ければいいか分からない」「PCが重いが買い替え時期か判断できない」——現場でつまずくポイントを、実例と数字で解きほぐします。</p>
       </div>
+      <a class="btn btn-ghost" href="/column/" style="white-space:nowrap">コラム一覧を見る →</a>
     </div>
     <div class="col-grid" id="colGrid"></div>
     <div class="col-mail">
@@ -809,6 +871,7 @@
     ];
 
     const related = products.filter((x) => x.kind === p.kind && x.i !== p.i).slice(0, 4);
+    const related2 = servicesFor(p.type);
 
     return '<div class="detail">' +
       '<div class="dt-head">' +
@@ -827,6 +890,13 @@
           '<button class="btn ' + (on ? 'btn-ghost' : 'btn-navy') + '" type="button" data-add="' + p.i + '">' +
             (on ? '見積もりリストに追加済み ✓' : 'この型番を見積もりに追加') + '</button>' +
           (p.page ? '<p style="margin:14px 0 0"><a href="' + esc(p.page) + '" target="_blank" rel="noopener noreferrer" style="font-size:12.5px">メーカーの製品ページを見る ↗</a></p>' : '') +
+          /* 機器だけ買って終わりにならないよう、その場で構築作業も足せるようにする */
+          (related2.length ? '<div class="dt-svc">' +
+            '<p class="dt-svc-t">この機器の設定・構築もまとめて依頼できます</p>' +
+            related2.map((sv) => '<button type="button" class="dt-svc-b' + (inCart(sv.id) ? ' in' : '') + '" data-sv="' + sv.id + '">' +
+              '<span><b>' + esc(sv.title) + '</b><small>' + esc(sv.body) + '</small></span>' +
+              '<span class="dt-svc-x">' + (inCart(sv.id) ? '追加済み ✓' : '＋ 追加') + '</span></button>').join('') +
+            '</div>' : '') +
           '<div style="margin-top:22px">' +
             '<p class="faq-t">この型番のよくある質問</p>' +
             faqs.map(([q, a]) => '<div class="faq-i"><p class="q">Q. ' + esc(q) + '</p><p class="a">A. ' + esc(a) + '</p></div>').join('') +
@@ -882,6 +952,22 @@
             '<button type="button" data-inc="' + n + '" aria-label="数量を増やす">＋</button>' +
             '<button type="button" class="rm" data-rm="' + n + '">削除</button>' +
           '</div></div>').join('');
+
+      /* 機器だけで止まっている人に、構築まで頼めることをこの場で示す */
+      const hasProduct = cart.some((c) => c.id.charAt(0) === 'p');
+      const hasSetup = cart.some((c) => c.id.charAt(0) === 's');
+      if (hasProduct && !hasSetup) {
+        const kinds = cart.filter((c) => c.id.charAt(0) === 'p')
+          .map((c) => (products[Number(c.id.slice(1))] || {}).type);
+        const picks = SERVICES.filter((sv) => (sv.for || []).some((k) => kinds.indexOf(k) >= 0)).slice(0, 2);
+        if (picks.length) {
+          host.insertAdjacentHTML('beforeend',
+            '<div class="cart-up"><p>キッティングや設置・構築もまとめて依頼できます。</p>' +
+            picks.map((sv) => '<button type="button" class="cart-up-b" data-sv="' + sv.id + '">＋ ' +
+              esc(sv.title) + '</button>').join('') +
+            '<button type="button" class="cart-up-all" id="cartAddSetup">作業メニューを一覧で見る →</button></div>');
+        }
+      }
     }
     $('cartCount').textContent = cart.length + ' 件';
     const total = cartTotal();
@@ -916,20 +1002,38 @@
 
   const renderAll = () => { renderChips(); renderResults(); renderCart(); renderBar(); };
 
-  /* ---------- 設定・構築サービス ---------- */
+  /* ---------- 設定・構築サービス ----------
+     for には、その作業がよく一緒に発注される機器タイプを持たせる。
+     型番の詳細から「この機器に必要な作業」を出して、見積もりから構築まで一度に頼めるようにする */
   const SERVICES = [
-    { id: 's1', tag: 'ハード', title: 'PCキッティング・初期設定', body: '複数拠点・大量台数のセットアップ、資産管理台帳の作成、ラベリングまで代行します。' },
-    { id: 's2', tag: 'ソフト', title: 'Microsoft 365 / Google Workspace 導入', body: 'テナント設計、アカウント発行、メール移行、権限設計までまとめて構築します。' },
-    { id: 's3', tag: 'ハード', title: 'LAN・Wi-Fi・防犯カメラ工事', body: '配線設計からアクセスポイント・カメラの設置、SSID・VLAN設計、電波調査まで一括で行います。' },
-    { id: 's4', tag: 'ソフト', title: 'UTM・EDR のセキュリティ設定', body: 'FortiGate などのUTM設定、EDR／MDM の展開、ポリシー設計と運用ルール化まで。' },
-    { id: 's5', tag: 'ハード', title: 'サーバー・NAS・ラック構築', body: 'ラッキング、OS・共有フォルダ設計、バックアップ、疎通確認まで手順書に沿って実施。' },
-    { id: 's6', tag: 'ソフト', title: 'クラウド・SaaS のアカウント設計', body: 'SSO／ID管理、入退社フロー、ライセンス最適化まで、運用まで見据えて設計します。' },
-    { id: 's7', tag: 'ソフト＋ハード', title: '拠点開設・オフィス移転のIT構築', body: '回線手配、ネットワーク設計、機器移設、当日の切り替えまでひとつの窓口で伴走。' },
-    { id: 's8', tag: 'ソフト＋ハード', title: 'データセンター構築・キッティング', body: '入館ルールに準拠した作業員手配と、DC内でのキッティング・配線・設定を代行します。' },
-    { id: 's9', tag: 'ハード', title: '店舗のPOS・サイネージ設置', body: '開店・改装のスケジュールに合わせて、POSレジやサイネージの設置・初期設定を行います。' },
-    { id: 's10', tag: 'ハード', title: 'EV充電器・蓄電池の施工補助', body: '電気工事会社さまと連携し、EV充電器・蓄電池の設置・施工の補助作業を担います。' },
-    { id: 's11', tag: 'ハード', title: '半導体設備の保守補助', body: 'クリーンルームでの保守・部材交換などの補助人員を、必要な期間・人数で手配します。' }
+    { id: 's1', tag: 'ハード', title: 'PCキッティング・初期設定', body: '複数拠点・大量台数のセットアップ、資産管理台帳の作成、ラベリングまで代行します。',
+      for: ['laptop', 'desktop', 'tablet', 'monitor'] },
+    { id: 's2', tag: 'ソフト', title: 'Microsoft 365 / Google Workspace 導入', body: 'テナント設計、アカウント発行、メール移行、権限設計までまとめて構築します。',
+      for: ['laptop', 'desktop', 'tablet', 'software'] },
+    { id: 's3', tag: 'ハード', title: 'LAN・Wi-Fi・防犯カメラ工事', body: '配線設計からアクセスポイント・カメラの設置、SSID・VLAN設計、電波調査まで一括で行います。',
+      for: ['ap', 'swtch', 'router', 'cable'] },
+    { id: 's4', tag: 'ソフト', title: 'UTM・EDR のセキュリティ設定', body: 'FortiGate などのUTM設定、EDR／MDM の展開、ポリシー設計と運用ルール化まで。',
+      for: ['firewall', 'router', 'laptop'] },
+    { id: 's5', tag: 'ハード', title: 'サーバー・NAS・ラック構築', body: 'ラッキング、OS・共有フォルダ設計、バックアップ、疎通確認まで手順書に沿って実施。',
+      for: ['server', 'storage', 'rack'] },
+    { id: 's6', tag: 'ソフト', title: 'クラウド・SaaS のアカウント設計', body: 'SSO／ID管理、入退社フロー、ライセンス最適化まで、運用まで見据えて設計します。',
+      for: ['software', 'laptop', 'tablet'] },
+    { id: 's7', tag: 'ソフト＋ハード', title: '拠点開設・オフィス移転のIT構築', body: '回線手配、ネットワーク設計、機器移設、当日の切り替えまでひとつの窓口で伴走。',
+      for: ['router', 'swtch', 'ap', 'monitor', 'desktop'] },
+    { id: 's8', tag: 'ソフト＋ハード', title: 'データセンター構築・キッティング', body: '入館ルールに準拠した作業員手配と、DC内でのキッティング・配線・設定を代行します。',
+      for: ['server', 'storage', 'rack', 'swtch'] },
+    { id: 's9', tag: 'ハード', title: '店舗のPOS・サイネージ設置', body: '開店・改装のスケジュールに合わせて、POSレジやサイネージの設置・初期設定を行います。',
+      for: ['monitor', 'tablet', 'collab'] },
+    { id: 's10', tag: 'ハード', title: 'EV充電器・蓄電池の施工補助', body: '電気工事会社さまと連携し、EV充電器・蓄電池の設置・施工の補助作業を担います。', for: [] },
+    { id: 's11', tag: 'ハード', title: '半導体設備の保守補助', body: 'クリーンルームでの保守・部材交換などの補助人員を、必要な期間・人数で手配します。', for: [] }
   ];
+
+  const servicesFor = (type) => SERVICES.filter((s) => (s.for || []).indexOf(type) >= 0).slice(0, 3);
+  const addService = (id) => {
+    const s = SERVICES.find((x) => x.id === id);
+    if (s) toggleCart({ id: s.id, name: s.title, tag: '設定・構築（' + s.tag + '）', price: 0, code: '' });
+    renderServices();
+  };
 
   const renderServices = () => {
     $('svGrid').innerHTML = SERVICES.map((s) => {
@@ -941,23 +1045,32 @@
     }).join('');
   };
 
-  /* ---------- コラム（記事は順次公開。テーマから相談へつなぐ） ---------- */
-  const COLUMNS = [
-    { cat: '選び方', title: 'FortiGate 60F と 40F の違いは？拠点規模別の選び方', desc: 'スループット・同時接続数・ライセンス費用を比較し、拠点人数から逆算して選ぶ基準を整理します。' },
-    { cat: 'コスト', title: '法人PCは購入とリース、結局どちらが安いか（5年試算）', desc: '100台導入を前提に、購入・リース・レンタルの総額と資産管理コストを試算します。' },
-    { cat: '情シス運用', title: '入退社時のPC設定チェックリスト', desc: 'アカウント発行から回収・初期化まで、抜け漏れの起きやすい工程を整理します。' },
-    { cat: 'ネットワーク', title: 'オフィスWi-Fiが遅い原因と、電波調査でわかること', desc: 'APの台数・設置高さ・チャネル設計。現地調査の実データから改善パターンを解説します。' },
-    { cat: 'セキュリティ', title: '中小企業のEDR導入、最初にやる3つの設定', desc: 'アラート運用が破綻しないための除外設定・通知先設計・初期チューニングの手順。' },
-    { cat: '選び方', title: 'Let’s note と ThinkPad、法人利用で比べる', desc: '重量・バッテリー・保守サービス・故障時の代替機まで、運用目線で比較します。' }
-  ];
+  /* ---------- コラム ----------
+     記事の目次は assets/columns.json（tools/build-columns.py が同じものを読んで記事ページを出す）。
+     ここでは最新3本だけ出し、続きは /column/ へ送る */
+  const renderColumns = async () => {
+    try {
+      const res = await fetch('assets/columns.json', { cache: 'no-cache' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const list = (await res.json()).articles || [];
+      if (!list.length) throw new Error('empty');
 
-  const renderColumns = () => {
-    $('colGrid').innerHTML = COLUMNS.map((c, n) =>
-      '<article class="col-card"><div class="col-meta">' +
-        '<span class="col-cat">' + esc(c.cat) + '</span><span class="col-soon">公開予定</span></div>' +
-        '<h3>' + esc(c.title) + '</h3><p>' + esc(c.desc) + '</p>' +
-        '<button class="col-btn" type="button" data-col="' + n + '">このテーマを相談する →</button>' +
-      '</article>').join('');
+      $('colGrid').innerHTML = list
+        .slice()
+        .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+        .slice(0, 3)
+        .map((c) => '<a class="col-card" href="/column/' + esc(c.slug) + '.html">' +
+          '<div class="col-meta"><span class="col-cat">' + esc(c.category) + '</span>' +
+          '<span class="col-date">' + esc(String(c.date).replace(/-/g, '.')) + '</span>' +
+          '<span class="col-soon">読了 ' + esc(c.readMinutes || 5) + '分</span></div>' +
+          '<h3>' + esc(c.title) + '</h3><p>' + esc(c.description) + '</p>' +
+          '<span class="col-btn">続きを読む →</span></a>').join('');
+    } catch (_) {
+      /* 取得できないときは一覧ページへの導線だけ残す */
+      $('colGrid').innerHTML = '<div class="empty"><b>コラムを読み込めませんでした</b>' +
+        '<p>お手数ですが一覧ページからご覧ください。</p>' +
+        '<a class="btn btn-navy" href="/column/">コラム一覧を見る →</a></div>';
+    }
   };
 
   /* ---------- 依頼内容をフォームへ ---------- */
@@ -980,7 +1093,7 @@
   };
 
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-open],[data-add],[data-close],[data-cat],[data-maker],[data-sv],[data-col],[data-inc],[data-dec],[data-rm],#askBtn,#barDiag,#heroDiag');
+    const t = e.target.closest('[data-open],[data-add],[data-close],[data-cat],[data-maker],[data-sv],[data-inc],[data-dec],[data-rm],#askBtn,#barDiag,#heroDiag,#cartAddSetup');
     if (!t) return;
 
     if (t.dataset.open !== undefined) { openDetail(Number(t.dataset.open)); return; }
@@ -990,12 +1103,8 @@
       toggleCart({ id: 'p' + p.i, name: titleOf(p), tag: (p.maker || p.source) + '／' + p.kind, price: p.price, code: p.code });
       return;
     }
-    if (t.dataset.sv !== undefined) {
-      const s = SERVICES.find((x) => x.id === t.dataset.sv);
-      toggleCart({ id: s.id, name: s.title, tag: '設定・構築（' + s.tag + '）', price: 0, code: '' });
-      renderServices();
-      return;
-    }
+    if (t.dataset.sv !== undefined) { addService(t.dataset.sv); return; }
+    if (t.id === 'cartAddSetup') { $('setup').scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     if (t.dataset.cat !== undefined) {
       state.cat = t.dataset.cat === 'すべて' ? '' : (state.cat === t.dataset.cat ? '' : t.dataset.cat);
       state.page = 1; renderChips(); renderResults(); return;
@@ -1010,11 +1119,6 @@
       c.qty = Math.max(1, c.qty - 1); renderAll(); return;
     }
     if (t.dataset.rm !== undefined) { cart.splice(Number(t.dataset.rm), 1); renderAll(); renderServices(); return; }
-    if (t.dataset.col !== undefined) {
-      const c = COLUMNS[Number(t.dataset.col)];
-      toForm(['【コラムのテーマについて相談】', 'テーマ：' + c.title, '', '上記の内容について、自社の場合どうなるか教えてください。']);
-      return;
-    }
     if (t.id === 'askBtn') {
       toForm(['【掲載外の商品のお取り寄せ・見積もり】',
         '探している商品：' + (state.q || '（キーワード未入力）'),
@@ -1266,7 +1370,18 @@
     } catch (_) { /* 取得できないときはセクションごと出さない */ }
   })();
 
-  /* ---------- 初期表示 ---------- */
+  /* ---------- 初期表示 ----------
+     検索やコラムから ?q=FortiGate のように着地したとき、
+     その型番で絞り込んだ状態から見積もりへ進めるようにする */
+  const landing = new URLSearchParams(location.search);
+  const landQ = (landing.get('q') || '').trim();
+  const landCat = (landing.get('cat') || '').trim();
+  if (landQ || landCat) {
+    if (landQ) { state.q = landQ; $('q').value = landQ; $('heroQ').value = landQ; }
+    if (landCat && catList.some(([label]) => label === landCat)) state.cat = landCat;
+    requestAnimationFrame(() => $('search').scrollIntoView({ block: 'start' }));
+  }
+
   if (INV.total) {
     $('statTotal').textContent = INV.total.toLocaleString('ja-JP') + '件';
   }

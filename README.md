@@ -31,7 +31,9 @@
 ├── admin/              管理画面（EC在庫・ショップ出品・問い合わせ・レンタル）
 ├── shop/               公開ショップ（Stripe決済）
 ├── rental/             機材レンタル
-├── assets/             画像・ロゴ・favicon
+├── assets/             画像・ロゴ・favicon・在庫データ・商品イラスト・コラム目次
+├── column/             IT調達コラム（記事は生成物／詳細は column/README.md）
+├── tools/              在庫取り込み・コラム生成のスクリプト
 ├── blog/               CMS 貼り付け用の自己完結HTML（4種）※詳細は blog/README.md
 ├── notion-proxy/       Notion API プロキシ（Cloudflare Worker・別デプロイ／Vercel配信対象外）
 ├── archive/            本番未リンクの過去生成物（参考保管／Vercel配信対象外）
@@ -41,6 +43,37 @@
 ```
 
 > `archive/` `notion-proxy/` は `.vercelignore` で **公開対象から除外** しています。
+
+---
+
+## 在庫データの更新
+
+仕入先から届いた在庫Excelは、取り込みスクリプトで `assets/inventory-data.js` に反映します。
+仕入先ごとに列の並びが違うので、読み取りルールは `tools/import-stock.py` に集約しています。
+
+```bash
+pip install openpyxl
+python3 tools/import-stock.py <届いたxlsx> [<xlsx> ...]
+```
+
+- 対応フォーマット：SB C&S（HPEサーバー・ストレージ）／BUFFALO NW製品／LES PCStock（レノボ）／エレコム
+- 同じ型番が既にあれば、**在庫・価格・更新日だけ**を上書きします
+- 商品画像・メーカーページURL・カテゴリ分類は、手で整えた内容を残します
+- 新しい仕入先が増えたときは `READERS` に読み取り関数を1つ足してください
+
+商品カードのイラストは `assets/product-art.js` が型番とカテゴリから機器の種類を判定して描いています。
+メーカー提供の写真がある商品はそちらを優先し、無い商品・読み込みに失敗した商品はイラストになります。
+
+---
+
+## コラム
+
+中小企業のAI・IT機器の悩みを扱う `column/` 以下のコンテンツです。
+記事の追加・自動生成の仕組みは **[column/README.md](column/README.md)** を参照してください。
+
+- 目次は `assets/columns.json`、本文は `column/_content/<slug>.html`
+- `python3 tools/build-columns.py` で記事ページ・一覧・sitemap を出力（記事HTMLは生成物なので直接編集しない）
+- `.github/workflows/column-weekly.yml` が毎週月曜に1本書いて **PRを作成**（要 `ANTHROPIC_API_KEY` シークレット）
 
 ---
 

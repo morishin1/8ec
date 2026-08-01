@@ -17,6 +17,12 @@
     ap:         { label: '無線AP',         accent: '#3aa17e', accent2: '#6fc7a6' },
     firewall:   { label: 'UTM・FW',        accent: '#d08a2f', accent2: '#e8b45c' },
     collab:     { label: 'Web会議',        accent: '#7a5bd0', accent2: '#a68ce8' },
+    server:     { label: 'サーバー',       accent: '#2f5fa8', accent2: '#6a91cf' },
+    storage:    { label: 'ストレージ',     accent: '#3f7fa8', accent2: '#77abc9' },
+    rack:       { label: 'ラック',         accent: '#4a5e7a', accent2: '#8494ab' },
+    software:   { label: 'ソフトウェア',   accent: '#5b6fd0', accent2: '#93a1e6' },
+    mouse:      { label: 'マウス',         accent: '#6a7488', accent2: '#9aa3b5' },
+    keyboard:   { label: 'キーボード',     accent: '#586377', accent2: '#8d96a8' },
     cable:      { label: 'ケーブル・光',   accent: '#7d8798', accent2: '#a9b3c2' },
     option:     { label: '周辺機器',       accent: '#5b6577', accent2: '#8f99aa' }
   };
@@ -34,6 +40,29 @@
     var source = String((item && item.source) || '');
     var category = String((item && item.category) || '');
     var model = String((item && (item.model || item.name)) || '').toUpperCase();
+    var has = function (re) { return re.test(category); };
+
+    /* サーバー・ストレージ（HPE）は小ジャンルで細かく分かれるので先に判定する */
+    if (source === 'サーバー・ストレージ') {
+      if (has(/サーバー[\s　]?(ラックマウント|タワー|ブレード)/)) return 'server';
+      if (has(/ハードディスク|ＳＳＤ|SSD|シリコンディスク|ディスクアレイ|テープ|ライブラリー|コントローラー本体/)) return 'storage';
+      if (has(/ソフトウェア|ＯＳ|OS（OEM）|OS\(OEM\)/)) return 'software';
+      if (has(/ラック/)) return 'rack';
+      if (has(/ケーブル|アダプター/)) return 'cable';
+      if (has(/ＵＰＳ|UPS|電源監視/)) return 'option';
+      if (has(/スイッチ/)) return 'swtch';
+      return 'option';
+    }
+
+    /* 仕入先の商材ジャンル名（エレコムなど）をそのまま受ける */
+    if (has(/^マウス|トラックボール/)) return 'mouse';
+    if (has(/^キーボード/)) return 'keyboard';
+    if (has(/ウェブカメラ|Ｗｅｂカメラ/)) return 'collab';
+    if (has(/アクセスポイント/)) return 'ap';
+    if (has(/Ｌ２スイッチ|L2スイッチ|ハブ（イーサネットスイッチ）|KVMスイッチ/)) return 'swtch';
+    if (has(/ケーブル|アダプター|コネクター/)) return 'cable';
+    /* 「ディスプレイ用フィルター」等はモニター本体ではないので先に外す */
+    if (has(/フィルター|保護フィルム|バッグ|ケース/)) return 'option';
 
     if (source === 'ディスプレイ' || category.indexOf('ディスプレイ') >= 0) return 'monitor';
 
@@ -229,6 +258,110 @@
         '<rect x="164" y="58" width="14" height="26" rx="3" fill="' + BODY + '"/>',
         '<rect x="160" y="64" width="6" height="14" rx="2" fill="' + METAL_DARK + '"/>',
         '<circle cx="70" cy="90" r="3" fill="url(#' + c.glow + ')"/>'
+      ].join('');
+    },
+
+    server: function (c) {
+      /* ラックマウントサーバーを2台重ねた前面図。ドライブベイとステータスLEDで判別させる */
+      var bays = '';
+      for (var i = 0; i < 8; i++) {
+        bays += '<rect x="' + (54 + i * 13) + '" y="34" width="10" height="26" rx="1.5" fill="' + BODY_DARK + '"/>' +
+                '<rect x="' + (56 + i * 13) + '" y="37" width="2.5" height="20" rx="1.2" fill="' + c.accent2 + '" opacity=".5"/>';
+      }
+      return [
+        '<rect x="30" y="26" width="140" height="42" rx="4" fill="' + BODY + '"/>',
+        '<rect x="30" y="26" width="140" height="5" rx="2.5" fill="' + BODY_LIGHT + '"/>',
+        bays,
+        '<circle cx="42" cy="40" r="3" fill="url(#' + c.glow + ')"/>',
+        '<circle cx="42" cy="53" r="3" fill="' + c.accent2 + '" opacity=".55"/>',
+        '<rect x="30" y="76" width="140" height="42" rx="4" fill="' + BODY + '"/>',
+        '<rect x="30" y="76" width="140" height="5" rx="2.5" fill="' + BODY_LIGHT + '"/>',
+        '<rect x="54" y="86" width="88" height="22" rx="2" fill="' + BODY_DARK + '"/>',
+        '<rect x="60" y="92" width="42" height="4" rx="2" fill="' + c.accent + '" opacity=".7"/>',
+        '<rect x="60" y="100" width="26" height="3" rx="1.5" fill="' + c.accent2 + '" opacity=".45"/>',
+        '<circle cx="42" cy="90" r="3" fill="url(#' + c.glow + ')"/>',
+        '<rect x="150" y="86" width="14" height="22" rx="2" fill="' + BODY_DARK + '"/>'
+      ].join('');
+    },
+
+    storage: function (c) {
+      /* ディスクアレイ／HDD。取っ手つきのドライブトレイを縦に並べる */
+      var trays = '';
+      for (var i = 0; i < 4; i++) {
+        var y = 34 + i * 20;
+        trays += '<rect x="56" y="' + y + '" width="88" height="16" rx="2" fill="' + BODY_DARK + '"/>' +
+                 '<rect x="62" y="' + (y + 5) + '" width="30" height="5" rx="2.5" fill="' + BODY_LIGHT + '"/>' +
+                 '<circle cx="134" cy="' + (y + 8) + '" r="2.6" fill="' + (i === 0 ? 'url(#' + c.glow + ')' : c.accent2) + '" opacity="' + (i === 0 ? 1 : .5) + '"/>';
+      }
+      return [
+        '<rect x="46" y="24" width="108" height="94" rx="5" fill="' + BODY + '"/>',
+        '<rect x="46" y="24" width="108" height="6" rx="3" fill="' + BODY_LIGHT + '"/>',
+        trays,
+        '<rect x="56" y="118" width="88" height="5" rx="2.5" fill="' + METAL_DARK + '" opacity=".5"/>'
+      ].join('');
+    },
+
+    rack: function (c) {
+      /* 19インチラック。支柱のネジ穴と搭載機器で「箱もの」と分かるように */
+      var holes = '';
+      for (var i = 0; i < 11; i++) {
+        holes += '<rect x="52" y="' + (28 + i * 8.6) + '" width="3" height="3" rx="1" fill="' + BODY_DARK + '"/>';
+        holes += '<rect x="145" y="' + (28 + i * 8.6) + '" width="3" height="3" rx="1" fill="' + BODY_DARK + '"/>';
+      }
+      return [
+        '<rect x="44" y="18" width="112" height="106" rx="5" fill="' + BODY + '"/>',
+        '<rect x="50" y="24" width="100" height="94" rx="3" fill="' + BODY_DARK + '"/>',
+        holes,
+        '<rect x="59" y="32" width="82" height="16" rx="2" fill="' + BODY_LIGHT + '"/>',
+        '<rect x="59" y="54" width="82" height="16" rx="2" fill="' + BODY_LIGHT + '"/>',
+        '<rect x="59" y="76" width="82" height="26" rx="2" fill="' + BODY + '"/>',
+        '<circle cx="133" cy="40" r="2.6" fill="url(#' + c.glow + ')"/>',
+        '<circle cx="133" cy="62" r="2.6" fill="' + c.accent2 + '" opacity=".55"/>',
+        '<rect x="67" y="84" width="38" height="4" rx="2" fill="' + c.accent + '" opacity=".65"/>'
+      ].join('');
+    },
+
+    software: function (c) {
+      /* ライセンス／OS。証書とキーで「モノではない商材」だと分かるようにする */
+      return [
+        '<rect x="52" y="24" width="96" height="86" rx="5" fill="#fff" stroke="' + METAL_DARK + '" stroke-width="2"/>',
+        '<rect x="52" y="24" width="96" height="14" rx="5" fill="' + BODY + '"/>',
+        '<rect x="64" y="52" width="60" height="5" rx="2.5" fill="' + BODY_DARK + '" opacity=".7"/>',
+        '<rect x="64" y="64" width="72" height="4" rx="2" fill="' + METAL_DARK + '"/>',
+        '<rect x="64" y="74" width="52" height="4" rx="2" fill="' + METAL_DARK + '"/>',
+        '<circle cx="118" cy="96" r="15" fill="url(#' + c.glow + ')"/>',
+        '<circle cx="118" cy="92" r="4.6" fill="#fff"/>',
+        '<path d="M118 96v9m0-4h4" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/>',
+        '<rect x="64" y="90" width="30" height="4" rx="2" fill="' + METAL_DARK + '"/>'
+      ].join('');
+    },
+
+    mouse: function (c) {
+      return [
+        '<path d="M100 26c20 0 32 16 32 36v28c0 18-14 30-32 30s-32-12-32-30V62c0-20 12-36 32-36z" fill="' + BODY + '"/>',
+        '<path d="M100 26c20 0 32 16 32 36H68c0-20 12-36 32-36z" fill="' + BODY_LIGHT + '"/>',
+        '<path d="M100 26v36" stroke="' + BODY_DARK + '" stroke-width="2.4"/>',
+        '<rect x="96" y="38" width="8" height="18" rx="4" fill="url(#' + c.glow + ')"/>',
+        '<rect x="86" y="76" width="28" height="3" rx="1.5" fill="' + BODY_DARK + '" opacity=".55"/>'
+      ].join('');
+    },
+
+    keyboard: function (c) {
+      var keys = '';
+      for (var row = 0; row < 4; row++) {
+        for (var i = 0; i < 12; i++) {
+          var w = (row === 3 && i === 5) ? 30 : 9;
+          if (row === 3 && i > 5 && i < 9) continue;
+          keys += '<rect x="' + (34 + i * 11 + (row === 1 ? 3 : 0)) + '" y="' + (56 + row * 13) +
+                  '" width="' + w + '" height="9" rx="1.6" fill="' + BODY_DARK + '"/>';
+        }
+      }
+      return [
+        '<rect x="24" y="46" width="152" height="62" rx="6" fill="' + BODY + '"/>',
+        '<rect x="24" y="46" width="152" height="6" rx="3" fill="' + BODY_LIGHT + '"/>',
+        keys,
+        '<circle cx="166" cy="52" r="2.4" fill="url(#' + c.glow + ')"/>',
+        '<rect x="46" y="108" width="108" height="5" rx="2.5" fill="' + METAL_DARK + '" opacity=".5"/>'
       ].join('');
     },
 
