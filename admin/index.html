@@ -375,6 +375,20 @@
   .scard .sc-thumb .setmain{position:absolute;left:0;right:0;bottom:0;border:none;background:rgba(9,43,97,.72);color:#fff;font-size:9.5px;font-weight:800;padding:3px 0;cursor:pointer;font-family:inherit}
   .scard .sc-thumb .setmain:hover{background:var(--blue)}
   .scard .sc-imgmsg{font-size:11px;color:var(--mute);margin-top:5px;min-height:14px}
+  .scard .sc-imgmsg.err{color:var(--red)}
+  .scard .sc-imgurl{display:flex;gap:7px;margin-top:7px}
+  .scard .sc-imgurl input{flex:1;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:12px;font-family:inherit;color:var(--text)}
+  .scard .sc-imgurl input:focus{outline:none;border-color:var(--blue)}
+  .scard .sc-imgurl button{flex:none;display:inline-flex;align-items:center;gap:4px;padding:8px 12px;border:1px solid var(--line);background:#fff;border-radius:8px;font-size:12px;font-weight:700;color:var(--navy);cursor:pointer}
+  .scard .sc-imgurl button:hover{border-color:var(--blue);color:var(--blue)}
+  .scard .sc-price{display:flex;gap:7px}
+  .scard .sc-price input{flex:1}
+  .scard .sc-price button{flex:none;padding:8px 12px;border:1px solid var(--line);background:#f4f9ff;border-radius:8px;font-size:12px;font-weight:700;color:var(--blue);cursor:pointer;white-space:nowrap;font-family:inherit}
+  .scard .sc-price button:hover{border-color:var(--blue);background:#e8f2ff}
+  .shop-break{background:#fff;border:1px solid var(--line);border-radius:11px;padding:10px 13px;margin-bottom:12px;font-size:12.5px;color:var(--mute);line-height:1.9}
+  .shop-break b{color:var(--navy)}
+  .shop-break .sep{margin:0 8px;color:#cfd9e8}
+  .shop-break .note{display:block;font-size:11.5px;color:var(--mute);margin-top:3px}
   .scard .sc-imgmsg.err{color:var(--red);font-weight:700}
   /* Stripe決済リンク */
   .scard .sc-stripe{margin-top:11px;border:1px solid var(--line);border-radius:11px;padding:10px 12px;background:#fbfdff}
@@ -527,6 +541,7 @@
     </div>
     <div class="rep-sum" id="repSum"></div>
     <div style="overflow-x:auto"><table class="rep-table" id="repTable"></table></div>
+    <div id="repNote" style="display:none;margin-top:10px;background:#fffdf6;border:1px solid #f0dfae;border-radius:10px;padding:11px 13px;font-size:12.5px;color:#7a5c14;line-height:1.8"></div>
   </div>
 
   <div id="listingView" style="display:none">
@@ -550,14 +565,19 @@
         <h2 style="font-size:16px;color:var(--navy);display:flex;align-items:center;gap:8px;margin-bottom:4px"><span class="material-icons-outlined" style="color:var(--blue)">storefront</span>ショップ出品（自社ショップ 8ec.jp/shop/ に公開）</h2>
         <p style="font-size:12.5px;color:var(--mute);line-height:1.6">在庫の商品を<strong>自社ショップに直接出品</strong>できます。<strong>「公開する」＋「販売価格の入力」＋「未販売」</strong>の3つが揃った商品だけがショップに並びます。売れた商品（販売日時あり）は自動でショップから外れます。</p>
       </div>
-      <a class="shop-open-btn" href="/shop/" target="_blank" rel="noopener"><span class="material-icons-outlined" style="font-size:18px">open_in_new</span>公開ショップを見る</a>
+      <div style="display:flex;gap:9px;flex-wrap:wrap">
+        <button class="shop-open-btn" id="bulkPubBtn" onclick="bulkPublish()" style="border:none;cursor:pointer;font-family:inherit"><span class="material-icons-outlined" style="font-size:18px">storefront</span>価格入力済みをまとめて公開</button>
+        <a class="shop-open-btn" href="/shop/" target="_blank" rel="noopener" style="background:#fff;color:var(--navy);border:1px solid var(--line)"><span class="material-icons-outlined" style="font-size:18px">open_in_new</span>公開ショップを見る</a>
+      </div>
     </div>
     <div class="shop-stats" id="shopStats"></div>
+    <div class="shop-break" id="shopBreak"></div>
     <div class="shop-toolbar">
       <div class="shop-filters">
         <button id="sf-all" class="on" onclick="setShopFilter('all')">在庫すべて</button>
         <button id="sf-live" onclick="setShopFilter('live')">公開中</button>
         <button id="sf-draft" onclick="setShopFilter('draft')">未公開</button>
+        <button id="sf-ready" onclick="setShopFilter('ready')">価格入力済み・未公開</button>
       </div>
       <input id="shopQ" placeholder="管理番号・商品名・型番で検索…" oninput="renderShop()" autocomplete="off">
     </div>
@@ -757,7 +777,22 @@ function urlsOf(it){return (it.listing_urls&&typeof it.listing_urls==='object')?
 function ageDays(it){if(!it.purchase_date)return null;const d=new Date(it.purchase_date+'T00:00:00');if(isNaN(d))return null;return Math.floor((new Date()-d)/86400000);}
 const AGE_TH={'3m':91,'6m':182,'1y':365};
 const AGE_LABEL={'3m':'3ヶ月以上','6m':'6ヶ月以上','1y':'1年以上'};
-function commissionOf(it){return Math.round(Number(it.sale_price||0)*Number(it.commission_rate||0)/100);}   // サイト手数料（円）
+/* サイト手数料率（％）。
+   商品に率が入っていなければ販売先の既定率を使う。率の入力欄ができる前に登録した
+   販売分は commission_rate が空のままで、そのままだとサイト手数料が0円と見なされ、
+   粗利が手数料のぶんだけ多く出てしまうため。 */
+function rateOf(it){
+  const r=it&&it.commission_rate;
+  if(r!==null&&r!==undefined&&r!==''&&isFinite(Number(r)))return Number(r);   // 0%も明示指定として尊重する
+  return Number((it&&CHANNEL_FEE[it.sold_channel])||0);
+}
+/* 率が未入力で、販売先の既定率で補った販売（画面に注記を出すために数える） */
+function rateIsFallback(it){
+  const r=it&&it.commission_rate;
+  const unset=(r===null||r===undefined||r===''||!isFinite(Number(r)));
+  return unset&&Number(CHANNEL_FEE[it&&it.sold_channel]||0)>0;
+}
+function commissionOf(it){return Math.round(Number(it.sale_price||0)*rateOf(it)/100);}   // サイト手数料（円）
 function profitOf(it){return Number(it.sale_price||0)-Number(it.cost||0)-Number(it.shipping||0)-Number(it.fee||0)-commissionOf(it)-Number(it.platform_fee||0);}
 function hasClaim(it){return !!(it.claim_content&&String(it.claim_content).trim());}
 function claimOpen(it){return hasClaim(it)&&!it.claim_done;}   // 未対応のクレーム
@@ -914,6 +949,15 @@ function renderReport(){
   }
   document.getElementById('repTable').innerHTML=`<thead><tr><th class="m">月</th><th>販売数</th><th>売上合計</th><th>サイト手数料</th><th>粗利合計</th></tr></thead>
     <tbody>${rows}<tr class="tot"><td class="m">${repYear}年 合計</td><td>${tot.cnt}</td><td>${yen(tot.sales)}</td><td>${yen(tot.comm)}</td><td class="${tot.profit<0?'neg':''}">${yen(tot.profit)}</td></tr></tbody>`;
+
+  /* 率が未入力で既定率を当てた販売と、売上が未入力の販売は、金額の根拠が弱いので明示する */
+  const fb=sold.filter(rateIsFallback).length;
+  const noPrice=sold.filter(it=>!(Number(it.sale_price||0)>0)).length;
+  const notes=[];
+  if(fb)notes.push(`サイト手数料率が未入力の <b>${fb}件</b> は販売先の既定率（${CHANNELS.map(c=>c.label+' '+CHANNEL_FEE[c.key]+'%').join('／')}）で計算しています。`);
+  if(noPrice)notes.push(`売上が未入力の販売が <b>${noPrice}件</b> あります。仕入・送料だけが引かれるため粗利がマイナスに出ます。`);
+  const noteEl=document.getElementById('repNote');
+  if(noteEl){noteEl.innerHTML=notes.map(n=>`<div>${n}</div>`).join('');noteEl.style.display=notes.length?'block':'none';}
 }
 /* 月クリック → 在庫・販売管理へ戻り、その月の販売だけを表示 */
 function reportToMonth(ym){
@@ -988,7 +1032,7 @@ function shopIsLive(it){return !!it.shop_published && !it.sold_at && Number(it.s
 function shopIsIncomplete(it){return !!it.shop_published && !it.sold_at && !(Number(it.shop_price||0)>0);}
 function setShopFilter(f){
   shopFilter=f;
-  ['all','live','draft'].forEach(k=>{const b=document.getElementById('sf-'+k);if(b)b.className=(k===f?'on':'');});
+  ['all','live','draft','ready'].forEach(k=>{const b=document.getElementById('sf-'+k);if(b)b.className=(k===f?'on':'');});
   renderShop();
 }
 /* 入力を保持（検索やフィルタで再描画しても打ちかけの内容を失わない） */
@@ -1022,8 +1066,43 @@ function shopImgsHtml(it){
       ${!imgs.length?'<div style="align-self:center;font-size:11.5px;color:var(--mute);line-height:1.6">写真をドラッグ＆ドロップ、または「写真を選ぶ」から追加できます。<br>スマホなら、その場で撮影した写真も選べます。</div>':''}
     </div>
     <input type="file" id="shfile-${it.id}" accept="image/*" multiple style="display:none" onchange="uploadShopImages('${it.id}',this)">
+    ${canAdd?`<div class="sc-imgurl">
+      <input id="shurl-${it.id}" placeholder="画像URLを貼り付けて追加（https://…／複数はカンマ・改行区切り）"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();addShopImageUrl('${it.id}')}">
+      <button type="button" onclick="addShopImageUrl('${it.id}')">
+        <span class="material-icons-outlined" style="font-size:15px">add_link</span>URLで追加</button>
+    </div>`:''}
     <div class="sc-imgmsg" id="shimg-msg-${it.id}"></div>
   </div>`;
+}
+
+/* 画像URLを貼り付けて追加する。撮影せずにメーカー・仕入先の画像を使う場合や、
+   別の場所にアップロード済みの画像を指す場合に使う */
+async function addShopImageUrl(id){
+  const el=document.getElementById('shurl-'+id);
+  const msg=document.getElementById('shimg-msg-'+id);
+  const it=items.find(x=>x.id===id);
+  if(!el||!it)return;
+  const urls=el.value.split(/[\s,、]+/).map(u=>u.trim()).filter(Boolean);
+  const bad=urls.filter(u=>!/^(https?:\/\/|\/)/.test(u));
+  const ok=urls.filter(u=>/^(https?:\/\/|\/)/.test(u));
+  if(!ok.length){
+    if(msg){msg.textContent='https:// で始まるURL、またはサイト内の /images/… を貼り付けてください。';msg.className='sc-imgmsg err';}
+    return;
+  }
+  const imgs=shopImagesOf(it).slice();
+  const room=SHOP_IMG_MAX-imgs.length;
+  const added=ok.slice(0,room);
+  imgs.push(...added);
+  el.value='';
+  if(msg){
+    const over=ok.length-added.length;
+    msg.textContent=`${added.length}枚を追加しました。`
+      +(over?`（上限${SHOP_IMG_MAX}枚のため${over}枚は追加していません）`:'')
+      +(bad.length?`（URLでない${bad.length}件は無視しました）`:'');
+    msg.className='sc-imgmsg';
+  }
+  await saveShopFields(id,{images:imgs});
 }
 function shopStripeHtml(it,curPrice){
   const link=it.stripe_payment_link||'';
@@ -1070,7 +1149,9 @@ function shopCardHtml(it){
     ${shopImgsHtml(it)}
     <div class="sc-grid">
       <div class="sc-f full"><label>ショップ表示名</label><input id="sh-title-${it.id}" oninput="shopMark('${it.id}')" value="${esc(v.title)}" placeholder="未入力なら型番または管理番号を表示"></div>
-      <div class="sc-f full"><label>販売価格（円）※必須</label><input id="sh-price-${it.id}" type="number" inputmode="numeric" oninput="shopMark('${it.id}')" value="${esc(v.price)}" placeholder="例：39800"></div>
+      <div class="sc-f full"><label>販売価格（円）※必須</label>
+        <div class="sc-price"><input id="sh-price-${it.id}" type="number" inputmode="numeric" oninput="shopMark('${it.id}')" value="${esc(v.price)}" placeholder="例：39800">
+        ${ref?`<button type="button" onclick="fillRefPrice('${it.id}',${ref})" title="仕入×${REF_MARKUP}の目安を入れる">${yen(ref)} を入れる</button>`:''}</div></div>
       <div class="sc-f full"><label>商品説明</label><textarea id="sh-desc-${it.id}" oninput="shopMark('${it.id}')" placeholder="状態・付属品・おすすめポイント">${esc(v.desc)}</textarea></div>
     </div>
     ${shopStripeHtml(it,(v.price===''||v.price==null)?0:Number(v.price))}
@@ -1081,6 +1162,36 @@ function shopCardHtml(it){
       <button class="sc-editlink" onclick="openDrawer('${it.id}')">商品の詳細を編集</button>
     </div>
   </div>`;
+}
+
+/* 参考売値（仕入×1.5の目安）を価格欄に入れる。1件ずつ値付けを考える手間を減らす */
+function fillRefPrice(id,ref){
+  const el=document.getElementById('sh-price-'+id);
+  if(!el)return;
+  el.value=ref;
+  shopMark(id);
+  el.focus();
+}
+
+/* 価格が入っていて未公開のものを、まとめてショップに公開する */
+async function bulkPublish(){
+  const target=items.filter(it=>!it.sold_at&&!it.shop_published&&Number(it.shop_price||0)>0);
+  if(!target.length){
+    alert('まとめて公開できる商品がありません。\n\n「販売価格が入っていて、まだ公開していない商品」が対象です。\n価格を入力して保存してから、もう一度お試しください。');
+    return;
+  }
+  if(!confirm(`${target.length}点を自社ショップ（8ec.jp/shop/）に公開します。\n\n公開すると、どなたでも閲覧・購入できる状態になります。\nよろしいですか？`))return;
+
+  const btn=document.getElementById('bulkPubBtn');
+  if(btn){btn.disabled=true;btn.textContent='公開中…';}
+  let ok=0,ng=0;
+  for(const it of target){
+    const {error}=await sb.from(TABLE).update({shop_published:true,updated_at:new Date().toISOString()}).eq('id',it.id);
+    if(error)ng++;else ok++;
+  }
+  if(btn){btn.disabled=false;}
+  alert(`${ok}点を公開しました。`+(ng?`\n${ng}点は公開できませんでした。`:''));
+  await load();
 }
 
 /* ---- 商品写真のアップロード（メルカリのように選ぶだけ／ドラッグ＆ドロップ対応） ---- */
@@ -1180,16 +1291,29 @@ function renderShop(){
   const live=inStock.filter(shopIsLive);
   const incomplete=inStock.filter(shopIsIncomplete);
   const draft=inStock.filter(it=>!it.shop_published);
+  const ready=draft.filter(it=>Number(it.shop_price||0)>0);        // 価格が入っていて未公開＝すぐ公開できる
+  const noPrice=draft.filter(it=>!(Number(it.shop_price||0)>0));
+  const onMall=inStock.filter(it=>!isUnlisted(it));                // 他モールに出品中
   const unit='<small style="font-size:12px;color:var(--mute);font-weight:600"> 点</small>';
   const stats=document.getElementById('shopStats');
   if(stats){
     stats.innerHTML=
       `<div class="c live"><div class="l">ショップ公開中（実際に並んでいる）</div><div class="v">${live.length}${unit}</div></div>`+
-      `<div class="c"><div class="l">未公開の在庫</div><div class="v">${draft.length}${unit}</div></div>`+
+      `<div class="c"><div class="l">すぐ公開できる（価格入力済み）</div><div class="v">${ready.length}${unit}</div></div>`+
+      `<div class="c"><div class="l">価格未入力</div><div class="v">${noPrice.length}${unit}</div></div>`+
       `<div class="c${incomplete.length?' warn':''}"><div class="l">公開ONだが価格未設定</div><div class="v">${incomplete.length}${unit}</div></div>`;
+  }
+  /* 「出品管理」の件数と食い違って見えないよう、内訳をその場で示す。
+     ショップ出品（自社ショップ）と出品管理（メルカリ等の各モール）は別管理のため */
+  const bd=document.getElementById('shopBreak');
+  if(bd){
+    bd.innerHTML=`在庫 <b>${inStock.length}点</b>　＝　自社ショップ公開中 <b>${live.length}点</b> ＋ 未公開 <b>${draft.length}点</b>`
+      +`<span class="sep">｜</span>このうち他モール（メルカリ等）に出品中 <b>${onMall.length}点</b>／未出品 <b>${inStock.length-onMall.length}点</b>`
+      +`<span class="note">自社ショップへの公開と、各モールへの出品は別々に管理しています。「出品管理」タブの件数は<b>未出品のもの</b>だけを数えているため、この画面の在庫数とは一致しません。</span>`;
   }
   let list = shopFilter==='live'  ? inStock.filter(it=>!!it.shop_published)
            : shopFilter==='draft' ? draft
+           : shopFilter==='ready' ? ready
            : inStock;
   const qEl=document.getElementById('shopQ');
   const q=(qEl?qEl.value:'').trim().toLowerCase();
@@ -1668,12 +1792,17 @@ async function revertSale(){
 function calcProfit(){
   const num=id=>{const v=parseFloat(document.getElementById(id).value);return isNaN(v)?0:v;};
   const price=num('d-price'),cost=num('d-cost'),ship=num('d-ship'),fee=num('d-fee');
-  const rate=num('d-comm-rate'),plat=num('d-platfee');
+  const plat=num('d-platfee');
+  /* 率が未入力なら販売先の既定率で計算する。月次集計と同じ扱いにして数字を一致させる */
+  const rateEl=document.getElementById('d-comm-rate');
+  const ch=document.getElementById('d-soldch').value;
+  const typed=rateEl.value.trim()!==''&&!isNaN(parseFloat(rateEl.value));
+  const rate=typed?parseFloat(rateEl.value):Number(CHANNEL_FEE[ch]||0);
   const comm=Math.round(price*rate/100);
   const pf=price-cost-ship-fee-comm-plat;
   const rows=[
     ['売上',price,false],['仕入',cost,true],['送料',ship,true],['手数料（その他）',fee,true],
-    [`サイト手数料（${rate||0}%）`,comm,true],['プラットフォーム利用料',plat,true]
+    [`サイト手数料（${rate||0}%${!typed&&rate?'・販売先の既定':''}）`,comm,true],['プラットフォーム利用料',plat,true]
   ].filter(([l,v])=>v!==0);
   document.getElementById('profitBreak').innerHTML=rows.map(([l,v,m])=>`<div class="r ${m?'minus':''}"><span>${l}</span><b>${m?'−':''}${yen(v)}</b></div>`).join('');
   const el=document.getElementById('dProfit');el.textContent=yen(pf);el.classList.toggle('neg',pf<0);

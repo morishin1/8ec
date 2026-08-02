@@ -428,11 +428,15 @@
       <p>上部の<strong>「ショップ出品」タブ</strong>を開くと、在庫の商品が一覧で並びます。<strong>写真を選び</strong>、<strong>表示名・販売価格・商品説明</strong>を入力して<strong>「ショップに公開する」</strong>を押すだけで <a href="/shop/" target="_blank" rel="noopener" style="color:var(--blue2);font-weight:700">8ec.jp/shop/</a> に商品が並びます（商品ごとにドロワーを開く必要はありません）。</p>
       <ul>
         <li><span class="material-icons-outlined">photo_library</span><strong>写真は「写真を選ぶ」から、そのまま選ぶだけ</strong>。ドラッグ＆ドロップでも、スマホならその場で撮った写真でも追加できます。最大8枚まで並べられ、<strong>1枚目がメイン画像</strong>です（サムネイルの「メインに」で入れ替え）</li>
+        <li><span class="material-icons-outlined">add_link</span><strong>画像はURLでも追加できます</strong>。写真欄の下にある入力欄にURLを貼って「URLで追加」を押すだけです。カンマや改行で区切れば複数まとめて入ります。撮影せずにメーカー・仕入先から提供された画像を使う場合に便利です</li>
+        <li><span class="material-icons-outlined">payments</span><strong>値付けはボタン1つ</strong>。販売価格の欄の横に<strong>「¥◯◯◯ を入れる」</strong>ボタンが出ます（仕入×1.5の目安）。そのままでよければ押すだけで入力できます</li>
+        <li><span class="material-icons-outlined">storefront</span><strong>まとめて公開できます</strong>。上部の<strong>「価格入力済みをまとめて公開」</strong>を押すと、価格が入っていてまだ公開していない商品を一度に公開します（実行前に件数を確認するダイアログが出ます）。「価格入力済み・未公開」タブで対象を先に確認できます</li>
         <li><span class="material-icons-outlined">credit_card</span><strong>決済リンクはボタン1つで自動作成</strong>。「決済リンクを作成」を押すと、Stripeに<strong>商品・価格・決済リンク</strong>がまとめて登録されます（手で作る必要はありません）</li>
         <li><span class="material-icons-outlined">check_circle</span>中古品は1点ものなので、<strong>1回購入されるとリンクは自動で締め切られ</strong>、二重販売を防ぎます</li>
         <li><span class="material-icons-outlined">check_circle</span>価格を変えたときは<strong>「決済リンクを作り直す」</strong>を押してください（古いリンクは無効化されます）。価格がずれている間は警告が出ます</li>
         <li><span class="material-icons-outlined">check_circle</span>ショップに並ぶ条件は<strong>「公開する」＋「販売価格あり」＋「未販売」</strong>の3つ。価格を入れずに公開しようとすると警告が出ます</li>
         <li><span class="material-icons-outlined">check_circle</span>売れた商品（販売日時あり）は自動的にショップ一覧から外れます</li>
+        <li><span class="material-icons-outlined">info</span><strong>「出品管理」タブの件数とは一致しません。</strong>自社ショップへの公開と、メルカリ・ヤフオクなど各モールへの出品は別々に管理しているためです。ショップ出品タブの上部に<strong>「在庫◯点＝公開中◯点＋未公開◯点／うち他モール出品中◯点」</strong>の内訳を出しているので、そこで突き合わせられます</li>
       </ul>
       <div class="tip"><span class="material-icons-outlined">info</span>初回のみ「admin/supabase-setup.sql」と「shop/supabase-shop-setup.sql」の実行、および Edge Function「create-payment-link」のデプロイ（＋STRIPE_SECRET_KEY の設定）が必要です。</div>
     </div>
@@ -481,6 +485,7 @@
       <div class="num"><span class="b">9</span>月次集計で振り返る</div>
       <h2>月ごとの販売数・売上・粗利</h2>
       <p>上部タブの<strong>「月次集計」</strong>で、販売日時をもとに月別の販売数・売上合計・サイト手数料・粗利合計を確認できます。年は左右の矢印で切替、<strong>月の行をクリック</strong>すると、在庫・販売管理画面にその月の販売分だけを絞り込んで表示します。</p>
+      <div class="tip"><span class="material-icons-outlined">info</span><strong>サイト手数料率が未入力の販売について。</strong>手数料率の欄ができる前に登録した販売など、率が空のままの商品は<strong>販売先の既定率</strong>（メルカリ・ヤフオク・楽天 10%／ヤフーフリマ 5%／Amazon 8.4%）で計算します。以前はこうした販売のサイト手数料が0円として扱われ、粗利が手数料のぶんだけ多く出ていました。該当件数は表の下に表示されます。個別に率が決まっている場合は、商品の詳細から手数料率を入力すればそちらが優先されます。</div>
     </div>
     <div class="art">
       <svg viewBox="0 0 300 130" aria-label="月次集計のイラスト">
