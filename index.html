@@ -168,6 +168,8 @@
     .p-media img{padding:14px;background:#fff}
     .p-kind{position:absolute;left:10px;top:10px;font-size:10.5px;font-weight:500;color:var(--chip-fg);background:rgba(234,238,251,.94);border-radius:6px;padding:4px 8px}
     .p-cred{position:absolute;right:10px;bottom:8px;font-size:9.5px;color:var(--dim);background:rgba(255,255,255,.85);border-radius:5px;padding:2px 6px}
+    .p-cred.is-art{color:#8b93a4;background:rgba(255,255,255,.7)}
+    .dt-art{position:relative}
     .p-body{padding:16px 18px 18px;display:flex;flex-direction:column;flex:1}
     .p-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
     .p-maker{font-size:11px;font-weight:500;color:var(--muted);background:var(--bg);border-radius:6px;padding:4px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:52%}
@@ -685,6 +687,10 @@
     .replace(/　/g, ' ').trim();
 
   const ART = window.EightProductArt;
+
+  /* 型番 → 実写画像のマッピング。assets/product-images.json を後から差し替えれば
+     在庫データに触らずに写真を増やせる。読み込めなくてもイラストで成立する */
+  let PRODUCT_IMAGES = {};
   const INV = window.EIGHT_INVENTORY || { records: [], total: 0 };
 
   /* ---------- データ整形 ---------- */
@@ -737,19 +743,32 @@
 
   /* メーカー提供画像があればそれを、無ければ機器タイプ別のイラストを出す。
      画像の読み込みに失敗したときも、空欄にせずイラストへ差し替える */
+  /* 画像が404などで出せなかったときはイラストに差し替え、表示もイメージ図に直す */
   window.eightArtFallback = (img) => {
     const host = img.parentNode;
     if (host) {
       const cred = host.querySelector('.p-cred');
-      if (cred) cred.remove();
+      if (cred) { cred.textContent = 'イメージ図'; cred.classList.add('is-art'); }
     }
     img.replaceWith(document.createRange().createContextualFragment(img.dataset.fb));
   };
 
-  const artHtml = (p) => p.image
-    ? '<img src="' + esc(p.image) + '" alt="' + esc(titleOf(p)) + 'の製品画像" loading="lazy" referrerpolicy="no-referrer"' +
-      ' onerror="window.eightArtFallback(this)" data-fb="' + esc(ART.svg(p.raw)) + '">'
-    : ART.svg(p.raw);
+  /* 実写があればそれを、無ければ機器タイプのイラストを出す。
+     イラストは実物の写真ではないので、必ず「イメージ図」と明示する */
+  const photoOf = (p) => {
+    const m = PRODUCT_IMAGES[p.model] || PRODUCT_IMAGES[String(p.model || '').toUpperCase()];
+    if (p.image) return { src: p.image, credit: p.credit || 'メーカー提供' };
+    if (m && m.src) return { src: m.src, credit: m.credit || 'メーカー提供' };
+    return null;
+  };
+
+  const artHtml = (p) => {
+    const photo = photoOf(p);
+    return photo
+      ? '<img src="' + esc(photo.src) + '" alt="' + esc(titleOf(p)) + 'の製品画像" loading="lazy" referrerpolicy="no-referrer"' +
+        ' onerror="window.eightArtFallback(this)" data-fb="' + esc(ART.svg(p.raw)) + '">'
+      : ART.svg(p.raw);
+  };
 
   /* ---------- 見積もりリスト ---------- */
   const cart = [];
@@ -830,7 +849,9 @@
     return '<article class="p-card">' +
       '<div class="p-media">' + artHtml(p) +
         '<span class="p-kind">' + esc(p.kind) + '</span>' +
-        (p.image ? '<span class="p-cred">' + esc(p.credit || 'メーカー提供') + '</span>' : '') +
+        (photoOf(p)
+          ? '<span class="p-cred">' + esc(photoOf(p).credit) + '</span>'
+          : '<span class="p-cred is-art">イメージ図</span>') +
       '</div>' +
       '<div class="p-body">' +
         '<div class="p-top">' +
@@ -903,7 +924,10 @@
           '</div>' +
         '</div>' +
         '<div>' +
-          '<div class="dt-art">' + artHtml(p, true) + '</div>' +
+          '<div class="dt-art">' + artHtml(p, true) +
+            (photoOf(p)
+              ? '<span class="p-cred">' + esc(photoOf(p).credit) + '</span>'
+              : '<span class="p-cred is-art">イメージ図（実物とは異なります）</span>') + '</div>' +
           '<div class="spec"><div class="sp-h">製品仕様</div>' +
             rows.map(([k, v]) => '<dl class="sp-r"><dt>' + esc(k) + '</dt><dd>' + esc(v) + '</dd></dl>').join('') +
           '</div>' +
@@ -1048,6 +1072,17 @@
   /* ---------- コラム ----------
      記事の目次は assets/columns.json（tools/build-columns.py が同じものを読んで記事ページを出す）。
      ここでは最新3本だけ出し、続きは /column/ へ送る */
+  /* 実写画像のマッピングを読み込む。失敗しても全商品イラストで成立するので握りつぶす */
+  const loadProductImages = async () => {
+    try {
+      const res = await fetch('assets/product-images.json', { cache: 'no-cache' });
+      if (!res.ok) return;
+      const json = await res.json();
+      PRODUCT_IMAGES = json.images || {};
+      if (Object.keys(PRODUCT_IMAGES).length) renderResults();
+    } catch (_) { /* イラストのままでよい */ }
+  };
+
   const renderColumns = async () => {
     try {
       const res = await fetch('assets/columns.json', { cache: 'no-cache' });
@@ -1387,6 +1422,7 @@
   }
   renderServices();
   renderColumns();
+  loadProductImages();
   renderAll();
 })();
 </script>
