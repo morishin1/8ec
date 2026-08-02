@@ -389,6 +389,37 @@
   .shop-break b{color:var(--navy)}
   .shop-break .sep{margin:0 8px;color:#cfd9e8}
   .shop-break .note{display:block;font-size:11.5px;color:var(--mute);margin-top:3px}
+
+  /* 棚卸・在庫報告 */
+  .st-bar{background:#fff;border:1px solid var(--line);border-radius:12px;padding:11px 13px;margin-bottom:12px;display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+  .st-bar label{font-size:12px;font-weight:700;color:#41506e}
+  .st-bar input,.st-bar select{padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-size:13px;font-family:inherit;background:#fff;color:var(--text)}
+  .st-bar input[type=search]{flex:1;min-width:180px}
+  .st-sp{margin-left:auto;display:inline-flex;gap:8px;flex-wrap:wrap}
+  .st-prog{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:12px}
+  .st-progbar{height:9px;border-radius:5px;background:#e8eefb;overflow:hidden}
+  .st-progbar span{display:block;height:100%;background:linear-gradient(90deg,var(--blue),#48a3f5);border-radius:5px;transition:width .25s}
+  .st-progtxt{font-size:12.5px;color:var(--mute);margin-top:7px}
+  .st-progtxt b{color:var(--navy)}
+  .strow{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:9px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+  .strow.done{background:#fbfdff;border-color:#cfe0f5}
+  .st-info{flex:1;min-width:240px}
+  .st-id{font-size:11.5px;color:var(--mute);font-weight:700;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .st-loc{background:#eef4ff;color:var(--blue2);border-radius:5px;padding:1px 7px;font-size:10.5px}
+  .st-nm{font-size:14px;font-weight:700;color:var(--navy);margin-top:2px}
+  .st-sub{font-size:11.5px;color:var(--mute);margin-top:1px}
+  .st-meta{font-size:11.5px;color:var(--mute);margin-top:4px}
+  .st-meta b{color:var(--text)}
+  .st-act{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+  .stb{padding:9px 15px;border:1px solid var(--line);background:#fff;border-radius:9px;font-size:13px;font-weight:700;color:var(--mute);cursor:pointer;font-family:inherit}
+  .stb:hover{border-color:var(--blue)}
+  .stb.ok.on{background:var(--green);border-color:var(--green);color:#fff}
+  .stb.missing.on{background:var(--red);border-color:var(--red);color:#fff}
+  .stb.check.on{background:var(--amber);border-color:var(--amber);color:#fff}
+  .st-note{width:210px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:12px;font-family:inherit;color:var(--text)}
+  .st-hist{margin-top:22px}
+  .st-hist h3{font-size:14px;color:var(--navy);margin-bottom:9px}
+  @media(max-width:820px){.st-act{width:100%}.st-note{flex:1;width:auto}}
   .scard .sc-imgmsg.err{color:var(--red);font-weight:700}
   /* Stripe決済リンク */
   .scard .sc-stripe{margin-top:11px;border:1px solid var(--line);border-radius:11px;padding:10px 12px;background:#fbfdff}
@@ -492,6 +523,7 @@
     <button id="vt-list" onclick="setEcView('list')"><span class="material-icons-outlined" style="font-size:17px">playlist_add_check</span>出品管理</button>
     <button id="vt-shop" onclick="setEcView('shop')"><span class="material-icons-outlined" style="font-size:17px">storefront</span>ショップ出品</button>
     <button id="vt-report" onclick="setEcView('report')"><span class="material-icons-outlined" style="font-size:17px">bar_chart</span>月次集計</button>
+    <button id="vt-stock" onclick="setEcView('stock')"><span class="material-icons-outlined" style="font-size:17px">fact_check</span>棚卸・在庫報告</button>
   </div>
 
   <div id="manageView">
@@ -542,6 +574,42 @@
     <div class="rep-sum" id="repSum"></div>
     <div style="overflow-x:auto"><table class="rep-table" id="repTable"></table></div>
     <div id="repNote" style="display:none;margin-top:10px;background:#fffdf6;border:1px solid #f0dfae;border-radius:10px;padding:11px 13px;font-size:12.5px;color:#7a5c14;line-height:1.8"></div>
+  </div>
+
+  <div id="stockView" style="display:none">
+    <div class="listing-head">
+      <div>
+        <h2 style="font-size:16px;color:var(--navy);display:flex;align-items:center;gap:8px;margin-bottom:4px"><span class="material-icons-outlined" style="color:var(--blue)">fact_check</span>棚卸・在庫報告</h2>
+        <p style="font-size:12.5px;color:var(--mute);line-height:1.6">在庫を1件ずつ確認して<strong>「あり」「なし」「要確認」</strong>を記録します。全部確認できたら<strong>「棚卸を確定」</strong>で、その月の点数・在庫金額・差異件数を記録として残します。<strong>在庫CSV</strong>はいつでも出力できます。</p>
+      </div>
+      <div class="listing-actions">
+        <button class="btn-add" onclick="exportStockCsv()"><span class="material-icons-outlined" style="font-size:18px">download</span>在庫CSVを出力</button>
+      </div>
+    </div>
+
+    <div class="stats" id="stStats" style="grid-template-columns:repeat(4,1fr)"></div>
+
+    <div class="st-bar">
+      <label>対象月</label><input type="month" id="stYm" onchange="renderStocktake()">
+      <select id="stLoc" onchange="renderStocktake()"><option value="">全保管場所</option></select>
+      <select id="stCat" onchange="renderStocktake()"><option value="">全種別</option></select>
+      <select id="stRes" onchange="renderStocktake()">
+        <option value="">確認状況：すべて</option>
+        <option value="none">未確認のみ</option>
+        <option value="ok">あり</option>
+        <option value="missing">なし</option>
+        <option value="check">要確認</option>
+      </select>
+      <input type="search" id="stQ" placeholder="管理番号・商品名・型番で検索…" oninput="renderStocktake()">
+      <div class="st-sp">
+        <button class="btn-sub" onclick="exportDiffCsv()"><span class="material-icons-outlined" style="font-size:17px">report_problem</span>差異CSV</button>
+        <button class="btn-add" id="stFixBtn" onclick="finishStocktake()"><span class="material-icons-outlined" style="font-size:18px">task_alt</span>棚卸を確定</button>
+      </div>
+    </div>
+
+    <div class="st-prog" id="stProg"></div>
+    <div id="stList"></div>
+    <div class="st-hist" id="stHist"></div>
   </div>
 
   <div id="listingView" style="display:none">
@@ -804,7 +872,7 @@ function soldThisMonth(it){return it.sold_at && isoToLocal(it.sold_at).slice(0,7
   sb=window.supabase.createClient(SUPA_URL,SUPA_KEY,{auth:{persistSession:true,autoRefreshToken:true,storage:window.localStorage,storageKey:'zimu-portal-auth'}});
   fillSelects();
   const {data:{session}}=await sb.auth.getSession();
-  if(session&&session.user&&session.user.email===SHARED_EMAIL){showApp();await load();}
+  if(session&&session.user&&session.user.email===SHARED_EMAIL){showApp();await load();loadStocktakes();}
   else{document.getElementById('gate').style.display='grid';}
 })();
 async function doLogin(){
@@ -815,7 +883,7 @@ async function doLogin(){
     const {data,error}=await sb.auth.signInWithPassword({email:id.toLowerCase()+'@8grp.co.jp',password:pw});
     if(error){msg.textContent='IDまたはパスワードが違います';return;}
     if(data.user.email!==SHARED_EMAIL){msg.textContent='このアカウントには権限がありません';await sb.auth.signOut();return;}
-    showApp();await load();
+    showApp();await load();loadStocktakes();
   }catch(e){msg.textContent='ログインに失敗：'+e.message;}
 }
 function showApp(){document.getElementById('gate').style.display='none';document.getElementById('app').style.display='block';document.getElementById('logoutBtn').style.display='inline-flex';document.getElementById('userEmail').textContent='zimu';}
@@ -911,13 +979,16 @@ function setEcView(v){
   document.getElementById('vt-list').className=(v==='list'?'on':'');
   document.getElementById('vt-shop').className=(v==='shop'?'on':'');
   document.getElementById('vt-report').className=(v==='report'?'on':'');
+  document.getElementById('vt-stock').className=(v==='stock'?'on':'');
   document.getElementById('manageView').style.display=(v==='manage')?'block':'none';
   document.getElementById('listingView').style.display=(v==='list')?'block':'none';
   document.getElementById('shopView').style.display=(v==='shop')?'block':'none';
   document.getElementById('reportView').style.display=(v==='report')?'block':'none';
+  document.getElementById('stockView').style.display=(v==='stock')?'block':'none';
   if(v==='report'){selected.clear();renderBulkBar();renderReport();}
   if(v==='list'){selected.clear();renderBulkBar();renderListing();}
   if(v==='shop'){selected.clear();renderBulkBar();renderShop();}
+  if(v==='stock'){selected.clear();renderBulkBar();renderStocktake();}
 }
 function repShiftYear(n){repYear+=n;renderReport();}
 function soldMonthKey(it){return it.sold_at?isoToLocal(it.sold_at).slice(0,7):'';}   // ローカル月 YYYY-MM
@@ -965,6 +1036,206 @@ function reportToMonth(ym){
   repDrillYm=ym;setEcView('manage');
 }
 function clearDrill(){repDrillYm='';render();}
+
+/* ===== 棚卸・在庫報告ビュー =====
+   毎月の在庫報告のために、(1) 現物の有無を1件ずつ確認して記録し、
+   (2) 確定時点の点数・在庫金額・差異件数を stocktakes に残す。 */
+const ST_RESULTS={ok:'あり',missing:'なし',check:'要確認'};
+let stakes=[];                                   // 過去の棚卸記録
+function stYm(){const el=document.getElementById('stYm');return (el&&el.value)||ymNow();}
+function stockItems(){return items.filter(it=>!it.sold_at);}   // 在庫＝未販売
+/* その月に確認済みか。月をまたいだら未確認に戻す（毎月やり直すため） */
+function stResultOf(it,ym){return (it.stocktake_ym===ym&&it.stocktake_result)?it.stocktake_result:'';}
+
+async function loadStocktakes(){
+  const {data,error}=await sb.from('stocktakes').select('*').order('ym',{ascending:false});
+  if(!error)stakes=data||[];
+}
+
+function stFiltered(ym){
+  const loc=(document.getElementById('stLoc')||{}).value||'';
+  const cat=(document.getElementById('stCat')||{}).value||'';
+  const res=(document.getElementById('stRes')||{}).value||'';
+  const q=(((document.getElementById('stQ')||{}).value)||'').trim().toLowerCase();
+  return stockItems().filter(it=>{
+    if(loc&&(it.location||'')!==loc)return false;
+    if(cat&&(it.category||'')!==cat)return false;
+    const r=stResultOf(it,ym);
+    if(res==='none'&&r)return false;
+    if(res&&res!=='none'&&r!==res)return false;
+    if(!q)return true;
+    return `${it.mgmt_no||''} ${it.product_name||''} ${it.maker||''} ${it.model||''} ${it.spec||''}`.toLowerCase().includes(q);
+  });
+}
+
+function renderStocktake(){
+  const host=document.getElementById('stList');if(!host)return;
+  const ymEl=document.getElementById('stYm');
+  if(ymEl&&!ymEl.value)ymEl.value=ymNow();
+  const ym=stYm();
+
+  /* 絞り込みの選択肢は在庫の実データから作る */
+  const fillOnce=(id,vals,label)=>{
+    const el=document.getElementById(id);if(!el||el.dataset.filled)return;
+    el.innerHTML=`<option value="">${label}</option>`+vals.map(v=>`<option>${esc(v)}</option>`).join('');
+    el.dataset.filled='1';
+  };
+  const stock=stockItems();
+  fillOnce('stLoc',[...new Set(stock.map(it=>it.location).filter(Boolean))].sort(),'全保管場所');
+  fillOnce('stCat',[...new Set(stock.map(it=>it.category).filter(Boolean))].sort(),'全種別');
+
+  const cnt={ok:0,missing:0,check:0,none:0};
+  stock.forEach(it=>{const r=stResultOf(it,ym);cnt[r||'none']++;});
+  const cost=stock.reduce((n,it)=>n+Number(it.cost||0)*(Number(it.quantity)||1),0);
+  const unit='<small style="font-size:12px;color:var(--mute);font-weight:600"> 点</small>';
+  document.getElementById('stStats').innerHTML=
+    `<div class="stat stock"><div class="lbl">在庫点数</div><div class="v">${stock.length}${unit}</div><div class="sub-v">在庫金額 <b>${yen(cost)}</b></div></div>`+
+    `<div class="stat soldlist"><div class="lbl">確認できた（あり）</div><div class="v">${cnt.ok}${unit}</div></div>`+
+    `<div class="stat claim"><div class="lbl">なし・要確認</div><div class="v">${cnt.missing+cnt.check}${unit}</div>${cnt.missing?`<div class="sub-v">なし <b style="color:#c0392b">${cnt.missing}</b></div>`:''}</div>`+
+    `<div class="stat shipwait"><div class="lbl">未確認</div><div class="v">${cnt.none}${unit}</div></div>`;
+
+  const done=stock.length-cnt.none;
+  const pct=stock.length?Math.round(done/stock.length*100):0;
+  document.getElementById('stProg').innerHTML=
+    `<div class="st-progbar"><span style="width:${pct}%"></span></div>`+
+    `<div class="st-progtxt">${ym.replace('-','年')}月の棚卸：<b>${done}</b> / ${stock.length} 点を確認（${pct}%）`+
+    (cnt.none?`　残り <b>${cnt.none}</b> 点`:'　<b style="color:var(--green)">すべて確認できました</b>')+`</div>`;
+
+  const list=stFiltered(ym);
+  if(!list.length){
+    host.innerHTML='<div class="empty"><span class="material-icons-outlined">fact_check</span>条件に合う在庫がありません。</div>';
+  }else{
+    host.innerHTML=list.slice().sort((a,b)=>(a.mgmt_no||'').localeCompare(b.mgmt_no||'')).map(it=>{
+      const r=stResultOf(it,ym);
+      const a=ageDays(it);
+      const name=esc(it.product_name||((it.maker?it.maker+' ':'')+(it.model||''))||it.mgmt_no||'(名称なし)');
+      const sub=[it.category,it.maker,it.model,it.spec].filter(Boolean).map(esc).join('　');
+      const btns=Object.keys(ST_RESULTS).map(k=>
+        `<button class="stb ${k}${r===k?' on':''}" onclick="setStocktake('${it.id}','${k}')">${ST_RESULTS[k]}</button>`).join('');
+      return `<div class="strow${r?' done':''}" id="strow-${it.id}">
+        <div class="st-info">
+          <div class="st-id">${esc(it.mgmt_no||'')}　EC-${it.seq||'-'}${it.location?`<span class="st-loc">${esc(it.location)}</span>`:''}</div>
+          <div class="st-nm">${name}</div>
+          <div class="st-sub">${sub}</div>
+          <div class="st-meta">仕入 <b>${yen(it.cost)}</b>${(Number(it.quantity)||1)>1?` ×${Number(it.quantity)}個`:''}${a!=null?`　／　仕入から ${a}日`:''}</div>
+        </div>
+        <div class="st-act">
+          ${btns}
+          <input class="st-note" id="stnote-${it.id}" value="${esc(it.stocktake_note||'')}" placeholder="メモ（差異の理由など）" onchange="setStocktakeNote('${it.id}')">
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  /* 過去の棚卸記録。前月と比べて点数・金額がどう動いたかを見る */
+  const hist=document.getElementById('stHist');
+  if(hist){
+    hist.innerHTML=stakes.length
+      ? `<h3>これまでの棚卸</h3><div style="overflow-x:auto"><table class="rep-table">
+          <thead><tr><th class="m">対象月</th><th>実施日</th><th>在庫点数</th><th>在庫金額</th><th>あり</th><th>なし</th><th>要確認</th><th>未確認</th></tr></thead>
+          <tbody>${stakes.map(t=>`<tr><td class="m">${esc(t.ym).replace('-','年')}月</td><td>${esc(t.taken_on||'')}</td>
+            <td>${t.stock_count}</td><td>${yen(t.stock_cost)}</td><td>${t.ok_count}</td>
+            <td class="${t.missing_count?'neg':''}">${t.missing_count}</td><td>${t.check_count}</td><td>${t.unchecked_count}</td></tr>`).join('')}</tbody></table></div>`
+      : '<h3>これまでの棚卸</h3><div class="empty" style="padding:20px"><span class="material-icons-outlined">history</span>まだ確定した棚卸はありません。</div>';
+  }
+}
+
+async function setStocktake(id,result){
+  const ym=stYm();
+  const it=items.find(x=>x.id===id);if(!it)return;
+  const same=stResultOf(it,ym)===result;
+  const rec=same
+    ? {stocktake_result:null,stocktake_ym:null,stocktake_at:null}      // もう一度押したら取り消し
+    : {stocktake_result:result,stocktake_ym:ym,stocktake_at:new Date().toISOString()};
+  const {error}=await sb.from(TABLE).update(rec).eq('id',id);
+  if(error){alert('保存エラー：'+error.message+'\n\n棚卸用の列がまだ作られていない可能性があります。\nSupabase の SQL Editor で「admin/stocktake-setup.sql」を実行してください。');return;}
+  Object.assign(it,rec);
+  renderStocktake();
+}
+
+async function setStocktakeNote(id){
+  const el=document.getElementById('stnote-'+id);if(!el)return;
+  const it=items.find(x=>x.id===id);if(!it)return;
+  const note=el.value.trim()||null;
+  const {error}=await sb.from(TABLE).update({stocktake_note:note}).eq('id',id);
+  if(error){alert('メモを保存できませんでした：'+error.message);return;}
+  it.stocktake_note=note;
+}
+
+/* 棚卸を確定して、その月の記録を1行残す */
+async function finishStocktake(){
+  const ym=stYm();
+  const stock=stockItems();
+  const cnt={ok:0,missing:0,check:0,none:0};
+  stock.forEach(it=>{const r=stResultOf(it,ym);cnt[r||'none']++;});
+  const cost=stock.reduce((n,it)=>n+Number(it.cost||0)*(Number(it.quantity)||1),0);
+
+  let msg=`${ym.replace('-','年')}月の棚卸を確定します。\n\n`
+    +`在庫点数：${stock.length}点\n在庫金額：${yen(cost)}\n`
+    +`あり：${cnt.ok}点／なし：${cnt.missing}点／要確認：${cnt.check}点\n`;
+  if(cnt.none)msg+=`\n未確認が ${cnt.none}点 残っています。このまま確定しますか？\n`;
+  msg+='\n確定すると、この内容が棚卸の記録として残ります。';
+  if(!confirm(msg))return;
+
+  const note=prompt('報告用のメモがあれば入力してください（任意）','')||null;
+  const rec={ym,taken_on:todayStr(),stock_count:stock.length,stock_cost:cost,
+    ok_count:cnt.ok,missing_count:cnt.missing,check_count:cnt.check,unchecked_count:cnt.none,
+    note,created_by:'zimu'};
+  const {error}=await sb.from('stocktakes').upsert(rec,{onConflict:'ym'});
+  if(error){alert('確定できませんでした：'+error.message+'\n\nSupabase の SQL Editor で「admin/stocktake-setup.sql」を実行してください。');return;}
+  await loadStocktakes();
+  renderStocktake();
+  alert(`${ym.replace('-','年')}月の棚卸を確定しました。\n「在庫CSVを出力」から報告用のファイルを作れます。`);
+}
+
+/* ---- 在庫CSV（毎月の在庫報告用） ---- */
+const STOCK_CSV_COLS=['管理番号','EC番号','種別','メーカー','型番','商品名','スペック','個数',
+  '仕入日','仕入からの経過日数','仕入単価','仕入金額','保管場所','出品状況','ショップ公開',
+  '棚卸結果','棚卸日','棚卸メモ'];
+function stockCsvRow(it,ym){
+  const L=listingsOf(it);
+  const listed=CHANNELS.filter(c=>L[c.key]==='出品中').map(c=>c.label).join('・');
+  const q=Number(it.quantity)||1;
+  const r=stResultOf(it,ym);
+  return [it.mgmt_no,'EC-'+(it.seq||''),it.category,it.maker,it.model,it.product_name,it.spec,q,
+    it.purchase_date,ageDays(it),Number(it.cost||0),Number(it.cost||0)*q,it.location,
+    listed||'未出品',it.shop_published?'公開中':'',
+    ST_RESULTS[r]||'未確認',it.stocktake_at?isoToLocal(it.stocktake_at).slice(0,10):'',it.stocktake_note];
+}
+/* CSVをダウンロードさせる。
+   アンカーを本文に入れてから押し、URLの破棄はダウンロード開始後に回す。
+   すぐ revokeObjectURL すると、ファイル名が付かず "download" で保存されてしまうため。 */
+function downloadBlob(name,blob){
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=name;a.style.display='none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},1000);
+}
+function downloadCsv(name,cols,rows){
+  const lines=[cols.join(',')].concat(rows.map(r=>r.map(csvCell).join(',')));
+  downloadBlob(name,new Blob(['\uFEFF'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'}));
+}
+function exportStockCsv(){
+  const ym=stYm();
+  const stock=stockItems().slice().sort((a,b)=>(a.mgmt_no||'').localeCompare(b.mgmt_no||''));
+  if(!stock.length){alert('在庫がありません。');return;}
+  const rows=stock.map(it=>stockCsvRow(it,ym));
+  /* 報告書にそのまま使えるよう、末尾に合計行を入れる */
+  const totalQty=stock.reduce((n,it)=>n+(Number(it.quantity)||1),0);
+  const totalCost=stock.reduce((n,it)=>n+Number(it.cost||0)*(Number(it.quantity)||1),0);
+  rows.push([]);
+  rows.push(['合計','','','','','','',totalQty,'','','',totalCost,'','','','','','']);
+  rows.push([`${ym.replace('-','年')}月時点の在庫`,`${stock.length}件`,'','','','','','','','','','','','','','','','']);
+  downloadCsv(`在庫報告_${ym.replace('-','')}.csv`,STOCK_CSV_COLS,rows);
+}
+function exportDiffCsv(){
+  const ym=stYm();
+  const diff=stockItems().filter(it=>{const r=stResultOf(it,ym);return r==='missing'||r==='check';});
+  if(!diff.length){alert('差異（なし・要確認）はありません。');return;}
+  downloadCsv(`棚卸差異_${ym.replace('-','')}.csv`,STOCK_CSV_COLS,diff.map(it=>stockCsvRow(it,ym)));
+}
 
 /* ===== 出品管理ビュー ===== */
 function isUnlisted(it){
@@ -1984,10 +2255,8 @@ function exportCsv(){
       it.memo].map(csvCell).join(','));
   });
   const d=new Date();
-  const blob=new Blob(['\uFEFF'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
-  a.download=`EC在庫管理_${d.getFullYear()}${two(d.getMonth()+1)}${two(d.getDate())}.csv`;
-  a.click();URL.revokeObjectURL(a.href);
+  downloadBlob(`EC在庫管理_${d.getFullYear()}${two(d.getMonth()+1)}${two(d.getDate())}.csv`,
+    new Blob(['\uFEFF'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'}));
 }
 async function importCsv(input){
   const file=input.files&&input.files[0];input.value='';if(!file)return;

@@ -500,6 +500,42 @@
     </div>
   </div></div>
 
+  <!-- STEP 10 棚卸・在庫報告 -->
+  <div class="step"><div class="grid">
+    <div class="txt">
+      <div class="num"><span class="b">10</span>毎月の在庫報告をする</div>
+      <h2>棚卸と在庫CSV</h2>
+      <p>上部タブの<strong>「棚卸・在庫報告」</strong>で、月ごとの実地棚卸と、報告用の在庫CSV出力ができます。</p>
+      <ul>
+        <li><span class="material-icons-outlined">fact_check</span><strong>在庫を1件ずつ確認する。</strong>各行の<strong>「あり」「なし」「要確認」</strong>を押すだけで記録されます（保存ボタンは不要）。押し間違えたら<strong>同じボタンをもう一度押すと取り消せます</strong></li>
+        <li><span class="material-icons-outlined">filter_alt</span><strong>保管場所・種別・確認状況で絞り込めます。</strong>倉庫を回りながら「柏の未確認だけ」を表示して進める、といった使い方ができます</li>
+        <li><span class="material-icons-outlined">edit_note</span>見つからないものは<strong>メモ欄</strong>に理由を書けます（差異CSVに出ます）</li>
+        <li><span class="material-icons-outlined">task_alt</span>確認が終わったら<strong>「棚卸を確定」</strong>。その月の<strong>在庫点数・在庫金額・あり／なし／要確認の件数</strong>が記録として残り、画面下の「これまでの棚卸」で前月と比べられます</li>
+        <li><span class="material-icons-outlined">download</span><strong>「在庫CSVを出力」</strong>で報告用のファイルを作れます。管理番号・種別・メーカー・型番・仕入日・経過日数・仕入金額・保管場所・出品状況・棚卸結果が入り、<strong>末尾に合計行</strong>が付きます</li>
+        <li><span class="material-icons-outlined">report_problem</span><strong>「差異CSV」</strong>は「なし」「要確認」だけを抜き出します。原因を追う作業に使ってください</li>
+      </ul>
+      <div class="tip"><span class="material-icons-outlined">info</span>棚卸の確認結果は<strong>対象月ごと</strong>に記録されます。月が変わると全件が「未確認」に戻るので、毎月ゼロから確認できます。個数が2個以上の商品（バルク品）は、在庫金額に<strong>仕入単価×個数</strong>で計上されます。<br><strong>初回のみ</strong>、Supabase の SQL Editor で「admin/stocktake-setup.sql」を実行してください。</div>
+    </div>
+    <div class="art">
+      <svg viewBox="0 0 300 130" aria-label="棚卸のイラスト">
+        <rect width="300" height="130" rx="12" fill="#fff" stroke="#e4ecfb"/>
+        <rect x="20" y="18" width="260" height="8" rx="4" fill="#e8eefb"/>
+        <rect x="20" y="18" width="174" height="8" rx="4" fill="#2479e9"/>
+        <text x="20" y="40" font-size="9" fill="#6b7593">2026年08月の棚卸：2 / 3 点を確認</text>
+        <g font-family="Inter,sans-serif">
+          <rect x="20" y="50" width="260" height="22" rx="6" fill="#fbfdff" stroke="#cfe0f5"/>
+          <text x="28" y="64" font-size="9" fill="#41506e">A-001　ノートPC A</text>
+          <rect x="212" y="55" width="28" height="13" rx="4" fill="#2e9d4a"/><text x="218" y="65" font-size="8" fill="#fff">あり</text>
+          <rect x="20" y="78" width="260" height="22" rx="6" fill="#fbfdff" stroke="#cfe0f5"/>
+          <text x="28" y="92" font-size="9" fill="#41506e">A-002　ノートPC B</text>
+          <rect x="212" y="83" width="28" height="13" rx="4" fill="#d63a3a"/><text x="218" y="93" font-size="8" fill="#fff">なし</text>
+          <rect x="20" y="106" width="260" height="16" rx="5" fill="#f3f6fc"/>
+          <text x="28" y="117" font-size="8.5" fill="#6b7593">在庫 3点／在庫金額 ¥45,000</text>
+        </g>
+      </svg>
+    </div>
+  </div></div>
+
   <!-- ドロワーの見かた -->
   <div class="h-sec">ドロワー（編集画面）は必要な項目だけ自動で開く</div>
   <div class="faq" style="margin-bottom:20px">
