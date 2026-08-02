@@ -22,3 +22,6 @@ notion-proxy/node_modules/
 
 # Vercel CLI のローカル作業ディレクトリ
 .vercel
+
+# tools/export-csv.py の出力
+在庫一覧_*.csv

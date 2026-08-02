@@ -61,6 +61,18 @@ python3 tools/import-stock.py <届いたxlsx> [<xlsx> ...]
 - 商品画像・メーカーページURL・カテゴリ分類は、手で整えた内容を残します
 - 新しい仕入先が増えたときは `READERS` に読み取り関数を1つ足してください
 
+### CSVで書き出す
+
+仕入先に画像や見積もりを依頼するときの型番リスト、社内での内容確認に使えます。
+Excelでそのまま開けるよう、BOM付きUTF-8・CRLF で出力します。
+
+```bash
+python3 tools/export-csv.py                 # 在庫一覧_YYYY-MM-DD.csv を作る
+python3 tools/export-csv.py /path/out.csv   # 出力先を指定する
+```
+
+商品画像の有無も列に入るので、どの型番の画像が足りていないかがそのまま分かります。
+
 ---
 
 ## 商品画像
