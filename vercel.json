@@ -4,5 +4,19 @@
   "buildCommand": null,
   "outputDirectory": null,
   "cleanUrls": false,
-  "trailingSlash": false
+  "trailingSlash": false,
+  "rewrites": [
+    {
+      "source": "/images/products/CI7P000118.webp",
+      "destination": "https://meraki.cisco.com/wp-content/uploads/2022/09/MR28-product-wireless-lan-tile.png"
+    },
+    {
+      "source": "/images/products/PZ1AA06CA0.webp",
+      "destination": "https://www.fortinet.com/blog/business-and-technology/fortinet-announces-fortigate-60f-ngfw/_jcr_content/root/responsivegrid/image.img.png/1572470288517/fortigate-fig-one.png"
+    },
+    {
+      "source": "/images/products/OH3B010130.webp",
+      "destination": "https://panasonic.jp/cns/pc/products/fv5g/img/top/fv_model.png"
+    }
+  ]
 }
