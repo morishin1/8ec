@@ -17,8 +17,21 @@
 
          python3 tools/import-images.py --from-dir ~/Downloads/elecom-images --credit エレコム
 
+  3. 手元でコピーしたURLを貼り付ける（自社ショップの管理画面、メーカーの製品ページなど）
+
+         python3 tools/import-images.py --paste --credit 自社撮影
+         （標準入力に「型番<タブ/カンマ/空白>URL」を1行ずつ）
+
+  4. 自社ショップ（Supabase の shop_products）から型番一致で取り込む
+
+         python3 tools/import-images.py --from-shop
+
+     ただしショップは中古品を1点ずつ扱っており、写真はその個体そのもの。
+     新品として掲載する在庫に流用すると実物と食い違うため、
+     一致した型番を一覧表示するだけで止まる。取り込むには --yes が要る。
+
 --download を付けると、URLの画像を assets/products/ に保存してそちらを参照する。
-直リンクはメーカー側の帯域を使い、URL変更で静かに壊れるので、本番はこちらを推奨。
+直リンクは相手側の帯域を使い、URL変更で静かに壊れるので、本番はこちらを推奨。
 （このスクリプトを外部へ接続できる環境で実行する必要がある）
 
     python3 tools/import-images.py --status   # 型番ごとの画像の有無を集計
@@ -166,6 +179,115 @@ def from_dir(args, data):
     print(f"{src_dir.name}: {added}件を assets/products/ に取り込みました")
 
 
+def from_paste(args, data):
+    """「型番 URL」を1行ずつ貼り付けて登録する。
+
+    ショップの管理画面やメーカーの製品ページからコピーしたURLを、
+    そのまま流し込むための入口。区切りはタブ・カンマ・空白のいずれでもよい。
+    """
+    if sys.stdin.isatty():
+        print("型番とURLを「型番<タブ/カンマ/空白>URL」の形式で貼り付けてください。")
+        print("入力し終えたら Ctrl-D（Windows は Ctrl-Z → Enter）。\n")
+
+    added = skipped = failed = 0
+    for line in sys.stdin:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = re.split(r"[\t,]|\s{2,}|\s+(?=https?://)", line, maxsplit=1)
+        if len(parts) < 2:
+            print(f"  読み取れません: {line[:60]}")
+            skipped += 1
+            continue
+        model, url = parts[0].strip(), parts[1].strip()
+        if not url.startswith("http") and not url.startswith("assets/"):
+            print(f"  URLではありません: {model} → {url[:40]}")
+            skipped += 1
+            continue
+        src = url
+        if args.download and url.startswith("http"):
+            try:
+                src = download(url, model)
+            except Exception as exc:
+                print(f"  取得失敗 {model}: {exc}")
+                failed += 1
+                continue
+        if add(data, model, src, args.credit):
+            added += 1
+
+    print(f"{added}件を登録"
+          + (f"（{skipped}件は形式不明）" if skipped else "")
+          + (f"（{failed}件は取得失敗）" if failed else ""))
+
+
+def from_shop(args, data):
+    """自社ショップ（Supabase の公開ビュー shop_products）から型番一致で取り込む。
+
+    ショップは中古品を1点ずつ扱っているため、写真はその個体そのもの。
+    新品として売る在庫の商品画像に流用すると実物と食い違うので、
+    型番が一致したものを一覧で出し、取り込むかどうかは人が判断する。
+    """
+    url = (args.shop_url.rstrip("/")
+           + "/rest/v1/shop_products?select=model,image_url,images&limit=1000")
+    req = urllib.request.Request(url, headers={
+        "apikey": args.shop_key,
+        "Authorization": f"Bearer {args.shop_key}",
+        "Accept": "application/json",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=30) as res:
+            rows = json.load(res)
+    except Exception as exc:
+        sys.exit(f"ショップの商品を取得できませんでした: {exc}\n"
+                 f"（{args.shop_url} へ接続できる環境で実行してください）")
+
+    records = load_inventory()
+    inventory_models = {r["model"].upper(): r for r in records if r.get("model")}
+
+    matched, no_photo = [], 0
+    for row in rows:
+        model = (row.get("model") or "").strip()
+        shots = row.get("images") or []
+        src = shots[0] if isinstance(shots, list) and shots else row.get("image_url")
+        if not model:
+            continue
+        if not src:
+            no_photo += 1
+            continue
+        hit = inventory_models.get(model.upper())
+        if hit:
+            matched.append((hit["model"], src, hit.get("maker") or "", hit.get("name") or ""))
+
+    print(f"ショップの商品 {len(rows)}件 中、写真あり {len(rows) - no_photo}件。")
+    print(f"法人在庫の型番と一致したもの: {len(matched)}件\n")
+    if not matched:
+        print("一致する型番がありませんでした。ショップは中古品、法人在庫は新品の"
+              "ディストリビューター商材なので、型番が重なることは多くありません。")
+        return
+
+    for model, src, maker, name in matched[:30]:
+        print(f"  {model:<20} {maker:<12} {name[:28]}")
+    if len(matched) > 30:
+        print(f"  ... 他 {len(matched) - 30}件")
+
+    print("\nショップの写真はその中古個体を撮ったものです。新品として掲載する在庫に"
+          "そのまま使うと実物と食い違います。")
+    if not args.yes:
+        print("取り込む場合は --yes を付けて再実行してください。")
+        return
+
+    for model, src, _, _ in matched:
+        final = src
+        if args.download and src.startswith("http"):
+            try:
+                final = download(src, model)
+            except Exception as exc:
+                print(f"  取得失敗 {model}: {exc}")
+                continue
+        add(data, model, final, args.credit, note="自社ショップの中古個体を撮影したもの")
+    print(f"\n{len(matched)}件を登録しました。")
+
+
 def status(data):
     records = load_inventory()
     images = data["images"]
@@ -193,11 +315,20 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--from-file", help="型番列と画像URL列を持つ商品マスタ（CSV / Excel）")
     ap.add_argument("--from-dir", help="ファイル名が型番になっている画像フォルダ")
+    ap.add_argument("--paste", action="store_true",
+                    help="「型番 URL」を1行ずつ貼り付けて登録する（標準入力）")
+    ap.add_argument("--from-shop", action="store_true",
+                    help="自社ショップ（Supabase の shop_products）から型番一致で取り込む")
     ap.add_argument("--model-col", default="型番", help="型番の列見出し（--from-file 用）")
     ap.add_argument("--url-col", default="画像URL", help="画像URLの列見出し（--from-file 用）")
     ap.add_argument("--credit", default="メーカー提供", help="画像に添えるクレジット表記")
     ap.add_argument("--download", action="store_true", help="画像をローカルに保存して直リンクを避ける")
     ap.add_argument("--status", action="store_true", help="型番ごとの画像の有無を集計する")
+    ap.add_argument("--yes", action="store_true", help="確認せずに取り込む（--from-shop 用）")
+    ap.add_argument("--shop-url", default="https://htglvascsuqkixpmclwr.supabase.co",
+                    help="ショップのSupabase URL")
+    ap.add_argument("--shop-key", default="sb_publishable_yZCcrwdqjuf0u_5WBWlHIw_AxdvteEV",
+                    help="ショップの公開APIキー（anon）")
     args = ap.parse_args()
 
     data = load_images()
@@ -209,6 +340,14 @@ def main():
         from_file(args, data)
     elif args.from_dir:
         from_dir(args, data)
+    elif args.paste:
+        if args.credit == "メーカー提供":
+            args.credit = "自社撮影"
+        from_paste(args, data)
+    elif args.from_shop:
+        if args.credit == "メーカー提供":
+            args.credit = "自社撮影"
+        from_shop(args, data)
     else:
         ap.print_help()
         return

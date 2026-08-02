@@ -104,6 +104,32 @@ python3 tools/import-images.py --from-file 商品マスタ.xlsx \
 python3 tools/import-images.py --from-dir ~/Downloads/elecom-images --credit エレコム
 ```
 
+**3. 手元でコピーしたURLを貼り付ける**
+
+自社ショップの管理画面やメーカーの製品ページからコピーしたURLを、そのまま流し込めます。
+区切りはタブ・カンマ・空白のいずれでも構いません。
+
+```bash
+python3 tools/import-images.py --paste --credit 自社撮影
+# 型番<タブ>URL を1行ずつ貼り付けて Ctrl-D
+```
+
+**4. 自社ショップ（`/shop`）から型番一致で取り込む**
+
+ショップは Supabase の `shop_products` ビューを見ており、`model`（型番）と画像URLが
+同じ行にあります。そのため手で貼らなくても型番で自動照合できます。
+
+```bash
+python3 tools/import-images.py --from-shop          # 一致する型番を一覧表示するだけ
+python3 tools/import-images.py --from-shop --yes    # 実際に取り込む
+```
+
+> **注意：** ショップはオークション仕入れの**中古品を1点ずつ**扱っており、写真はその個体を
+> 撮ったものです。新品として掲載する法人在庫にそのまま流用すると、実物と食い違います
+> （傷のある中古機の写真が「新品・在庫275点」の隣に出るなど）。著作権の問題はありませんが、
+> 表示としての正確さの問題があるため、`--from-shop` は一覧を出すだけで止まり、
+> 取り込むには `--yes` を明示する必要があります。
+
 `--download` を付けると画像を `assets/products/` に保存し、そちらを参照します。
 直リンクを避けられるので、本番ではこちらを推奨します
 （外部へ接続できる環境で実行してください）。
