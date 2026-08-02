@@ -142,7 +142,19 @@ python3 tools/import-images.py --from-shop --yes    # 実際に取り込む
 > 表示としての正確さの問題があるため、`--from-shop` は一覧を出すだけで止まり、
 > 取り込むには `--yes` を明示する必要があります。
 
-**5. 自社で画像を用意する（`images/products/` 配信）**
+**5. 管理画面から登録する（`/admin/catalog/`）← 日常運用はこれ**
+
+事務の共有アカウントでログインし、商品ごとに画像URLを入力します。
+保存すると **デプロイを待たずにサイトへ反映** されます（Supabase の `catalog_images` に保存）。
+
+- 型番・商品名・商品コード・メーカーで検索、画像の状態（未登録／準備中／画像あり）で絞り込み
+- 「まとめて貼り付け」で、ExcelやCSVから2列（商品コード＋URL）をそのまま流し込める
+- 「アップ」ボタンで画像ファイルを直接アップロード（Supabase Storage に入り、URLが自動で入る）
+- 「JSON書き出し」で `assets/product-images.json` に反映する形でも取り出せる
+
+初回のみ `admin/catalog/supabase-setup.sql` を Supabase の SQL Editor で実行してください。
+
+**6. 自社で画像を用意する（`images/products/` 配信）**
 
 商品コードでファイル名を固定し、自社ドメインから配信する方式です。
 URLが `https://8ec.jp/images/products/<商品コード>.webp` で固定されるため、

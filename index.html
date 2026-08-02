@@ -1075,15 +1075,39 @@
   /* ---------- コラム ----------
      記事の目次は assets/columns.json（tools/build-columns.py が同じものを読んで記事ページを出す）。
      ここでは最新3本だけ出し、続きは /column/ へ送る */
-  /* 実写画像のマッピングを読み込む。失敗しても全商品イラストで成立するので握りつぶす */
+  /* 商品画像を読み込む。2段構えで、どちらが落ちてもイラストで成立する。
+       1. assets/product-images.json … リポジトリに入っている静的な対応表
+       2. Supabase の catalog_images … 管理画面（/admin/catalog/）で登録したもの。
+          デプロイを待たずに反映したいので、こちらを上書きで重ねる */
+  const SUPA = {
+    url: 'https://htglvascsuqkixpmclwr.supabase.co',
+    key: 'sb_publishable_yZCcrwdqjuf0u_5WBWlHIw_AxdvteEV'
+  };
+
   const loadProductImages = async () => {
     try {
       const res = await fetch('assets/product-images.json', { cache: 'no-cache' });
-      if (!res.ok) return;
-      const json = await res.json();
-      PRODUCT_IMAGES = json.images || {};
-      if (Object.keys(PRODUCT_IMAGES).length) renderResults();
-    } catch (_) { /* イラストのままでよい */ }
+      if (res.ok) PRODUCT_IMAGES = (await res.json()).images || {};
+    } catch (_) { /* 静的な対応表が無くても続行する */ }
+
+    try {
+      /* Supabaseが落ちていても表示を待たせない。3秒で諦めて静的な分だけで出す */
+      const stop = new AbortController();
+      const timer = setTimeout(() => stop.abort(), 3000);
+      const res = await fetch(SUPA.url + '/rest/v1/catalog_images?select=product_code,image_url,credit', {
+        headers: { apikey: SUPA.key, Authorization: 'Bearer ' + SUPA.key },
+        signal: stop.signal
+      }).finally(() => clearTimeout(timer));
+      if (res.ok) {
+        (await res.json()).forEach((row) => {
+          if (row.product_code && row.image_url) {
+            PRODUCT_IMAGES[row.product_code] = { src: row.image_url, credit: row.credit || '自社配信' };
+          }
+        });
+      }
+    } catch (_) { /* 管理画面の登録が読めなくても静的な分は出す */ }
+
+    if (Object.keys(PRODUCT_IMAGES).length) renderResults();
   };
 
   const renderColumns = async () => {

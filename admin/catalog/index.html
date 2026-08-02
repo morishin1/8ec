@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>商品画像管理｜株式会社エイト</title>
+<meta name="robots" content="noindex, nofollow">
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --navy:#092b61; --navy2:#071f48;
+    --bg:#f6faff; --panel:#fff; --line:#dce9f7; --text:#17335c; --mute:#647b99;
+    --blue:#2479e9; --blue2:#0c5dce; --green:#2e9d4a; --red:#d63a3a; --amber:#c98a1e; --gray:#8a99b5;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Noto Sans JP",-apple-system,"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;background:var(--bg);color:var(--text);line-height:1.7}
+  .material-icons-outlined{vertical-align:middle;line-height:1}
+  a{color:inherit}button{font-family:inherit}
+  img{max-width:100%}
+
+  .topbar{background:var(--navy2);color:#fff;padding:11px 0}
+  .topbar .inner{max-width:1280px;margin:0 auto;padding:0 18px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  .topbar .bk{font-size:12.5px;color:rgba(255,255,255,.85);display:inline-flex;align-items:center;gap:5px}
+  .topbar .bk:hover{color:var(--blue)}
+  .topbar .right{display:inline-flex;align-items:center;gap:10px}
+  .topbar button{border:1px solid rgba(255,255,255,.22);padding:6px 11px;border-radius:7px;font-size:12px;cursor:pointer;background:rgba(255,255,255,.12);color:#fff;display:inline-flex;align-items:center;gap:5px}
+
+  .hero{background:radial-gradient(circle at 88% 10%,rgba(36,121,233,.16),transparent 32%),linear-gradient(135deg,#fff,#eef4ff 60%,#f9fbff);border-bottom:1px solid var(--line);padding:18px 0}
+  .hero .inner{max-width:1280px;margin:0 auto;padding:0 18px;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+  .hero h1{font-size:23px;color:var(--navy);display:flex;align-items:center;gap:10px}
+  .hero h1 .ic{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,var(--blue),#f2994a);display:grid;place-items:center;color:#fff}
+  .hero p{font-size:12.5px;color:#3f4964;margin-top:5px}
+
+  #gate{min-height:66vh;display:none;place-items:center;padding:30px 16px}
+  #gate .card{max-width:380px;width:100%;background:#fff;border:1px solid var(--line);border-radius:18px;padding:28px 24px;text-align:center}
+  #gate h2{font-size:18px;color:var(--navy);margin-bottom:6px}
+  #gate p{font-size:13px;color:var(--mute);margin-bottom:16px}
+  #gate .fld{text-align:left;margin-bottom:12px}
+  #gate label{font-size:12px;font-weight:700;color:#41506e;display:block;margin-bottom:5px}
+  #gate input{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;font-size:14px;font-family:inherit}
+  #gate .msg{font-size:12.5px;color:var(--red);min-height:18px;margin-bottom:8px}
+  .btn-primary{width:100%;padding:12px;background:var(--blue);color:#fff;border:none;border-radius:11px;font-size:15px;font-weight:800;cursor:pointer}
+
+  #app{display:none;max-width:1280px;margin:0 auto;padding:16px 18px 90px}
+
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-bottom:12px}
+  .stat{background:#fff;border:1px solid var(--line);border-radius:11px;padding:9px 12px}
+  .stat .lbl{font-size:11px;color:var(--mute);font-weight:700}
+  .stat .v{font-size:20px;font-weight:800;font-family:"Inter",sans-serif;margin-top:1px}
+  .stat.done .v{color:var(--green)}.stat.todo .v{color:var(--amber)}
+
+  .bar{background:#fff;border:1px solid var(--line);border-radius:12px;padding:11px 13px;margin-bottom:12px;display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+  .bar input[type=search],.bar select{padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-size:13px;font-family:inherit;background:#fff;color:var(--text)}
+  .bar input[type=search]{flex:1;min-width:200px}
+  .bar .sp{margin-left:auto;display:inline-flex;gap:8px;flex-wrap:wrap}
+  .btn{padding:9px 13px;border:1px solid var(--line);border-radius:9px;font-size:12.5px;font-weight:700;cursor:pointer;background:#fff;color:var(--navy);display:inline-flex;align-items:center;gap:5px}
+  .btn:hover{border-color:var(--blue);color:var(--blue)}
+  .btn.pri{background:var(--blue);border-color:var(--blue);color:#fff}
+  .btn.pri:hover{background:var(--blue2);color:#fff}
+
+  table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  th{background:#f0f6ff;font-size:11.5px;font-weight:700;color:#41506e;text-align:left;padding:9px 11px;white-space:nowrap;border-bottom:1px solid var(--line)}
+  td{padding:9px 11px;border-bottom:1px solid #eef4fb;font-size:12.5px;vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  tr:hover td{background:#fafcff}
+  .thumb{width:54px;height:54px;border-radius:8px;border:1px solid var(--line);background:#f7fafe;display:grid;place-items:center;overflow:hidden;flex:none}
+  .thumb img{width:100%;height:100%;object-fit:contain}
+  .thumb .none{font-size:9.5px;color:var(--gray);text-align:center;line-height:1.3}
+  .nm{font-weight:700;color:var(--navy);font-size:12.5px}
+  .sub{font-size:11px;color:var(--mute)}
+  .url-in{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:8px;font-size:12px;font-family:"Inter",monospace;color:var(--text)}
+  .url-in:focus{outline:none;border-color:var(--blue)}
+  .url-in.dirty{border-color:var(--amber);background:#fffdf6}
+  .tag{display:inline-block;font-size:10.5px;font-weight:700;border-radius:6px;padding:2px 7px}
+  .tag.ok{background:#e6f6ec;color:var(--green)}
+  .tag.ph{background:#fdf3e0;color:var(--amber)}
+  .tag.no{background:#eef2f8;color:var(--gray)}
+  .row-act{display:inline-flex;gap:5px}
+  .row-act button{border:1px solid var(--line);background:#fff;border-radius:7px;padding:5px 8px;font-size:11.5px;cursor:pointer;color:var(--navy)}
+  .row-act button:hover{border-color:var(--blue);color:var(--blue)}
+  .row-act button.rm:hover{border-color:var(--red);color:var(--red)}
+
+  .pager{display:flex;gap:8px;align-items:center;justify-content:center;margin-top:14px;font-size:12.5px;color:var(--mute)}
+  .pager button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:7px 12px;font-size:12.5px;cursor:pointer;color:var(--navy)}
+  .pager button:disabled{opacity:.4;cursor:default}
+
+  .modal{position:fixed;inset:0;background:rgba(9,43,97,.42);display:none;place-items:center;padding:20px;z-index:60}
+  .modal.on{display:grid}
+  .modal .box{background:#fff;border-radius:16px;max-width:620px;width:100%;max-height:86vh;overflow:auto;padding:22px}
+  .modal h3{font-size:16px;color:var(--navy);margin-bottom:6px}
+  .modal p{font-size:12.5px;color:var(--mute);margin-bottom:12px}
+  .modal textarea{width:100%;min-height:180px;padding:11px;border:1px solid var(--line);border-radius:10px;font-size:12.5px;font-family:"Inter",monospace;resize:vertical}
+  .modal .acts{display:flex;gap:9px;justify-content:flex-end;margin-top:12px}
+
+  .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--navy2);color:#fff;padding:11px 18px;border-radius:10px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:70}
+  .toast.on{opacity:1}
+  .empty{text-align:center;padding:40px 20px;color:var(--mute);font-size:13px}
+
+  @media(max-width:900px){
+    .stats{grid-template-columns:repeat(2,1fr)}
+    .hide-sm{display:none}
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar"><div class="inner">
+  <a class="bk" href="/admin/"><span class="material-icons-outlined" style="font-size:16px">arrow_back</span>管理トップ</a>
+  <div class="right">
+    <span style="font-size:12px;color:rgba(255,255,255,.8)" id="userEmail"></span>
+    <button id="logoutBtn" style="display:none" onclick="signOut()">
+      <span class="material-icons-outlined" style="font-size:15px">logout</span>ログアウト</button>
+  </div>
+</div></div>
+
+<div class="hero"><div class="inner">
+  <div>
+    <h1><span class="ic"><span class="material-icons-outlined">image</span></span>商品画像管理</h1>
+    <p>トップページの商品一覧に出す画像を登録します。保存するとすぐサイトに反映されます。</p>
+  </div>
+</div></div>
+
+<div id="gate"><div class="card">
+  <h2>ログイン</h2>
+  <p>事務の共有アカウントでログインしてください</p>
+  <div class="fld"><label>ID</label><input id="g-id" autocomplete="username" placeholder="zimu"></div>
+  <div class="fld"><label>パスワード</label><input id="g-pw" type="password" autocomplete="current-password"></div>
+  <div class="msg" id="gateMsg"></div>
+  <button class="btn-primary" onclick="doLogin()">ログイン</button>
+</div></div>
+
+<div id="app">
+  <div class="stats">
+    <div class="stat"><div class="lbl">商品数</div><div class="v" id="sTotal">—</div></div>
+    <div class="stat done"><div class="lbl">画像あり</div><div class="v" id="sDone">—</div></div>
+    <div class="stat todo"><div class="lbl">準備中（イラスト表示）</div><div class="v" id="sPh">—</div></div>
+    <div class="stat"><div class="lbl">未登録</div><div class="v" id="sNone">—</div></div>
+  </div>
+
+  <div class="bar">
+    <input type="search" id="q" placeholder="型番・商品名・商品コード・メーカーで検索">
+    <select id="fSrc"><option value="">全分類</option></select>
+    <select id="fMaker"><option value="">全メーカー</option></select>
+    <select id="fState">
+      <option value="">画像の状態：すべて</option>
+      <option value="none">未登録のみ</option>
+      <option value="ph">準備中のみ</option>
+      <option value="ok">画像ありのみ</option>
+    </select>
+    <div class="sp">
+      <button class="btn" onclick="openPaste()"><span class="material-icons-outlined" style="font-size:15px">content_paste</span>まとめて貼り付け</button>
+      <button class="btn" onclick="exportJson()"><span class="material-icons-outlined" style="font-size:15px">download</span>JSON書き出し</button>
+      <button class="btn pri" id="saveAll" onclick="saveAll()" disabled>
+        <span class="material-icons-outlined" style="font-size:15px">save</span>変更を保存（<span id="dirtyN">0</span>）</button>
+    </div>
+  </div>
+
+  <div id="host"></div>
+  <div class="pager" id="pager"></div>
+</div>
+
+<div class="modal" id="pasteModal"><div class="box">
+  <h3>まとめて貼り付け</h3>
+  <p>「商品コード（または型番）<span style="font-family:monospace">タブ/カンマ/空白</span>画像URL」を1行ずつ貼り付けてください。
+     ExcelやCSVから2列コピーしたものをそのまま貼れます。</p>
+  <textarea id="pasteText" placeholder="CI7P000118	https://example.com/mr28.jpg
+LE41521400,https://example.com/mpa.jpg"></textarea>
+  <div id="pasteMsg" style="font-size:12.5px;color:var(--mute);margin-top:8px"></div>
+  <div class="acts">
+    <button class="btn" onclick="closePaste()">閉じる</button>
+    <button class="btn pri" onclick="applyPaste()">反映する</button>
+  </div>
+</div></div>
+
+<div class="toast" id="toast"></div>
+
+<script src="/assets/inventory-data.js"></script>
+<script>
+/* ========================================================================
+   トップページの商品一覧（assets/inventory-data.js の1,292件）に対して、
+   商品コードをキーに画像URLを登録する画面。
+
+   保存先は Supabase の catalog_images。トップページは静的な
+   assets/product-images.json を読んだあと、このテーブルを重ねて表示するので、
+   ここで保存すればデプロイを待たずに反映される。
+   ======================================================================== */
+const SUPA_URL="https://htglvascsuqkixpmclwr.supabase.co";
+const SUPA_KEY="sb_publishable_yZCcrwdqjuf0u_5WBWlHIw_AxdvteEV";
+const SHARED_EMAIL="zimu@8grp.co.jp";
+const BUCKET="shop-images";
+const PAGE=50;
+
+let sb=null;
+let records=[];          // 在庫1,292件
+let saved={};            // 商品コード → {image_url, credit, memo}（Supabase）
+let staticImages={};     // assets/product-images.json（準備中フラグの判定に使う）
+let dirty={};            // 未保存の変更
+let state={q:"",src:"",maker:"",st:"",page:1};
+
+const $=(id)=>document.getElementById(id);
+const esc=(s)=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("on");clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove("on"),2600);}
+
+/* ===== 認証（管理画面トップと同じ共有アカウント） ===== */
+(async function init(){
+  if(!window.supabase){$("gate").style.display="grid";$("gateMsg").textContent="読み込みに失敗しました。再読み込みしてください。";return;}
+  sb=window.supabase.createClient(SUPA_URL,SUPA_KEY,{auth:{persistSession:true,autoRefreshToken:true,storage:window.localStorage,storageKey:"zimu-portal-auth"}});
+  const {data:{session}}=await sb.auth.getSession();
+  if(session&&session.user&&session.user.email===SHARED_EMAIL){showApp();await load();}
+  else{$("gate").style.display="grid";}
+})();
+
+async function doLogin(){
+  const id=$("g-id").value.trim(),pw=$("g-pw").value,msg=$("gateMsg");
+  msg.textContent="";
+  if(!id||!pw){msg.textContent="IDとパスワードを入力してください";return;}
+  try{
+    const {data,error}=await sb.auth.signInWithPassword({email:id.toLowerCase()+"@8grp.co.jp",password:pw});
+    if(error){msg.textContent="IDまたはパスワードが違います";return;}
+    if(data.user.email!==SHARED_EMAIL){msg.textContent="このアカウントには権限がありません";await sb.auth.signOut();return;}
+    showApp();await load();
+  }catch(e){msg.textContent="ログインに失敗："+e.message;}
+}
+function showApp(){$("gate").style.display="none";$("app").style.display="block";
+  $("logoutBtn").style.display="inline-flex";$("userEmail").textContent="zimu";}
+async function signOut(){await sb.auth.signOut();location.reload();}
+
+/* ===== 読み込み ===== */
+async function load(){
+  const INV=window.EIGHT_INVENTORY||{records:[]};
+  records=INV.records.map((r,i)=>({i,...r}));
+
+  try{
+    const res=await fetch("/assets/product-images.json",{cache:"no-cache"});
+    if(res.ok) staticImages=(await res.json()).images||{};
+  }catch(_){}
+
+  const {data,error}=await sb.from("catalog_images").select("product_code,image_url,credit,memo");
+  if(error){
+    toast("画像データを読めませんでした："+error.message);
+  }else{
+    saved={};(data||[]).forEach(r=>{saved[r.product_code]={image_url:r.image_url,credit:r.credit,memo:r.memo};});
+  }
+
+  fillSelects();
+  render();
+}
+
+function fillSelects(){
+  const uniq=(k)=>[...new Set(records.map(r=>r[k]).filter(Boolean))].sort();
+  $("fSrc").innerHTML='<option value="">全分類</option>'+uniq("source").map(v=>`<option>${esc(v)}</option>`).join("");
+  $("fMaker").innerHTML='<option value="">全メーカー</option>'+uniq("maker").map(v=>`<option>${esc(v)}</option>`).join("");
+  ["q","fSrc","fMaker","fState"].forEach(id=>{
+    $(id).addEventListener("input",()=>{
+      state.q=$("q").value.trim();state.src=$("fSrc").value;state.maker=$("fMaker").value;state.st=$("fState").value;
+      state.page=1;render();
+    });
+  });
+}
+
+/* 商品の画像の状態。dirty（未保存）→ Supabase → 静的JSON の順に見る */
+function imageOf(r){
+  const code=r.productCode||"";
+  if(dirty[code]!==undefined) return {url:dirty[code],from:"dirty"};
+  if(saved[code]) return {url:saved[code].image_url,from:"saved"};
+  const s=staticImages[code]||staticImages[r.model];
+  if(s&&s.src) return {url:s.src,from:s.placeholder?"placeholder":"static"};
+  return {url:"",from:"none"};
+}
+function stateOf(r){
+  const g=imageOf(r);
+  if(!g.url) return "none";
+  return g.from==="placeholder"?"ph":"ok";
+}
+
+function filtered(){
+  const q=state.q.toLowerCase();
+  return records.filter(r=>{
+    if(state.src&&r.source!==state.src) return false;
+    if(state.maker&&r.maker!==state.maker) return false;
+    if(state.st&&stateOf(r)!==state.st) return false;
+    if(!q) return true;
+    return [r.model,r.name,r.productCode,r.maker,r.category].some(v=>String(v||"").toLowerCase().includes(q));
+  });
+}
+
+function render(){
+  const all=filtered();
+  const pages=Math.max(1,Math.ceil(all.length/PAGE));
+  state.page=Math.min(state.page,pages);
+  const rows=all.slice((state.page-1)*PAGE,state.page*PAGE);
+
+  // 集計は全件に対して出す
+  const c={ok:0,ph:0,none:0};
+  records.forEach(r=>c[stateOf(r)]++);
+  $("sTotal").textContent=records.length.toLocaleString("ja-JP");
+  $("sDone").textContent=c.ok.toLocaleString("ja-JP");
+  $("sPh").textContent=c.ph.toLocaleString("ja-JP");
+  $("sNone").textContent=c.none.toLocaleString("ja-JP");
+
+  if(!rows.length){
+    $("host").innerHTML='<div class="empty">条件に合う商品がありません。</div>';
+    $("pager").innerHTML="";return;
+  }
+
+  $("host").innerHTML='<table><thead><tr>'+
+    '<th style="width:66px">画像</th><th>商品</th>'+
+    '<th class="hide-sm" style="width:120px">商品コード</th>'+
+    '<th>画像URL</th><th style="width:96px">状態</th><th style="width:120px">操作</th>'+
+    '</tr></thead><tbody>'+rows.map(rowHtml).join("")+"</tbody></table>";
+
+  $("pager").innerHTML=
+    `<button onclick="go(${state.page-1})" ${state.page<=1?"disabled":""}>← 前</button>`+
+    `<span>${all.length.toLocaleString("ja-JP")}件中 ${(state.page-1)*PAGE+1}–${Math.min(state.page*PAGE,all.length)}（${state.page}/${pages}）</span>`+
+    `<button onclick="go(${state.page+1})" ${state.page>=pages?"disabled":""}>次 →</button>`;
+
+  bindRows();
+}
+function go(p){state.page=p;render();window.scrollTo({top:0,behavior:"smooth"});}
+
+function rowHtml(r){
+  const code=r.productCode||"";
+  const g=imageOf(r);
+  const st=stateOf(r);
+  const tag={ok:'<span class="tag ok">画像あり</span>',
+             ph:'<span class="tag ph">準備中</span>',
+             none:'<span class="tag no">未登録</span>'}[st];
+  const thumb=g.url
+    ? `<img src="${esc(g.url)}" alt="" loading="lazy" onerror="this.parentNode.innerHTML='<span class=&quot;none&quot;>開けません</span>'">`
+    : '<span class="none">なし</span>';
+  return '<tr data-code="'+esc(code)+'">'+
+    '<td><div class="thumb">'+thumb+'</div></td>'+
+    '<td><div class="nm">'+esc(r.model||"")+'</div>'+
+      '<div class="sub">'+esc((r.maker?r.maker+"／":"")+(r.name||"").slice(0,42))+'</div></td>'+
+    '<td class="hide-sm"><span class="sub" style="font-family:Inter,monospace">'+esc(code)+'</span></td>'+
+    '<td><input class="url-in'+(dirty[code]!==undefined?" dirty":"")+'" data-url="'+esc(code)+'"'+
+      ' value="'+esc(g.url)+'" placeholder="https://… または /images/products/'+esc(code)+'.webp"></td>'+
+    '<td>'+tag+'</td>'+
+    '<td><div class="row-act">'+
+      '<button data-up="'+esc(code)+'" title="画像ファイルをアップロード">アップ</button>'+
+      '<button class="rm" data-del="'+esc(code)+'" title="登録を削除">削除</button>'+
+    '</div></td></tr>';
+}
+
+function bindRows(){
+  document.querySelectorAll("[data-url]").forEach(el=>{
+    el.addEventListener("input",()=>{
+      const code=el.dataset.url;
+      const cur=(saved[code]&&saved[code].image_url)||"";
+      const val=el.value.trim();
+      if(val===cur) delete dirty[code]; else dirty[code]=val;
+      el.classList.toggle("dirty",dirty[code]!==undefined);
+      refreshDirty();
+    });
+  });
+  document.querySelectorAll("[data-del]").forEach(el=>{
+    el.addEventListener("click",()=>removeOne(el.dataset.del));
+  });
+  document.querySelectorAll("[data-up]").forEach(el=>{
+    el.addEventListener("click",()=>uploadFor(el.dataset.up));
+  });
+}
+function refreshDirty(){
+  const n=Object.keys(dirty).length;
+  $("dirtyN").textContent=n;
+  $("saveAll").disabled=n===0;
+}
+
+/* ===== 画像ファイルのアップロード ===== */
+function uploadFor(code){
+  const input=document.createElement("input");
+  input.type="file";input.accept="image/*";
+  input.onchange=async()=>{
+    const file=input.files&&input.files[0];
+    if(!file) return;
+    toast("アップロード中…");
+    const ext=(file.name.split(".").pop()||"jpg").toLowerCase();
+    const path="catalog/"+code+"."+ext;
+    const {error}=await sb.storage.from(BUCKET).upload(path,file,{upsert:true,contentType:file.type});
+    if(error){toast("アップロードに失敗："+error.message);return;}
+    const {data}=sb.storage.from(BUCKET).getPublicUrl(path);
+    dirty[code]=data.publicUrl+"?v="+Date.now();
+    render();refreshDirty();
+    toast("アップロードしました。「変更を保存」で反映されます");
+  };
+  input.click();
+}
+
+/* ===== 保存・削除 ===== */
+async function saveAll(){
+  const codes=Object.keys(dirty);
+  if(!codes.length) return;
+  const byCode={};records.forEach(r=>{if(r.productCode) byCode[r.productCode]=r;});
+
+  const rows=codes.filter(c=>dirty[c]).map(c=>({
+    product_code:c,
+    model:(byCode[c]||{}).model||null,
+    image_url:dirty[c],
+    credit:"自社配信",
+    updated_by:"zimu"
+  }));
+  const blanks=codes.filter(c=>!dirty[c]);   // 空にしたものは登録を消す
+
+  $("saveAll").disabled=true;
+  try{
+    if(rows.length){
+      const {error}=await sb.from("catalog_images").upsert(rows,{onConflict:"product_code"});
+      if(error) throw error;
+      rows.forEach(r=>{saved[r.product_code]={image_url:r.image_url,credit:r.credit};});
+    }
+    if(blanks.length){
+      const {error}=await sb.from("catalog_images").delete().in("product_code",blanks);
+      if(error) throw error;
+      blanks.forEach(c=>{delete saved[c];});
+    }
+    dirty={};refreshDirty();render();
+    toast(rows.length+"件を保存しました"+(blanks.length?`（${blanks.length}件を削除）`:""));
+  }catch(e){
+    toast("保存に失敗："+e.message);
+    $("saveAll").disabled=false;
+  }
+}
+
+async function removeOne(code){
+  if(!saved[code]&&dirty[code]===undefined){toast("登録がありません");return;}
+  if(!confirm(code+" の画像登録を削除します。よろしいですか？")) return;
+  const {error}=await sb.from("catalog_images").delete().eq("product_code",code);
+  if(error){toast("削除に失敗："+error.message);return;}
+  delete saved[code];delete dirty[code];
+  refreshDirty();render();toast("削除しました");
+}
+
+/* ===== まとめて貼り付け ===== */
+function openPaste(){$("pasteModal").classList.add("on");$("pasteText").focus();}
+function closePaste(){$("pasteModal").classList.remove("on");$("pasteMsg").textContent="";}
+function applyPaste(){
+  const byCode={},byModel={};
+  records.forEach(r=>{
+    if(r.productCode) byCode[r.productCode.toUpperCase()]=r.productCode;
+    if(r.model&&!byModel[r.model.toUpperCase()]) byModel[r.model.toUpperCase()]=r.productCode;
+  });
+  let hit=0,miss=[];
+  $("pasteText").value.split(/\r?\n/).forEach(line=>{
+    line=line.trim();
+    if(!line) return;
+    const p=line.split(/[\t,]|\s{2,}|\s+(?=https?:\/\/)/);
+    if(p.length<2){miss.push(line.slice(0,30));return;}
+    const key=p[0].trim().toUpperCase(),url=p.slice(1).join(" ").trim();
+    if(!/^(https?:\/\/|\/)/.test(url)){miss.push(p[0]);return;}
+    const code=byCode[key]||byModel[key];
+    if(!code){miss.push(p[0]);return;}
+    dirty[code]=url;hit++;
+  });
+  refreshDirty();render();
+  $("pasteMsg").innerHTML=hit+"件を反映しました。「変更を保存」で確定します。"+
+    (miss.length?'<br><span style="color:var(--red)">見つからない／形式が違う行 '+miss.length+"件："+esc(miss.slice(0,5).join(" / "))+"</span>":"");
+}
+
+/* ===== JSON書き出し（リポジトリの assets/product-images.json に反映したいとき） ===== */
+function exportJson(){
+  const images={};
+  const byCode={};records.forEach(r=>{if(r.productCode) byCode[r.productCode]=r;});
+  Object.keys(saved).sort().forEach(code=>{
+    images[code]={src:saved[code].image_url,credit:saved[code].credit||"自社配信"};
+  });
+  const out={
+    updated:new Date().toISOString().slice(0,10),
+    note:"管理画面（/admin/catalog/）から書き出したもの。assets/product-images.json に置き換えて使う。",
+    images
+  };
+  const blob=new Blob([JSON.stringify(out,null,2)+"\n"],{type:"application/json"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);a.download="product-images.json";a.click();
+  URL.revokeObjectURL(a.href);
+  toast(Object.keys(images).length+"件を書き出しました");
+}
+
+document.addEventListener("keydown",e=>{if(e.key==="Escape") closePaste();});
+$("pasteModal").addEventListener("click",e=>{if(e.target.id==="pasteModal") closePaste();});
+window.addEventListener("beforeunload",e=>{
+  if(Object.keys(dirty).length){e.preventDefault();e.returnValue="";}
+});
+</script>
+</body>
+</html>
