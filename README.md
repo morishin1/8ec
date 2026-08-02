@@ -142,6 +142,21 @@ python3 tools/import-images.py --from-shop --yes    # 実際に取り込む
 > 表示としての正確さの問題があるため、`--from-shop` は一覧を出すだけで止まり、
 > 取り込むには `--yes` を明示する必要があります。
 
+**5. 自社で画像を用意する（`images/products/` 配信）**
+
+商品コードでファイル名を固定し、自社ドメインから配信する方式です。
+URLが `https://8ec.jp/images/products/<商品コード>.webp` で固定されるため、
+正式な画像を同じファイル名で上書きすれば、データを触らずに差し替わります。
+
+```bash
+python3 tools/import-images.py --from-manifest assets/product-image-manifest.csv
+```
+
+マニフェストの「状態」列が「準備中」「差替待ち」のものは `placeholder` として登録され、
+**サイト上ではイラスト表示のまま**になります。「商品画像準備中」の画像より、
+機器の種類が分かるイラストの方が一覧で役に立つためです。
+準備中の画像もそのまま出したい場合は `--show-placeholders` を付けてください。
+
 `--download` を付けると画像を `assets/products/` に保存し、そちらを参照します。
 直リンクを避けられるので、本番ではこちらを推奨します
 （外部へ接続できる環境で実行してください）。

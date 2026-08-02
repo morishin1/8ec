@@ -179,6 +179,46 @@ def from_dir(args, data):
     print(f"{src_dir.name}: {added}件を assets/products/ に取り込みました")
 
 
+def from_manifest(args, data):
+    """商品画像マニフェスト（商品コード・型番・公開URL・状態）を取り込む。
+
+    自社で画像を用意する運用で使う。ファイル名は商品コードなので商品コードをキーにする。
+    「準備中」のまま差し替え待ちのものは placeholder として印を付け、
+    サイト側ではイラストを出し続ける（準備中の画像より機器の種類が分かるため）。
+    """
+    path = Path(args.from_manifest)
+    rows = rows_of(path)
+    head, cols = find_header(rows, "商品コード", "公開URL", "状態")
+    if head is None:
+        sys.exit(f"見出し「商品コード」「公開URL」「状態」が見つかりません: {rows[0][:6] if rows else '(空)'}")
+
+    ready = pending = 0
+    for row in rows[head + 1:]:
+        if len(row) <= max(cols.values()):
+            continue
+        code = str(row[cols["商品コード"]]).strip()
+        url = str(row[cols["公開URL"]]).strip()
+        state = str(row[cols["状態"]]).strip()
+        if not code or not url:
+            continue
+        # 自社ドメイン配信ならリポジトリ内の相対パスにする（プレビュー環境でも出るように）
+        src = re.sub(r"^https?://(www\.)?8ec\.jp/", "/", url)
+        is_placeholder = ("準備中" in state or "差替待ち" in state) and not args.show_placeholders
+        entry = {"src": src, "credit": args.credit}
+        if is_placeholder:
+            entry["placeholder"] = True
+            entry["note"] = state
+            pending += 1
+        else:
+            ready += 1
+        data["images"][code] = entry
+
+    print(f"{path.name}: {ready + pending}件を登録（実写 {ready}件 / 差し替え待ち {pending}件）")
+    if pending:
+        print("  差し替え待ちのものはサイト上ではイラスト表示のままです。"
+              "正式な画像を同じファイル名で上書きし、マニフェストの状態を変えて再取り込みしてください。")
+
+
 def from_paste(args, data):
     """「型番 URL」を1行ずつ貼り付けて登録する。
 
@@ -319,12 +359,16 @@ def main():
                     help="「型番 URL」を1行ずつ貼り付けて登録する（標準入力）")
     ap.add_argument("--from-shop", action="store_true",
                     help="自社ショップ（Supabase の shop_products）から型番一致で取り込む")
+    ap.add_argument("--from-manifest",
+                    help="商品画像マニフェスト（商品コード・公開URL・状態を持つCSV）")
     ap.add_argument("--model-col", default="型番", help="型番の列見出し（--from-file 用）")
     ap.add_argument("--url-col", default="画像URL", help="画像URLの列見出し（--from-file 用）")
     ap.add_argument("--credit", default="メーカー提供", help="画像に添えるクレジット表記")
     ap.add_argument("--download", action="store_true", help="画像をローカルに保存して直リンクを避ける")
     ap.add_argument("--status", action="store_true", help="型番ごとの画像の有無を集計する")
     ap.add_argument("--yes", action="store_true", help="確認せずに取り込む（--from-shop 用）")
+    ap.add_argument("--show-placeholders", action="store_true",
+                    help="「準備中」画像もサイトに表示する（既定はイラストのまま）")
     ap.add_argument("--shop-url", default="https://htglvascsuqkixpmclwr.supabase.co",
                     help="ショップのSupabase URL")
     ap.add_argument("--shop-key", default="sb_publishable_yZCcrwdqjuf0u_5WBWlHIw_AxdvteEV",
@@ -336,7 +380,11 @@ def main():
     if args.status:
         status(data)
         return
-    if args.from_file:
+    if args.from_manifest:
+        if args.credit == "メーカー提供":
+            args.credit = "自社配信"
+        from_manifest(args, data)
+    elif args.from_file:
         from_file(args, data)
     elif args.from_dir:
         from_dir(args, data)

@@ -756,9 +756,12 @@
   /* 実写があればそれを、無ければ機器タイプのイラストを出す。
      イラストは実物の写真ではないので、必ず「イメージ図」と明示する */
   const photoOf = (p) => {
-    const m = PRODUCT_IMAGES[p.model] || PRODUCT_IMAGES[String(p.model || '').toUpperCase()];
     if (p.image) return { src: p.image, credit: p.credit || 'メーカー提供' };
-    if (m && m.src) return { src: m.src, credit: m.credit || 'メーカー提供' };
+    /* 自社配信の画像は商品コードでファイル名が付いているので、型番・商品コードの両方で引く */
+    const m = PRODUCT_IMAGES[p.code] || PRODUCT_IMAGES[p.model] ||
+              PRODUCT_IMAGES[String(p.model || '').toUpperCase()];
+    /* 差し替え待ちの「準備中」画像は、機器の種類が分かるイラストのままにする */
+    if (m && m.src && !m.placeholder) return { src: m.src, credit: m.credit || 'メーカー提供' };
     return null;
   };
 
