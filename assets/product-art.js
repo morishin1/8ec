@@ -416,8 +416,11 @@
           '<stop offset="1" stop-color="' + conf.accent + '"/>' +
         '</radialGradient>' +
       '</defs>' +
-      '<rect width="200" height="140" fill="url(#' + ids.bg + ')"/>' +
-      '<circle cx="168" cy="26" r="40" fill="' + conf.accent + '" opacity=".07"/>' +
+      /* bare は機器だけを描く。ヒーロー画像のように複数の機器を並べて使うとき、
+         1台ごとの背景タイルが邪魔になるため */
+      (opts.bare ? '' :
+        '<rect width="200" height="140" fill="url(#' + ids.bg + ')"/>' +
+        '<circle cx="168" cy="26" r="40" fill="' + conf.accent + '" opacity=".07"/>') +
       draw +
       '</svg>';
   }

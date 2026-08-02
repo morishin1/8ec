@@ -109,11 +109,11 @@
     .hero{position:relative;overflow:hidden}
     .hero-bg{position:absolute;inset:0;z-index:0}
     .hero-bg picture{display:block;width:100%;height:100%}
-    .hero-bg img{width:100%;height:100%;object-fit:cover;object-position:78% 50%}
-    /* 写真の上に左からのグラデーションを重ね、コピーを読める明度に保つ */
+    .hero-bg img{width:100%;height:100%;object-fit:cover;object-position:78% 100%}
+    /* 本文が乗る左側だけ白く抜き、機器イラストのある右下は薄く残す */
     .hero-bg:after{content:"";position:absolute;inset:0;
-      background:linear-gradient(96deg,#f4f6fa 0 30%,rgba(244,246,250,.94) 44%,rgba(244,246,250,.66) 58%,rgba(233,238,250,.24) 78%,rgba(220,229,246,.12) 100%),
-                 linear-gradient(180deg,rgba(244,246,250,.55) 0,rgba(244,246,250,0) 24%,rgba(244,246,250,.9) 100%)}
+      background:linear-gradient(96deg,#f4f6fa 0 26%,rgba(244,246,250,.92) 40%,rgba(244,246,250,.55) 54%,rgba(244,246,250,.12) 72%,rgba(244,246,250,0) 100%),
+                 linear-gradient(180deg,rgba(244,246,250,.5) 0,rgba(244,246,250,0) 26%,rgba(244,246,250,.18) 100%)}
     .hero-grid{position:relative;z-index:1;display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:32px;align-items:center;padding-top:56px;padding-bottom:44px}
     .badge{display:inline-flex;align-items:center;gap:8px;background:var(--chip);color:var(--chip-fg);font-size:11px;font-weight:500;padding:5px 11px;border-radius:999px;letter-spacing:.04em}
     h1{font-size:clamp(28px,3.4vw,40px);line-height:1.35;font-weight:700;color:var(--navy);margin:18px 0 14px;letter-spacing:-.01em}
@@ -372,8 +372,10 @@
       nav{gap:16px;width:100%;margin-left:0;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
       nav a{white-space:nowrap}
       /* 縦画面では機器やアイコンが文字と重なるので、絵の余白が多い左側を見せて質感だけ残す */
-      .hero-bg img{object-position:6% 42%}
-      .hero-bg:after{background:linear-gradient(180deg,rgba(244,246,250,.72) 0,rgba(244,246,250,.93) 40%,#f4f6fa 74%)}
+      /* 縦長の画面では機器が引き伸ばされて形が読み取れないので、
+         全体を薄い背景として見せることに割り切る */
+      .hero-bg img{object-position:82% 12%;opacity:.5}
+      .hero-bg:after{background:linear-gradient(180deg,rgba(244,246,250,.62) 0,rgba(244,246,250,.86) 42%,#f4f6fa 78%)}
       .hero-grid{padding-top:32px;padding-bottom:28px;gap:24px}
       /* 1カラムだと商品画像が縦に伸びて一覧しづらいので高さを抑える */
       .p-media{aspect-ratio:auto;height:168px}
@@ -410,10 +412,7 @@
   <!-- ヒーロー：背景写真にグラデーションを重ねてコピーを読ませる -->
   <section class="hero">
     <div class="hero-bg" aria-hidden="true">
-      <picture>
-        <source srcset="assets/eight-commerce-hero-v2.webp" type="image/webp">
-        <img src="assets/eight-commerce-hero-v2.png" alt="" fetchpriority="high" decoding="async">
-      </picture>
+      <img src="assets/hero-devices.svg" alt="" fetchpriority="high" decoding="async">
     </div>
     <div class="wrap hero-grid">
       <div>

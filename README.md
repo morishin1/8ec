@@ -75,6 +75,21 @@ python3 tools/export-csv.py /path/out.csv   # 出力先を指定する
 
 ---
 
+## ヒーロー画像
+
+トップページのヒーロー背景は `assets/hero-devices.svg` です。
+商品一覧で使っている `assets/product-art.js` の機器イラストをそのまま並べて組み立てているので、
+ヒーローと商品カードの画風が揃います。写真素材を使わないため権利の問題も起きません。
+
+```bash
+node tools/build-hero.js     # assets/hero-devices.svg を作り直す
+```
+
+機器の種類・位置・大きさは `tools/build-hero.js` の構図部分で調整します。
+ベクターなので22KB（gzip後3KB）、拡大しても粗くなりません。
+
+---
+
 ## 商品画像
 
 実写があるものはそれを、無いものは `assets/product-art.js` が型番とカテゴリから機器の種類を
