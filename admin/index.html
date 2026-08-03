@@ -391,6 +391,23 @@
   .shop-break .note{display:block;font-size:11.5px;color:var(--mute);margin-top:3px}
 
   /* 棚卸・在庫報告 */
+  /* 未棚卸／棚卸済み の切替。毎月の作業では「未棚卸」だけ見えていればよい */
+  .st-tabs{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  .stt{display:inline-flex;align-items:center;gap:8px;padding:11px 18px;border:1px solid var(--line);
+    background:#fff;border-radius:11px;font-size:13.5px;font-weight:700;color:var(--mute);cursor:pointer;font-family:inherit}
+  .stt:hover{border-color:var(--blue);color:var(--blue)}
+  .stt .c{display:inline-grid;place-items:center;min-width:24px;height:21px;padding:0 7px;border-radius:11px;
+    background:#eef2f8;color:var(--mute);font-size:12px;font-weight:800;font-family:"Inter",sans-serif}
+  .stt.on{background:var(--navy);border-color:var(--navy);color:#fff}
+  .stt.on .c{background:rgba(255,255,255,.22);color:#fff}
+  .stt.k-none.on{background:var(--blue);border-color:var(--blue)}
+  .stt.k-ok.on{background:var(--green);border-color:var(--green)}
+  .stt.k-diff.on{background:var(--red);border-color:var(--red)}
+  .stt-ym{margin-left:auto;font-size:12.5px;font-weight:700;color:var(--mute)}
+  .st-done{background:#f2fbf5;border:1px solid #cfe9d8;border-radius:12px;color:var(--text)}
+  .st-done .material-icons-outlined{color:var(--green);font-size:34px}
+  .st-done b{display:block;font-size:15px;color:var(--navy);margin:8px 0 6px}
+  .st-done p{font-size:12.5px;color:var(--mute);line-height:1.9;margin:0}
   .st-bar{background:#fff;border:1px solid var(--line);border-radius:12px;padding:11px 13px;margin-bottom:12px;display:flex;gap:9px;flex-wrap:wrap;align-items:center}
   .st-bar label{font-size:12px;font-weight:700;color:#41506e}
   .st-bar input,.st-bar select{padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-size:13px;font-family:inherit;background:#fff;color:var(--text)}
@@ -613,7 +630,7 @@
     <div class="listing-head">
       <div>
         <h2 style="font-size:16px;color:var(--navy);display:flex;align-items:center;gap:8px;margin-bottom:4px"><span class="material-icons-outlined" style="color:var(--blue)">fact_check</span>棚卸・在庫報告</h2>
-        <p style="font-size:12.5px;color:var(--mute);line-height:1.6"><strong>検索して絞り込み → チェックを入れる → 「棚卸済みにする」</strong>で、選んだ商品にその場の<strong>日付と時刻</strong>が記録されます。各行の右側に<strong>いつ棚卸したか</strong>が出るので、商品を検索すれば最後に確認した日時がすぐ分かります。全部終わったら<strong>「棚卸を確定」</strong>で、その月の点数・在庫金額・差異件数を記録として残します。</p>
+        <p style="font-size:12.5px;color:var(--mute);line-height:1.6"><strong>「未棚卸」タブに、その月にまだ確認していない在庫だけが並びます。</strong>チェックを入れて<strong>「棚卸済みにする」</strong>を押すと、その場の<strong>日付と時刻</strong>が入り、一覧から消えて<strong>「棚卸済み」タブへ移ります</strong>。未棚卸が0になれば、その月の棚卸は完了です。<strong>翌月になると、また全件が「未棚卸」から始まります</strong>（前月の記録は残ります）。</p>
       </div>
       <div class="listing-actions">
         <button class="btn-add" onclick="exportStockCsv()"><span class="material-icons-outlined" style="font-size:18px">download</span>在庫CSVを出力</button>
@@ -622,17 +639,12 @@
 
     <div class="stats" id="stStats" style="grid-template-columns:repeat(4,1fr)"></div>
 
+    <div class="st-tabs" id="stTabs"></div>
+
     <div class="st-bar">
-      <label>対象月</label><input type="month" id="stYm" onchange="renderStocktake()">
+      <label>対象月</label><input type="month" id="stYm" onchange="stOnMonthChange()">
       <select id="stLoc" onchange="renderStocktake()"><option value="">全保管場所</option></select>
       <select id="stCat" onchange="renderStocktake()"><option value="">全種別</option></select>
-      <select id="stRes" onchange="renderStocktake()">
-        <option value="">対象月の状況：すべて</option>
-        <option value="none">未棚卸のみ</option>
-        <option value="ok">棚卸済み</option>
-        <option value="missing">なし</option>
-        <option value="check">要確認</option>
-      </select>
       <select id="stMonth" onchange="renderStocktake()"><option value="">最終棚卸月：すべて</option></select>
       <select id="stSort" onchange="renderStocktake()">
         <option value="oldest">並び替え：棚卸が古い順（未棚卸が先）</option>
@@ -1098,14 +1110,16 @@ function stLastYm(it){return it.stocktake_at?isoToLocal(it.stocktake_at).slice(0
 
 function stFiltered(ym){
   const val=id=>((document.getElementById(id)||{}).value)||'';
-  const loc=val('stLoc'),cat=val('stCat'),res=val('stRes'),mon=val('stMonth');
+  const loc=val('stLoc'),cat=val('stCat'),mon=val('stMonth');
+  const res=stTab;                       // 未棚卸／棚卸済み／なし・要確認／すべて
   const q=val('stQ').trim().toLowerCase();
   return stockItems().filter(it=>{
     if(loc&&(it.location||'')!==loc)return false;
     if(cat&&(it.category||'')!==cat)return false;
     const r=stResultOf(it,ym);
-    if(res==='none'&&r)return false;
-    if(res&&res!=='none'&&r!==res)return false;
+    if(res==='none'&&r)return false;                       // 未棚卸だけ
+    if(res==='ok'&&r!=='ok')return false;                  // 今月「棚卸済み」にしたもの
+    if(res==='diff'&&r!=='missing'&&r!=='check')return false;
     if(mon==='never'&&it.stocktake_at)return false;              // 一度も棚卸していない
     if(mon&&mon!=='never'&&stLastYm(it)!==mon)return false;
     if(!q)return true;
@@ -1141,6 +1155,33 @@ function stSortList(list){
 }
 
 let stSel=new Set();                             // チェックした商品
+/* 表示するリスト。既定は「未棚卸」——毎月の作業では、まだ確認していないものだけ
+   見えていればよい。棚卸済みにしたものはこの一覧から消え、「棚卸済み」タブへ移る。 */
+let stTab='none';
+
+const ST_TABS=[
+  {key:'none', label:'未棚卸',       hint:'この月にまだ確認していないもの'},
+  {key:'ok',   label:'棚卸済み',     hint:'この月に確認したもの'},
+  {key:'diff', label:'なし・要確認', hint:'現物が見つからない・確認が必要なもの'},
+  {key:'',     label:'すべて',       hint:'在庫すべて'}
+];
+function setStTab(k){stTab=k;stSel.clear();renderStocktake();}
+/* 対象月を変えたら未棚卸に戻す。翌月は全件が未棚卸から始まるため */
+function stOnMonthChange(){stTab='none';stSel.clear();renderStocktake();}
+
+function renderStTabs(ym,stock){
+  const host=document.getElementById('stTabs');if(!host)return;
+  const cnt={none:0,ok:0,diff:0};
+  stock.forEach(it=>{
+    const r=stResultOf(it,ym);
+    if(!r)cnt.none++; else if(r==='ok')cnt.ok++; else cnt.diff++;
+  });
+  const num=k=>k===''?stock.length:cnt[k];
+  host.innerHTML=ST_TABS.map(t=>
+    `<button class="stt ${t.key===stTab?'on':''} k-${t.key||'all'}" onclick="setStTab('${t.key}')" title="${esc(t.hint)}">
+       ${t.label}<span class="c">${num(t.key)}</span></button>`).join('')
+    +`<span class="stt-ym">${ym.replace('-','年')}月の棚卸</span>`;
+}
 
 function renderStocktake(){
   const host=document.getElementById('stList');if(!host)return;
@@ -1157,6 +1198,8 @@ function renderStocktake(){
   const stock=stockItems();
   fillOnce('stLoc',[...new Set(stock.map(it=>it.location).filter(Boolean))].sort(),'全保管場所');
   fillOnce('stCat',[...new Set(stock.map(it=>it.category).filter(Boolean))].sort(),'全種別');
+
+  renderStTabs(ym,stock);
 
   const cnt={ok:0,missing:0,check:0,none:0};
   stock.forEach(it=>{const r=stResultOf(it,ym);cnt[r||'none']++;});
@@ -1193,7 +1236,15 @@ function renderStocktake(){
   stSel=new Set([...stSel].filter(id=>ids.includes(id)));
 
   if(!list.length){
-    host.innerHTML='<div class="empty"><span class="material-icons-outlined">fact_check</span>条件に合う在庫がありません。</div>';
+    const q=((document.getElementById('stQ')||{}).value||'').trim();
+    const done=(stTab==='none'&&!q&&cnt.none===0);
+    host.innerHTML=done
+      ? `<div class="empty st-done"><span class="material-icons-outlined">task_alt</span>
+          <b>${ym.replace('-','年')}月の棚卸は完了しました。</b>
+          <p>未棚卸は0点です。「棚卸を確定」を押すと、この月の記録として残せます。<br>
+          翌月になると、また全件が「未棚卸」から始まります。</p></div>`
+      : '<div class="empty"><span class="material-icons-outlined">fact_check</span>'
+        +(stTab==='none'?'この条件で未棚卸のものはありません。':'条件に合う在庫がありません。')+'</div>';
   }else{
     const allOn=ids.length>0&&ids.every(id=>stSel.has(id));
     host.innerHTML=
@@ -1289,7 +1340,10 @@ async function stMark(result){
   const stamp=result?`${fmtD(now.toISOString())} ${two(now.getHours())}:${two(now.getMinutes())}`:'';
   stSel.clear();
   renderStocktake();
-  stToast(result?`${ids.length}件を棚卸済みにしました（${stamp}）`:`${ids.length}件の記録を取り消しました`);
+  const moved={ok:'棚卸済み',missing:'なし',check:'要確認'}[result];
+  stToast(result
+    ? `${ids.length}件を「${moved}」に移動しました（${stamp}）`
+    : `${ids.length}件を「未棚卸」に戻しました`);
 }
 
 function stToast(msg){
