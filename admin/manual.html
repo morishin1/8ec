@@ -505,16 +505,18 @@
     <div class="txt">
       <div class="num"><span class="b">10</span>毎月の在庫報告をする</div>
       <h2>棚卸と在庫CSV</h2>
-      <p>上部タブの<strong>「棚卸・在庫報告」</strong>で、月ごとの実地棚卸と、報告用の在庫CSV出力ができます。</p>
+      <p>上部タブの<strong>「棚卸・在庫報告」</strong>で、月ごとの実地棚卸と、報告用の在庫CSV出力ができます。作業の流れは<strong>「検索 → チェック → 棚卸ボタン」</strong>の3手だけです。</p>
       <ul>
-        <li><span class="material-icons-outlined">fact_check</span><strong>在庫を1件ずつ確認する。</strong>各行の<strong>「あり」「なし」「要確認」</strong>を押すだけで記録されます（保存ボタンは不要）。押し間違えたら<strong>同じボタンをもう一度押すと取り消せます</strong></li>
-        <li><span class="material-icons-outlined">filter_alt</span><strong>保管場所・種別・確認状況で絞り込めます。</strong>倉庫を回りながら「柏の未確認だけ」を表示して進める、といった使い方ができます</li>
-        <li><span class="material-icons-outlined">edit_note</span>見つからないものは<strong>メモ欄</strong>に理由を書けます（差異CSVに出ます）</li>
+        <li><span class="material-icons-outlined">search</span><strong>1. 検索して絞り込む。</strong>管理番号・商品名・型番で検索すると、条件に合う在庫だけが並びます。保管場所・種別・確認状況でも絞れるので、倉庫を回りながら「柏の未棚卸だけ」を表示して進められます</li>
+        <li><span class="material-icons-outlined">check_box</span><strong>2. チェックを入れる。</strong>行の左のチェックボックスを押します。<strong>「表示中の◯件をすべて選ぶ」</strong>で一括選択もできます</li>
+        <li><span class="material-icons-outlined">check_circle</span><strong>3.「棚卸済みにする（日時を記録）」を押す。</strong>選んだ商品すべてに、<strong>その場の日付と時刻が自動で入ります</strong>。入力は不要です</li>
+        <li><span class="material-icons-outlined">schedule</span><strong>いつ棚卸したかが各行の右側に出ます。</strong>商品を検索すれば「棚卸済み 2026/8/3 05:57」のように最後に確認した日時がすぐ分かります。一度も確認していないものは<strong>「未棚卸」</strong>、先月までに確認して今月まだのものは<strong>「◯月は未実施」</strong>と出ます</li>
+        <li><span class="material-icons-outlined">report_problem</span>見つからないものは、チェックしてから<strong>「なし」「要確認」</strong>を押します。押し間違えたら<strong>「記録を取り消す」</strong>で戻せます</li>
         <li><span class="material-icons-outlined">task_alt</span>確認が終わったら<strong>「棚卸を確定」</strong>。その月の<strong>在庫点数・在庫金額・あり／なし／要確認の件数</strong>が記録として残り、画面下の「これまでの棚卸」で前月と比べられます</li>
-        <li><span class="material-icons-outlined">download</span><strong>「在庫CSVを出力」</strong>で報告用のファイルを作れます。管理番号・種別・メーカー・型番・仕入日・経過日数・仕入金額・保管場所・出品状況・棚卸結果が入り、<strong>末尾に合計行</strong>が付きます</li>
+        <li><span class="material-icons-outlined">download</span><strong>「在庫CSVを出力」</strong>で報告用のファイルを作れます。管理番号・種別・メーカー・型番・仕入日・経過日数・仕入金額・保管場所・出品状況・<strong>棚卸結果・棚卸日時</strong>が入り、<strong>末尾に合計行</strong>が付きます</li>
         <li><span class="material-icons-outlined">report_problem</span><strong>「差異CSV」</strong>は「なし」「要確認」だけを抜き出します。原因を追う作業に使ってください</li>
       </ul>
-      <div class="tip"><span class="material-icons-outlined">info</span>棚卸の確認結果は<strong>対象月ごと</strong>に記録されます。月が変わると全件が「未確認」に戻るので、毎月ゼロから確認できます。個数が2個以上の商品（バルク品）は、在庫金額に<strong>仕入単価×個数</strong>で計上されます。<br><strong>初回のみ</strong>、Supabase の SQL Editor で「admin/stocktake-setup.sql」を実行してください。</div>
+      <div class="tip"><span class="material-icons-outlined">info</span>集計と進捗は<strong>対象月ごと</strong>に数えます。月が変わると「今月の棚卸済み」は0からのスタートになりますが、<strong>各商品の棚卸日時は消えません</strong>。前回いつ確認したかは、月をまたいでもそのまま残ります。個数が2個以上の商品（バルク品）は、在庫金額に<strong>仕入単価×個数</strong>で計上されます。<br><strong>初回のみ</strong>、Supabase の SQL Editor で「admin/stocktake-setup.sql」を実行してください。</div>
     </div>
     <div class="art">
       <svg viewBox="0 0 300 130" aria-label="棚卸のイラスト">

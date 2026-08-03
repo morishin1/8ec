@@ -419,7 +419,40 @@
   .st-note{width:210px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:12px;font-family:inherit;color:var(--text)}
   .st-hist{margin-top:22px}
   .st-hist h3{font-size:14px;color:var(--navy);margin-bottom:9px}
-  @media(max-width:820px){.st-act{width:100%}.st-note{flex:1;width:auto}}
+  .st-head{background:#fff;border:1px solid var(--line);border-radius:10px;padding:9px 13px;margin-bottom:9px}
+  .st-all{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:var(--navy);cursor:pointer}
+  .st-all input{width:17px;height:17px;accent-color:var(--blue);cursor:pointer}
+  .strow{cursor:pointer}
+  .strow:hover{border-color:#c3d5ef}
+  .st-ck{width:19px;height:19px;accent-color:var(--blue);cursor:pointer;flex:none}
+  .st-when{flex:none;min-width:190px;text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+  .stw{display:inline-block;font-size:11.5px;font-weight:700;border-radius:6px;padding:3px 9px}
+  .stw.ok{background:#e6f6ec;color:var(--green)}
+  .stw.old{background:#eef2f8;color:var(--mute)}
+  .stw.ng{background:#fdeaea;color:var(--red)}
+  .stw.wn{background:#fdf3e0;color:var(--amber)}
+  .stw.none{background:#f2f5fa;color:var(--gray)}
+  .stw-at{font-size:12.5px;font-weight:700;color:var(--navy);font-family:"Inter",sans-serif}
+  .stw-old{font-size:10.5px;color:var(--amber)}
+  .stw-note{font-size:10.5px;color:var(--mute);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* 選択中だけ出る操作バー。画面下に貼り付けて、長い一覧でも押せるようにする */
+  .st-actbar{display:none}
+  .st-actbar.on{display:flex;position:sticky;top:8px;z-index:20;align-items:center;gap:9px;flex-wrap:wrap;
+    background:var(--navy2);color:#fff;border-radius:12px;padding:11px 14px;margin-bottom:12px;
+    box-shadow:0 10px 24px -14px rgba(9,43,97,.7)}
+  .st-actbar .n{font-size:13px;font-weight:800}
+  .st-actbar .sb{display:inline-flex;align-items:center;gap:5px;padding:9px 14px;border:1px solid rgba(255,255,255,.24);
+    background:rgba(255,255,255,.12);color:#fff;border-radius:9px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit}
+  .st-actbar .sb:hover{background:rgba(255,255,255,.22)}
+  .st-actbar .sb:disabled{opacity:.5;cursor:default}
+  .st-actbar .sb.ok{background:var(--green);border-color:var(--green)}
+  .st-actbar .sb.ok:hover{background:#25823c}
+  .st-actbar .sb.x{margin-left:auto;background:transparent}
+  .st-toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--navy2);color:#fff;
+    padding:12px 20px;border-radius:11px;font-size:13.5px;font-weight:700;opacity:0;pointer-events:none;
+    transition:opacity .2s;z-index:80;box-shadow:0 12px 28px -14px rgba(9,43,97,.8)}
+  .st-toast.on{opacity:1}
+  @media(max-width:820px){.st-when{min-width:0;text-align:left;align-items:flex-start;width:100%}}
   .scard .sc-imgmsg.err{color:var(--red);font-weight:700}
   /* Stripe決済リンク */
   .scard .sc-stripe{margin-top:11px;border:1px solid var(--line);border-radius:11px;padding:10px 12px;background:#fbfdff}
@@ -580,7 +613,7 @@
     <div class="listing-head">
       <div>
         <h2 style="font-size:16px;color:var(--navy);display:flex;align-items:center;gap:8px;margin-bottom:4px"><span class="material-icons-outlined" style="color:var(--blue)">fact_check</span>棚卸・在庫報告</h2>
-        <p style="font-size:12.5px;color:var(--mute);line-height:1.6">在庫を1件ずつ確認して<strong>「あり」「なし」「要確認」</strong>を記録します。全部確認できたら<strong>「棚卸を確定」</strong>で、その月の点数・在庫金額・差異件数を記録として残します。<strong>在庫CSV</strong>はいつでも出力できます。</p>
+        <p style="font-size:12.5px;color:var(--mute);line-height:1.6"><strong>検索して絞り込み → チェックを入れる → 「棚卸済みにする」</strong>で、選んだ商品にその場の<strong>日付と時刻</strong>が記録されます。各行の右側に<strong>いつ棚卸したか</strong>が出るので、商品を検索すれば最後に確認した日時がすぐ分かります。全部終わったら<strong>「棚卸を確定」</strong>で、その月の点数・在庫金額・差異件数を記録として残します。</p>
       </div>
       <div class="listing-actions">
         <button class="btn-add" onclick="exportStockCsv()"><span class="material-icons-outlined" style="font-size:18px">download</span>在庫CSVを出力</button>
@@ -608,6 +641,7 @@
     </div>
 
     <div class="st-prog" id="stProg"></div>
+    <div class="st-actbar" id="stBar"></div>
     <div id="stList"></div>
     <div class="st-hist" id="stHist"></div>
   </div>
@@ -1040,7 +1074,7 @@ function clearDrill(){repDrillYm='';render();}
 /* ===== 棚卸・在庫報告ビュー =====
    毎月の在庫報告のために、(1) 現物の有無を1件ずつ確認して記録し、
    (2) 確定時点の点数・在庫金額・差異件数を stocktakes に残す。 */
-const ST_RESULTS={ok:'あり',missing:'なし',check:'要確認'};
+const ST_RESULTS={ok:'棚卸済み',missing:'なし',check:'要確認'};
 let stakes=[];                                   // 過去の棚卸記録
 function stYm(){const el=document.getElementById('stYm');return (el&&el.value)||ymNow();}
 function stockItems(){return items.filter(it=>!it.sold_at);}   // 在庫＝未販売
@@ -1068,6 +1102,8 @@ function stFiltered(ym){
   });
 }
 
+let stSel=new Set();                             // チェックした商品
+
 function renderStocktake(){
   const host=document.getElementById('stList');if(!host)return;
   const ymEl=document.getElementById('stYm');
@@ -1090,9 +1126,9 @@ function renderStocktake(){
   const unit='<small style="font-size:12px;color:var(--mute);font-weight:600"> 点</small>';
   document.getElementById('stStats').innerHTML=
     `<div class="stat stock"><div class="lbl">在庫点数</div><div class="v">${stock.length}${unit}</div><div class="sub-v">在庫金額 <b>${yen(cost)}</b></div></div>`+
-    `<div class="stat soldlist"><div class="lbl">確認できた（あり）</div><div class="v">${cnt.ok}${unit}</div></div>`+
+    `<div class="stat soldlist"><div class="lbl">棚卸済み（${ym.replace('-','年')}月）</div><div class="v">${cnt.ok}${unit}</div></div>`+
     `<div class="stat claim"><div class="lbl">なし・要確認</div><div class="v">${cnt.missing+cnt.check}${unit}</div>${cnt.missing?`<div class="sub-v">なし <b style="color:#c0392b">${cnt.missing}</b></div>`:''}</div>`+
-    `<div class="stat shipwait"><div class="lbl">未確認</div><div class="v">${cnt.none}${unit}</div></div>`;
+    `<div class="stat shipwait"><div class="lbl">未棚卸</div><div class="v">${cnt.none}${unit}</div></div>`;
 
   const done=stock.length-cnt.none;
   const pct=stock.length?Math.round(done/stock.length*100):0;
@@ -1101,56 +1137,116 @@ function renderStocktake(){
     `<div class="st-progtxt">${ym.replace('-','年')}月の棚卸：<b>${done}</b> / ${stock.length} 点を確認（${pct}%）`+
     (cnt.none?`　残り <b>${cnt.none}</b> 点`:'　<b style="color:var(--green)">すべて確認できました</b>')+`</div>`;
 
-  const list=stFiltered(ym);
+  const list=stFiltered(ym).slice().sort((a,b)=>(a.mgmt_no||'').localeCompare(b.mgmt_no||''));
+  const ids=list.map(it=>it.id);
+  /* 画面に出ていない商品のチェックは持ち越さない（見えないものを更新しないため） */
+  stSel=new Set([...stSel].filter(id=>ids.includes(id)));
+
   if(!list.length){
     host.innerHTML='<div class="empty"><span class="material-icons-outlined">fact_check</span>条件に合う在庫がありません。</div>';
   }else{
-    host.innerHTML=list.slice().sort((a,b)=>(a.mgmt_no||'').localeCompare(b.mgmt_no||'')).map(it=>{
-      const r=stResultOf(it,ym);
-      const a=ageDays(it);
-      const name=esc(it.product_name||((it.maker?it.maker+' ':'')+(it.model||''))||it.mgmt_no||'(名称なし)');
-      const sub=[it.category,it.maker,it.model,it.spec].filter(Boolean).map(esc).join('　');
-      const btns=Object.keys(ST_RESULTS).map(k=>
-        `<button class="stb ${k}${r===k?' on':''}" onclick="setStocktake('${it.id}','${k}')">${ST_RESULTS[k]}</button>`).join('');
-      return `<div class="strow${r?' done':''}" id="strow-${it.id}">
-        <div class="st-info">
-          <div class="st-id">${esc(it.mgmt_no||'')}　EC-${it.seq||'-'}${it.location?`<span class="st-loc">${esc(it.location)}</span>`:''}</div>
-          <div class="st-nm">${name}</div>
-          <div class="st-sub">${sub}</div>
-          <div class="st-meta">仕入 <b>${yen(it.cost)}</b>${(Number(it.quantity)||1)>1?` ×${Number(it.quantity)}個`:''}${a!=null?`　／　仕入から ${a}日`:''}</div>
-        </div>
-        <div class="st-act">
-          ${btns}
-          <input class="st-note" id="stnote-${it.id}" value="${esc(it.stocktake_note||'')}" placeholder="メモ（差異の理由など）" onchange="setStocktakeNote('${it.id}')">
-        </div>
-      </div>`;
-    }).join('');
+    const allOn=ids.length>0&&ids.every(id=>stSel.has(id));
+    host.innerHTML=
+      `<div class="st-head">
+        <label class="st-all"><input type="checkbox" id="stAll" ${allOn?'checked':''} onchange="stCheckAll(this.checked)">
+          表示中の ${list.length} 件をすべて選ぶ</label>
+      </div>`+
+      list.map(it=>{
+        const r=stResultOf(it,ym);
+        const a=ageDays(it);
+        const name=esc(it.product_name||((it.maker?it.maker+' ':'')+(it.model||''))||it.mgmt_no||'(名称なし)');
+        const sub=[it.category,it.maker,it.model,it.spec].filter(Boolean).map(esc).join('　');
+        return `<label class="strow${r?' done':''}" id="strow-${it.id}">
+          <input type="checkbox" class="st-ck" ${stSel.has(it.id)?'checked':''} onchange="stToggle('${it.id}',this.checked)">
+          <div class="st-info">
+            <div class="st-id">${esc(it.mgmt_no||'')}　EC-${it.seq||'-'}${it.location?`<span class="st-loc">${esc(it.location)}</span>`:''}</div>
+            <div class="st-nm">${name}</div>
+            <div class="st-sub">${sub}</div>
+            <div class="st-meta">仕入 <b>${yen(it.cost)}</b>${(Number(it.quantity)||1)>1?` ×${Number(it.quantity)}個`:''}${a!=null?`　／　仕入から ${a}日`:''}</div>
+          </div>
+          <div class="st-when">${stWhenHtml(it,ym)}</div>
+        </label>`;
+      }).join('');
   }
-
-  /* 過去の棚卸記録。前月と比べて点数・金額がどう動いたかを見る */
-  const hist=document.getElementById('stHist');
-  if(hist){
-    hist.innerHTML=stakes.length
-      ? `<h3>これまでの棚卸</h3><div style="overflow-x:auto"><table class="rep-table">
-          <thead><tr><th class="m">対象月</th><th>実施日</th><th>在庫点数</th><th>在庫金額</th><th>あり</th><th>なし</th><th>要確認</th><th>未確認</th></tr></thead>
-          <tbody>${stakes.map(t=>`<tr><td class="m">${esc(t.ym).replace('-','年')}月</td><td>${esc(t.taken_on||'')}</td>
-            <td>${t.stock_count}</td><td>${yen(t.stock_cost)}</td><td>${t.ok_count}</td>
-            <td class="${t.missing_count?'neg':''}">${t.missing_count}</td><td>${t.check_count}</td><td>${t.unchecked_count}</td></tr>`).join('')}</tbody></table></div>`
-      : '<h3>これまでの棚卸</h3><div class="empty" style="padding:20px"><span class="material-icons-outlined">history</span>まだ確定した棚卸はありません。</div>';
-  }
+  renderStBar();
 }
 
-async function setStocktake(id,result){
+/* 「いつ棚卸したか」を出す。ここがこの画面の主役なので、日時をそのまま見せる */
+function stWhenHtml(it,ym){
+  const at=it.stocktake_at?fmtDT(it.stocktake_at):'';
+  const day=it.stocktake_at?fmtD(it.stocktake_at):'';
+  const r=it.stocktake_result||'';
+  const thisMonth=it.stocktake_ym===ym;
+  if(!it.stocktake_at)return '<span class="stw none">未棚卸</span>';
+  const label={ok:'棚卸済み',missing:'なし',check:'要確認'}[r]||'棚卸済み';
+  const cls=r==='missing'?'ng':(r==='check'?'wn':(thisMonth?'ok':'old'));
+  return `<span class="stw ${cls}">${label}</span>`+
+    `<span class="stw-at">${esc(day)} ${esc(at.split(' ')[1]||'')}</span>`+
+    (thisMonth?'':`<span class="stw-old">${ym.replace('-','年')}月は未実施</span>`)+
+    (it.stocktake_note?`<span class="stw-note">${esc(it.stocktake_note)}</span>`:'');
+}
+
+function stToggle(id,on){ if(on)stSel.add(id); else stSel.delete(id); renderStBar(); syncStAll(); }
+function stCheckAll(on){
   const ym=stYm();
-  const it=items.find(x=>x.id===id);if(!it)return;
-  const same=stResultOf(it,ym)===result;
-  const rec=same
-    ? {stocktake_result:null,stocktake_ym:null,stocktake_at:null}      // もう一度押したら取り消し
-    : {stocktake_result:result,stocktake_ym:ym,stocktake_at:new Date().toISOString()};
-  const {error}=await sb.from(TABLE).update(rec).eq('id',id);
-  if(error){alert('保存エラー：'+error.message+'\n\n棚卸用の列がまだ作られていない可能性があります。\nSupabase の SQL Editor で「admin/stocktake-setup.sql」を実行してください。');return;}
-  Object.assign(it,rec);
+  stFiltered(ym).forEach(it=>{ if(on)stSel.add(it.id); else stSel.delete(it.id); });
+  document.querySelectorAll('#stList .st-ck').forEach(el=>{el.checked=on;});
+  renderStBar();
+}
+function syncStAll(){
+  const el=document.getElementById('stAll');if(!el)return;
+  const ids=stFiltered(stYm()).map(it=>it.id);
+  el.checked=ids.length>0&&ids.every(id=>stSel.has(id));
+}
+
+/* 選択中に出る操作バー。ここの「棚卸済みにする」で日時が入る */
+function renderStBar(){
+  const bar=document.getElementById('stBar');if(!bar)return;
+  const n=stSel.size;
+  bar.className='st-actbar'+(n?' on':'');
+  if(!n){bar.innerHTML='';return;}
+  bar.innerHTML=`<span class="n">${n}件を選択中</span>
+    <button class="sb ok" onclick="stMark('ok')"><span class="material-icons-outlined" style="font-size:17px">check_circle</span>棚卸済みにする（日時を記録）</button>
+    <button class="sb ng" onclick="stMark('missing')">なし</button>
+    <button class="sb wn" onclick="stMark('check')">要確認</button>
+    <button class="sb cl" onclick="stMark('')">記録を取り消す</button>
+    <button class="sb x" onclick="stClearSel()">選択を解除</button>`;
+}
+function stClearSel(){stSel.clear();renderStocktake();}
+
+/* チェックした商品にまとめて棚卸日時を入れる */
+async function stMark(result){
+  const ids=[...stSel];
+  if(!ids.length)return;
+  const ym=stYm();
+  const now=new Date();
+  const rec=result
+    ? {stocktake_result:result,stocktake_ym:ym,stocktake_at:now.toISOString()}
+    : {stocktake_result:null,stocktake_ym:null,stocktake_at:null};
+
+  if(!result&&!confirm(`${ids.length}件の棚卸の記録を取り消します。よろしいですか？`))return;
+
+  const bar=document.getElementById('stBar');
+  if(bar)bar.querySelectorAll('button').forEach(b=>b.disabled=true);
+
+  const {error}=await sb.from(TABLE).update(rec).in('id',ids);
+  if(error){
+    alert('保存エラー：'+error.message+'\n\n棚卸用の列がまだ作られていない可能性があります。\nSupabase の SQL Editor で「admin/stocktake-setup.sql」を実行してください。');
+    if(bar)bar.querySelectorAll('button').forEach(b=>b.disabled=false);
+    return;
+  }
+  ids.forEach(id=>{const it=items.find(x=>x.id===id);if(it)Object.assign(it,rec);});
+  const stamp=result?`${fmtD(now.toISOString())} ${two(now.getHours())}:${two(now.getMinutes())}`:'';
+  stSel.clear();
   renderStocktake();
+  stToast(result?`${ids.length}件を棚卸済みにしました（${stamp}）`:`${ids.length}件の記録を取り消しました`);
+}
+
+function stToast(msg){
+  let t=document.getElementById('stToast');
+  if(!t){t=document.createElement('div');t.id='stToast';t.className='st-toast';document.body.appendChild(t);}
+  t.textContent=msg;t.classList.add('on');
+  clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('on'),3200);
 }
 
 async function setStocktakeNote(id){
@@ -1172,8 +1268,8 @@ async function finishStocktake(){
 
   let msg=`${ym.replace('-','年')}月の棚卸を確定します。\n\n`
     +`在庫点数：${stock.length}点\n在庫金額：${yen(cost)}\n`
-    +`あり：${cnt.ok}点／なし：${cnt.missing}点／要確認：${cnt.check}点\n`;
-  if(cnt.none)msg+=`\n未確認が ${cnt.none}点 残っています。このまま確定しますか？\n`;
+    +`棚卸済み：${cnt.ok}点／なし：${cnt.missing}点／要確認：${cnt.check}点\n`;
+  if(cnt.none)msg+=`\n未棚卸が ${cnt.none}点 残っています。このまま確定しますか？\n`;
   msg+='\n確定すると、この内容が棚卸の記録として残ります。';
   if(!confirm(msg))return;
 
@@ -1191,7 +1287,7 @@ async function finishStocktake(){
 /* ---- 在庫CSV（毎月の在庫報告用） ---- */
 const STOCK_CSV_COLS=['管理番号','EC番号','種別','メーカー','型番','商品名','スペック','個数',
   '仕入日','仕入からの経過日数','仕入単価','仕入金額','保管場所','出品状況','ショップ公開',
-  '棚卸結果','棚卸日','棚卸メモ'];
+  '棚卸結果','棚卸日時','棚卸メモ'];
 function stockCsvRow(it,ym){
   const L=listingsOf(it);
   const listed=CHANNELS.filter(c=>L[c.key]==='出品中').map(c=>c.label).join('・');
@@ -1200,7 +1296,7 @@ function stockCsvRow(it,ym){
   return [it.mgmt_no,'EC-'+(it.seq||''),it.category,it.maker,it.model,it.product_name,it.spec,q,
     it.purchase_date,ageDays(it),Number(it.cost||0),Number(it.cost||0)*q,it.location,
     listed||'未出品',it.shop_published?'公開中':'',
-    ST_RESULTS[r]||'未確認',it.stocktake_at?isoToLocal(it.stocktake_at).slice(0,10):'',it.stocktake_note];
+    ST_RESULTS[r]||'未棚卸',it.stocktake_at?isoToLocal(it.stocktake_at).replace('T',' '):'',it.stocktake_note];
 }
 /* CSVをダウンロードさせる。
    アンカーを本文に入れてから押し、URLの破棄はダウンロード開始後に回す。
