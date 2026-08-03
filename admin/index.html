@@ -392,6 +392,26 @@
 
   /* 棚卸・在庫報告 */
   /* 未棚卸／棚卸済み の切替。毎月の作業では「未棚卸」だけ見えていればよい */
+  /* 決算資料 */
+  .cl-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:11px;margin-bottom:12px}
+  .cl-card{position:relative;background:#fff;border:1px solid var(--line);border-radius:13px;padding:15px 16px 14px}
+  .cl-card.stock{border-color:#cfe0f5}.cl-card.unpaid{border-color:#f2cfca}.cl-card.unbilled{border-color:#f0dfae}
+  .cl-card .t{font-size:12.5px;font-weight:800;color:var(--navy)}
+  .cl-card .v{font-size:27px;font-weight:800;font-family:"Inter",sans-serif;color:var(--navy);margin-top:4px;line-height:1.2}
+  .cl-card.unpaid .v{color:#c0392b}.cl-card.unbilled .v{color:#a4780f}
+  .cl-card .n{font-size:12px;color:var(--mute);font-weight:700;margin-top:2px}
+  .cl-card .h{font-size:11px;color:var(--mute);line-height:1.7;margin-top:7px}
+  .cl-dl{position:absolute;top:13px;right:13px;display:inline-flex;align-items:center;gap:3px;padding:6px 10px;
+    border:1px solid var(--line);background:#fff;border-radius:8px;font-size:11.5px;font-weight:700;color:var(--navy);cursor:pointer;font-family:inherit}
+  .cl-dl:hover{border-color:var(--blue);color:var(--blue)}
+  .cl-note{background:#fffdf6;border:1px solid #f0dfae;border-radius:11px;padding:11px 13px;margin-bottom:14px;
+    font-size:12.5px;color:#7a5c14;line-height:1.9}
+  .cl-note b{color:#5e4610}
+  .cl-sec{margin-bottom:20px}
+  .cl-sec h3{font-size:14px;color:var(--navy);margin-bottom:9px}
+  .cl-sec h3 small{font-size:11.5px;color:var(--mute);font-weight:600;margin-left:5px}
+  .rep-table td.num{text-align:right;font-variant-numeric:tabular-nums}
+  @media(max-width:900px){.cl-cards{grid-template-columns:1fr}}
   .st-tabs{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
   .stt{display:inline-flex;align-items:center;gap:8px;padding:11px 18px;border:1px solid var(--line);
     background:#fff;border-radius:11px;font-size:13.5px;font-weight:700;color:var(--mute);cursor:pointer;font-family:inherit}
@@ -574,6 +594,7 @@
     <button id="vt-shop" onclick="setEcView('shop')"><span class="material-icons-outlined" style="font-size:17px">storefront</span>ショップ出品</button>
     <button id="vt-report" onclick="setEcView('report')"><span class="material-icons-outlined" style="font-size:17px">bar_chart</span>月次集計</button>
     <button id="vt-stock" onclick="setEcView('stock')"><span class="material-icons-outlined" style="font-size:17px">fact_check</span>棚卸・在庫報告</button>
+    <button id="vt-closing" onclick="setEcView('closing')"><span class="material-icons-outlined" style="font-size:17px">account_balance</span>決算資料</button>
   </div>
 
   <div id="manageView">
@@ -663,6 +684,28 @@
     <div class="st-actbar" id="stBar"></div>
     <div id="stList"></div>
     <div class="st-hist" id="stHist"></div>
+  </div>
+
+  <div id="closingView" style="display:none">
+    <div class="listing-head">
+      <div>
+        <h2 style="font-size:16px;color:var(--navy);display:flex;align-items:center;gap:8px;margin-bottom:4px"><span class="material-icons-outlined" style="color:var(--blue)">account_balance</span>決算資料（基準日で締めた金額）</h2>
+        <p style="font-size:12.5px;color:var(--mute);line-height:1.6"><strong>基準日を入れると、その日時点の金額を出します。</strong>決算期末（8月末）を入れれば、そのまま提出用の数字になります。各項目は<strong>明細つきCSV</strong>で出力できます。</p>
+      </div>
+      <div class="listing-actions">
+        <button class="btn-add" onclick="exportClosingAll()"><span class="material-icons-outlined" style="font-size:18px">download</span>3項目まとめてCSV</button>
+      </div>
+    </div>
+
+    <div class="st-bar">
+      <label>基準日</label><input type="date" id="clDate" onchange="renderClosing()">
+      <button class="btn-sub" onclick="clSetFiscalEnd()"><span class="material-icons-outlined" style="font-size:17px">event</span>期末（8月末）にする</button>
+      <span id="clDateLbl" style="font-size:12.5px;color:var(--mute);font-weight:700"></span>
+    </div>
+
+    <div class="cl-cards" id="clCards"></div>
+    <div class="cl-note" id="clNote"></div>
+    <div id="clDetail"></div>
   </div>
 
   <div id="listingView" style="display:none">
@@ -802,6 +845,10 @@
             <div class="fg"><label>出荷日（入れると発送済み）</label><input type="date" id="d-shipped"></div>
             <div class="fg"><label>伝票番号</label><input id="d-track" placeholder="伝票番号"></div>
           </div>
+          <div class="fg2">
+            <div class="fg"><label>請求日<span style="font-weight:400;color:var(--mute)">※空欄なら未請求</span></label><input type="date" id="d-billed"></div>
+            <div class="fg"><label>入金日<span style="font-weight:400;color:var(--mute)">※空欄なら未入金</span></label><input type="date" id="d-paid"></div>
+          </div>
           <div class="fg"><label>発送指示の添付ファイル（伝票・QR・写真など）</label>
             <div id="shipFiles" class="filelist"></div>
             <label class="filebtn"><span class="material-icons-outlined" style="font-size:16px">upload_file</span>ファイルを追加<input type="file" id="shipFileInput" multiple style="display:none" onchange="uploadShipFiles(this)"></label>
@@ -860,6 +907,7 @@ const CHANNEL_FEE={mercari:10, yahuoku:10, yahoo_free:5, rakuten:10, amazon:8.4}
 const SHIP_BUCKET='ec-ship';
 const SHOP_IMG_BUCKET='shop-images';   // 商品写真（公開バケット。ショップ表示とStripeの商品画像に使う）
 const SHOP_IMG_MAX=8;                  // Stripeの商品画像の上限に合わせる
+const QTY_MAX=100;                     // 個数プルダウンの上限。まとめ買い（ACセット等）を想定
 // 出品先サイトの相場検索URL（型番を入れて検索した状態で開く）
 const CH_SEARCH={
   mercari:   q=>'https://jp.mercari.com/search?keyword='+encodeURIComponent(q)+'&status=on_sale',
@@ -942,7 +990,6 @@ async function doLogin(){
 function showApp(){document.getElementById('gate').style.display='none';document.getElementById('app').style.display='block';document.getElementById('logoutBtn').style.display='inline-flex';document.getElementById('userEmail').textContent='zimu';}
 async function signOut(){await sb.auth.signOut();location.reload();}
 
-const QTY_MAX=100;   // 個数プルダウンの上限。まとめ買い（ACセット等）を想定
 /* 個数の選択肢。CSV取込などで100を超える値が入っている商品もあるため、
    その値だけは選択肢に足して、開いただけで数量が変わらないようにする */
 function fillQtyOptions(current){
@@ -956,6 +1003,7 @@ function fillQtyOptions(current){
 }
 
 function fillSelects(){
+  fillQtyOptions(1);   // ドロワーを開く前でも空にならないようにしておく
   document.getElementById('fCat').innerHTML='<option value="">全種別</option>'+CATS.map(c=>`<option>${c}</option>`).join('');
   document.getElementById('fCh').innerHTML='<option value="">全出品先</option>'+CHANNELS.map(c=>`<option value="${c.key}">${c.label}（出品中）</option>`).join('');
   document.getElementById('d-cat').innerHTML='<option value="">—</option>'+CATS.map(c=>`<option>${c}</option>`).join('');
@@ -1046,15 +1094,18 @@ function setEcView(v){
   document.getElementById('vt-shop').className=(v==='shop'?'on':'');
   document.getElementById('vt-report').className=(v==='report'?'on':'');
   document.getElementById('vt-stock').className=(v==='stock'?'on':'');
+  document.getElementById('vt-closing').className=(v==='closing'?'on':'');
   document.getElementById('manageView').style.display=(v==='manage')?'block':'none';
   document.getElementById('listingView').style.display=(v==='list')?'block':'none';
   document.getElementById('shopView').style.display=(v==='shop')?'block':'none';
   document.getElementById('reportView').style.display=(v==='report')?'block':'none';
   document.getElementById('stockView').style.display=(v==='stock')?'block':'none';
+  document.getElementById('closingView').style.display=(v==='closing')?'block':'none';
   if(v==='report'){selected.clear();renderBulkBar();renderReport();}
   if(v==='list'){selected.clear();renderBulkBar();renderListing();}
   if(v==='shop'){selected.clear();renderBulkBar();renderShop();}
   if(v==='stock'){selected.clear();renderBulkBar();renderStocktake();}
+  if(v==='closing'){selected.clear();renderBulkBar();renderClosing();}
 }
 function repShiftYear(n){repYear+=n;renderReport();}
 function soldMonthKey(it){return it.sold_at?isoToLocal(it.sold_at).slice(0,7):'';}   // ローカル月 YYYY-MM
@@ -1399,6 +1450,161 @@ async function finishStocktake(){
   await loadStocktakes();
   renderStocktake();
   alert(`${ym.replace('-','年')}月の棚卸を確定しました。\n「在庫CSVを出力」から報告用のファイルを作れます。`);
+}
+
+/* ===== 決算資料 =====
+   基準日で締めて、① EC在庫金額 ② EC未収入金 ④ 未請求売上 を出す。
+   決算期末は8月末。 */
+const FISCAL_END_MONTH=8;      // 期末の月（8月末締め）
+
+/* 基準日として妥当な期末を返す。9月以降なら翌年の8月末 */
+function fiscalEndStr(base){
+  const d=base||new Date();
+  const y=(d.getMonth()+1)>FISCAL_END_MONTH?d.getFullYear()+1:d.getFullYear();
+  return `${y}-${two(FISCAL_END_MONTH)}-31`;
+}
+function clDate(){
+  const el=document.getElementById('clDate');
+  if(el&&!el.value)el.value=fiscalEndStr();
+  return el?el.value:fiscalEndStr();
+}
+function clSetFiscalEnd(){
+  const el=document.getElementById('clDate');
+  if(el){el.value=fiscalEndStr();renderClosing();}
+}
+/* 日付の前後比較。sold_at は日時、purchase_date などは日付なので、日付部分だけで比べる */
+function dayOf(v){
+  if(!v)return '';
+  const t=String(v);
+  return /^\d{4}-\d{2}-\d{2}/.test(t)?t.slice(0,10):(isoToLocal(t).slice(0,10)||'');
+}
+const onOrBefore=(v,d)=>{const x=dayOf(v);return !!x&&x<=d;};
+const afterDay   =(v,d)=>{const x=dayOf(v);return !!x&&x>d;};
+
+/* ① 基準日時点の在庫：基準日までに仕入れ、まだ売れていない（または基準日より後に売れた） */
+function clStock(d){
+  return items.filter(it=>{
+    if(it.purchase_date&&!onOrBefore(it.purchase_date,d))return false;   // 基準日より後の仕入は含めない
+    if(!it.sold_at)return true;
+    return afterDay(it.sold_at,d);                                       // 基準日より後に売れたものは当時まだ在庫
+  });
+}
+const clStockAmount=list=>list.reduce((n,it)=>n+Number(it.cost||0)*(Number(it.quantity)||1),0);
+
+/* ② 未収入金：基準日までに売れて、入金がまだ（または入金が基準日より後） */
+function clUnpaid(d){
+  return items.filter(it=>onOrBefore(it.sold_at,d)&&(!it.paid_at||afterDay(it.paid_at,d)));
+}
+/* ④ 未請求売上：基準日までに売れて、請求がまだ（または請求が基準日より後） */
+function clUnbilled(d){
+  return items.filter(it=>onOrBefore(it.sold_at,d)&&(!it.billed_at||afterDay(it.billed_at,d)));
+}
+const clSales=list=>list.reduce((n,it)=>n+Number(it.sale_price||0),0);
+
+function renderClosing(){
+  const host=document.getElementById('clDetail');if(!host)return;
+  const d=clDate();
+  const stock=clStock(d),unpaid=clUnpaid(d),unbilled=clUnbilled(d);
+  const amtStock=clStockAmount(stock),amtUnpaid=clSales(unpaid),amtUnbilled=clSales(unbilled);
+
+  document.getElementById('clDateLbl').textContent=
+    (d===fiscalEndStr()||d===fiscalEndStr(new Date(d)))?'（決算期末）':'';
+
+  document.getElementById('clCards').innerHTML=
+    clCard('① EC在庫金額','stock',amtStock,`${stock.length}点`,'基準日時点で在庫だった商品の仕入原価（仕入単価×個数）')+
+    clCard('② EC未収入金','unpaid',amtUnpaid,`${unpaid.length}件`,'基準日までに売れて、入金日が未入力のもの')+
+    clCard('④ 未請求売上','unbilled',amtUnbilled,`${unbilled.length}件`,'基準日までに売れて、請求日が未入力のもの');
+
+  /* 数字の根拠が弱いところは隠さず出す。決算資料なので後から説明できる必要がある */
+  const noPurchase=stock.filter(it=>!it.purchase_date).length;
+  const noPrice=[...unpaid,...unbilled].filter(it=>!(Number(it.sale_price||0)>0)).length;
+  const notes=[];
+  if(noPurchase)notes.push(`在庫のうち <b>${noPurchase}点</b> は仕入日が未入力です。基準日時点で在庫だったものとして数えています。`);
+  if(noPrice)notes.push(`未収入金・未請求のうち <b>${noPrice}件</b> は売上が未入力です（金額0で集計）。`);
+  notes.push('③ 期末仕掛品は、案件ごとの原価を持っていないためこの画面では算定できません。');
+  const nEl=document.getElementById('clNote');
+  nEl.innerHTML=notes.map(n=>`<div>${n}</div>`).join('');
+
+  host.innerHTML=
+    clTable('② EC未収入金の明細',unpaid,'unpaid')+
+    clTable('④ 未請求売上の明細',unbilled,'unbilled');
+}
+
+function clCard(title,key,amount,count,hint){
+  return `<div class="cl-card ${key}">
+    <div class="t">${title}</div>
+    <div class="v">${yen(amount)}</div>
+    <div class="n">${count}</div>
+    <div class="h">${esc(hint)}</div>
+    <button class="cl-dl" onclick="exportClosing('${key}')"><span class="material-icons-outlined" style="font-size:15px">download</span>CSV</button>
+  </div>`;
+}
+
+function clTable(title,list,key){
+  if(!list.length)return `<div class="cl-sec"><h3>${title}</h3><div class="empty" style="padding:22px"><span class="material-icons-outlined">check_circle</span>該当なし</div></div>`;
+  const rows=list.slice().sort((a,b)=>dayOf(a.sold_at).localeCompare(dayOf(b.sold_at))).slice(0,50).map(it=>{
+    const ch=it.sold_channel?(CHANNELS.find(c=>c.key===it.sold_channel)||{}).label||it.sold_channel:'';
+    return `<tr><td>${esc(dayOf(it.sold_at))}</td><td>${esc(it.mgmt_no||'')}</td>
+      <td>${esc((it.product_name||it.model||'').slice(0,28))}</td><td>${esc(ch)}</td>
+      <td class="num">${yen(it.sale_price)}</td>
+      <td>${esc(key==='unpaid'?(it.billed_at||'未請求'):(it.paid_at||'未入金'))}</td></tr>`;
+  }).join('');
+  return `<div class="cl-sec"><h3>${title}<small>（${list.length}件${list.length>50?'・先頭50件を表示':''}）</small></h3>
+    <div style="overflow-x:auto"><table class="rep-table">
+      <thead><tr><th>販売日</th><th>管理番号</th><th>商品</th><th>販売先</th><th>売上</th><th>${key==='unpaid'?'請求日':'入金日'}</th></tr></thead>
+      <tbody>${rows}</tbody></table></div></div>`;
+}
+
+const CL_STOCK_COLS=['管理番号','EC番号','種別','メーカー','型番','商品名','仕入日','個数','仕入単価','仕入金額','保管場所'];
+const CL_SALE_COLS=['販売日','管理番号','EC番号','種別','メーカー','型番','商品名','販売先','売上','請求日','入金日','出荷日','購入者'];
+
+function clStockRows(list){
+  return list.slice().sort((a,b)=>(a.mgmt_no||'').localeCompare(b.mgmt_no||'')).map(it=>{
+    const q=Number(it.quantity)||1;
+    return [it.mgmt_no,'EC-'+(it.seq||''),it.category,it.maker,it.model,it.product_name,
+      it.purchase_date,q,Number(it.cost||0),Number(it.cost||0)*q,it.location];
+  });
+}
+function clSaleRows(list){
+  return list.slice().sort((a,b)=>dayOf(a.sold_at).localeCompare(dayOf(b.sold_at))).map(it=>{
+    const ch=it.sold_channel?(CHANNELS.find(c=>c.key===it.sold_channel)||{}).label||it.sold_channel:'';
+    return [dayOf(it.sold_at),it.mgmt_no,'EC-'+(it.seq||''),it.category,it.maker,it.model,it.product_name,
+      ch,Number(it.sale_price||0),it.billed_at,it.paid_at,it.shipped_at,it.buyer_name];
+  });
+}
+
+function exportClosing(key){
+  const d=clDate(),tag=d.replace(/-/g,'');
+  if(key==='stock'){
+    const list=clStock(d),rows=clStockRows(list);
+    rows.push([]);
+    rows.push(['合計','','','','','','',list.reduce((n,it)=>n+(Number(it.quantity)||1),0),'',clStockAmount(list),'']);
+    rows.push([`${d}時点のEC在庫`,`${list.length}件`,'','','','','','','','','']);
+    downloadCsv(`①EC在庫金額_${tag}.csv`,CL_STOCK_COLS,rows);
+    return;
+  }
+  const isPaid=key==='unpaid';
+  const list=isPaid?clUnpaid(d):clUnbilled(d);
+  const rows=clSaleRows(list);
+  rows.push([]);
+  rows.push(['合計','','','','','','','',clSales(list),'','','','']);
+  rows.push([`${d}時点の${isPaid?'EC未収入金':'未請求売上'}`,`${list.length}件`,'','','','','','','','','','','']);
+  downloadCsv(`${isPaid?'②EC未収入金':'④未請求売上'}_${tag}.csv`,CL_SALE_COLS,rows);
+}
+
+/* 3項目を1枚にまとめたCSV。経理へそのまま渡せるようにする */
+function exportClosingAll(){
+  const d=clDate(),tag=d.replace(/-/g,'');
+  const stock=clStock(d),unpaid=clUnpaid(d),unbilled=clUnbilled(d);
+  const rows=[
+    ['① EC在庫金額',clStockAmount(stock),stock.length+'点','基準日時点で在庫だった商品の仕入原価（仕入単価×個数）'],
+    ['② EC未収入金',clSales(unpaid),unpaid.length+'件','基準日までに売れて入金日が未入力のもの'],
+    ['④ 未請求売上',clSales(unbilled),unbilled.length+'件','基準日までに売れて請求日が未入力のもの'],
+    [],
+    ['基準日',d,'',''],
+    ['③ 期末仕掛品','','','案件ごとの原価管理を持っていないため、この画面では算定できません']
+  ];
+  downloadCsv(`決算資料_${tag}.csv`,['項目','金額','件数','算定の考え方'],rows);
 }
 
 /* ---- 在庫CSV（毎月の在庫報告用） ---- */
@@ -2184,6 +2390,7 @@ function openDrawer(id,opts){
   set('soldat', it&&it.sold_at?isoToLocal(it.sold_at):'');
   set('buyer',it?it.buyer_name:'');set('phone',it?it.buyer_phone:'');set('addr',it?it.ship_address:'');
   set('saction',it?it.ship_action:'');set('sloc',it?it.ship_location:'');set('acc',it?it.accessories:'');
+  set('billed',it?it.billed_at:'');set('paid',it?it.paid_at:'');
   set('shipped',it?it.shipped_at:'');set('track',it?it.tracking_no:'');
   drawerFiles=(it&&Array.isArray(it.ship_files))?it.ship_files.slice():[];renderShipFiles();
   document.getElementById('fileMsg').textContent='';updateCommHint();
@@ -2243,7 +2450,7 @@ function renderSourceInfo(sd){
   host.innerHTML=`<div class="si-head"><span class="material-icons-outlined">receipt_long</span>仕入情報（CSV）</div>
     <div class="si-grid">${keys.map(k=>`<div class="si-row"><div class="k">${esc(k)}</div><div class="v">${esc(sd[k])}</div></div>`).join('')}</div>`;
 }
-function clearSale(){['d-soldat','d-price','d-soldch','d-comm-rate','d-platfee','d-buyer','d-phone','d-addr','d-saction','d-sloc','d-acc','d-shipped','d-track'].forEach(id=>document.getElementById(id).value='');drawerFiles=[];renderShipFiles();updateCommHint();calcProfit();}
+function clearSale(){['d-soldat','d-price','d-soldch','d-comm-rate','d-platfee','d-buyer','d-phone','d-addr','d-saction','d-sloc','d-acc','d-shipped','d-track','d-billed','d-paid'].forEach(id=>document.getElementById(id).value='');drawerFiles=[];renderShipFiles();updateCommHint();calcProfit();}
 /* 販売先の既定手数料率／利用料の連動 */
 function updateCommHint(){
   const ch=document.getElementById('d-soldch').value;
@@ -2264,6 +2471,7 @@ async function revertSale(){
   const upd={sold_at:null,sale_price:null,sold_channel:null,
     buyer_name:null,buyer_phone:null,ship_address:null,ship_action:null,accessories:null,
     shipped_at:null,tracking_no:null,updated_at:new Date().toISOString()};
+  upd.billed_at=null;upd.paid_at=null;   // 請求・入金も在庫に戻すときは消す
   // 追加済みなら手数料・添付もクリア（列が無い環境では自動でスキップ）
   const upd2={...upd,commission_rate:null,platform_fee:null,ship_files:[]};
   let {error}=await sb.from(TABLE).update(upd2).eq('id',editId);
@@ -2369,6 +2577,7 @@ async function saveItem(){
     sold_at: soldLocal?new Date(soldLocal).toISOString():null,
     buyer_name:g('buyer').trim()||null, buyer_phone:g('phone').trim()||null, ship_address:g('addr').trim()||null,
     ship_action:g('saction')||null, ship_location:g('sloc')||null, accessories:g('acc').trim()||null,
+    billed_at:g('billed')||null, paid_at:g('paid')||null,
     shipped_at:g('shipped')||null, tracking_no:g('track').trim()||null,
     shop_published:document.getElementById('d-shop-pub').checked, shop_title:g('shop-title').trim()||null,
     shop_description:g('shop-desc').trim()||null, shop_price:numv(g('shop-price')),

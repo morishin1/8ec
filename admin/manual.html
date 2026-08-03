@@ -543,6 +543,41 @@
     </div>
   </div></div>
 
+  <!-- STEP 11 決算資料 -->
+  <div class="step"><div class="grid">
+    <div class="txt">
+      <div class="num"><span class="b">11</span>決算の数字を出す</div>
+      <h2>基準日で締めた金額を出す</h2>
+      <p>上部タブの<strong>「決算資料」</strong>で、<strong>基準日を指定してその日時点の金額</strong>を出せます。決算期末は<strong>8月末</strong>なので、開いた時点で <strong>8月31日</strong> が入っています（違う日にしたいときは日付を変えるか、「期末（8月末）にする」で戻せます）。</p>
+      <ul>
+        <li><span class="material-icons-outlined">inventory</span><strong>① EC在庫金額。</strong>基準日時点で在庫だった商品の仕入原価（仕入単価×個数）です。<strong>基準日より後に売れたものは在庫として数え、基準日より後に仕入れたものは除きます</strong>ので、9月に入ってから8月末の数字を出せます</li>
+        <li><span class="material-icons-outlined">payments</span><strong>② EC未収入金。</strong>基準日までに売れて、<strong>入金日が未入力</strong>のものの売上合計です</li>
+        <li><span class="material-icons-outlined">receipt_long</span><strong>④ 未請求売上。</strong>基準日までに売れて、<strong>請求日が未入力</strong>のものの売上合計です</li>
+        <li><span class="material-icons-outlined">download</span>各カードの<strong>「CSV」</strong>で明細つきファイルを出力できます（末尾に合計行つき）。<strong>「3項目まとめてCSV」</strong>は3つの金額を1枚にまとめたもので、経理へそのまま渡せます</li>
+      </ul>
+      <div class="tip"><span class="material-icons-outlined">edit_calendar</span><strong>請求日・入金日の入れ方。</strong>商品の編集画面の<strong>「販売」</strong>セクションに、出荷日・伝票番号の下へ<strong>請求日</strong>と<strong>入金日</strong>の欄を追加しました。空欄のあいだは「未請求」「未入金」として集計されます。<br><strong>③ 期末仕掛品</strong>は、案件ごとの原価（人件費・外注費・材料費）を持っていないため、この画面では算定できません。<br><strong>初回のみ</strong>、Supabase の SQL Editor で「admin/closing-setup.sql」を実行してください。</div>
+    </div>
+    <div class="art">
+      <svg viewBox="0 0 300 130" aria-label="決算資料のイラスト">
+        <rect width="300" height="130" rx="12" fill="#fff" stroke="#e4ecfb"/>
+        <text x="20" y="24" font-size="9" fill="#6b7593">基準日　2026-08-31</text>
+        <g font-family="Inter,sans-serif">
+          <rect x="20" y="34" width="82" height="42" rx="7" fill="#f4f9ff" stroke="#cfe0f5"/>
+          <text x="28" y="48" font-size="7.5" fill="#092b61">① EC在庫金額</text>
+          <text x="28" y="65" font-size="13" font-weight="800" fill="#092b61">¥70,000</text>
+          <rect x="109" y="34" width="82" height="42" rx="7" fill="#fdf5f4" stroke="#f2cfca"/>
+          <text x="117" y="48" font-size="7.5" fill="#092b61">② 未収入金</text>
+          <text x="117" y="65" font-size="13" font-weight="800" fill="#c0392b">¥60,000</text>
+          <rect x="198" y="34" width="82" height="42" rx="7" fill="#fffdf6" stroke="#f0dfae"/>
+          <text x="206" y="48" font-size="7.5" fill="#092b61">④ 未請求売上</text>
+          <text x="206" y="65" font-size="13" font-weight="800" fill="#a4780f">¥30,000</text>
+          <rect x="20" y="86" width="260" height="16" rx="5" fill="#f3f6fc"/>
+          <text x="28" y="97" font-size="8" fill="#6b7593">明細つきCSVで出力できます</text>
+        </g>
+      </svg>
+    </div>
+  </div></div>
+
   <!-- ドロワーの見かた -->
   <div class="h-sec">ドロワー（編集画面）は必要な項目だけ自動で開く</div>
   <div class="faq" style="margin-bottom:20px">
