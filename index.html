@@ -109,11 +109,11 @@
     .hero{position:relative;overflow:hidden}
     .hero-bg{position:absolute;inset:0;z-index:0}
     .hero-bg picture{display:block;width:100%;height:100%}
-    .hero-bg img{width:100%;height:100%;object-fit:cover;object-position:78% 50%}
-    /* 写真の上に左からのグラデーションを重ね、コピーを読める明度に保つ */
+    .hero-bg img{width:100%;height:100%;object-fit:cover;object-position:78% 100%}
+    /* 本文が乗る左側だけ白く抜き、機器イラストのある右下は薄く残す */
     .hero-bg:after{content:"";position:absolute;inset:0;
-      background:linear-gradient(96deg,#f4f6fa 0 30%,rgba(244,246,250,.94) 44%,rgba(244,246,250,.66) 58%,rgba(233,238,250,.24) 78%,rgba(220,229,246,.12) 100%),
-                 linear-gradient(180deg,rgba(244,246,250,.55) 0,rgba(244,246,250,0) 24%,rgba(244,246,250,.9) 100%)}
+      background:linear-gradient(96deg,#f4f6fa 0 26%,rgba(244,246,250,.92) 40%,rgba(244,246,250,.55) 54%,rgba(244,246,250,.12) 72%,rgba(244,246,250,0) 100%),
+                 linear-gradient(180deg,rgba(244,246,250,.5) 0,rgba(244,246,250,0) 26%,rgba(244,246,250,.18) 100%)}
     .hero-grid{position:relative;z-index:1;display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:32px;align-items:center;padding-top:56px;padding-bottom:44px}
     .badge{display:inline-flex;align-items:center;gap:8px;background:var(--chip);color:var(--chip-fg);font-size:11px;font-weight:500;padding:5px 11px;border-radius:999px;letter-spacing:.04em}
     h1{font-size:clamp(28px,3.4vw,40px);line-height:1.35;font-weight:700;color:var(--navy);margin:18px 0 14px;letter-spacing:-.01em}
@@ -168,6 +168,8 @@
     .p-media img{padding:14px;background:#fff}
     .p-kind{position:absolute;left:10px;top:10px;font-size:10.5px;font-weight:500;color:var(--chip-fg);background:rgba(234,238,251,.94);border-radius:6px;padding:4px 8px}
     .p-cred{position:absolute;right:10px;bottom:8px;font-size:9.5px;color:var(--dim);background:rgba(255,255,255,.85);border-radius:5px;padding:2px 6px}
+    .p-cred.is-art{color:#8b93a4;background:rgba(255,255,255,.7)}
+    .dt-art{position:relative}
     .p-body{padding:16px 18px 18px;display:flex;flex-direction:column;flex:1}
     .p-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
     .p-maker{font-size:11px;font-weight:500;color:var(--muted);background:var(--bg);border-radius:6px;padding:4px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:52%}
@@ -370,8 +372,10 @@
       nav{gap:16px;width:100%;margin-left:0;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
       nav a{white-space:nowrap}
       /* 縦画面では機器やアイコンが文字と重なるので、絵の余白が多い左側を見せて質感だけ残す */
-      .hero-bg img{object-position:6% 42%}
-      .hero-bg:after{background:linear-gradient(180deg,rgba(244,246,250,.72) 0,rgba(244,246,250,.93) 40%,#f4f6fa 74%)}
+      /* 縦長の画面では機器が引き伸ばされて形が読み取れないので、
+         全体を薄い背景として見せることに割り切る */
+      .hero-bg img{object-position:82% 12%;opacity:.5}
+      .hero-bg:after{background:linear-gradient(180deg,rgba(244,246,250,.62) 0,rgba(244,246,250,.86) 42%,#f4f6fa 78%)}
       .hero-grid{padding-top:32px;padding-bottom:28px;gap:24px}
       /* 1カラムだと商品画像が縦に伸びて一覧しづらいので高さを抑える */
       .p-media{aspect-ratio:auto;height:168px}
@@ -408,10 +412,7 @@
   <!-- ヒーロー：背景写真にグラデーションを重ねてコピーを読ませる -->
   <section class="hero">
     <div class="hero-bg" aria-hidden="true">
-      <picture>
-        <source srcset="assets/eight-commerce-hero-v2.webp" type="image/webp">
-        <img src="assets/eight-commerce-hero-v2.png" alt="" fetchpriority="high" decoding="async">
-      </picture>
+      <img src="assets/hero-devices.svg" alt="" fetchpriority="high" decoding="async">
     </div>
     <div class="wrap hero-grid">
       <div>
@@ -685,6 +686,10 @@
     .replace(/　/g, ' ').trim();
 
   const ART = window.EightProductArt;
+
+  /* 型番 → 実写画像のマッピング。assets/product-images.json を後から差し替えれば
+     在庫データに触らずに写真を増やせる。読み込めなくてもイラストで成立する */
+  let PRODUCT_IMAGES = {};
   const INV = window.EIGHT_INVENTORY || { records: [], total: 0 };
 
   /* ---------- データ整形 ---------- */
@@ -737,19 +742,35 @@
 
   /* メーカー提供画像があればそれを、無ければ機器タイプ別のイラストを出す。
      画像の読み込みに失敗したときも、空欄にせずイラストへ差し替える */
+  /* 画像が404などで出せなかったときはイラストに差し替え、表示もイメージ図に直す */
   window.eightArtFallback = (img) => {
     const host = img.parentNode;
     if (host) {
       const cred = host.querySelector('.p-cred');
-      if (cred) cred.remove();
+      if (cred) { cred.textContent = 'イメージ図'; cred.classList.add('is-art'); }
     }
     img.replaceWith(document.createRange().createContextualFragment(img.dataset.fb));
   };
 
-  const artHtml = (p) => p.image
-    ? '<img src="' + esc(p.image) + '" alt="' + esc(titleOf(p)) + 'の製品画像" loading="lazy" referrerpolicy="no-referrer"' +
-      ' onerror="window.eightArtFallback(this)" data-fb="' + esc(ART.svg(p.raw)) + '">'
-    : ART.svg(p.raw);
+  /* 実写があればそれを、無ければ機器タイプのイラストを出す。
+     イラストは実物の写真ではないので、必ず「イメージ図」と明示する */
+  const photoOf = (p) => {
+    if (p.image) return { src: p.image, credit: p.credit || 'メーカー提供' };
+    /* 自社配信の画像は商品コードでファイル名が付いているので、型番・商品コードの両方で引く */
+    const m = PRODUCT_IMAGES[p.code] || PRODUCT_IMAGES[p.model] ||
+              PRODUCT_IMAGES[String(p.model || '').toUpperCase()];
+    /* 差し替え待ちの「準備中」画像は、機器の種類が分かるイラストのままにする */
+    if (m && m.src && !m.placeholder) return { src: m.src, credit: m.credit || 'メーカー提供' };
+    return null;
+  };
+
+  const artHtml = (p) => {
+    const photo = photoOf(p);
+    return photo
+      ? '<img src="' + esc(photo.src) + '" alt="' + esc(titleOf(p)) + 'の製品画像" loading="lazy" referrerpolicy="no-referrer"' +
+        ' onerror="window.eightArtFallback(this)" data-fb="' + esc(ART.svg(p.raw)) + '">'
+      : ART.svg(p.raw);
+  };
 
   /* ---------- 見積もりリスト ---------- */
   const cart = [];
@@ -830,7 +851,9 @@
     return '<article class="p-card">' +
       '<div class="p-media">' + artHtml(p) +
         '<span class="p-kind">' + esc(p.kind) + '</span>' +
-        (p.image ? '<span class="p-cred">' + esc(p.credit || 'メーカー提供') + '</span>' : '') +
+        (photoOf(p)
+          ? '<span class="p-cred">' + esc(photoOf(p).credit) + '</span>'
+          : '<span class="p-cred is-art">イメージ図</span>') +
       '</div>' +
       '<div class="p-body">' +
         '<div class="p-top">' +
@@ -903,7 +926,10 @@
           '</div>' +
         '</div>' +
         '<div>' +
-          '<div class="dt-art">' + artHtml(p, true) + '</div>' +
+          '<div class="dt-art">' + artHtml(p, true) +
+            (photoOf(p)
+              ? '<span class="p-cred">' + esc(photoOf(p).credit) + '</span>'
+              : '<span class="p-cred is-art">イメージ図（実物とは異なります）</span>') + '</div>' +
           '<div class="spec"><div class="sp-h">製品仕様</div>' +
             rows.map(([k, v]) => '<dl class="sp-r"><dt>' + esc(k) + '</dt><dd>' + esc(v) + '</dd></dl>').join('') +
           '</div>' +
@@ -1048,6 +1074,41 @@
   /* ---------- コラム ----------
      記事の目次は assets/columns.json（tools/build-columns.py が同じものを読んで記事ページを出す）。
      ここでは最新3本だけ出し、続きは /column/ へ送る */
+  /* 商品画像を読み込む。2段構えで、どちらが落ちてもイラストで成立する。
+       1. assets/product-images.json … リポジトリに入っている静的な対応表
+       2. Supabase の catalog_images … 管理画面（/admin/catalog/）で登録したもの。
+          デプロイを待たずに反映したいので、こちらを上書きで重ねる */
+  const SUPA = {
+    url: 'https://htglvascsuqkixpmclwr.supabase.co',
+    key: 'sb_publishable_yZCcrwdqjuf0u_5WBWlHIw_AxdvteEV'
+  };
+
+  const loadProductImages = async () => {
+    try {
+      const res = await fetch('assets/product-images.json', { cache: 'no-cache' });
+      if (res.ok) PRODUCT_IMAGES = (await res.json()).images || {};
+    } catch (_) { /* 静的な対応表が無くても続行する */ }
+
+    try {
+      /* Supabaseが落ちていても表示を待たせない。3秒で諦めて静的な分だけで出す */
+      const stop = new AbortController();
+      const timer = setTimeout(() => stop.abort(), 3000);
+      const res = await fetch(SUPA.url + '/rest/v1/catalog_images?select=product_code,image_url,credit', {
+        headers: { apikey: SUPA.key, Authorization: 'Bearer ' + SUPA.key },
+        signal: stop.signal
+      }).finally(() => clearTimeout(timer));
+      if (res.ok) {
+        (await res.json()).forEach((row) => {
+          if (row.product_code && row.image_url) {
+            PRODUCT_IMAGES[row.product_code] = { src: row.image_url, credit: row.credit || '自社配信' };
+          }
+        });
+      }
+    } catch (_) { /* 管理画面の登録が読めなくても静的な分は出す */ }
+
+    if (Object.keys(PRODUCT_IMAGES).length) renderResults();
+  };
+
   const renderColumns = async () => {
     try {
       const res = await fetch('assets/columns.json', { cache: 'no-cache' });
@@ -1387,6 +1448,7 @@
   }
   renderServices();
   renderColumns();
+  loadProductImages();
   renderAll();
 })();
 </script>

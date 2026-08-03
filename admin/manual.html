@@ -428,11 +428,15 @@
       <p>上部の<strong>「ショップ出品」タブ</strong>を開くと、在庫の商品が一覧で並びます。<strong>写真を選び</strong>、<strong>表示名・販売価格・商品説明</strong>を入力して<strong>「ショップに公開する」</strong>を押すだけで <a href="/shop/" target="_blank" rel="noopener" style="color:var(--blue2);font-weight:700">8ec.jp/shop/</a> に商品が並びます（商品ごとにドロワーを開く必要はありません）。</p>
       <ul>
         <li><span class="material-icons-outlined">photo_library</span><strong>写真は「写真を選ぶ」から、そのまま選ぶだけ</strong>。ドラッグ＆ドロップでも、スマホならその場で撮った写真でも追加できます。最大8枚まで並べられ、<strong>1枚目がメイン画像</strong>です（サムネイルの「メインに」で入れ替え）</li>
+        <li><span class="material-icons-outlined">add_link</span><strong>画像はURLでも追加できます</strong>。写真欄の下にある入力欄にURLを貼って「URLで追加」を押すだけです。カンマや改行で区切れば複数まとめて入ります。撮影せずにメーカー・仕入先から提供された画像を使う場合に便利です</li>
+        <li><span class="material-icons-outlined">payments</span><strong>値付けはボタン1つ</strong>。販売価格の欄の横に<strong>「¥◯◯◯ を入れる」</strong>ボタンが出ます（仕入×1.5の目安）。そのままでよければ押すだけで入力できます</li>
+        <li><span class="material-icons-outlined">storefront</span><strong>まとめて公開できます</strong>。上部の<strong>「価格入力済みをまとめて公開」</strong>を押すと、価格が入っていてまだ公開していない商品を一度に公開します（実行前に件数を確認するダイアログが出ます）。「価格入力済み・未公開」タブで対象を先に確認できます</li>
         <li><span class="material-icons-outlined">credit_card</span><strong>決済リンクはボタン1つで自動作成</strong>。「決済リンクを作成」を押すと、Stripeに<strong>商品・価格・決済リンク</strong>がまとめて登録されます（手で作る必要はありません）</li>
         <li><span class="material-icons-outlined">check_circle</span>中古品は1点ものなので、<strong>1回購入されるとリンクは自動で締め切られ</strong>、二重販売を防ぎます</li>
         <li><span class="material-icons-outlined">check_circle</span>価格を変えたときは<strong>「決済リンクを作り直す」</strong>を押してください（古いリンクは無効化されます）。価格がずれている間は警告が出ます</li>
         <li><span class="material-icons-outlined">check_circle</span>ショップに並ぶ条件は<strong>「公開する」＋「販売価格あり」＋「未販売」</strong>の3つ。価格を入れずに公開しようとすると警告が出ます</li>
         <li><span class="material-icons-outlined">check_circle</span>売れた商品（販売日時あり）は自動的にショップ一覧から外れます</li>
+        <li><span class="material-icons-outlined">info</span><strong>「出品管理」タブの件数とは一致しません。</strong>自社ショップへの公開と、メルカリ・ヤフオクなど各モールへの出品は別々に管理しているためです。ショップ出品タブの上部に<strong>「在庫◯点＝公開中◯点＋未公開◯点／うち他モール出品中◯点」</strong>の内訳を出しているので、そこで突き合わせられます</li>
       </ul>
       <div class="tip"><span class="material-icons-outlined">info</span>初回のみ「admin/supabase-setup.sql」と「shop/supabase-shop-setup.sql」の実行、および Edge Function「create-payment-link」のデプロイ（＋STRIPE_SECRET_KEY の設定）が必要です。</div>
     </div>
@@ -481,6 +485,7 @@
       <div class="num"><span class="b">9</span>月次集計で振り返る</div>
       <h2>月ごとの販売数・売上・粗利</h2>
       <p>上部タブの<strong>「月次集計」</strong>で、販売日時をもとに月別の販売数・売上合計・サイト手数料・粗利合計を確認できます。年は左右の矢印で切替、<strong>月の行をクリック</strong>すると、在庫・販売管理画面にその月の販売分だけを絞り込んで表示します。</p>
+      <div class="tip"><span class="material-icons-outlined">info</span><strong>サイト手数料率が未入力の販売について。</strong>手数料率の欄ができる前に登録した販売など、率が空のままの商品は<strong>販売先の既定率</strong>（メルカリ・ヤフオク・楽天 10%／ヤフーフリマ 5%／Amazon 8.4%）で計算します。以前はこうした販売のサイト手数料が0円として扱われ、粗利が手数料のぶんだけ多く出ていました。該当件数は表の下に表示されます。個別に率が決まっている場合は、商品の詳細から手数料率を入力すればそちらが優先されます。</div>
     </div>
     <div class="art">
       <svg viewBox="0 0 300 130" aria-label="月次集計のイラスト">
@@ -490,6 +495,46 @@
           <rect x="20" y="36" width="260" height="18" rx="4" fill="#f3f6fc"/><text x="28" y="49" font-size="10" fill="#6b7593">月　　販売数　売上合計　粗利合計</text>
           <rect x="20" y="56" width="260" height="18" rx="4" fill="#eaf0fd"/><text x="28" y="69" font-size="10" font-weight="700" fill="#0c5dce">6月　　8　　　¥312,000　　¥98,500</text>
           <rect x="20" y="76" width="260" height="18" rx="4" fill="#fff"/><text x="28" y="89" font-size="10" fill="#41506e">7月　　5　　　¥198,000　　¥61,200</text>
+        </g>
+      </svg>
+    </div>
+  </div></div>
+
+  <!-- STEP 10 棚卸・在庫報告 -->
+  <div class="step"><div class="grid">
+    <div class="txt">
+      <div class="num"><span class="b">10</span>毎月の在庫報告をする</div>
+      <h2>棚卸と在庫CSV</h2>
+      <p>上部タブの<strong>「棚卸・在庫報告」</strong>で、月ごとの実地棚卸と、報告用の在庫CSV出力ができます。作業の流れは<strong>「検索 → チェック → 棚卸ボタン」</strong>の3手だけです。</p>
+      <ul>
+        <li><span class="material-icons-outlined">search</span><strong>1. 検索して絞り込む。</strong>管理番号・商品名・型番で検索すると、条件に合う在庫だけが並びます。保管場所・種別・確認状況でも絞れるので、倉庫を回りながら「柏の未棚卸だけ」を表示して進められます</li>
+        <li><span class="material-icons-outlined">check_box</span><strong>2. チェックを入れる。</strong>行の左のチェックボックスを押します。<strong>「表示中の◯件をすべて選ぶ」</strong>で一括選択もできます</li>
+        <li><span class="material-icons-outlined">check_circle</span><strong>3.「棚卸済みにする（日時を記録）」を押す。</strong>選んだ商品すべてに、<strong>その場の日付と時刻が自動で入ります</strong>。入力は不要です</li>
+        <li><span class="material-icons-outlined">schedule</span><strong>いつ棚卸したかが各行の右側に出ます。</strong>商品を検索すれば「棚卸済み 2026/8/3 05:57」のように最後に確認した日時がすぐ分かります。一度も確認していないものは<strong>「未棚卸」</strong>、先月までに確認して今月まだのものは<strong>「◯月は未実施」</strong>と出ます</li>
+        <li><span class="material-icons-outlined">sort</span><strong>並び順は「棚卸が古い順（未棚卸が先）」が既定です。</strong>まだ確認していないもの、前回から一番間が空いているものが上に来るので、上から順に片付ければ毎月の棚卸が終わります。「新しい順」「管理番号順」「仕入が古い順」にも切り替えられます</li>
+        <li><span class="material-icons-outlined">calendar_month</span><strong>「最終棚卸月」で絞り込めます。</strong>「2026年07月に棚卸（12点）」のように月ごとの件数が出るので、<strong>先月やったきりのもの</strong>や<strong>一度も棚卸なし</strong>だけを表示して進められます</li>
+        <li><span class="material-icons-outlined">report_problem</span>見つからないものは、チェックしてから<strong>「なし」「要確認」</strong>を押します。押し間違えたら<strong>「記録を取り消す」</strong>で戻せます</li>
+        <li><span class="material-icons-outlined">task_alt</span>確認が終わったら<strong>「棚卸を確定」</strong>。その月の<strong>在庫点数・在庫金額・あり／なし／要確認の件数</strong>が記録として残り、画面下の「これまでの棚卸」で前月と比べられます</li>
+        <li><span class="material-icons-outlined">download</span><strong>「在庫CSVを出力」</strong>で報告用のファイルを作れます。管理番号・種別・メーカー・型番・仕入日・経過日数・仕入金額・保管場所・出品状況・<strong>棚卸結果・棚卸日時</strong>が入り、<strong>末尾に合計行</strong>が付きます</li>
+        <li><span class="material-icons-outlined">report_problem</span><strong>「差異CSV」</strong>は「なし」「要確認」だけを抜き出します。原因を追う作業に使ってください</li>
+      </ul>
+      <div class="tip"><span class="material-icons-outlined">info</span>集計と進捗は<strong>対象月ごと</strong>に数えます。月が変わると「今月の棚卸済み」は0からのスタートになりますが、<strong>各商品の棚卸日時は消えません</strong>。前回いつ確認したかは、月をまたいでもそのまま残ります。個数が2個以上の商品（バルク品）は、在庫金額に<strong>仕入単価×個数</strong>で計上されます。<br><strong>初回のみ</strong>、Supabase の SQL Editor で「admin/stocktake-setup.sql」を実行してください。</div>
+    </div>
+    <div class="art">
+      <svg viewBox="0 0 300 130" aria-label="棚卸のイラスト">
+        <rect width="300" height="130" rx="12" fill="#fff" stroke="#e4ecfb"/>
+        <rect x="20" y="18" width="260" height="8" rx="4" fill="#e8eefb"/>
+        <rect x="20" y="18" width="174" height="8" rx="4" fill="#2479e9"/>
+        <text x="20" y="40" font-size="9" fill="#6b7593">2026年08月の棚卸：2 / 3 点を確認</text>
+        <g font-family="Inter,sans-serif">
+          <rect x="20" y="50" width="260" height="22" rx="6" fill="#fbfdff" stroke="#cfe0f5"/>
+          <text x="28" y="64" font-size="9" fill="#41506e">A-001　ノートPC A</text>
+          <rect x="212" y="55" width="28" height="13" rx="4" fill="#2e9d4a"/><text x="218" y="65" font-size="8" fill="#fff">あり</text>
+          <rect x="20" y="78" width="260" height="22" rx="6" fill="#fbfdff" stroke="#cfe0f5"/>
+          <text x="28" y="92" font-size="9" fill="#41506e">A-002　ノートPC B</text>
+          <rect x="212" y="83" width="28" height="13" rx="4" fill="#d63a3a"/><text x="218" y="93" font-size="8" fill="#fff">なし</text>
+          <rect x="20" y="106" width="260" height="16" rx="5" fill="#f3f6fc"/>
+          <text x="28" y="117" font-size="8.5" fill="#6b7593">在庫 3点／在庫金額 ¥45,000</text>
         </g>
       </svg>
     </div>

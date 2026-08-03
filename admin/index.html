@@ -375,6 +375,84 @@
   .scard .sc-thumb .setmain{position:absolute;left:0;right:0;bottom:0;border:none;background:rgba(9,43,97,.72);color:#fff;font-size:9.5px;font-weight:800;padding:3px 0;cursor:pointer;font-family:inherit}
   .scard .sc-thumb .setmain:hover{background:var(--blue)}
   .scard .sc-imgmsg{font-size:11px;color:var(--mute);margin-top:5px;min-height:14px}
+  .scard .sc-imgmsg.err{color:var(--red)}
+  .scard .sc-imgurl{display:flex;gap:7px;margin-top:7px}
+  .scard .sc-imgurl input{flex:1;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:12px;font-family:inherit;color:var(--text)}
+  .scard .sc-imgurl input:focus{outline:none;border-color:var(--blue)}
+  .scard .sc-imgurl button{flex:none;display:inline-flex;align-items:center;gap:4px;padding:8px 12px;border:1px solid var(--line);background:#fff;border-radius:8px;font-size:12px;font-weight:700;color:var(--navy);cursor:pointer}
+  .scard .sc-imgurl button:hover{border-color:var(--blue);color:var(--blue)}
+  .scard .sc-price{display:flex;gap:7px}
+  .scard .sc-price input{flex:1}
+  .scard .sc-price button{flex:none;padding:8px 12px;border:1px solid var(--line);background:#f4f9ff;border-radius:8px;font-size:12px;font-weight:700;color:var(--blue);cursor:pointer;white-space:nowrap;font-family:inherit}
+  .scard .sc-price button:hover{border-color:var(--blue);background:#e8f2ff}
+  .shop-break{background:#fff;border:1px solid var(--line);border-radius:11px;padding:10px 13px;margin-bottom:12px;font-size:12.5px;color:var(--mute);line-height:1.9}
+  .shop-break b{color:var(--navy)}
+  .shop-break .sep{margin:0 8px;color:#cfd9e8}
+  .shop-break .note{display:block;font-size:11.5px;color:var(--mute);margin-top:3px}
+
+  /* 棚卸・在庫報告 */
+  .st-bar{background:#fff;border:1px solid var(--line);border-radius:12px;padding:11px 13px;margin-bottom:12px;display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+  .st-bar label{font-size:12px;font-weight:700;color:#41506e}
+  .st-bar input,.st-bar select{padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-size:13px;font-family:inherit;background:#fff;color:var(--text)}
+  .st-bar input[type=search]{flex:1;min-width:180px}
+  .st-sp{margin-left:auto;display:inline-flex;gap:8px;flex-wrap:wrap}
+  .st-prog{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:12px}
+  .st-progbar{height:9px;border-radius:5px;background:#e8eefb;overflow:hidden}
+  .st-progbar span{display:block;height:100%;background:linear-gradient(90deg,var(--blue),#48a3f5);border-radius:5px;transition:width .25s}
+  .st-progtxt{font-size:12.5px;color:var(--mute);margin-top:7px}
+  .st-progtxt b{color:var(--navy)}
+  .strow{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:9px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+  .strow.done{background:#fbfdff;border-color:#cfe0f5}
+  .st-info{flex:1;min-width:240px}
+  .st-id{font-size:11.5px;color:var(--mute);font-weight:700;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .st-loc{background:#eef4ff;color:var(--blue2);border-radius:5px;padding:1px 7px;font-size:10.5px}
+  .st-nm{font-size:14px;font-weight:700;color:var(--navy);margin-top:2px}
+  .st-sub{font-size:11.5px;color:var(--mute);margin-top:1px}
+  .st-meta{font-size:11.5px;color:var(--mute);margin-top:4px}
+  .st-meta b{color:var(--text)}
+  .st-act{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+  .stb{padding:9px 15px;border:1px solid var(--line);background:#fff;border-radius:9px;font-size:13px;font-weight:700;color:var(--mute);cursor:pointer;font-family:inherit}
+  .stb:hover{border-color:var(--blue)}
+  .stb.ok.on{background:var(--green);border-color:var(--green);color:#fff}
+  .stb.missing.on{background:var(--red);border-color:var(--red);color:#fff}
+  .stb.check.on{background:var(--amber);border-color:var(--amber);color:#fff}
+  .st-note{width:210px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:12px;font-family:inherit;color:var(--text)}
+  .st-hist{margin-top:22px}
+  .st-hist h3{font-size:14px;color:var(--navy);margin-bottom:9px}
+  .st-head{background:#fff;border:1px solid var(--line);border-radius:10px;padding:9px 13px;margin-bottom:9px}
+  .st-all{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:var(--navy);cursor:pointer}
+  .st-all input{width:17px;height:17px;accent-color:var(--blue);cursor:pointer}
+  .strow{cursor:pointer}
+  .strow:hover{border-color:#c3d5ef}
+  .st-ck{width:19px;height:19px;accent-color:var(--blue);cursor:pointer;flex:none}
+  .st-when{flex:none;min-width:190px;text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+  .stw{display:inline-block;font-size:11.5px;font-weight:700;border-radius:6px;padding:3px 9px}
+  .stw.ok{background:#e6f6ec;color:var(--green)}
+  .stw.old{background:#eef2f8;color:var(--mute)}
+  .stw.ng{background:#fdeaea;color:var(--red)}
+  .stw.wn{background:#fdf3e0;color:var(--amber)}
+  .stw.none{background:#f2f5fa;color:var(--gray)}
+  .stw-at{font-size:12.5px;font-weight:700;color:var(--navy);font-family:"Inter",sans-serif}
+  .stw-old{font-size:10.5px;color:var(--amber)}
+  .stw-note{font-size:10.5px;color:var(--mute);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* 選択中だけ出る操作バー。画面下に貼り付けて、長い一覧でも押せるようにする */
+  .st-actbar{display:none}
+  .st-actbar.on{display:flex;position:sticky;top:8px;z-index:20;align-items:center;gap:9px;flex-wrap:wrap;
+    background:var(--navy2);color:#fff;border-radius:12px;padding:11px 14px;margin-bottom:12px;
+    box-shadow:0 10px 24px -14px rgba(9,43,97,.7)}
+  .st-actbar .n{font-size:13px;font-weight:800}
+  .st-actbar .sb{display:inline-flex;align-items:center;gap:5px;padding:9px 14px;border:1px solid rgba(255,255,255,.24);
+    background:rgba(255,255,255,.12);color:#fff;border-radius:9px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit}
+  .st-actbar .sb:hover{background:rgba(255,255,255,.22)}
+  .st-actbar .sb:disabled{opacity:.5;cursor:default}
+  .st-actbar .sb.ok{background:var(--green);border-color:var(--green)}
+  .st-actbar .sb.ok:hover{background:#25823c}
+  .st-actbar .sb.x{margin-left:auto;background:transparent}
+  .st-toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--navy2);color:#fff;
+    padding:12px 20px;border-radius:11px;font-size:13.5px;font-weight:700;opacity:0;pointer-events:none;
+    transition:opacity .2s;z-index:80;box-shadow:0 12px 28px -14px rgba(9,43,97,.8)}
+  .st-toast.on{opacity:1}
+  @media(max-width:820px){.st-when{min-width:0;text-align:left;align-items:flex-start;width:100%}}
   .scard .sc-imgmsg.err{color:var(--red);font-weight:700}
   /* Stripe決済リンク */
   .scard .sc-stripe{margin-top:11px;border:1px solid var(--line);border-radius:11px;padding:10px 12px;background:#fbfdff}
@@ -449,6 +527,7 @@
 <div class="topbar"><div class="inner">
   <a class="bk" href="/"><span class="material-icons-outlined" style="font-size:16px">arrow_back</span>サイトトップへ戻る</a>
   <span class="right">
+    <a href="/admin/catalog/"><button><span class="material-icons-outlined" style="font-size:15px">image</span>商品画像管理</button></a>
     <button class="help-btn" onclick="openHelp()"><span class="material-icons-outlined" style="font-size:15px">help_outline</span>ヘルプ</button>
     <span id="userEmail" style="font-size:11.5px;color:rgba(255,255,255,.75)"></span>
     <button onclick="signOut()" id="logoutBtn" style="display:none"><span class="material-icons-outlined" style="font-size:15px">logout</span>ログアウト</button>
@@ -477,6 +556,7 @@
     <button id="vt-list" onclick="setEcView('list')"><span class="material-icons-outlined" style="font-size:17px">playlist_add_check</span>出品管理</button>
     <button id="vt-shop" onclick="setEcView('shop')"><span class="material-icons-outlined" style="font-size:17px">storefront</span>ショップ出品</button>
     <button id="vt-report" onclick="setEcView('report')"><span class="material-icons-outlined" style="font-size:17px">bar_chart</span>月次集計</button>
+    <button id="vt-stock" onclick="setEcView('stock')"><span class="material-icons-outlined" style="font-size:17px">fact_check</span>棚卸・在庫報告</button>
   </div>
 
   <div id="manageView">
@@ -526,6 +606,51 @@
     </div>
     <div class="rep-sum" id="repSum"></div>
     <div style="overflow-x:auto"><table class="rep-table" id="repTable"></table></div>
+    <div id="repNote" style="display:none;margin-top:10px;background:#fffdf6;border:1px solid #f0dfae;border-radius:10px;padding:11px 13px;font-size:12.5px;color:#7a5c14;line-height:1.8"></div>
+  </div>
+
+  <div id="stockView" style="display:none">
+    <div class="listing-head">
+      <div>
+        <h2 style="font-size:16px;color:var(--navy);display:flex;align-items:center;gap:8px;margin-bottom:4px"><span class="material-icons-outlined" style="color:var(--blue)">fact_check</span>棚卸・在庫報告</h2>
+        <p style="font-size:12.5px;color:var(--mute);line-height:1.6"><strong>検索して絞り込み → チェックを入れる → 「棚卸済みにする」</strong>で、選んだ商品にその場の<strong>日付と時刻</strong>が記録されます。各行の右側に<strong>いつ棚卸したか</strong>が出るので、商品を検索すれば最後に確認した日時がすぐ分かります。全部終わったら<strong>「棚卸を確定」</strong>で、その月の点数・在庫金額・差異件数を記録として残します。</p>
+      </div>
+      <div class="listing-actions">
+        <button class="btn-add" onclick="exportStockCsv()"><span class="material-icons-outlined" style="font-size:18px">download</span>在庫CSVを出力</button>
+      </div>
+    </div>
+
+    <div class="stats" id="stStats" style="grid-template-columns:repeat(4,1fr)"></div>
+
+    <div class="st-bar">
+      <label>対象月</label><input type="month" id="stYm" onchange="renderStocktake()">
+      <select id="stLoc" onchange="renderStocktake()"><option value="">全保管場所</option></select>
+      <select id="stCat" onchange="renderStocktake()"><option value="">全種別</option></select>
+      <select id="stRes" onchange="renderStocktake()">
+        <option value="">対象月の状況：すべて</option>
+        <option value="none">未棚卸のみ</option>
+        <option value="ok">棚卸済み</option>
+        <option value="missing">なし</option>
+        <option value="check">要確認</option>
+      </select>
+      <select id="stMonth" onchange="renderStocktake()"><option value="">最終棚卸月：すべて</option></select>
+      <select id="stSort" onchange="renderStocktake()">
+        <option value="oldest">並び替え：棚卸が古い順（未棚卸が先）</option>
+        <option value="newest">棚卸が新しい順</option>
+        <option value="mgmt">管理番号順</option>
+        <option value="purchase">仕入が古い順</option>
+      </select>
+      <input type="search" id="stQ" placeholder="管理番号・商品名・型番で検索…" oninput="renderStocktake()">
+      <div class="st-sp">
+        <button class="btn-sub" onclick="exportDiffCsv()"><span class="material-icons-outlined" style="font-size:17px">report_problem</span>差異CSV</button>
+        <button class="btn-add" id="stFixBtn" onclick="finishStocktake()"><span class="material-icons-outlined" style="font-size:18px">task_alt</span>棚卸を確定</button>
+      </div>
+    </div>
+
+    <div class="st-prog" id="stProg"></div>
+    <div class="st-actbar" id="stBar"></div>
+    <div id="stList"></div>
+    <div class="st-hist" id="stHist"></div>
   </div>
 
   <div id="listingView" style="display:none">
@@ -549,14 +674,19 @@
         <h2 style="font-size:16px;color:var(--navy);display:flex;align-items:center;gap:8px;margin-bottom:4px"><span class="material-icons-outlined" style="color:var(--blue)">storefront</span>ショップ出品（自社ショップ 8ec.jp/shop/ に公開）</h2>
         <p style="font-size:12.5px;color:var(--mute);line-height:1.6">在庫の商品を<strong>自社ショップに直接出品</strong>できます。<strong>「公開する」＋「販売価格の入力」＋「未販売」</strong>の3つが揃った商品だけがショップに並びます。売れた商品（販売日時あり）は自動でショップから外れます。</p>
       </div>
-      <a class="shop-open-btn" href="/shop/" target="_blank" rel="noopener"><span class="material-icons-outlined" style="font-size:18px">open_in_new</span>公開ショップを見る</a>
+      <div style="display:flex;gap:9px;flex-wrap:wrap">
+        <button class="shop-open-btn" id="bulkPubBtn" onclick="bulkPublish()" style="border:none;cursor:pointer;font-family:inherit"><span class="material-icons-outlined" style="font-size:18px">storefront</span>価格入力済みをまとめて公開</button>
+        <a class="shop-open-btn" href="/shop/" target="_blank" rel="noopener" style="background:#fff;color:var(--navy);border:1px solid var(--line)"><span class="material-icons-outlined" style="font-size:18px">open_in_new</span>公開ショップを見る</a>
+      </div>
     </div>
     <div class="shop-stats" id="shopStats"></div>
+    <div class="shop-break" id="shopBreak"></div>
     <div class="shop-toolbar">
       <div class="shop-filters">
         <button id="sf-all" class="on" onclick="setShopFilter('all')">在庫すべて</button>
         <button id="sf-live" onclick="setShopFilter('live')">公開中</button>
         <button id="sf-draft" onclick="setShopFilter('draft')">未公開</button>
+        <button id="sf-ready" onclick="setShopFilter('ready')">価格入力済み・未公開</button>
       </div>
       <input id="shopQ" placeholder="管理番号・商品名・型番で検索…" oninput="renderShop()" autocomplete="off">
     </div>
@@ -756,7 +886,22 @@ function urlsOf(it){return (it.listing_urls&&typeof it.listing_urls==='object')?
 function ageDays(it){if(!it.purchase_date)return null;const d=new Date(it.purchase_date+'T00:00:00');if(isNaN(d))return null;return Math.floor((new Date()-d)/86400000);}
 const AGE_TH={'3m':91,'6m':182,'1y':365};
 const AGE_LABEL={'3m':'3ヶ月以上','6m':'6ヶ月以上','1y':'1年以上'};
-function commissionOf(it){return Math.round(Number(it.sale_price||0)*Number(it.commission_rate||0)/100);}   // サイト手数料（円）
+/* サイト手数料率（％）。
+   商品に率が入っていなければ販売先の既定率を使う。率の入力欄ができる前に登録した
+   販売分は commission_rate が空のままで、そのままだとサイト手数料が0円と見なされ、
+   粗利が手数料のぶんだけ多く出てしまうため。 */
+function rateOf(it){
+  const r=it&&it.commission_rate;
+  if(r!==null&&r!==undefined&&r!==''&&isFinite(Number(r)))return Number(r);   // 0%も明示指定として尊重する
+  return Number((it&&CHANNEL_FEE[it.sold_channel])||0);
+}
+/* 率が未入力で、販売先の既定率で補った販売（画面に注記を出すために数える） */
+function rateIsFallback(it){
+  const r=it&&it.commission_rate;
+  const unset=(r===null||r===undefined||r===''||!isFinite(Number(r)));
+  return unset&&Number(CHANNEL_FEE[it&&it.sold_channel]||0)>0;
+}
+function commissionOf(it){return Math.round(Number(it.sale_price||0)*rateOf(it)/100);}   // サイト手数料（円）
 function profitOf(it){return Number(it.sale_price||0)-Number(it.cost||0)-Number(it.shipping||0)-Number(it.fee||0)-commissionOf(it)-Number(it.platform_fee||0);}
 function hasClaim(it){return !!(it.claim_content&&String(it.claim_content).trim());}
 function claimOpen(it){return hasClaim(it)&&!it.claim_done;}   // 未対応のクレーム
@@ -768,7 +913,7 @@ function soldThisMonth(it){return it.sold_at && isoToLocal(it.sold_at).slice(0,7
   sb=window.supabase.createClient(SUPA_URL,SUPA_KEY,{auth:{persistSession:true,autoRefreshToken:true,storage:window.localStorage,storageKey:'zimu-portal-auth'}});
   fillSelects();
   const {data:{session}}=await sb.auth.getSession();
-  if(session&&session.user&&session.user.email===SHARED_EMAIL){showApp();await load();}
+  if(session&&session.user&&session.user.email===SHARED_EMAIL){showApp();await load();loadStocktakes();}
   else{document.getElementById('gate').style.display='grid';}
 })();
 async function doLogin(){
@@ -779,7 +924,7 @@ async function doLogin(){
     const {data,error}=await sb.auth.signInWithPassword({email:id.toLowerCase()+'@8grp.co.jp',password:pw});
     if(error){msg.textContent='IDまたはパスワードが違います';return;}
     if(data.user.email!==SHARED_EMAIL){msg.textContent='このアカウントには権限がありません';await sb.auth.signOut();return;}
-    showApp();await load();
+    showApp();await load();loadStocktakes();
   }catch(e){msg.textContent='ログインに失敗：'+e.message;}
 }
 function showApp(){document.getElementById('gate').style.display='none';document.getElementById('app').style.display='block';document.getElementById('logoutBtn').style.display='inline-flex';document.getElementById('userEmail').textContent='zimu';}
@@ -875,13 +1020,16 @@ function setEcView(v){
   document.getElementById('vt-list').className=(v==='list'?'on':'');
   document.getElementById('vt-shop').className=(v==='shop'?'on':'');
   document.getElementById('vt-report').className=(v==='report'?'on':'');
+  document.getElementById('vt-stock').className=(v==='stock'?'on':'');
   document.getElementById('manageView').style.display=(v==='manage')?'block':'none';
   document.getElementById('listingView').style.display=(v==='list')?'block':'none';
   document.getElementById('shopView').style.display=(v==='shop')?'block':'none';
   document.getElementById('reportView').style.display=(v==='report')?'block':'none';
+  document.getElementById('stockView').style.display=(v==='stock')?'block':'none';
   if(v==='report'){selected.clear();renderBulkBar();renderReport();}
   if(v==='list'){selected.clear();renderBulkBar();renderListing();}
   if(v==='shop'){selected.clear();renderBulkBar();renderShop();}
+  if(v==='stock'){selected.clear();renderBulkBar();renderStocktake();}
 }
 function repShiftYear(n){repYear+=n;renderReport();}
 function soldMonthKey(it){return it.sold_at?isoToLocal(it.sold_at).slice(0,7):'';}   // ローカル月 YYYY-MM
@@ -913,6 +1061,15 @@ function renderReport(){
   }
   document.getElementById('repTable').innerHTML=`<thead><tr><th class="m">月</th><th>販売数</th><th>売上合計</th><th>サイト手数料</th><th>粗利合計</th></tr></thead>
     <tbody>${rows}<tr class="tot"><td class="m">${repYear}年 合計</td><td>${tot.cnt}</td><td>${yen(tot.sales)}</td><td>${yen(tot.comm)}</td><td class="${tot.profit<0?'neg':''}">${yen(tot.profit)}</td></tr></tbody>`;
+
+  /* 率が未入力で既定率を当てた販売と、売上が未入力の販売は、金額の根拠が弱いので明示する */
+  const fb=sold.filter(rateIsFallback).length;
+  const noPrice=sold.filter(it=>!(Number(it.sale_price||0)>0)).length;
+  const notes=[];
+  if(fb)notes.push(`サイト手数料率が未入力の <b>${fb}件</b> は販売先の既定率（${CHANNELS.map(c=>c.label+' '+CHANNEL_FEE[c.key]+'%').join('／')}）で計算しています。`);
+  if(noPrice)notes.push(`売上が未入力の販売が <b>${noPrice}件</b> あります。仕入・送料だけが引かれるため粗利がマイナスに出ます。`);
+  const noteEl=document.getElementById('repNote');
+  if(noteEl){noteEl.innerHTML=notes.map(n=>`<div>${n}</div>`).join('');noteEl.style.display=notes.length?'block':'none';}
 }
 /* 月クリック → 在庫・販売管理へ戻り、その月の販売だけを表示 */
 function reportToMonth(ym){
@@ -920,6 +1077,311 @@ function reportToMonth(ym){
   repDrillYm=ym;setEcView('manage');
 }
 function clearDrill(){repDrillYm='';render();}
+
+/* ===== 棚卸・在庫報告ビュー =====
+   毎月の在庫報告のために、(1) 現物の有無を1件ずつ確認して記録し、
+   (2) 確定時点の点数・在庫金額・差異件数を stocktakes に残す。 */
+const ST_RESULTS={ok:'棚卸済み',missing:'なし',check:'要確認'};
+let stakes=[];                                   // 過去の棚卸記録
+function stYm(){const el=document.getElementById('stYm');return (el&&el.value)||ymNow();}
+function stockItems(){return items.filter(it=>!it.sold_at);}   // 在庫＝未販売
+/* その月に確認済みか。月をまたいだら未確認に戻す（毎月やり直すため） */
+function stResultOf(it,ym){return (it.stocktake_ym===ym&&it.stocktake_result)?it.stocktake_result:'';}
+
+async function loadStocktakes(){
+  const {data,error}=await sb.from('stocktakes').select('*').order('ym',{ascending:false});
+  if(!error)stakes=data||[];
+}
+
+/* 最後に棚卸した月（2026-07）。一度も棚卸していなければ空 */
+function stLastYm(it){return it.stocktake_at?isoToLocal(it.stocktake_at).slice(0,7):'';}
+
+function stFiltered(ym){
+  const val=id=>((document.getElementById(id)||{}).value)||'';
+  const loc=val('stLoc'),cat=val('stCat'),res=val('stRes'),mon=val('stMonth');
+  const q=val('stQ').trim().toLowerCase();
+  return stockItems().filter(it=>{
+    if(loc&&(it.location||'')!==loc)return false;
+    if(cat&&(it.category||'')!==cat)return false;
+    const r=stResultOf(it,ym);
+    if(res==='none'&&r)return false;
+    if(res&&res!=='none'&&r!==res)return false;
+    if(mon==='never'&&it.stocktake_at)return false;              // 一度も棚卸していない
+    if(mon&&mon!=='never'&&stLastYm(it)!==mon)return false;
+    if(!q)return true;
+    return `${it.mgmt_no||''} ${it.product_name||''} ${it.maker||''} ${it.model||''} ${it.spec||''}`.toLowerCase().includes(q);
+  });
+}
+
+/* 並び替え。既定は「棚卸が古い順」で、未棚卸を先頭に持ってくる。
+   毎月の作業では、まだ確認していないもの・前回から一番間が空いているものから
+   片付けたいため。 */
+function stSortList(list){
+  const how=((document.getElementById('stSort')||{}).value)||'oldest';
+  const byMgmt=(a,b)=>(a.mgmt_no||'').localeCompare(b.mgmt_no||'');
+  const at=it=>it.stocktake_at?new Date(it.stocktake_at).getTime():null;
+  return list.slice().sort((a,b)=>{
+    if(how==='mgmt')return byMgmt(a,b);
+    if(how==='purchase'){
+      const pa=a.purchase_date||'9999',pb=b.purchase_date||'9999';
+      return pa===pb?byMgmt(a,b):pa.localeCompare(pb);
+    }
+    const ta=at(a),tb=at(b);
+    if(how==='newest'){
+      if(ta===tb)return byMgmt(a,b);
+      if(ta===null)return 1;                 // 未棚卸は最後
+      if(tb===null)return -1;
+      return tb-ta;
+    }
+    if(ta===tb)return byMgmt(a,b);           // oldest
+    if(ta===null)return -1;                  // 未棚卸を先頭に
+    if(tb===null)return 1;
+    return ta-tb;
+  });
+}
+
+let stSel=new Set();                             // チェックした商品
+
+function renderStocktake(){
+  const host=document.getElementById('stList');if(!host)return;
+  const ymEl=document.getElementById('stYm');
+  if(ymEl&&!ymEl.value)ymEl.value=ymNow();
+  const ym=stYm();
+
+  /* 絞り込みの選択肢は在庫の実データから作る */
+  const fillOnce=(id,vals,label)=>{
+    const el=document.getElementById(id);if(!el||el.dataset.filled)return;
+    el.innerHTML=`<option value="">${label}</option>`+vals.map(v=>`<option>${esc(v)}</option>`).join('');
+    el.dataset.filled='1';
+  };
+  const stock=stockItems();
+  fillOnce('stLoc',[...new Set(stock.map(it=>it.location).filter(Boolean))].sort(),'全保管場所');
+  fillOnce('stCat',[...new Set(stock.map(it=>it.category).filter(Boolean))].sort(),'全種別');
+
+  const cnt={ok:0,missing:0,check:0,none:0};
+  stock.forEach(it=>{const r=stResultOf(it,ym);cnt[r||'none']++;});
+  const cost=stock.reduce((n,it)=>n+Number(it.cost||0)*(Number(it.quantity)||1),0);
+  const unit='<small style="font-size:12px;color:var(--mute);font-weight:600"> 点</small>';
+  document.getElementById('stStats').innerHTML=
+    `<div class="stat stock"><div class="lbl">在庫点数</div><div class="v">${stock.length}${unit}</div><div class="sub-v">在庫金額 <b>${yen(cost)}</b></div></div>`+
+    `<div class="stat soldlist"><div class="lbl">棚卸済み（${ym.replace('-','年')}月）</div><div class="v">${cnt.ok}${unit}</div></div>`+
+    `<div class="stat claim"><div class="lbl">なし・要確認</div><div class="v">${cnt.missing+cnt.check}${unit}</div>${cnt.missing?`<div class="sub-v">なし <b style="color:#c0392b">${cnt.missing}</b></div>`:''}</div>`+
+    `<div class="stat shipwait"><div class="lbl">未棚卸</div><div class="v">${cnt.none}${unit}</div></div>`;
+
+  const done=stock.length-cnt.none;
+  const pct=stock.length?Math.round(done/stock.length*100):0;
+  document.getElementById('stProg').innerHTML=
+    `<div class="st-progbar"><span style="width:${pct}%"></span></div>`+
+    `<div class="st-progtxt">${ym.replace('-','年')}月の棚卸：<b>${done}</b> / ${stock.length} 点を確認（${pct}%）`+
+    (cnt.none?`　残り <b>${cnt.none}</b> 点`:'　<b style="color:var(--green)">すべて確認できました</b>')+`</div>`;
+
+  /* 最終棚卸月の選択肢は、実際に記録がある月から作る（毎回作り直して増減に追従させる） */
+  const monEl=document.getElementById('stMonth');
+  if(monEl){
+    const keep=monEl.value;
+    const months=[...new Set(stock.map(stLastYm).filter(Boolean))].sort().reverse();
+    const never=stock.filter(it=>!it.stocktake_at).length;
+    monEl.innerHTML='<option value="">最終棚卸月：すべて</option>'
+      +months.map(m=>`<option value="${m}">${m.replace('-','年')}月に棚卸（${stock.filter(it=>stLastYm(it)===m).length}点）</option>`).join('')
+      +(never?`<option value="never">一度も棚卸なし（${never}点）</option>`:'');
+    monEl.value=keep;
+  }
+
+  const list=stSortList(stFiltered(ym));
+  const ids=list.map(it=>it.id);
+  /* 画面に出ていない商品のチェックは持ち越さない（見えないものを更新しないため） */
+  stSel=new Set([...stSel].filter(id=>ids.includes(id)));
+
+  if(!list.length){
+    host.innerHTML='<div class="empty"><span class="material-icons-outlined">fact_check</span>条件に合う在庫がありません。</div>';
+  }else{
+    const allOn=ids.length>0&&ids.every(id=>stSel.has(id));
+    host.innerHTML=
+      `<div class="st-head">
+        <label class="st-all"><input type="checkbox" id="stAll" ${allOn?'checked':''} onchange="stCheckAll(this.checked)">
+          表示中の ${list.length} 件をすべて選ぶ</label>
+      </div>`+
+      list.map(it=>{
+        const r=stResultOf(it,ym);
+        const a=ageDays(it);
+        const name=esc(it.product_name||((it.maker?it.maker+' ':'')+(it.model||''))||it.mgmt_no||'(名称なし)');
+        const sub=[it.category,it.maker,it.model,it.spec].filter(Boolean).map(esc).join('　');
+        return `<label class="strow${r?' done':''}" id="strow-${it.id}">
+          <input type="checkbox" class="st-ck" ${stSel.has(it.id)?'checked':''} onchange="stToggle('${it.id}',this.checked)">
+          <div class="st-info">
+            <div class="st-id">${esc(it.mgmt_no||'')}　EC-${it.seq||'-'}${it.location?`<span class="st-loc">${esc(it.location)}</span>`:''}</div>
+            <div class="st-nm">${name}</div>
+            <div class="st-sub">${sub}</div>
+            <div class="st-meta">仕入 <b>${yen(it.cost)}</b>${(Number(it.quantity)||1)>1?` ×${Number(it.quantity)}個`:''}${a!=null?`　／　仕入から ${a}日`:''}</div>
+          </div>
+          <div class="st-when">${stWhenHtml(it,ym)}</div>
+        </label>`;
+      }).join('');
+  }
+  renderStBar();
+}
+
+/* 「いつ棚卸したか」を出す。ここがこの画面の主役なので、日時をそのまま見せる */
+function stWhenHtml(it,ym){
+  const at=it.stocktake_at?fmtDT(it.stocktake_at):'';
+  const day=it.stocktake_at?fmtD(it.stocktake_at):'';
+  const r=it.stocktake_result||'';
+  const thisMonth=it.stocktake_ym===ym;
+  if(!it.stocktake_at)return '<span class="stw none">未棚卸</span>';
+  const label={ok:'棚卸済み',missing:'なし',check:'要確認'}[r]||'棚卸済み';
+  const cls=r==='missing'?'ng':(r==='check'?'wn':(thisMonth?'ok':'old'));
+  return `<span class="stw ${cls}">${label}</span>`+
+    `<span class="stw-at">${esc(day)} ${esc(at.split(' ')[1]||'')}</span>`+
+    (thisMonth?'':`<span class="stw-old">${ym.replace('-','年')}月は未実施</span>`)+
+    (it.stocktake_note?`<span class="stw-note">${esc(it.stocktake_note)}</span>`:'');
+}
+
+function stToggle(id,on){ if(on)stSel.add(id); else stSel.delete(id); renderStBar(); syncStAll(); }
+function stCheckAll(on){
+  const ym=stYm();
+  stFiltered(ym).forEach(it=>{ if(on)stSel.add(it.id); else stSel.delete(it.id); });
+  document.querySelectorAll('#stList .st-ck').forEach(el=>{el.checked=on;});
+  renderStBar();
+}
+function syncStAll(){
+  const el=document.getElementById('stAll');if(!el)return;
+  const ids=stFiltered(stYm()).map(it=>it.id);
+  el.checked=ids.length>0&&ids.every(id=>stSel.has(id));
+}
+
+/* 選択中に出る操作バー。ここの「棚卸済みにする」で日時が入る */
+function renderStBar(){
+  const bar=document.getElementById('stBar');if(!bar)return;
+  const n=stSel.size;
+  bar.className='st-actbar'+(n?' on':'');
+  if(!n){bar.innerHTML='';return;}
+  bar.innerHTML=`<span class="n">${n}件を選択中</span>
+    <button class="sb ok" onclick="stMark('ok')"><span class="material-icons-outlined" style="font-size:17px">check_circle</span>棚卸済みにする（日時を記録）</button>
+    <button class="sb ng" onclick="stMark('missing')">なし</button>
+    <button class="sb wn" onclick="stMark('check')">要確認</button>
+    <button class="sb cl" onclick="stMark('')">記録を取り消す</button>
+    <button class="sb x" onclick="stClearSel()">選択を解除</button>`;
+}
+function stClearSel(){stSel.clear();renderStocktake();}
+
+/* チェックした商品にまとめて棚卸日時を入れる */
+async function stMark(result){
+  const ids=[...stSel];
+  if(!ids.length)return;
+  const ym=stYm();
+  const now=new Date();
+  const rec=result
+    ? {stocktake_result:result,stocktake_ym:ym,stocktake_at:now.toISOString()}
+    : {stocktake_result:null,stocktake_ym:null,stocktake_at:null};
+
+  if(!result&&!confirm(`${ids.length}件の棚卸の記録を取り消します。よろしいですか？`))return;
+
+  const bar=document.getElementById('stBar');
+  if(bar)bar.querySelectorAll('button').forEach(b=>b.disabled=true);
+
+  const {error}=await sb.from(TABLE).update(rec).in('id',ids);
+  if(error){
+    alert('保存エラー：'+error.message+'\n\n棚卸用の列がまだ作られていない可能性があります。\nSupabase の SQL Editor で「admin/stocktake-setup.sql」を実行してください。');
+    if(bar)bar.querySelectorAll('button').forEach(b=>b.disabled=false);
+    return;
+  }
+  ids.forEach(id=>{const it=items.find(x=>x.id===id);if(it)Object.assign(it,rec);});
+  const stamp=result?`${fmtD(now.toISOString())} ${two(now.getHours())}:${two(now.getMinutes())}`:'';
+  stSel.clear();
+  renderStocktake();
+  stToast(result?`${ids.length}件を棚卸済みにしました（${stamp}）`:`${ids.length}件の記録を取り消しました`);
+}
+
+function stToast(msg){
+  let t=document.getElementById('stToast');
+  if(!t){t=document.createElement('div');t.id='stToast';t.className='st-toast';document.body.appendChild(t);}
+  t.textContent=msg;t.classList.add('on');
+  clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('on'),3200);
+}
+
+async function setStocktakeNote(id){
+  const el=document.getElementById('stnote-'+id);if(!el)return;
+  const it=items.find(x=>x.id===id);if(!it)return;
+  const note=el.value.trim()||null;
+  const {error}=await sb.from(TABLE).update({stocktake_note:note}).eq('id',id);
+  if(error){alert('メモを保存できませんでした：'+error.message);return;}
+  it.stocktake_note=note;
+}
+
+/* 棚卸を確定して、その月の記録を1行残す */
+async function finishStocktake(){
+  const ym=stYm();
+  const stock=stockItems();
+  const cnt={ok:0,missing:0,check:0,none:0};
+  stock.forEach(it=>{const r=stResultOf(it,ym);cnt[r||'none']++;});
+  const cost=stock.reduce((n,it)=>n+Number(it.cost||0)*(Number(it.quantity)||1),0);
+
+  let msg=`${ym.replace('-','年')}月の棚卸を確定します。\n\n`
+    +`在庫点数：${stock.length}点\n在庫金額：${yen(cost)}\n`
+    +`棚卸済み：${cnt.ok}点／なし：${cnt.missing}点／要確認：${cnt.check}点\n`;
+  if(cnt.none)msg+=`\n未棚卸が ${cnt.none}点 残っています。このまま確定しますか？\n`;
+  msg+='\n確定すると、この内容が棚卸の記録として残ります。';
+  if(!confirm(msg))return;
+
+  const note=prompt('報告用のメモがあれば入力してください（任意）','')||null;
+  const rec={ym,taken_on:todayStr(),stock_count:stock.length,stock_cost:cost,
+    ok_count:cnt.ok,missing_count:cnt.missing,check_count:cnt.check,unchecked_count:cnt.none,
+    note,created_by:'zimu'};
+  const {error}=await sb.from('stocktakes').upsert(rec,{onConflict:'ym'});
+  if(error){alert('確定できませんでした：'+error.message+'\n\nSupabase の SQL Editor で「admin/stocktake-setup.sql」を実行してください。');return;}
+  await loadStocktakes();
+  renderStocktake();
+  alert(`${ym.replace('-','年')}月の棚卸を確定しました。\n「在庫CSVを出力」から報告用のファイルを作れます。`);
+}
+
+/* ---- 在庫CSV（毎月の在庫報告用） ---- */
+const STOCK_CSV_COLS=['管理番号','EC番号','種別','メーカー','型番','商品名','スペック','個数',
+  '仕入日','仕入からの経過日数','仕入単価','仕入金額','保管場所','出品状況','ショップ公開',
+  '棚卸結果','棚卸日時','棚卸メモ'];
+function stockCsvRow(it,ym){
+  const L=listingsOf(it);
+  const listed=CHANNELS.filter(c=>L[c.key]==='出品中').map(c=>c.label).join('・');
+  const q=Number(it.quantity)||1;
+  const r=stResultOf(it,ym);
+  return [it.mgmt_no,'EC-'+(it.seq||''),it.category,it.maker,it.model,it.product_name,it.spec,q,
+    it.purchase_date,ageDays(it),Number(it.cost||0),Number(it.cost||0)*q,it.location,
+    listed||'未出品',it.shop_published?'公開中':'',
+    ST_RESULTS[r]||'未棚卸',it.stocktake_at?isoToLocal(it.stocktake_at).replace('T',' '):'',it.stocktake_note];
+}
+/* CSVをダウンロードさせる。
+   アンカーを本文に入れてから押し、URLの破棄はダウンロード開始後に回す。
+   すぐ revokeObjectURL すると、ファイル名が付かず "download" で保存されてしまうため。 */
+function downloadBlob(name,blob){
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=name;a.style.display='none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},1000);
+}
+function downloadCsv(name,cols,rows){
+  const lines=[cols.join(',')].concat(rows.map(r=>r.map(csvCell).join(',')));
+  downloadBlob(name,new Blob(['\uFEFF'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'}));
+}
+function exportStockCsv(){
+  const ym=stYm();
+  const stock=stockItems().slice().sort((a,b)=>(a.mgmt_no||'').localeCompare(b.mgmt_no||''));
+  if(!stock.length){alert('在庫がありません。');return;}
+  const rows=stock.map(it=>stockCsvRow(it,ym));
+  /* 報告書にそのまま使えるよう、末尾に合計行を入れる */
+  const totalQty=stock.reduce((n,it)=>n+(Number(it.quantity)||1),0);
+  const totalCost=stock.reduce((n,it)=>n+Number(it.cost||0)*(Number(it.quantity)||1),0);
+  rows.push([]);
+  rows.push(['合計','','','','','','',totalQty,'','','',totalCost,'','','','','','']);
+  rows.push([`${ym.replace('-','年')}月時点の在庫`,`${stock.length}件`,'','','','','','','','','','','','','','','','']);
+  downloadCsv(`在庫報告_${ym.replace('-','')}.csv`,STOCK_CSV_COLS,rows);
+}
+function exportDiffCsv(){
+  const ym=stYm();
+  const diff=stockItems().filter(it=>{const r=stResultOf(it,ym);return r==='missing'||r==='check';});
+  if(!diff.length){alert('差異（なし・要確認）はありません。');return;}
+  downloadCsv(`棚卸差異_${ym.replace('-','')}.csv`,STOCK_CSV_COLS,diff.map(it=>stockCsvRow(it,ym)));
+}
 
 /* ===== 出品管理ビュー ===== */
 function isUnlisted(it){
@@ -987,7 +1449,7 @@ function shopIsLive(it){return !!it.shop_published && !it.sold_at && Number(it.s
 function shopIsIncomplete(it){return !!it.shop_published && !it.sold_at && !(Number(it.shop_price||0)>0);}
 function setShopFilter(f){
   shopFilter=f;
-  ['all','live','draft'].forEach(k=>{const b=document.getElementById('sf-'+k);if(b)b.className=(k===f?'on':'');});
+  ['all','live','draft','ready'].forEach(k=>{const b=document.getElementById('sf-'+k);if(b)b.className=(k===f?'on':'');});
   renderShop();
 }
 /* 入力を保持（検索やフィルタで再描画しても打ちかけの内容を失わない） */
@@ -1021,8 +1483,43 @@ function shopImgsHtml(it){
       ${!imgs.length?'<div style="align-self:center;font-size:11.5px;color:var(--mute);line-height:1.6">写真をドラッグ＆ドロップ、または「写真を選ぶ」から追加できます。<br>スマホなら、その場で撮影した写真も選べます。</div>':''}
     </div>
     <input type="file" id="shfile-${it.id}" accept="image/*" multiple style="display:none" onchange="uploadShopImages('${it.id}',this)">
+    ${canAdd?`<div class="sc-imgurl">
+      <input id="shurl-${it.id}" placeholder="画像URLを貼り付けて追加（https://…／複数はカンマ・改行区切り）"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();addShopImageUrl('${it.id}')}">
+      <button type="button" onclick="addShopImageUrl('${it.id}')">
+        <span class="material-icons-outlined" style="font-size:15px">add_link</span>URLで追加</button>
+    </div>`:''}
     <div class="sc-imgmsg" id="shimg-msg-${it.id}"></div>
   </div>`;
+}
+
+/* 画像URLを貼り付けて追加する。撮影せずにメーカー・仕入先の画像を使う場合や、
+   別の場所にアップロード済みの画像を指す場合に使う */
+async function addShopImageUrl(id){
+  const el=document.getElementById('shurl-'+id);
+  const msg=document.getElementById('shimg-msg-'+id);
+  const it=items.find(x=>x.id===id);
+  if(!el||!it)return;
+  const urls=el.value.split(/[\s,、]+/).map(u=>u.trim()).filter(Boolean);
+  const bad=urls.filter(u=>!/^(https?:\/\/|\/)/.test(u));
+  const ok=urls.filter(u=>/^(https?:\/\/|\/)/.test(u));
+  if(!ok.length){
+    if(msg){msg.textContent='https:// で始まるURL、またはサイト内の /images/… を貼り付けてください。';msg.className='sc-imgmsg err';}
+    return;
+  }
+  const imgs=shopImagesOf(it).slice();
+  const room=SHOP_IMG_MAX-imgs.length;
+  const added=ok.slice(0,room);
+  imgs.push(...added);
+  el.value='';
+  if(msg){
+    const over=ok.length-added.length;
+    msg.textContent=`${added.length}枚を追加しました。`
+      +(over?`（上限${SHOP_IMG_MAX}枚のため${over}枚は追加していません）`:'')
+      +(bad.length?`（URLでない${bad.length}件は無視しました）`:'');
+    msg.className='sc-imgmsg';
+  }
+  await saveShopFields(id,{images:imgs});
 }
 function shopStripeHtml(it,curPrice){
   const link=it.stripe_payment_link||'';
@@ -1069,7 +1566,9 @@ function shopCardHtml(it){
     ${shopImgsHtml(it)}
     <div class="sc-grid">
       <div class="sc-f full"><label>ショップ表示名</label><input id="sh-title-${it.id}" oninput="shopMark('${it.id}')" value="${esc(v.title)}" placeholder="未入力なら型番または管理番号を表示"></div>
-      <div class="sc-f full"><label>販売価格（円）※必須</label><input id="sh-price-${it.id}" type="number" inputmode="numeric" oninput="shopMark('${it.id}')" value="${esc(v.price)}" placeholder="例：39800"></div>
+      <div class="sc-f full"><label>販売価格（円）※必須</label>
+        <div class="sc-price"><input id="sh-price-${it.id}" type="number" inputmode="numeric" oninput="shopMark('${it.id}')" value="${esc(v.price)}" placeholder="例：39800">
+        ${ref?`<button type="button" onclick="fillRefPrice('${it.id}',${ref})" title="仕入×${REF_MARKUP}の目安を入れる">${yen(ref)} を入れる</button>`:''}</div></div>
       <div class="sc-f full"><label>商品説明</label><textarea id="sh-desc-${it.id}" oninput="shopMark('${it.id}')" placeholder="状態・付属品・おすすめポイント">${esc(v.desc)}</textarea></div>
     </div>
     ${shopStripeHtml(it,(v.price===''||v.price==null)?0:Number(v.price))}
@@ -1080,6 +1579,36 @@ function shopCardHtml(it){
       <button class="sc-editlink" onclick="openDrawer('${it.id}')">商品の詳細を編集</button>
     </div>
   </div>`;
+}
+
+/* 参考売値（仕入×1.5の目安）を価格欄に入れる。1件ずつ値付けを考える手間を減らす */
+function fillRefPrice(id,ref){
+  const el=document.getElementById('sh-price-'+id);
+  if(!el)return;
+  el.value=ref;
+  shopMark(id);
+  el.focus();
+}
+
+/* 価格が入っていて未公開のものを、まとめてショップに公開する */
+async function bulkPublish(){
+  const target=items.filter(it=>!it.sold_at&&!it.shop_published&&Number(it.shop_price||0)>0);
+  if(!target.length){
+    alert('まとめて公開できる商品がありません。\n\n「販売価格が入っていて、まだ公開していない商品」が対象です。\n価格を入力して保存してから、もう一度お試しください。');
+    return;
+  }
+  if(!confirm(`${target.length}点を自社ショップ（8ec.jp/shop/）に公開します。\n\n公開すると、どなたでも閲覧・購入できる状態になります。\nよろしいですか？`))return;
+
+  const btn=document.getElementById('bulkPubBtn');
+  if(btn){btn.disabled=true;btn.textContent='公開中…';}
+  let ok=0,ng=0;
+  for(const it of target){
+    const {error}=await sb.from(TABLE).update({shop_published:true,updated_at:new Date().toISOString()}).eq('id',it.id);
+    if(error)ng++;else ok++;
+  }
+  if(btn){btn.disabled=false;}
+  alert(`${ok}点を公開しました。`+(ng?`\n${ng}点は公開できませんでした。`:''));
+  await load();
 }
 
 /* ---- 商品写真のアップロード（メルカリのように選ぶだけ／ドラッグ＆ドロップ対応） ---- */
@@ -1179,16 +1708,29 @@ function renderShop(){
   const live=inStock.filter(shopIsLive);
   const incomplete=inStock.filter(shopIsIncomplete);
   const draft=inStock.filter(it=>!it.shop_published);
+  const ready=draft.filter(it=>Number(it.shop_price||0)>0);        // 価格が入っていて未公開＝すぐ公開できる
+  const noPrice=draft.filter(it=>!(Number(it.shop_price||0)>0));
+  const onMall=inStock.filter(it=>!isUnlisted(it));                // 他モールに出品中
   const unit='<small style="font-size:12px;color:var(--mute);font-weight:600"> 点</small>';
   const stats=document.getElementById('shopStats');
   if(stats){
     stats.innerHTML=
       `<div class="c live"><div class="l">ショップ公開中（実際に並んでいる）</div><div class="v">${live.length}${unit}</div></div>`+
-      `<div class="c"><div class="l">未公開の在庫</div><div class="v">${draft.length}${unit}</div></div>`+
+      `<div class="c"><div class="l">すぐ公開できる（価格入力済み）</div><div class="v">${ready.length}${unit}</div></div>`+
+      `<div class="c"><div class="l">価格未入力</div><div class="v">${noPrice.length}${unit}</div></div>`+
       `<div class="c${incomplete.length?' warn':''}"><div class="l">公開ONだが価格未設定</div><div class="v">${incomplete.length}${unit}</div></div>`;
+  }
+  /* 「出品管理」の件数と食い違って見えないよう、内訳をその場で示す。
+     ショップ出品（自社ショップ）と出品管理（メルカリ等の各モール）は別管理のため */
+  const bd=document.getElementById('shopBreak');
+  if(bd){
+    bd.innerHTML=`在庫 <b>${inStock.length}点</b>　＝　自社ショップ公開中 <b>${live.length}点</b> ＋ 未公開 <b>${draft.length}点</b>`
+      +`<span class="sep">｜</span>このうち他モール（メルカリ等）に出品中 <b>${onMall.length}点</b>／未出品 <b>${inStock.length-onMall.length}点</b>`
+      +`<span class="note">自社ショップへの公開と、各モールへの出品は別々に管理しています。「出品管理」タブの件数は<b>未出品のもの</b>だけを数えているため、この画面の在庫数とは一致しません。</span>`;
   }
   let list = shopFilter==='live'  ? inStock.filter(it=>!!it.shop_published)
            : shopFilter==='draft' ? draft
+           : shopFilter==='ready' ? ready
            : inStock;
   const qEl=document.getElementById('shopQ');
   const q=(qEl?qEl.value:'').trim().toLowerCase();
@@ -1667,12 +2209,17 @@ async function revertSale(){
 function calcProfit(){
   const num=id=>{const v=parseFloat(document.getElementById(id).value);return isNaN(v)?0:v;};
   const price=num('d-price'),cost=num('d-cost'),ship=num('d-ship'),fee=num('d-fee');
-  const rate=num('d-comm-rate'),plat=num('d-platfee');
+  const plat=num('d-platfee');
+  /* 率が未入力なら販売先の既定率で計算する。月次集計と同じ扱いにして数字を一致させる */
+  const rateEl=document.getElementById('d-comm-rate');
+  const ch=document.getElementById('d-soldch').value;
+  const typed=rateEl.value.trim()!==''&&!isNaN(parseFloat(rateEl.value));
+  const rate=typed?parseFloat(rateEl.value):Number(CHANNEL_FEE[ch]||0);
   const comm=Math.round(price*rate/100);
   const pf=price-cost-ship-fee-comm-plat;
   const rows=[
     ['売上',price,false],['仕入',cost,true],['送料',ship,true],['手数料（その他）',fee,true],
-    [`サイト手数料（${rate||0}%）`,comm,true],['プラットフォーム利用料',plat,true]
+    [`サイト手数料（${rate||0}%${!typed&&rate?'・販売先の既定':''}）`,comm,true],['プラットフォーム利用料',plat,true]
   ].filter(([l,v])=>v!==0);
   document.getElementById('profitBreak').innerHTML=rows.map(([l,v,m])=>`<div class="r ${m?'minus':''}"><span>${l}</span><b>${m?'−':''}${yen(v)}</b></div>`).join('');
   const el=document.getElementById('dProfit');el.textContent=yen(pf);el.classList.toggle('neg',pf<0);
@@ -1854,10 +2401,8 @@ function exportCsv(){
       it.memo].map(csvCell).join(','));
   });
   const d=new Date();
-  const blob=new Blob(['\uFEFF'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
-  a.download=`EC在庫管理_${d.getFullYear()}${two(d.getMonth()+1)}${two(d.getDate())}.csv`;
-  a.click();URL.revokeObjectURL(a.href);
+  downloadBlob(`EC在庫管理_${d.getFullYear()}${two(d.getMonth()+1)}${two(d.getDate())}.csv`,
+    new Blob(['\uFEFF'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'}));
 }
 async function importCsv(input){
   const file=input.files&&input.files[0];input.value='';if(!file)return;
