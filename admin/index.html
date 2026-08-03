@@ -627,11 +627,18 @@
       <select id="stLoc" onchange="renderStocktake()"><option value="">全保管場所</option></select>
       <select id="stCat" onchange="renderStocktake()"><option value="">全種別</option></select>
       <select id="stRes" onchange="renderStocktake()">
-        <option value="">確認状況：すべて</option>
-        <option value="none">未確認のみ</option>
-        <option value="ok">あり</option>
+        <option value="">対象月の状況：すべて</option>
+        <option value="none">未棚卸のみ</option>
+        <option value="ok">棚卸済み</option>
         <option value="missing">なし</option>
         <option value="check">要確認</option>
+      </select>
+      <select id="stMonth" onchange="renderStocktake()"><option value="">最終棚卸月：すべて</option></select>
+      <select id="stSort" onchange="renderStocktake()">
+        <option value="oldest">並び替え：棚卸が古い順（未棚卸が先）</option>
+        <option value="newest">棚卸が新しい順</option>
+        <option value="mgmt">管理番号順</option>
+        <option value="purchase">仕入が古い順</option>
       </select>
       <input type="search" id="stQ" placeholder="管理番号・商品名・型番で検索…" oninput="renderStocktake()">
       <div class="st-sp">
@@ -1086,19 +1093,50 @@ async function loadStocktakes(){
   if(!error)stakes=data||[];
 }
 
+/* 最後に棚卸した月（2026-07）。一度も棚卸していなければ空 */
+function stLastYm(it){return it.stocktake_at?isoToLocal(it.stocktake_at).slice(0,7):'';}
+
 function stFiltered(ym){
-  const loc=(document.getElementById('stLoc')||{}).value||'';
-  const cat=(document.getElementById('stCat')||{}).value||'';
-  const res=(document.getElementById('stRes')||{}).value||'';
-  const q=(((document.getElementById('stQ')||{}).value)||'').trim().toLowerCase();
+  const val=id=>((document.getElementById(id)||{}).value)||'';
+  const loc=val('stLoc'),cat=val('stCat'),res=val('stRes'),mon=val('stMonth');
+  const q=val('stQ').trim().toLowerCase();
   return stockItems().filter(it=>{
     if(loc&&(it.location||'')!==loc)return false;
     if(cat&&(it.category||'')!==cat)return false;
     const r=stResultOf(it,ym);
     if(res==='none'&&r)return false;
     if(res&&res!=='none'&&r!==res)return false;
+    if(mon==='never'&&it.stocktake_at)return false;              // 一度も棚卸していない
+    if(mon&&mon!=='never'&&stLastYm(it)!==mon)return false;
     if(!q)return true;
     return `${it.mgmt_no||''} ${it.product_name||''} ${it.maker||''} ${it.model||''} ${it.spec||''}`.toLowerCase().includes(q);
+  });
+}
+
+/* 並び替え。既定は「棚卸が古い順」で、未棚卸を先頭に持ってくる。
+   毎月の作業では、まだ確認していないもの・前回から一番間が空いているものから
+   片付けたいため。 */
+function stSortList(list){
+  const how=((document.getElementById('stSort')||{}).value)||'oldest';
+  const byMgmt=(a,b)=>(a.mgmt_no||'').localeCompare(b.mgmt_no||'');
+  const at=it=>it.stocktake_at?new Date(it.stocktake_at).getTime():null;
+  return list.slice().sort((a,b)=>{
+    if(how==='mgmt')return byMgmt(a,b);
+    if(how==='purchase'){
+      const pa=a.purchase_date||'9999',pb=b.purchase_date||'9999';
+      return pa===pb?byMgmt(a,b):pa.localeCompare(pb);
+    }
+    const ta=at(a),tb=at(b);
+    if(how==='newest'){
+      if(ta===tb)return byMgmt(a,b);
+      if(ta===null)return 1;                 // 未棚卸は最後
+      if(tb===null)return -1;
+      return tb-ta;
+    }
+    if(ta===tb)return byMgmt(a,b);           // oldest
+    if(ta===null)return -1;                  // 未棚卸を先頭に
+    if(tb===null)return 1;
+    return ta-tb;
   });
 }
 
@@ -1137,7 +1175,19 @@ function renderStocktake(){
     `<div class="st-progtxt">${ym.replace('-','年')}月の棚卸：<b>${done}</b> / ${stock.length} 点を確認（${pct}%）`+
     (cnt.none?`　残り <b>${cnt.none}</b> 点`:'　<b style="color:var(--green)">すべて確認できました</b>')+`</div>`;
 
-  const list=stFiltered(ym).slice().sort((a,b)=>(a.mgmt_no||'').localeCompare(b.mgmt_no||''));
+  /* 最終棚卸月の選択肢は、実際に記録がある月から作る（毎回作り直して増減に追従させる） */
+  const monEl=document.getElementById('stMonth');
+  if(monEl){
+    const keep=monEl.value;
+    const months=[...new Set(stock.map(stLastYm).filter(Boolean))].sort().reverse();
+    const never=stock.filter(it=>!it.stocktake_at).length;
+    monEl.innerHTML='<option value="">最終棚卸月：すべて</option>'
+      +months.map(m=>`<option value="${m}">${m.replace('-','年')}月に棚卸（${stock.filter(it=>stLastYm(it)===m).length}点）</option>`).join('')
+      +(never?`<option value="never">一度も棚卸なし（${never}点）</option>`:'');
+    monEl.value=keep;
+  }
+
+  const list=stSortList(stFiltered(ym));
   const ids=list.map(it=>it.id);
   /* 画面に出ていない商品のチェックは持ち越さない（見えないものを更新しないため） */
   stSel=new Set([...stSel].filter(id=>ids.includes(id)));
