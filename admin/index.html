@@ -743,9 +743,9 @@
         <div class="fg"><label>スペック</label><textarea id="d-spec" placeholder="CPU / メモリ / ストレージ など"></textarea></div>
         <div class="fg2">
           <div class="fg"><label>仕入日</label><input type="date" id="d-pdate"></div>
-          <div class="fg"><label>個数</label><input type="number" id="d-qty" inputmode="numeric" min="1" placeholder="1"></div>
+          <div class="fg"><label>個数<span style="font-weight:400;color:var(--mute)">※同型番をまとめる場合</span></label><select id="d-qty" onchange="calcProfit()"></select></div>
         </div>
-        <div class="fg"><label>仕入値（円）<span style="font-weight:400;color:var(--mute)">※1個あたり</span></label><input type="number" id="d-cost" inputmode="numeric" oninput="calcProfit()"></div>
+        <div class="fg"><label>仕入値（円）<span style="font-weight:400;color:var(--mute)">※1個あたり</span><span id="costTotal" style="font-weight:700;color:var(--blue)"></span></label><input type="number" id="d-cost" inputmode="numeric" oninput="calcProfit()"></div>
         <div class="fg2">
           <div class="fg"><label>送料（円）</label><input type="number" id="d-ship" inputmode="numeric" oninput="calcProfit()"></div>
           <div class="fg"><label>手数料（円）</label><input type="number" id="d-fee" inputmode="numeric" oninput="calcProfit()"></div>
@@ -941,6 +941,19 @@ async function doLogin(){
 }
 function showApp(){document.getElementById('gate').style.display='none';document.getElementById('app').style.display='block';document.getElementById('logoutBtn').style.display='inline-flex';document.getElementById('userEmail').textContent='zimu';}
 async function signOut(){await sb.auth.signOut();location.reload();}
+
+const QTY_MAX=100;   // 個数プルダウンの上限。まとめ買い（ACセット等）を想定
+/* 個数の選択肢。CSV取込などで100を超える値が入っている商品もあるため、
+   その値だけは選択肢に足して、開いただけで数量が変わらないようにする */
+function fillQtyOptions(current){
+  const el=document.getElementById('d-qty');if(!el)return;
+  const n=Number(current)||1;
+  const opts=[];
+  for(let i=1;i<=QTY_MAX;i++)opts.push(i);
+  if(n>QTY_MAX)opts.push(n);
+  el.innerHTML=opts.map(i=>`<option value="${i}"${i===n?' selected':''}>${i}${i===1?'（単品）':' 個'}</option>`).join('');
+  el.value=String(n);
+}
 
 function fillSelects(){
   document.getElementById('fCat').innerHTML='<option value="">全種別</option>'+CATS.map(c=>`<option>${c}</option>`).join('');
@@ -2158,7 +2171,7 @@ function openDrawer(id,opts){
   set('pname',it?it.product_name:'');set('maker',it?it.maker:'');
   set('spec',it?it.spec:'');set('pdate',it?it.purchase_date:'');set('cost',it?it.cost:'');
   set('ship',it?it.shipping:'');set('fee',it?it.fee:'');set('memo',it?it.memo:'');
-  set('qty',it&&it.quantity!=null?it.quantity:'');
+  fillQtyOptions(it&&it.quantity!=null?it.quantity:1);
   renderSourceInfo(it&&it.source_data);
   document.getElementById('d-shop-pub').checked=!!(it&&it.shop_published);
   set('shop-title',it?it.shop_title:'');set('shop-desc',it?it.shop_description:'');set('shop-price',it?it.shop_price:'');
@@ -2277,6 +2290,14 @@ function calcProfit(){
   ].filter(([l,v])=>v!==0);
   document.getElementById('profitBreak').innerHTML=rows.map(([l,v,m])=>`<div class="r ${m?'minus':''}"><span>${l}</span><b>${m?'−':''}${yen(v)}</b></div>`).join('');
   const el=document.getElementById('dProfit');el.textContent=yen(pf);el.classList.toggle('neg',pf<0);
+
+  /* 個数が2以上のときだけ仕入合計を出す。単価と合計を取り違えると
+     在庫金額（仕入単価×個数で集計）がずれるため */
+  const qEl=document.getElementById('d-qty'),tEl=document.getElementById('costTotal');
+  if(qEl&&tEl){
+    const q=Number(qEl.value)||1;
+    tEl.textContent=(q>1&&cost>0)?`　→ 仕入合計 ${yen(cost*q)}（${q}個）`:'';
+  }
 }
 
 /* ===== 発送指示の添付ファイル（Supabase Storage・非公開／署名URL） ===== */
