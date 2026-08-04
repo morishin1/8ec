@@ -209,7 +209,7 @@
       <ul>
         <li><span class="material-icons-outlined">check_circle</span><strong>セット品</strong>は台数（総数）で仕入額を割り、個品ごとに1商品として登録</li>
         <li><span class="material-icons-outlined">check_circle</span><strong>ACセット等のまとめ売り（バルク）</strong>は<strong>個数</strong>を保持し、仕入÷個数で1個あたりの単価に</li>
-        <li><span class="material-icons-outlined">filter_9_plus</span><strong>個数はプルダウンから選びます（1〜100個）。</strong>同じ型番をまとめて登録するときに使ってください。個数を2個以上にすると、仕入値の欄に<strong>「→ 仕入合計 ¥40,000（50個）」</strong>と合計が出ます。仕入値は<strong>1個あたり</strong>の金額を入れてください（在庫金額は 仕入単価×個数 で集計されます）</li>
+        <li><span class="material-icons-outlined">filter_9_plus</span><strong>個数はプルダウンから選びます（1〜100個）。在庫一覧の各行と、商品の編集画面のどちらからでも変えられます。</strong>一覧のプルダウンは<strong>選んだ時点ですぐ保存</strong>されます（編集画面を開く必要はありません）。同じ型番をまとめて登録するときに使ってください。個数を2個以上にすると、仕入値の欄に<strong>「→ 仕入合計 ¥40,000（50個）」</strong>と合計が出ます。仕入値は<strong>1個あたり</strong>の金額を入れてください（在庫金額は 仕入単価×個数 で集計されます）</li>
         <li><span class="material-icons-outlined">check_circle</span>仕入CSVの全項目は、各商品の<strong>「商品情報 → 仕入情報（CSV）」</strong>で確認できます</li>
         <li><span class="material-icons-outlined">check_circle</span>仕入値が未設定だと<strong>「参考売値なし」</strong>の警告が出ます</li>
       </ul>
@@ -437,6 +437,7 @@
         <li><span class="material-icons-outlined">check_circle</span>価格を変えたときは<strong>「決済リンクを作り直す」</strong>を押してください（古いリンクは無効化されます）。価格がずれている間は警告が出ます</li>
         <li><span class="material-icons-outlined">check_circle</span>ショップに並ぶ条件は<strong>「公開する」＋「販売価格あり」＋「未販売」</strong>の3つ。価格を入れずに公開しようとすると警告が出ます</li>
         <li><span class="material-icons-outlined">check_circle</span>売れた商品（販売日時あり）は自動的にショップ一覧から外れます</li>
+        <li><span class="material-icons-outlined">fact_check</span><strong>在庫一覧に棚卸の印が出ます。</strong>その月の棚卸で確認した商品には<strong>「棚卸済み」</strong>、見つからなかったものには<strong>「棚卸：なし」</strong>が管理番号の横に付きます（翌月になると消え、また未棚卸から始まります）</li>
         <li><span class="material-icons-outlined">info</span><strong>「出品管理」タブの件数とは一致しません。</strong>自社ショップへの公開と、メルカリ・ヤフオクなど各モールへの出品は別々に管理しているためです。ショップ出品タブの上部に<strong>「在庫◯点＝公開中◯点＋未公開◯点／うち他モール出品中◯点」</strong>の内訳を出しているので、そこで突き合わせられます</li>
       </ul>
       <div class="tip"><span class="material-icons-outlined">info</span>初回のみ「admin/supabase-setup.sql」と「shop/supabase-shop-setup.sql」の実行、および Edge Function「create-payment-link」のデプロイ（＋STRIPE_SECRET_KEY の設定）が必要です。</div>
@@ -516,6 +517,7 @@
         <li><span class="material-icons-outlined">schedule</span><strong>いつ棚卸したかが各行の右側に出ます。</strong>商品を検索すれば「棚卸済み 2026/8/3 05:57」のように最後に確認した日時がすぐ分かります。一度も確認していないものは<strong>「未棚卸」</strong>、先月までに確認して今月まだのものは<strong>「◯月は未実施」</strong>と出ます</li>
         <li><span class="material-icons-outlined">sort</span><strong>並び順は「棚卸が古い順（未棚卸が先）」が既定です。</strong>まだ確認していないもの、前回から一番間が空いているものが上に来るので、上から順に片付ければ毎月の棚卸が終わります。「新しい順」「管理番号順」「仕入が古い順」にも切り替えられます</li>
         <li><span class="material-icons-outlined">calendar_month</span><strong>「最終棚卸月」で絞り込めます。</strong>「2026年07月に棚卸（12点）」のように月ごとの件数が出るので、<strong>先月やったきりのもの</strong>や<strong>一度も棚卸なし</strong>だけを表示して進められます</li>
+        <li><span class="material-icons-outlined">storefront</span><strong>各行に出品先が出ます。</strong>メルカリ・ヤフオク・楽天・Amazon・自社ショップのうち、いま出品中のものが色付きで並びます。出品停止や売り切れの記録がある場合はその状況も添えます。棚卸しながら「これは今どこに出ているか」が分かります</li>
         <li><span class="material-icons-outlined">report_problem</span>見つからないものは、チェックしてから<strong>「なし」「要確認」</strong>を押します。押し間違えたら<strong>「記録を取り消す」</strong>で戻せます</li>
         <li><span class="material-icons-outlined">task_alt</span>確認が終わったら<strong>「棚卸を確定」</strong>。その月の<strong>在庫点数・在庫金額・あり／なし／要確認の件数</strong>が記録として残り、画面下の「これまでの棚卸」で前月と比べられます</li>
         <li><span class="material-icons-outlined">download</span><strong>「在庫CSVを出力」</strong>で報告用のファイルを作れます。管理番号・種別・メーカー・型番・仕入日・経過日数・仕入金額・保管場所・出品状況・<strong>棚卸結果・棚卸日時</strong>が入り、<strong>末尾に合計行</strong>が付きます</li>

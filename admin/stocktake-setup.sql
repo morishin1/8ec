@@ -50,7 +50,10 @@ comment on table public.stocktakes is
 create unique index if not exists stocktakes_ym_idx on public.stocktakes (ym);
 create index if not exists stocktakes_taken_idx on public.stocktakes (taken_on desc);
 
--- 3) 行レベルセキュリティ（zimu共有アカウントのみ全操作可）
+-- 3) 権限と行レベルセキュリティ（zimu共有アカウントのみ全操作可）
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on public.stocktakes to authenticated;
+
 alter table public.stocktakes enable row level security;
 drop policy if exists "stocktakes admin all" on public.stocktakes;
 create policy "stocktakes admin all" on public.stocktakes for all to authenticated
