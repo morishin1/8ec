@@ -48,6 +48,10 @@ create trigger catalog_images_touch before update on public.catalog_images
 
 -- 行レベルセキュリティ
 --   anon（トップページ）は読むだけ。書き込めるのは zimu 共有アカウントのみ。
+grant usage on schema public to anon, authenticated;
+grant select on public.catalog_images to anon;
+grant select, insert, update, delete on public.catalog_images to authenticated;
+
 alter table public.catalog_images enable row level security;
 
 drop policy if exists "catalog_images read" on public.catalog_images;

@@ -60,6 +60,11 @@ comment on table public.stocktakes is
 create unique index if not exists stocktakes_ym_idx on public.stocktakes (ym);
 create index if not exists stocktakes_taken_idx on public.stocktakes (taken_on desc);
 
+-- Supabase の既定権限に頼らず、テーブルへの権限を明示しておく
+--（既定権限が設定されていないプロジェクトでも「permission denied」にならないように）
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on public.stocktakes to authenticated;
+
 alter table public.stocktakes enable row level security;
 drop policy if exists "stocktakes admin all" on public.stocktakes;
 create policy "stocktakes admin all" on public.stocktakes for all to authenticated
@@ -115,6 +120,9 @@ create trigger catalog_images_touch before update on public.catalog_images
   for each row execute function public.catalog_images_touch();
 
 -- anon（トップページ）は読むだけ。書き込めるのは zimu 共有アカウントのみ
+grant select on public.catalog_images to anon;
+grant select, insert, update, delete on public.catalog_images to authenticated;
+
 alter table public.catalog_images enable row level security;
 
 drop policy if exists "catalog_images read" on public.catalog_images;
