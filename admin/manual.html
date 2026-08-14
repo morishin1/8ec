@@ -322,8 +322,10 @@
     <div class="txt">
       <div class="num"><span class="b">3</span>売れたら「売れた」ボタン</div>
       <h2>受注情報・発送指示を入力</h2>
-      <p>在庫の商品行にある<strong>「売れた」</strong>ボタンを押すとドロワーが開き、<strong>「販売」</strong>欄が自動的に開きます。販売日時・売上・販売先・購入者・電話番号・発送先住所・発送方法などを入力します。販売日時を入れた時点で「販売済み」として扱われます。</p>
+      <p>在庫の商品行にある<strong>「売れた」</strong>ボタンを押すとドロワーが開き、<strong>「販売」</strong>欄が自動的に開きます。販売日時を入れた時点で「販売済み」として扱われます。</p>
       <ul>
+        <li><span class="material-icons-outlined">check_circle</span><strong>入力するのは5つだけです。</strong><strong>どこで売れたか（販売先）／売上金額／原価金額／発送日／発送NO（伝票番号）</strong>が最初から並んでいます。原価金額は上の「商品情報」で入れた仕入値がそのまま出ます（まとめ買いは「¥800 ×50個 ＝ ¥40,000」のように合計も表示）</li>
+        <li><span class="material-icons-outlined">unfold_more</span>購入者・電話番号・発送先住所・発送方法・付属品・手数料・請求日／入金日は、<strong>「その他の項目」</strong>を押すと出ます。<strong>値が入っている商品は自動で開く</strong>ので、入力済みの内容を見落とすことはありません</li>
         <li><span class="material-icons-outlined">check_circle</span>販売先を選ぶと<strong>サイト手数料率が自動セット</strong>（メルカリ10%・Amazon8.4%など）</li>
         <li><span class="material-icons-outlined">check_circle</span>粗利＝売上−仕入−送料−手数料−サイト手数料−利用料 が自動計算されます</li>
       </ul>
@@ -557,7 +559,7 @@
         <li><span class="material-icons-outlined">receipt_long</span><strong>④ 未請求売上。</strong>基準日までに売れて、<strong>請求日が未入力</strong>のものの売上合計です</li>
         <li><span class="material-icons-outlined">download</span>各カードの<strong>「CSV」</strong>で明細つきファイルを出力できます（末尾に合計行つき）。<strong>「3項目まとめてCSV」</strong>は3つの金額を1枚にまとめたもので、経理へそのまま渡せます</li>
       </ul>
-      <div class="tip"><span class="material-icons-outlined">edit_calendar</span><strong>請求日・入金日の入れ方。</strong>商品の編集画面の<strong>「販売」</strong>セクションに、出荷日・伝票番号の下へ<strong>請求日</strong>と<strong>入金日</strong>の欄を追加しました。空欄のあいだは「未請求」「未入金」として集計されます。<br><strong>③ 期末仕掛品</strong>は、案件ごとの原価（人件費・外注費・材料費）を持っていないため、この画面では算定できません。<br><strong>初回のみ</strong>、Supabase の SQL Editor で「admin/closing-setup.sql」を実行してください。</div>
+      <div class="tip"><span class="material-icons-outlined">edit_calendar</span><strong>請求日・入金日の入れ方。</strong>商品の編集画面の<strong>「販売」</strong>セクションで<strong>「その他の項目」</strong>を開くと、<strong>請求日</strong>と<strong>入金日</strong>の欄があります。空欄のあいだは「未請求」「未入金」として集計されます。<br><strong>③ 期末仕掛品</strong>は、案件ごとの原価（人件費・外注費・材料費）を持っていないため、この画面では算定できません。<br><strong>初回のみ</strong>、Supabase の SQL Editor で「admin/closing-setup.sql」を実行してください。</div>
     </div>
     <div class="art">
       <svg viewBox="0 0 300 130" aria-label="決算資料のイラスト">
