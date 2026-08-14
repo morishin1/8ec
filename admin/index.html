@@ -246,6 +246,15 @@
   .fg2{display:grid;grid-template-columns:1fr 1fr;gap:11px}
   .chgrid{display:grid;grid-template-columns:1fr 1fr;gap:11px}
   .salebox{background:#f4faf6;border:1px solid #d8ecdf;border-radius:12px;padding:12px;margin-bottom:12px}
+  /* 読み取り専用の表示（原価など、別のところで入力する項目） */
+  .fg .ro{padding:10px 11px;border:1px dashed var(--line);border-radius:9px;font-size:14px;
+    background:#fff;color:var(--text);font-weight:700;font-family:"Inter",sans-serif}
+  /* 販売の「その他の項目」を開くボタン */
+  .more-btn{display:inline-flex;align-items:center;gap:5px;margin:4px 0 10px;padding:8px 12px;
+    border:1px solid var(--line);background:#fff;border-radius:9px;font-size:12.5px;font-weight:700;
+    color:var(--navy);cursor:pointer;font-family:inherit}
+  .more-btn:hover{border-color:var(--blue);color:var(--blue)}
+  .more-btn.on{background:#eef4ff;border-color:#cfe0f5;color:var(--blue2)}
   .profit-line{font-size:13px;font-weight:800;color:var(--navy);background:#f0f3fb;border-radius:9px 9px 0 0;padding:9px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px}
   .profit-line .pv{font-family:"Inter",sans-serif;color:var(--green);flex:none}
   .profit-line .pv.neg{color:var(--red)}
@@ -833,39 +842,49 @@
       <div class="sect sale" onclick="toggleDsec('sale')"><span class="material-icons-outlined">sell</span>販売（売れたら入力）<span class="material-icons-outlined chev">expand_more</span></div>
       <div class="dsec-body">
         <div class="salebox">
+          <!-- よく使う項目だけを前に出す。残りは下の「その他の項目」に畳んでおく -->
           <div class="fg"><label>販売日時（入れると「販売済み」になります）</label><input type="datetime-local" id="d-soldat" onchange="calcProfit()"></div>
           <div class="fg2">
-            <div class="fg"><label>売上（円）</label><input type="number" id="d-price" inputmode="numeric" oninput="onPriceOrChannel()"></div>
-            <div class="fg"><label>販売先</label><select id="d-soldch" onchange="onChannelChange()"><option value="">—</option></select></div>
+            <div class="fg"><label>どこで売れたか（販売先）</label><select id="d-soldch" onchange="onChannelChange()"><option value="">—</option></select></div>
+            <div class="fg"><label>売上金額（円）</label><input type="number" id="d-price" inputmode="numeric" oninput="onPriceOrChannel()"></div>
           </div>
           <div class="fg2">
-            <div class="fg"><label>サイト手数料率（％）<span style="font-weight:400;color:var(--mute)" id="commHint"></span></label><input type="number" id="d-comm-rate" inputmode="decimal" step="0.1" oninput="calcProfit()"></div>
-            <div class="fg"><label>プラットフォーム利用料（円）</label><input type="number" id="d-platfee" inputmode="numeric" oninput="calcProfit()"></div>
+            <div class="fg"><label>原価金額（仕入）<span style="font-weight:400;color:var(--mute)">※上の「商品情報」で入力</span></label>
+              <div class="ro" id="d-cost-view">—</div></div>
+            <div class="fg"><label>発送日（入れると発送済み）</label><input type="date" id="d-shipped"></div>
           </div>
-          <div style="font-size:11.5px;font-weight:800;color:#2b7a49;margin:4px 0 8px;display:flex;align-items:center;gap:5px"><span class="material-icons-outlined" style="font-size:15px">local_shipping</span>発送指示（発送する人への指示）</div>
-          <div class="fg2">
-            <div class="fg"><label>購入者（氏名）</label><input id="d-buyer" placeholder="お客さんの名前"></div>
-            <div class="fg"><label>電話番号</label><input id="d-phone" placeholder="090-…"></div>
+          <div class="fg"><label>発送NO（伝票番号）</label><input id="d-track" placeholder="伝票番号"></div>
+
+          <button type="button" class="more-btn" id="saleMoreBtn" onclick="toggleSaleMore()">
+            <span class="material-icons-outlined" style="font-size:16px">expand_more</span>その他の項目（購入者・発送先・手数料・請求／入金）</button>
+
+          <div id="saleMore" style="display:none">
+            <div class="fg2">
+              <div class="fg"><label>サイト手数料率（％）<span style="font-weight:400;color:var(--mute)" id="commHint"></span></label><input type="number" id="d-comm-rate" inputmode="decimal" step="0.1" oninput="calcProfit()"></div>
+              <div class="fg"><label>プラットフォーム利用料（円）</label><input type="number" id="d-platfee" inputmode="numeric" oninput="calcProfit()"></div>
+            </div>
+            <div class="fg2">
+              <div class="fg"><label>請求日<span style="font-weight:400;color:var(--mute)">※空欄なら未請求</span></label><input type="date" id="d-billed"></div>
+              <div class="fg"><label>入金日<span style="font-weight:400;color:var(--mute)">※空欄なら未入金</span></label><input type="date" id="d-paid"></div>
+            </div>
+            <div style="font-size:11.5px;font-weight:800;color:#2b7a49;margin:8px 0;display:flex;align-items:center;gap:5px"><span class="material-icons-outlined" style="font-size:15px">local_shipping</span>発送指示（発送する人への指示）</div>
+            <div class="fg2">
+              <div class="fg"><label>購入者（氏名）</label><input id="d-buyer" placeholder="お客さんの名前"></div>
+              <div class="fg"><label>電話番号</label><input id="d-phone" placeholder="090-…"></div>
+            </div>
+            <div class="fg"><label>発送先住所</label><textarea id="d-addr" style="min-height:44px" placeholder="発送先の住所"></textarea></div>
+            <div class="fg2">
+              <div class="fg"><label>発送場所</label><select id="d-sloc"><option value="">—</option></select></div>
+              <div class="fg"><label>発送ステータス</label><select id="d-saction"><option value="">—</option></select></div>
+            </div>
+            <div class="fg"><label>台数・付属品</label><input id="d-acc" placeholder="例：1台 / ACアダプタ付"></div>
+            <div class="fg"><label>発送指示の添付ファイル（伝票・QR・写真など）</label>
+              <div id="shipFiles" class="filelist"></div>
+              <label class="filebtn"><span class="material-icons-outlined" style="font-size:16px">upload_file</span>ファイルを追加<input type="file" id="shipFileInput" multiple style="display:none" onchange="uploadShipFiles(this)"></label>
+              <span id="fileMsg" style="font-size:11.5px;color:var(--mute);margin-left:8px"></span>
+            </div>
           </div>
-          <div class="fg"><label>発送先住所</label><textarea id="d-addr" style="min-height:44px" placeholder="発送先の住所"></textarea></div>
-          <div class="fg2">
-            <div class="fg"><label>発送場所</label><select id="d-sloc"><option value="">—</option></select></div>
-            <div class="fg"><label>発送ステータス</label><select id="d-saction"><option value="">—</option></select></div>
-          </div>
-          <div class="fg"><label>台数・付属品</label><input id="d-acc" placeholder="例：1台 / ACアダプタ付"></div>
-          <div class="fg2">
-            <div class="fg"><label>出荷日（入れると発送済み）</label><input type="date" id="d-shipped"></div>
-            <div class="fg"><label>伝票番号</label><input id="d-track" placeholder="伝票番号"></div>
-          </div>
-          <div class="fg2">
-            <div class="fg"><label>請求日<span style="font-weight:400;color:var(--mute)">※空欄なら未請求</span></label><input type="date" id="d-billed"></div>
-            <div class="fg"><label>入金日<span style="font-weight:400;color:var(--mute)">※空欄なら未入金</span></label><input type="date" id="d-paid"></div>
-          </div>
-          <div class="fg"><label>発送指示の添付ファイル（伝票・QR・写真など）</label>
-            <div id="shipFiles" class="filelist"></div>
-            <label class="filebtn"><span class="material-icons-outlined" style="font-size:16px">upload_file</span>ファイルを追加<input type="file" id="shipFileInput" multiple style="display:none" onchange="uploadShipFiles(this)"></label>
-            <span id="fileMsg" style="font-size:11.5px;color:var(--mute);margin-left:8px"></span>
-          </div>
+
           <button type="button" onclick="clearSale()" style="border:none;background:transparent;color:var(--mute);font-size:12px;cursor:pointer;text-decoration:underline">販売情報をクリア（在庫に戻す）</button>
         </div>
         <div class="profit-breakdown" id="profitBreak"></div>
@@ -2440,6 +2459,7 @@ function openDrawer(id,opts){
   set('buyer',it?it.buyer_name:'');set('phone',it?it.buyer_phone:'');set('addr',it?it.ship_address:'');
   set('saction',it?it.ship_action:'');set('sloc',it?it.ship_location:'');set('acc',it?it.accessories:'');
   set('billed',it?it.billed_at:'');set('paid',it?it.paid_at:'');
+  syncSaleMore(it);
   set('shipped',it?it.shipped_at:'');set('track',it?it.tracking_no:'');
   drawerFiles=(it&&Array.isArray(it.ship_files))?it.ship_files.slice():[];renderShipFiles();
   document.getElementById('fileMsg').textContent='';updateCommHint();
@@ -2512,6 +2532,33 @@ function onChannelChange(){
   updateCommHint();calcProfit();
 }
 function onPriceOrChannel(){calcProfit();}
+
+/* 販売の「その他の項目」の開閉 */
+function setSaleMore(open){
+  const box=document.getElementById('saleMore'),btn=document.getElementById('saleMoreBtn');
+  if(!box||!btn)return;
+  box.style.display=open?'block':'none';
+  btn.classList.toggle('on',open);
+  btn.querySelector('.material-icons-outlined').textContent=open?'expand_less':'expand_more';
+}
+function toggleSaleMore(){
+  const box=document.getElementById('saleMore');
+  setSaleMore(box.style.display==='none');
+}
+/* 隠れている側に入力があると気づけないので、値が入っていれば開いた状態で出す */
+function syncSaleMore(it){
+  const has=!!(it&&(it.commission_rate!=null||it.platform_fee!=null||it.billed_at||it.paid_at
+    ||it.buyer_name||it.buyer_phone||it.ship_address||it.ship_location||it.ship_action||it.accessories
+    ||(Array.isArray(it.ship_files)&&it.ship_files.length)));
+  setSaleMore(has);
+}
+/* 原価（仕入）は「商品情報」で入れるので、販売側では読み取り専用で見せる */
+function syncCostView(){
+  const el=document.getElementById('d-cost-view');if(!el)return;
+  const q=Number((document.getElementById('d-qty')||{}).value)||1;
+  const c=parseFloat((document.getElementById('d-cost')||{}).value);
+  el.textContent=isNaN(c)?'—':(q>1?`${yen(c)} ×${q}個 ＝ ${yen(c*q)}`:yen(c));
+}
 /* 販売を取り消して在庫に戻す（販売・発送関連だけを直接クリア） */
 async function revertSale(){
   if(!editId)return;
@@ -2550,6 +2597,7 @@ function calcProfit(){
 
   /* 個数が2以上のときだけ仕入合計を出す。単価と合計を取り違えると
      在庫金額（仕入単価×個数で集計）がずれるため */
+  syncCostView();
   const qEl=document.getElementById('d-qty'),tEl=document.getElementById('costTotal');
   if(qEl&&tEl){
     const q=Number(qEl.value)||1;
@@ -2658,7 +2706,14 @@ async function saveItem(){
       error=await put({...r});
     }
     if(!error&&dropped.length){
-      setTimeout(()=>alert('保存はできましたが、次の項目はデータベースの準備が済んでいないため保存されませんでした：\n・'+dropped.join('\n・')+'\n\n事務担当に「admin/supabase-setup.sql（および shop/supabase-shop-setup.sql）の実行」を依頼してください。'),50);
+      /* どの列が足りないかで、実行すべきSQLを案内し分ける */
+      const NEED={billed_at:'admin/setup-all.sql',paid_at:'admin/setup-all.sql',
+        location:'admin/setup-all.sql',stocktake_at:'admin/setup-all.sql',stocktake_ym:'admin/setup-all.sql',
+        stocktake_result:'admin/setup-all.sql',stocktake_note:'admin/setup-all.sql'};
+      const files=[...new Set(dropped.map(k=>NEED[k]||'admin/supabase-setup.sql'))];
+      setTimeout(()=>alert('保存はできましたが、次の項目はデータベースの準備が済んでいないため保存されませんでした：\n・'+dropped.join('\n・')
+        +'\n\nSupabase の SQL Editor で次を実行してください。\n・'+files.join('\n・')
+        +'\n\n（リポジトリ内のファイルです。何度実行しても安全です）'),50);
     }
     if(error)throw error;
     clearDraft();closeDrawer();await load();
