@@ -29,7 +29,11 @@
 │
 ├── api/                Vercel サーバーレス関数（問い合わせ受付・Slack通知）
 ├── admin/              管理画面（EC在庫・棚卸・決算資料・ショップ出品・商品画像・問い合わせ・レンタル）
-│   └── setup-all.sql   追加機能のSupabase設定（棚卸・決算・商品画像をまとめて実行）
+│   ├── setup-all.sql   追加機能のSupabase設定（棚卸・決算・商品画像をまとめて実行）
+│   ├── ec-master-setup.sql  EC一元管理のSupabase設定（新品SKUの商品マスター）
+│   └── ec/             EC一元管理（8EC・楽天・Amazon・Yahoo をまとめて扱う）
+│       ├── connectors.js  モールごとのCSV仕様（モールを増やすときはここに足す）
+│       └── cp932.js       Shift_JIS変換表（生成物／tools/build-cp932.py が作る）
 ├── shop/               公開ショップ（Stripe決済）
 ├── rental/             機材レンタル
 ├── assets/             画像・ロゴ・favicon・在庫データ・商品イラスト・コラム目次
@@ -255,6 +259,103 @@ Vercel プロジェクトの **Settings → Domains** で `8ec.jp` を追加し�
 
 ---
 
+## EC一元管理（/admin/ec/）
+
+8EC を商品・在庫のマスターにして、楽天・Amazon・Yahoo! への出品をまとめて扱う画面です。
+
+### 中古（`/admin/`）との住み分け
+
+いま動いている `/admin/` の EC在庫管理は、オークションで仕入れた**中古品を1台ずつ**扱う仕組みです
+（1行＝現物1台。棚卸・決算資料・ショップ出品がこれに乗っています）。
+一方このモール一元管理は、**同じ型番を何台も持つ新品SKU**が前提で、
+「在庫10台 → 楽天で1台売れる → 9台」と数が減る必要があります。
+
+この2つは数え方が根本的に違うので、**表を分けて併存**させています。
+`/admin/ec/` は `ec_products` を、`/admin/` は従来どおり `ec_items` を使い、互いに影響しません。
+
+| | `/admin/`（中古） | `/admin/ec/`（新品SKU） |
+|---|---|---|
+| 1行の意味 | 現物1台 | 1SKU（同じ型番を何台でも） |
+| 在庫 | 売れたら「販売済み」になる | 数量が減る |
+| 表 | `ec_items` | `ec_products` / `ec_listings` |
+
+### セットアップ
+
+Supabase の SQL Editor で `admin/ec-master-setup.sql` を実行します。何度実行しても安全です。
+既存の `ec_items` には触れないので、棚卸・決算資料はそのまま動きます。
+
+作られるもの：
+
+| 表・関数 | 役割 |
+|---|---|
+| `ec_products` | 商品マスター。SKU・価格・在庫・スペック・中古PC向け項目 |
+| `ec_listings` | SKU×モールの出品設定（出す/出さない・モール別の商品名と価格・出品状態） |
+| `ec_stock_moves` | 在庫の増減履歴（いつ・どのモールで・いくつ・なぜ） |
+| `ec_sync_log` | モール連携の実行履歴 |
+| `ec_stock_apply()` | 在庫を増減する関数 |
+
+### 在庫は必ず `ec_stock_apply()` を通す
+
+在庫は複数のモールから同時に減りえます。画面側で「読んで、引いて、書き戻す」をやると、
+ほぼ同時の2件で片方の減少が消えます。`ec_stock_apply()` は
+`update ... returning` で1文にまとめて行ロックを取り、履歴を同じトランザクションで残します。
+マイナス在庫になる場合は例外を投げて、増減ごとなかったことにします。
+
+> 3セッションから同時に150回引く検証で、在庫100に対して成功100・失敗50、
+> 残0・履歴100行・`stock_after` が100通り（＝取りこぼしなし）を確認しています。
+
+### モールを増やすとき
+
+モールごとの違いは `admin/ec/connectors.js` だけに閉じ込めてあります。
+画面側はモール名を知らずに動くので、**コネクタを1つ足せば増やせます**。
+
+```js
+var NEWMALL = {
+  key:'newmall', label:'新しいモール', short:'新', color:'#333', phase:2,
+  csv:{ encoding:'shift_jis', sep:',', filename:(ymd)=>'newmall-'+ymd+'.csv',
+        columns:[ {h:'商品コード', v:(p,l)=>p.sku}, ... ],   // 出力する列
+        keyField:['商品コード'],                              // 取込のキー列
+        fields:{ price:{h:['価格'], t:num, to:'listing.price'} } },
+  api:null
+};
+```
+
+### CSVの列名について
+
+モールのCSVテンプレートは契約プランや店舗によって列が増減します。
+`connectors.js` に書いてあるのは主要列で、**そのまま通る保証はありません**。
+画面の「ヘッダー照合」に実物のテンプレートを読ませると、
+食い違っている列（出力側の余分／取込側の不足）を出すので、最初の1回はそれで確かめてください。
+
+文字コードは楽天・Yahoo!を Shift_JIS、Amazon・8EC を UTF-8 として出力します（画面で切り替え可）。
+ブラウザは Shift_JIS を読めても書けないため、出力用の変換表だけ自前で持っています。
+
+```bash
+python3 tools/build-cp932.py   # admin/ec/cp932.js を作り直す（手で編集しない）
+```
+
+取り込み側は `TextDecoder` に任せるので変換表を使わず、Shift_JIS / UTF-8 を自動で見分けます。
+
+### いまできること・これから
+
+| | 内容 | 状態 |
+|---|---|---|
+| Phase 1 | 商品マスター・商品一覧・在庫一元管理・価格管理・ダッシュボード | 実装済み |
+| Phase 1 | 楽天連携（CSV出力・取込） | 実装済み（列名の照合は要実施） |
+| Phase 2 | Amazon・Yahoo!（CSVの雛形はあり） | 列の確認から |
+| Phase 2〜3 | 各モールのAPI連携 | **外部の申請が先** |
+| Phase 3 | 注文一元管理・AI商品登録補助 | 未着手 |
+
+APIでの自動連携は、こちらだけでは進められません。先に次が要ります。
+
+- 楽天：RMS WEB SERVICE の利用申請とライセンスキー
+- Amazon：SP-API の開発者登録（審査あり）
+- Yahoo!：ストアクリエイターProのAPI利用申請
+
+取得できしだい、各コネクタの `api` に処理を足せば、CSVの運用はそのまま残せます。
+
+---
+
 ## Supabase のセットアップ（管理画面・ショップ・フォーム）
 
 `/admin/`（EC在庫管理・ショップ出品）、`/shop/`（公開ショップ）、各ページの
@@ -267,6 +368,8 @@ Vercel プロジェクトの **Settings → Domains** で `8ec.jp` を追加し�
 | 2 | `shop/supabase-shop-setup.sql` | 公開ショップが読む `shop_products` ビュー |
 | 3 | `admin/contact/supabase-setup.sql` | 問い合わせ・見積もりフォームの受信テーブル |
 | 4 | `rental/supabase-setup.sql` | レンタル機材 |
+| 5 | `admin/setup-all.sql` | 棚卸・決算資料（請求日／入金日）・商品画像管理 |
+| 6 | `admin/ec-master-setup.sql` | EC一元管理（新品SKUの商品マスター）※上とは独立 |
 
 ### Edge Function（Stripe 決済リンクの自動生成）
 
