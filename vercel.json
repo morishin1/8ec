@@ -7,6 +7,18 @@
   "trailingSlash": false,
   "rewrites": [
     {
+      "source": "/zaiko",
+      "destination": "/zaiko/index.html"
+    },
+    {
+      "source": "/zaiko/(items|products|locations)/(.*)",
+      "destination": "/zaiko/index.html"
+    },
+    {
+      "source": "/zaiko/(list|in|out|loan|stock|locations|history|register|labels)",
+      "destination": "/zaiko/index.html"
+    },
+    {
       "source": "/images/products/CI7P000118.webp",
       "destination": "https://meraki.cisco.com/wp-content/uploads/2022/09/MR28-product-wireless-lan-tile.png"
     },
