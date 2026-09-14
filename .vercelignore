@@ -4,3 +4,7 @@ notion-proxy
 README.md
 .gitignore
 *.zip
+
+# セットアップSQLはSupabaseのSQL Editorに貼って使うもので、サイトからは読まない。
+# 表の構成や管理用アカウントのアドレスが公開URLで見えてしまうので配信しない
+*.sql

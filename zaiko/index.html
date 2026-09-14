@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>備品在庫管理｜株式会社エイト</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#18243E">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=block" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<style>
+/* ========================================================================
+   デザイントークン（design_handoff_qr_inventory/README.md の指定どおり）
+   ライムは CTA・成果・重要数字だけに使う（画面の5〜10%を超えない）
+   ======================================================================== */
+:root{
+  --bg:#FFFFFF; --text:#111111; --panel:#F7F7F3;
+  --ink:#18243E;                      /* Deep Indigo：ボタン・リンク・現在地・強調 */
+  --lime:#E7F056; --lime-press:#D8E148;
+  --line:rgba(17,17,17,.14); --rule:rgba(17,17,17,.08);
+  --i100:#EDF0F6; --i200:#DAE0EB; --i300:#AFB9CD; --i400:#7A89A6; --i500:#3D4E71;
+  --i600:#142038; --i700:#111B2F; --i800:#0D1526; --i900:#0A1120;
+  --l100:#FBFDE8; --l200:#F4FAC4; --l300:#ECF59B; --l400:#E7F056; --l500:#C9D23C;
+  --n100:#F7F7F3; --n200:#EFEFE9; --n300:#DEDED7; --n400:#C2C2B9; --n500:#9A9A92;
+  --n600:#6E6E68; --n700:#4A4A45; --n800:#2A2A27; --n900:#111111;
+  --sh-sm:0 1px 2px rgba(17,17,17,.14); --sh-md:0 3px 10px rgba(17,17,17,.16); --sh-lg:0 12px 32px rgba(17,17,17,.22);
+  --r1:1px; --r2:2px; --r4:4px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{font-family:"Zen Kaku Gothic New",-apple-system,"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;
+  background:var(--bg);color:var(--text);font-size:15px;line-height:1.55;font-weight:400}
+a{color:var(--ink)}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.ms{font-family:"Material Symbols Outlined";font-weight:400;font-style:normal;line-height:1;
+  letter-spacing:normal;text-transform:none;white-space:nowrap;direction:ltr;-webkit-font-feature-settings:'liga';
+  -webkit-font-smoothing:antialiased;user-select:none}
+
+h1{font-size:40px;font-weight:700;letter-spacing:-.02em;line-height:1.12}
+h2{font-size:24px;font-weight:700;letter-spacing:-.02em;line-height:1.12}
+.sec{font-size:22px;font-weight:700;letter-spacing:-.02em;margin:40px 0 15px}
+.sec:first-child{margin-top:0}
+.meta{font-size:12px;color:var(--n600)}
+.sub{font-size:13px;color:var(--n700)}
+.lbl{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--n600);font-weight:500}
+
+/* ---- レイアウト ---- */
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px}
+#app{display:none}
+#view{padding:20px 0 60px}
+
+/* ---- ログイン ---- */
+#gate{display:none;min-height:80vh;place-items:center;padding:30px 20px}
+#gate .box{width:100%;max-width:380px;text-align:center}
+#gate h1{font-size:28px;margin-bottom:10px}
+#gate p{font-size:13px;color:var(--n600);margin-bottom:20px}
+#gate .f{text-align:left;margin-bottom:12px}
+#gate label{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--n600);display:block;margin-bottom:5px}
+#gate input{width:100%;padding:12px;border:1px solid var(--line);border-radius:var(--r2);font-size:15px;background:#fff}
+#gate .err{font-size:13px;color:#B3261E;min-height:20px;margin-bottom:6px}
+
+/* ---- ヘッダー ---- */
+.topline{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:10px 20px 8px;background:var(--n100)}
+.topline .brand{font-weight:500;font-size:15px;letter-spacing:.02em;margin-right:auto;display:flex;align-items:baseline;gap:8px}
+.topline .brand b{font-weight:700}
+.topline .who{font-size:12px;color:var(--n600);display:inline-flex;align-items:center;gap:6px}
+.topline .role{font-size:11px;letter-spacing:.08em;background:var(--i100);color:var(--i800);padding:2px 8px;border-radius:var(--r2)}
+.topline button{border:1px solid var(--line);background:#fff;border-radius:var(--r2);padding:5px 10px;font-size:12px;cursor:pointer}
+
+header.bar{position:sticky;top:0;z-index:30;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 0 12px}
+.scanbtn{width:100%;min-height:62px;font-size:19px;font-weight:700;background:var(--lime);color:#111;border:none;
+  border-radius:var(--r4);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:10px}
+.scanbtn:hover{background:var(--lime-press)}
+.scanbtn .ms{font-size:30px}
+.menu{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:6px}
+.menu button{position:relative;min-height:66px;padding:10px 6px 9px;border:1px solid var(--line);background:var(--n100);
+  border-radius:var(--r2);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+  font-size:12.5px;line-height:1.25;text-align:center}
+.menu button .ms{font-size:24px}
+.menu button:hover{background:var(--i100);border-color:var(--i300)}
+.menu button.on{background:var(--i100);border:1px solid var(--ink);border-bottom-width:3px}
+
+/* ---- 汎用 ---- */
+.btn{min-height:44px;padding:10px 16px;border:1px solid var(--ink);background:#fff;color:var(--ink);
+  border-radius:var(--r2);font-size:14px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:7px}
+.btn:hover{background:var(--i100)}
+.btn.pri{background:var(--ink);color:#fff}
+.btn.pri:hover{background:var(--i600)}
+.btn.lime{background:var(--lime);border-color:var(--lime);color:#111;font-weight:700}
+.btn.lime:hover{background:var(--lime-press);border-color:var(--lime-press)}
+.btn.sm{min-height:36px;padding:6px 12px;font-size:13px}
+.btn.ghost{border-color:var(--line);color:var(--text)}
+.btn:disabled{opacity:.42;cursor:not-allowed}
+.btn:disabled:hover{background:#fff}
+.btn.pri:disabled:hover{background:var(--ink)}
+
+.card{background:var(--panel);padding:15px;border-radius:var(--r2);box-shadow:var(--sh-sm)}
+.input,select.input,textarea.input{width:100%;min-height:44px;padding:10px 12px;border:1px solid var(--line);
+  background:#fff;border-radius:var(--r2);font-size:15px}
+.field{display:flex;flex-direction:column;gap:5px}
+.field > span{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--n600);font-weight:500}
+.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;max-width:760px}
+
+.tag{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:3px 9px;border-radius:var(--r2);white-space:nowrap}
+.tag .ms{font-size:15px}
+.tag.big{font-size:13px;padding:5px 12px}
+.tag.st-在庫{background:var(--i100);color:var(--i800)}
+.tag.st-貸出中{background:var(--l100);color:var(--ink)}
+.tag.st-使用中{background:var(--n200);color:#111}
+.tag.st-修理中{background:var(--l200);color:#111}
+.tag.st-故障{background:var(--ink);color:#fff}
+.tag.st-紛失{background:var(--n300);color:#111}
+.tag.st-廃棄{background:var(--n800);color:#fff}
+.tag.act{background:var(--n200);color:var(--n800)}
+
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--r2);overflow:hidden;background:#fff}
+.seg button{border:none;background:transparent;padding:9px 16px;font-size:13.5px;cursor:pointer;min-height:40px}
+.seg button.on{background:var(--ink);color:#fff}
+
+.table-wrap{overflow-x:auto;margin-top:12px}
+table.t{width:100%;border-collapse:collapse;font-size:14px}
+table.t th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--n600);font-weight:500;
+  text-align:left;padding:8px 10px 8px 0;border-bottom:1px solid var(--line);white-space:nowrap}
+table.t td{padding:11px 10px 11px 0;border-bottom:1px solid var(--rule);vertical-align:middle}
+table.t tr.clk{cursor:pointer}
+table.t tr.clk:hover td{background:var(--n100)}
+.nowrap{white-space:nowrap}
+.num{font-variant-numeric:tabular-nums}
+
+.empty{padding:40px 20px;text-align:center;color:var(--n600);font-size:14px;background:var(--panel);border-radius:var(--r2)}
+.rowline{display:flex;gap:12px;align-items:baseline;padding:9px 0;border-bottom:1px solid var(--rule);font-size:13px;flex-wrap:wrap}
+
+/* ---- ダッシュボード ---- */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:26px 20px;margin-bottom:10px}
+.kpi .v{font-size:44px;font-weight:700;line-height:1;margin-top:4px}
+.kpi .n{font-size:11px;color:var(--n600);margin-top:4px}
+.checks{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:15px}
+.chk{cursor:pointer;border:none;text-align:left;font:inherit;display:block;width:100%}
+.chk .h{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.chk .h .ms{font-size:19px}
+.chk .h .t{font-size:17px;font-weight:500;flex:1}
+.chk .h .b{font-size:22px;font-weight:700;padding:0 9px;border-radius:var(--r2);line-height:1.3}
+.chk .h .b.on{background:var(--lime);color:#111}
+.chk .h .b.off{color:var(--n600)}
+.chk .d{font-size:12px;color:var(--n700)}
+
+/* ---- 詳細 ---- */
+.detail{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+.detail .main{flex:1 1 380px;min-width:0}
+.detail .qrbox{flex:0 0 auto;text-align:center}
+.detail .qrbox img{width:140px;height:140px;image-rendering:pixelated;background:#fff;padding:6px;border:1px solid var(--line)}
+.detail .qrbox .u{font-size:10px;color:var(--n600);word-break:break-all;max-width:152px;margin-top:6px}
+.kind{font-size:12px;letter-spacing:.1em;color:var(--ink);font-weight:500}
+.detail h1{font-size:36px;margin:4px 0 8px}
+.info{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px 20px;font-size:14px;margin:20px 0}
+.info .k{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--n600);display:block}
+.ops{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:20px 0}
+.ops button{min-height:58px;flex-direction:column;gap:4px;padding:8px}
+.ops button .ms{font-size:24px}
+.ops button span.t{font-size:16px}
+.bignum{font-size:52px;font-weight:700;line-height:1}
+.needorder{display:inline-flex;align-items:center;gap:8px;background:var(--l100);color:var(--ink);
+  padding:8px 14px;border-radius:var(--r2);font-size:14px}
+
+/* ---- 棚卸 ---- */
+.stcount{font-size:56px;font-weight:700;line-height:1}
+.stcount small{font-size:26px;color:var(--n600);font-weight:400}
+.prog{height:8px;background:var(--n300);border-radius:var(--r1);overflow:hidden;margin:12px 0 18px}
+.prog i{display:block;height:100%;background:var(--lime)}
+.unchecked{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
+.unchecked .u{background:var(--l100);padding:11px 12px;border-radius:var(--r2);display:flex;align-items:center;gap:10px}
+.unchecked .u .ms{font-size:20px;color:var(--ink)}
+.unchecked .u .n{font-size:14px;font-weight:500}
+.unchecked .u .m{font-size:11px;color:var(--n600)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips span{font-size:11.5px;background:var(--n200);padding:3px 8px;border-radius:var(--r2)}
+
+/* ---- 保管場所 ---- */
+.loctree .r{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--rule);flex-wrap:wrap}
+.loctree .r .ms{font-size:20px;color:var(--n600)}
+.loctree .r.shelf .ms{color:var(--ink)}
+.loctree .r .n{font-weight:500}
+.loctree .r .c{font-size:11px;color:var(--n600)}
+.loctree .r .sp{margin-left:auto;display:flex;gap:6px}
+
+/* ---- 貸出カード ---- */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+
+/* ---- スキャナ ---- */
+#scan{position:fixed;inset:0;z-index:90;background:#111;display:none;flex-direction:column}
+#scan.on{display:flex}
+#scan .h{display:flex;align-items:center;gap:12px;padding:14px 18px;color:#fff;flex-wrap:wrap}
+#scan .h .t{font-size:17px;font-weight:500;margin-right:auto}
+#scan .h .cnt{background:var(--lime);color:#111;font-size:13px;font-weight:700;padding:3px 10px;border-radius:var(--r2)}
+#scan .h button{background:transparent;border:1px solid rgba(255,255,255,.45);color:#fff;border-radius:var(--r2);
+  padding:7px 13px;font-size:13px;cursor:pointer;min-height:40px}
+#scan .stage{flex:1 1 auto;position:relative;display:grid;place-items:center;overflow:hidden}
+#scan video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#scan .aim{position:relative;width:min(70vw,260px);height:min(70vw,260px);border:2px solid var(--lime);
+  box-shadow:0 0 0 100vmax rgba(17,17,17,.55);border-radius:var(--r2)}
+#scan .noc{position:absolute;inset:0;display:grid;place-items:center;padding:24px;background:var(--n900);
+  color:#fff;text-align:center;gap:10px;align-content:center}
+#scan .noc .ms{font-size:44px;opacity:.7}
+#scan .foot{background:#fff;padding:14px 18px 20px;display:flex;flex-direction:column;gap:12px;max-height:46vh;overflow:auto}
+#scan .foot .row{display:flex;gap:8px}
+#scan .foot .row .input{flex:1}
+#scan .foot .sim{display:flex;flex-wrap:wrap;gap:6px}
+#scan .foot .sim button{border:1px solid var(--line);background:var(--n100);border-radius:var(--r2);
+  padding:7px 11px;font-size:12.5px;cursor:pointer;min-height:38px}
+
+/* ---- ボトムシート ---- */
+#sheet{position:fixed;inset:0;z-index:92;background:rgba(17,17,17,.5);display:none;align-items:flex-end;justify-content:center}
+#sheet.on{display:flex}
+#sheet .p{width:min(520px,100%);background:var(--panel);border-radius:var(--r4) var(--r4) 0 0;padding:20px 20px 24px;
+  box-shadow:var(--sh-lg);animation:sheetUp .18s ease-out;max-height:88vh;overflow:auto}
+@keyframes sheetUp{from{transform:translateY(14px);opacity:0}to{transform:none;opacity:1}}
+#sheet .th{display:flex;align-items:baseline;gap:10px;margin-bottom:4px}
+#sheet .th h2{font-size:24px;flex:1}
+#sheet .th .id{font-size:12px;color:var(--n600)}
+#sheet .hint{font-size:13px;color:var(--n700);margin-bottom:14px}
+#sheet .acts{display:flex;gap:10px;margin-top:16px}
+#sheet .acts .btn.cta{flex:1;min-height:52px;font-size:17px}
+#sheet .acts .btn.cancel{width:120px}
+#sheet input[type=number].input{font-size:20px;min-height:48px;text-align:center}
+
+/* ---- トースト ---- */
+#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:95;background:var(--n900);color:#fff;
+  padding:12px 20px;border-radius:var(--r4);box-shadow:var(--sh-lg);font-size:14px;display:none;align-items:center;gap:10px;
+  animation:toastIn .16s ease-out;max-width:92vw}
+#toast.on{display:flex}
+@keyframes toastIn{from{transform:translate(-50%,10px);opacity:0}to{transform:translate(-50%,0);opacity:1}}
+
+/* ---- セットアップ案内 ---- */
+#setup{display:none;background:var(--l100);border:1px solid var(--l500);border-radius:var(--r2);padding:16px 18px;margin:20px 0}
+#setup h2{font-size:18px;margin-bottom:6px}
+#setup p{font-size:13.5px;line-height:1.9}
+#setup code{background:#fff;border:1px solid var(--line);border-radius:var(--r1);padding:1px 6px;font-size:12.5px}
+
+/* ---- QRラベル（実寸 40×30mm） ---- */
+.labels{display:flex;flex-wrap:wrap;gap:2mm}
+.label{width:40mm;height:30mm;background:#fff;border:1px solid var(--n300);display:flex;align-items:center;gap:1.5mm;
+  padding:1.5mm;break-inside:avoid}
+.label img{width:22mm;height:22mm;image-rendering:pixelated;flex:0 0 auto}
+.label .tx{min-width:0;overflow:hidden}
+.label .tx .id{font-size:7pt;font-weight:700;line-height:1.2}
+.label .tx .nm{font-size:6pt;line-height:1.25;margin-top:.6mm}
+.label .tx .lo{font-size:5.5pt;color:#555;line-height:1.2;margin-top:.6mm}
+.picks{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px;margin:12px 0 20px}
+.picks label{display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--n100);border-radius:var(--r2);
+  cursor:pointer;font-size:13px}
+
+@media print{
+  [data-noprint]{display:none !important}
+  body{background:#fff}
+  #view{padding:0}
+  .wrap{max-width:none;padding:0}
+  @page{margin:8mm}
+}
+@media(max-width:560px){
+  h1{font-size:30px}
+  .detail h1{font-size:28px}
+  .kpi .v{font-size:36px}
+  .bignum{font-size:42px}
+  .stcount{font-size:42px}
+}
+</style>
+</head>
+<body>
+
+<div id="gate"><div class="box">
+  <h1>備品在庫管理</h1>
+  <p>会社のアカウントでログインしてください。</p>
+  <div class="err" id="gateErr"></div>
+  <div class="f"><label>ID</label><input id="g-id" autocomplete="username" placeholder="zimu"></div>
+  <div class="f"><label>パスワード</label><input id="g-pw" type="password" autocomplete="current-password"></div>
+  <button class="btn lime" style="width:100%;min-height:52px;font-size:16px" onclick="doLogin()">ログイン</button>
+</div></div>
+
+<div id="app">
+  <div class="topline" data-noprint>
+    <div class="brand"><b>備品在庫管理</b><span class="meta" id="siteName"></span></div>
+    <span class="who"><span id="whoName"></span><span class="role" id="whoRole"></span></span>
+    <button onclick="signOut()">ログアウト</button>
+  </div>
+
+  <header class="bar" data-noprint><div class="wrap">
+    <button class="scanbtn" onclick="openScan('lookup')"><span class="ms">qr_code_scanner</span>QRコードを読み取る</button>
+    <nav class="menu" id="menu"></nav>
+  </div></header>
+
+  <div class="wrap">
+    <div id="setup">
+      <h2>先にセットアップSQLの実行が必要です</h2>
+      <p>この画面が使う表がまだ作られていません。Supabase の SQL Editor に
+        <code>zaiko/setup.sql</code> の中身をすべて貼り付けて実行してください。何度実行しても安全です。<br>
+        <span class="meta" id="setupErr"></span></p>
+    </div>
+    <main id="view"></main>
+  </div>
+</div>
+
+<div id="scan" data-noprint>
+  <div class="h">
+    <span class="t" id="scanTitle">QRコードを読み取る</span>
+    <span class="cnt" id="scanCount" style="display:none"></span>
+    <button onclick="closeScan()">閉じる</button>
+  </div>
+  <div class="stage">
+    <video id="cam" autoplay muted playsinline></video>
+    <div class="aim"></div>
+    <div class="noc" id="scanNoCam" style="display:none">
+      <span class="ms">no_photography</span>
+      <div id="scanNoCamMsg" style="font-size:14px;max-width:32em"></div>
+    </div>
+  </div>
+  <div class="foot">
+    <div class="row">
+      <input class="input" id="manualId" placeholder="管理番号を入力（例 PC-00125）" autocomplete="off"
+             onkeydown="if(event.key==='Enter')openManual()">
+      <button class="btn pri" onclick="openManual()">開く</button>
+    </div>
+    <div>
+      <div class="lbl" style="margin-bottom:6px">読み取りをシミュレート</div>
+      <div class="sim" id="scanSim"></div>
+    </div>
+  </div>
+</div>
+
+<div id="sheet" data-noprint onclick="if(event.target===this)closeSheet()">
+  <div class="p" id="sheetPanel"></div>
+</div>
+
+<div id="toast" data-noprint><span class="ms">check_circle</span><span id="toastMsg"></span></div>
+
+<!-- /zaiko（末尾スラッシュなし）でも読めるよう、パスは絶対で書く -->
+<script src="/zaiko/app.js"></script>
+</body>
+</html>

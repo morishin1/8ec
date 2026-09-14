@@ -1,0 +1,1229 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EC一元管理｜株式会社エイト</title>
+<meta name="robots" content="noindex, nofollow">
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="cp932.js"></script>
+<script src="connectors.js"></script>
+<style>
+  :root{
+    --navy:#092b61; --navy2:#071f48;
+    --bg:#f6faff; --panel:#fff; --line:#dce9f7; --text:#17335c; --mute:#647b99;
+    --blue:#2479e9; --blue2:#0c5dce; --green:#2e9d4a; --red:#d63a3a; --amber:#c98a1e; --gray:#8a99b5;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Noto Sans JP",-apple-system,"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;background:var(--bg);color:var(--text);line-height:1.7}
+  .material-icons-outlined{vertical-align:middle;line-height:1}
+  a{color:inherit}button{font-family:inherit}
+  img{max-width:100%}
+
+  .topbar{background:var(--navy2);color:#fff;padding:11px 0}
+  .topbar .inner{max-width:1320px;margin:0 auto;padding:0 18px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  .topbar .bk{font-size:12.5px;color:rgba(255,255,255,.85);display:inline-flex;align-items:center;gap:5px}
+  .topbar .bk:hover{color:var(--blue)}
+  .topbar .right{display:inline-flex;align-items:center;gap:10px}
+  .topbar button{border:1px solid rgba(255,255,255,.22);padding:6px 11px;border-radius:7px;font-size:12px;cursor:pointer;background:rgba(255,255,255,.12);color:#fff;display:inline-flex;align-items:center;gap:5px}
+
+  .hero{background:radial-gradient(circle at 88% 10%,rgba(36,121,233,.16),transparent 32%),linear-gradient(135deg,#fff,#eef4ff 60%,#f9fbff);border-bottom:1px solid var(--line);padding:18px 0}
+  .hero .inner{max-width:1320px;margin:0 auto;padding:0 18px}
+  .hero h1{font-size:23px;color:var(--navy);display:flex;align-items:center;gap:10px}
+  .hero h1 .ic{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,var(--blue),#f2994a);display:grid;place-items:center;color:#fff}
+  .hero p{font-size:12.5px;color:#3f4964;margin-top:5px;max-width:900px}
+
+  #gate{min-height:66vh;display:none;place-items:center;padding:30px 16px}
+  #gate .card{max-width:380px;width:100%;background:#fff;border:1px solid var(--line);border-radius:18px;padding:28px 24px;text-align:center}
+  #gate h2{font-size:18px;color:var(--navy);margin-bottom:6px}
+  #gate p{font-size:13px;color:var(--mute);margin-bottom:16px}
+  #gate .fld{text-align:left;margin-bottom:12px}
+  #gate label{font-size:12px;font-weight:700;color:#41506e;display:block;margin-bottom:5px}
+  #gate input{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;font-size:14px;font-family:inherit}
+  #gate .msg{font-size:12.5px;color:var(--red);min-height:18px;margin-bottom:8px}
+  .btn-primary{width:100%;padding:12px;background:var(--blue);color:#fff;border:none;border-radius:11px;font-size:15px;font-weight:800;cursor:pointer}
+
+  #app{display:none;max-width:1320px;margin:0 auto;padding:16px 18px 110px}
+
+  /* セットアップ未実行の案内 */
+  .setup{display:none;background:#fff8ec;border:1px solid #f0d9a8;border-radius:14px;padding:16px 18px;margin-bottom:14px}
+  .setup h3{font-size:14.5px;color:#8a6210;display:flex;align-items:center;gap:7px;margin-bottom:6px}
+  .setup p{font-size:12.5px;color:#7a5c14;line-height:1.9}
+  .setup code{background:#fff;border:1px solid #eadfc4;border-radius:5px;padding:1px 6px;font-family:"Inter",monospace;font-size:12px}
+
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:6px}
+  .tabs button{flex:1;min-width:120px;border:none;background:transparent;padding:9px 12px;border-radius:8px;font-size:13px;font-weight:700;color:var(--mute);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+  .tabs button.on{background:var(--blue);color:#fff}
+  .tabs button:not(.on):hover{background:#eef4ff;color:var(--blue)}
+
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:9px;margin-bottom:12px}
+  .stat{background:#fff;border:1px solid var(--line);border-radius:11px;padding:10px 13px}
+  .stat .lbl{font-size:11px;color:var(--mute);font-weight:700}
+  .stat .v{font-size:21px;font-weight:800;font-family:"Inter",sans-serif;margin-top:1px}
+  .stat .sub{font-size:11px;color:var(--mute)}
+  .stat.warn .v{color:var(--amber)}.stat.bad .v{color:var(--red)}.stat.ok .v{color:var(--green)}
+
+  .bar{background:#fff;border:1px solid var(--line);border-radius:12px;padding:11px 13px;margin-bottom:12px;display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+  .bar label{font-size:12px;font-weight:700;color:#41506e}
+  .bar input,.bar select{padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-size:13px;font-family:inherit;background:#fff;color:var(--text)}
+  .bar input[type=search]{flex:1;min-width:190px}
+  .bar .sp{margin-left:auto;display:inline-flex;gap:8px;flex-wrap:wrap}
+  .btn{padding:9px 13px;border:1px solid var(--line);border-radius:9px;font-size:12.5px;font-weight:700;cursor:pointer;background:#fff;color:var(--navy);display:inline-flex;align-items:center;gap:5px}
+  .btn:hover{border-color:var(--blue);color:var(--blue)}
+  .btn-add{padding:9px 14px;border:none;border-radius:9px;font-size:13px;font-weight:800;cursor:pointer;background:var(--blue);color:#fff;display:inline-flex;align-items:center;gap:5px}
+  .btn-add:hover{background:var(--blue2)}
+  .btn-add:disabled{background:#c3cfe0;cursor:default}
+  .btn.danger{color:var(--red)}.btn.danger:hover{border-color:var(--red)}
+
+  table.grid{width:100%;border-collapse:collapse;background:#fff;font-size:12.5px}
+  table.grid th{background:#f2f7fe;color:#3d557f;font-size:11.5px;font-weight:800;text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap;position:sticky;top:0;z-index:1}
+  table.grid td{padding:9px 10px;border-bottom:1px solid #eef4fb;vertical-align:middle}
+  table.grid tr:hover td{background:#fbfdff}
+  table.grid .num{text-align:right;font-family:"Inter",sans-serif;font-weight:700;white-space:nowrap}
+  .tablewrap{border:1px solid var(--line);border-radius:12px;overflow:auto;max-height:70vh;margin-bottom:12px}
+  .empty{background:#fff;border:1px dashed var(--line);border-radius:12px;padding:34px 18px;text-align:center;color:var(--mute);font-size:13px}
+
+  .sku{font-family:"Inter",sans-serif;font-weight:800;font-size:12px;color:var(--navy)}
+  .nm{font-weight:700;color:var(--navy);display:block}
+  .sub{font-size:11px;color:var(--mute)}
+  .pill{display:inline-flex;align-items:center;gap:3px;padding:1px 7px;border-radius:20px;font-size:10.5px;font-weight:800;border:1px solid;white-space:nowrap}
+  .pill.on{color:#fff;border-color:transparent}
+  .pill.off{color:var(--gray);border-color:var(--line);background:#f7fafd}
+  .pill.st-listed{background:#e9f7ee;color:var(--green);border-color:#bfe6cc}
+  .pill.st-draft{background:#f7fafd;color:var(--gray);border-color:var(--line)}
+  .pill.st-paused{background:#fff6e6;color:var(--amber);border-color:#f0dfae}
+  .pill.st-soldout{background:#f1f4fa;color:#6d7c96;border-color:#dbe3f0}
+  .pill.st-error{background:#fdecec;color:var(--red);border-color:#f3c9c9}
+  .malls{display:inline-flex;gap:4px;flex-wrap:wrap}
+
+  .stockbox{display:inline-flex;align-items:center;gap:4px}
+  .stockbox button{width:26px;height:26px;border:1px solid var(--line);background:#fff;border-radius:7px;cursor:pointer;font-weight:800;color:var(--navy);line-height:1}
+  .stockbox button:hover{border-color:var(--blue);color:var(--blue)}
+  .stockbox .v{min-width:44px;text-align:right;font-family:"Inter",sans-serif;font-weight:800;font-size:14px}
+  .stockbox .v.zero{color:var(--red)}.stockbox .v.low{color:var(--amber)}
+
+  .pinput{width:96px;padding:6px 8px;border:1px solid var(--line);border-radius:7px;font-size:12.5px;font-family:"Inter",sans-serif;text-align:right}
+  .pinput.bad{border-color:var(--red);background:#fff7f7;color:var(--red)}
+  .pinput.dirty{border-color:var(--blue);background:#f4f9ff}
+
+  /* ドロワー */
+  .scrim{position:fixed;inset:0;background:rgba(9,26,58,.42);display:none;z-index:40}
+  .scrim.on{display:block}
+  .drawer{position:fixed;top:0;right:0;bottom:0;width:min(680px,100%);background:#fff;z-index:41;transform:translateX(100%);transition:transform .22s ease;display:flex;flex-direction:column}
+  .drawer.on{transform:none}
+  .drawer-head{padding:15px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .drawer-head h2{font-size:16px;color:var(--navy)}
+  .drawer-head button{border:none;background:transparent;cursor:pointer;color:var(--mute)}
+  .drawer-body{flex:1;overflow:auto;padding:16px 20px}
+  .drawer-foot{padding:12px 20px;border-top:1px solid var(--line);display:flex;gap:9px;background:#fbfdff}
+  .fs{border:1px solid var(--line);border-radius:12px;padding:13px 15px;margin-bottom:12px}
+  .fs > h3{font-size:12.5px;color:var(--navy);font-weight:800;margin-bottom:9px;display:flex;align-items:center;gap:6px}
+  .row{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+  .row.c3{grid-template-columns:repeat(3,1fr)}
+  .fg{margin-bottom:10px}
+  .fg label{font-size:11.5px;font-weight:700;color:#41506e;display:block;margin-bottom:4px}
+  .fg input,.fg select,.fg textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;font-family:inherit;background:#fff;color:var(--text)}
+  .fg textarea{min-height:70px;resize:vertical}
+  .fg .hint{font-size:11px;color:var(--mute);margin-top:3px}
+  .mallrow{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:9px}
+  .mallrow .h{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .mallrow .h .name{font-weight:800;font-size:13px}
+  .mallrow .h .sw{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--mute);font-weight:700;cursor:pointer}
+  .mallrow .body{display:none}
+  .mallrow.on .body{display:block}
+
+  /* モーダル */
+  .modal{position:fixed;inset:0;background:rgba(9,26,58,.42);display:none;place-items:center;z-index:50;padding:20px}
+  .modal.on{display:grid}
+  .modal .box{background:#fff;border-radius:16px;max-width:820px;width:100%;max-height:86vh;display:flex;flex-direction:column}
+  .modal .box h3{font-size:16px;color:var(--navy);padding:16px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+  .modal .box .c{padding:16px 20px;overflow:auto;font-size:13px}
+  .modal .box .f{padding:12px 20px;border-top:1px solid var(--line);display:flex;gap:9px;justify-content:flex-end}
+
+  .note{background:#f2f7fe;border:1px solid #d9e6f8;border-radius:10px;padding:10px 12px;font-size:12px;color:#3d557f;line-height:1.8;margin-bottom:11px}
+  .note.warn{background:#fff8ec;border-color:#f0d9a8;color:#7a5c14}
+  .note.bad{background:#fdecec;border-color:#f3c9c9;color:#9b2b2b}
+
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:12.5px}
+  .kv dt{color:var(--mute);font-weight:700;white-space:nowrap}
+  .kv dd{font-family:"Inter",sans-serif;font-weight:700}
+
+  .toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,20px);background:var(--navy2);color:#fff;padding:11px 18px;border-radius:11px;font-size:13px;font-weight:700;opacity:0;pointer-events:none;transition:.2s;z-index:60;max-width:90vw}
+  .toast.on{opacity:1;transform:translate(-50%,0)}
+
+  .savebar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);padding:11px 18px;display:none;align-items:center;gap:12px;z-index:30;box-shadow:0 -4px 18px rgba(9,43,97,.07)}
+  .savebar.on{display:flex}
+  .savebar .n{font-size:13px;font-weight:800;color:var(--navy);margin-right:auto}
+
+  @media(max-width:900px){
+    .stats{grid-template-columns:repeat(2,1fr)}
+    .row,.row.c3{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar"><div class="inner">
+  <a class="bk" href="/admin/"><span class="material-icons-outlined" style="font-size:16px">arrow_back</span>管理トップ</a>
+  <div class="right">
+    <span style="font-size:12px;color:rgba(255,255,255,.8)" id="userEmail"></span>
+    <button id="logoutBtn" style="display:none" onclick="signOut()">
+      <span class="material-icons-outlined" style="font-size:15px">logout</span>ログアウト</button>
+  </div>
+</div></div>
+
+<div class="hero"><div class="inner">
+  <h1><span class="ic"><span class="material-icons-outlined">hub</span></span>EC一元管理</h1>
+  <p>8ECを商品・在庫のマスターにして、楽天・Amazon・Yahoo!への出品をまとめて扱います。<strong>在庫は1か所だけ</strong>で持ち、どのモールで売れても同じ数字が減ります。<br>
+  ここで扱うのは<strong>新品SKU</strong>です。オークション仕入れの中古（1台ずつの現物管理）は、これまでどおり<a href="/admin/" style="color:var(--blue);font-weight:700">EC在庫管理</a>で扱ってください。</p>
+</div></div>
+
+<div id="gate"><div class="card">
+  <h2>ログイン</h2>
+  <p>事務の共有アカウント（ID: zimu）でログインしてください。</p>
+  <div class="msg" id="gateMsg"></div>
+  <div class="fld"><label>ID</label><input id="g-id" value="zimu" autocomplete="username"></div>
+  <div class="fld"><label>パスワード</label><input id="g-pw" type="password" autocomplete="current-password" placeholder="パスワード"></div>
+  <button class="btn-primary" onclick="doLogin()">ログイン</button>
+</div></div>
+
+<div id="app">
+
+  <div class="setup" id="setupBox">
+    <h3><span class="material-icons-outlined" style="font-size:19px">warning_amber</span>先にセットアップSQLの実行が必要です</h3>
+    <p>この画面が使う表がまだ作られていません。Supabase の SQL Editor に
+      <code>admin/ec-master-setup.sql</code> の中身をすべて貼り付けて実行してください。何度実行しても安全です。<br>
+      <span id="setupErr" style="font-size:11.5px;opacity:.85"></span></p>
+  </div>
+
+  <div class="tabs">
+    <button id="t-dash"  class="on" onclick="setView('dash')"><span class="material-icons-outlined" style="font-size:17px">dashboard</span>ダッシュボード</button>
+    <button id="t-items"          onclick="setView('items')"><span class="material-icons-outlined" style="font-size:17px">inventory_2</span>商品一覧</button>
+    <button id="t-stock"          onclick="setView('stock')"><span class="material-icons-outlined" style="font-size:17px">sync_alt</span>在庫一元管理</button>
+    <button id="t-price"          onclick="setView('price')"><span class="material-icons-outlined" style="font-size:17px">sell</span>価格管理</button>
+    <button id="t-sync"           onclick="setView('sync')"><span class="material-icons-outlined" style="font-size:17px">import_export</span>モール連携</button>
+  </div>
+
+  <!-- ============ ダッシュボード ============ -->
+  <div id="dashView">
+    <div class="stats" id="dashStats"></div>
+    <div class="row" style="gap:12px">
+      <div>
+        <div class="bar" style="margin-bottom:8px"><label>モール別の出品状況</label></div>
+        <div class="tablewrap" style="max-height:none"><table class="grid" id="dashMalls"></table></div>
+      </div>
+      <div>
+        <div class="bar" style="margin-bottom:8px"><label>手当てが要るもの</label></div>
+        <div id="dashAlerts"></div>
+      </div>
+    </div>
+    <div class="bar" style="margin:12px 0 8px"><label>最近の在庫の動き</label>
+      <span class="sp"><button class="btn" onclick="load()"><span class="material-icons-outlined" style="font-size:16px">refresh</span>再読み込み</button></span></div>
+    <div class="tablewrap" style="max-height:none"><table class="grid" id="dashMoves"></table></div>
+  </div>
+
+  <!-- ============ 商品一覧 ============ -->
+  <div id="itemsView" style="display:none">
+    <div class="bar">
+      <input type="search" id="iq" placeholder="SKU・商品名・型番・JANで検索…" oninput="renderItems()">
+      <select id="iCat" onchange="renderItems()"><option value="">全カテゴリ</option></select>
+      <select id="iMall" onchange="renderItems()"><option value="">全モール</option></select>
+      <select id="iStatus" onchange="renderItems()">
+        <option value="active">取扱中のみ</option>
+        <option value="">すべて</option>
+        <option value="paused">一時停止</option>
+        <option value="archived">終売</option>
+      </select>
+      <span class="sp">
+        <button class="btn" onclick="openImport('8ec')"><span class="material-icons-outlined" style="font-size:16px">upload_file</span>CSV取込</button>
+        <button class="btn-add" onclick="openItem(null)"><span class="material-icons-outlined" style="font-size:18px">add</span>商品を追加</button>
+      </span>
+    </div>
+    <div id="itemsBody"></div>
+  </div>
+
+  <!-- ============ 在庫一元管理 ============ -->
+  <div id="stockView" style="display:none">
+    <div class="note">在庫はSKUごとに<strong>1つだけ</strong>持ちます。ここで増やす・減らすと<strong>すべてのモールの在庫数が同時に変わり</strong>、理由と日時が履歴に残ります。数字を直接書き換えず、<strong>「＋」「−」か「調整」</strong>を使ってください。</div>
+    <div class="bar">
+      <input type="search" id="sq" placeholder="SKU・商品名・型番で検索…" oninput="renderStock()">
+      <select id="sFilter" onchange="renderStock()">
+        <option value="">すべて</option>
+        <option value="zero">在庫切れ（0）</option>
+        <option value="low">安全在庫以下</option>
+        <option value="has">在庫あり</option>
+      </select>
+      <span class="sp"><button class="btn" onclick="exportStockCsv()"><span class="material-icons-outlined" style="font-size:16px">download</span>在庫CSV</button></span>
+    </div>
+    <div id="stockBody"></div>
+  </div>
+
+  <!-- ============ 価格管理 ============ -->
+  <div id="priceView" style="display:none">
+    <div class="note">マスターの販売価格と、モールごとの価格をまとめて見ます。<strong>最低販売価格を下回る値</strong>は赤で警告します（保存自体は止めません）。変更したところは青くなり、下のバーから<strong>まとめて保存</strong>します。</div>
+    <div class="bar">
+      <input type="search" id="pq" placeholder="SKU・商品名・型番で検索…" oninput="renderPrice()">
+      <select id="pMall" onchange="renderPrice()"></select>
+      <span class="sp">
+        <button class="btn" onclick="openBulkPrice()"><span class="material-icons-outlined" style="font-size:16px">percent</span>一括改定</button>
+      </span>
+    </div>
+    <div id="priceBody"></div>
+  </div>
+
+  <!-- ============ モール連携 ============ -->
+  <div id="syncView" style="display:none">
+    <div class="bar">
+      <label>モール</label><select id="cMall" onchange="renderSync()"></select>
+      <span class="sp">
+        <button class="btn" onclick="openHeaderCheck()"><span class="material-icons-outlined" style="font-size:16px">rule</span>ヘッダー照合</button>
+      </span>
+    </div>
+    <div id="syncHelp"></div>
+    <div class="row" style="gap:12px;margin-bottom:12px">
+      <div class="fs" style="margin:0">
+        <h3><span class="material-icons-outlined" style="font-size:17px;color:var(--blue)">download</span>出品CSVを出力</h3>
+        <div class="fg"><label>対象</label>
+          <select id="expScope">
+            <option value="enabled">このモールに出す設定の商品だけ</option>
+            <option value="listed">出品中のものだけ</option>
+            <option value="all">取扱中の商品すべて</option>
+          </select></div>
+        <div class="fg"><label>文字コード</label>
+          <select id="expEnc">
+            <option value="">既定（モールに合わせる）</option>
+            <option value="shift_jis">Shift_JIS</option>
+            <option value="utf-8">UTF-8（BOM付き）</option>
+          </select>
+          <div class="hint" id="expEncHint"></div></div>
+        <button class="btn-add" onclick="doExport()"><span class="material-icons-outlined" style="font-size:18px">download</span>CSVを出力</button>
+      </div>
+      <div class="fs" style="margin:0">
+        <h3><span class="material-icons-outlined" style="font-size:17px;color:var(--blue)">upload_file</span>モールのCSVを取り込む</h3>
+        <p style="font-size:12px;color:var(--mute);line-height:1.8;margin-bottom:9px">モールから落としたCSVを読み込み、<strong>どこがどう変わるかを一覧で見てから</strong>反映します。文字コード（Shift_JIS／UTF-8）は自動で判別します。</p>
+        <button class="btn-add" onclick="pickImport()"><span class="material-icons-outlined" style="font-size:18px">upload_file</span>ファイルを選ぶ</button>
+        <input type="file" id="impFile" accept=".csv,.txt,.tsv,text/csv" style="display:none" onchange="readImport(this)">
+      </div>
+    </div>
+    <div class="bar" style="margin-bottom:8px"><label>連携の履歴</label></div>
+    <div class="tablewrap" style="max-height:none"><table class="grid" id="syncLog"></table></div>
+  </div>
+</div>
+
+<!-- 商品ドロワー -->
+<div class="scrim" id="scrim" onclick="closeItem()"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <h2 id="dTitle">商品</h2>
+    <button onclick="closeItem()"><span class="material-icons-outlined">close</span></button>
+  </div>
+  <div class="drawer-body" id="dBody"></div>
+  <div class="drawer-foot">
+    <button class="btn-add" onclick="saveItem()"><span class="material-icons-outlined" style="font-size:18px">save</span>保存</button>
+    <button class="btn danger" id="dDel" style="display:none" onclick="deleteItem()">削除</button>
+  </div>
+</aside>
+
+<!-- 共通モーダル -->
+<div class="modal" id="modal">
+  <div class="box">
+    <h3 id="mTitle"></h3>
+    <div class="c" id="mBody"></div>
+    <div class="f" id="mFoot"></div>
+  </div>
+</div>
+
+<div class="savebar" id="savebar">
+  <span class="n" id="saveN"></span>
+  <button class="btn" onclick="discardEdits()">取り消す</button>
+  <button class="btn-add" onclick="saveEdits()"><span class="material-icons-outlined" style="font-size:18px">save</span>まとめて保存</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ========================================================================
+   EC一元管理（Phase 1）
+
+   8EC を商品・在庫のマスターにして、モールへの出品をまとめて扱う画面。
+   モールごとの違いは connectors.js に閉じ込めてあるので、ここには書かない。
+
+   在庫の考え方：
+     ec_products.stock が唯一の在庫。モールごとの在庫は持たない。
+     直接UPDATEせず ec_stock_apply() を通す。同時に複数のモールから
+     減っても数が狂わず、理由と日時が ec_stock_moves に残る。
+   ======================================================================== */
+const SUPA_URL="https://htglvascsuqkixpmclwr.supabase.co";
+const SUPA_KEY="sb_publishable_yZCcrwdqjuf0u_5WBWlHIw_AxdvteEV";
+const SHARED_EMAIL="zimu@8grp.co.jp";
+const CONDITIONS=['新品','未使用に近い','中古A','中古B','中古C'];
+const STATUSES=[['active','取扱中'],['paused','一時停止'],['archived','終売']];
+const LISTING_STATES=[['draft','未出品'],['listed','出品中'],['paused','停止中'],['soldout','売切'],['error','エラー']];
+const CATEGORY_HINTS=['ノートPC','デスクトップPC','タブレット','モニター','サーバー','ネットワーク機器','周辺機器','ソフトウェア','その他'];
+
+let sb=null;
+let products=[];          // ec_products
+let listings=[];          // ec_listings
+let byProduct={};         // product_id → {mall: listing}
+let moves=[];             // 直近の在庫の動き
+let syncLog=[];
+let view='dash';
+let editing=null;         // ドロワーで開いている商品
+let edits={};             // 価格管理の未保存分  "productId|mall" → {price}
+let importState=null;     // 取込プレビュー
+
+const $=(id)=>document.getElementById(id);
+const esc=(s)=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const yen=(n)=>(n==null||n==='')?'—':'¥'+Number(n).toLocaleString('ja-JP');
+const numv=(v)=>{const n=Number(String(v==null?'':v).replace(/[,¥\s]/g,''));return (v===''||v==null||!isFinite(n))?null:n;};
+function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("on");clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove("on"),3000);}
+function ymd(d){d=d||new Date();const p=n=>String(n).padStart(2,'0');return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());}
+function when(ts){if(!ts)return '—';const d=new Date(ts);const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}/${p(d.getMonth()+1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;}
+
+/* ダウンロードは a要素を実際にDOMへ入れてから click する。
+   revokeObjectURL を即座に呼ぶとファイル名が失われるので、少し待ってから片づける */
+function downloadBlob(name,blob){
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=name;a.style.display='none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},1000);
+}
+
+/* ===== 認証（管理画面トップと同じ共有アカウント） ===== */
+(async function init(){
+  if(!window.supabase){$("gate").style.display="grid";$("gateMsg").textContent="読み込みに失敗しました。再読み込みしてください。";return;}
+  sb=window.supabase.createClient(SUPA_URL,SUPA_KEY,{auth:{persistSession:true,autoRefreshToken:true,storage:window.localStorage,storageKey:"zimu-portal-auth"}});
+  fillStaticSelects();
+  const {data:{session}}=await sb.auth.getSession();
+  if(session&&session.user&&session.user.email===SHARED_EMAIL){showApp();await load();}
+  else{$("gate").style.display="grid";}
+})();
+
+async function doLogin(){
+  const id=$("g-id").value.trim(),pw=$("g-pw").value,msg=$("gateMsg");
+  msg.textContent="";
+  if(!id||!pw){msg.textContent="IDとパスワードを入力してください";return;}
+  try{
+    const {data,error}=await sb.auth.signInWithPassword({email:id.toLowerCase()+"@8grp.co.jp",password:pw});
+    if(error){msg.textContent="IDまたはパスワードが違います";return;}
+    if(data.user.email!==SHARED_EMAIL){msg.textContent="このアカウントには権限がありません";await sb.auth.signOut();return;}
+    showApp();await load();
+  }catch(e){msg.textContent="ログインに失敗："+e.message;}
+}
+function showApp(){$("gate").style.display="none";$("app").style.display="block";
+  $("logoutBtn").style.display="inline-flex";$("userEmail").textContent="zimu";}
+async function signOut(){await sb.auth.signOut();location.reload();}
+
+function fillStaticSelects(){
+  const malls=window.EightMalls.all();
+  $("iMall").innerHTML='<option value="">全モール</option>'+malls.map(m=>`<option value="${m.key}">${esc(m.label)}に出す設定</option>`).join('');
+  $("pMall").innerHTML='<option value="">マスター価格のみ</option>'+malls.map(m=>`<option value="${m.key}">${esc(m.label)}の価格</option>`).join('');
+  $("cMall").innerHTML=malls.map(m=>`<option value="${m.key}">${esc(m.label)}${m.phase>1?'（Phase '+m.phase+'）':''}</option>`).join('');
+}
+
+/* ===== 読み込み ===== */
+async function load(){
+  const p=await sb.from("ec_products").select("*").order("updated_at",{ascending:false});
+  if(p.error){ showSetup(p.error); return; }
+  $("setupBox").style.display="none";
+  products=p.data||[];
+
+  const l=await sb.from("ec_listings").select("*");
+  listings=l.error?[]:(l.data||[]);
+  byProduct={};
+  listings.forEach(x=>{(byProduct[x.product_id]=byProduct[x.product_id]||{})[x.mall]=x;});
+
+  const m=await sb.from("ec_stock_moves").select("*").order("created_at",{ascending:false}).limit(60);
+  moves=m.error?[]:(m.data||[]);
+  const g=await sb.from("ec_sync_log").select("*").order("created_at",{ascending:false}).limit(30);
+  syncLog=g.error?[]:(g.data||[]);
+
+  fillCategorySelect();
+  render();
+}
+
+/* 表がまだ無いときは、SQLを実行してもらう案内を出す */
+function showSetup(err){
+  const missing=/relation .* does not exist|schema cache|42P01|PGRST205/i.test((err&&(err.message||err.code))||'');
+  $("setupBox").style.display=missing?"block":"none";
+  $("setupErr").textContent=missing?("（Supabaseからの応答： "+(err.message||err.code)+"）"):"";
+  if(!missing) toast("読み込みに失敗しました："+(err.message||err.code));
+  products=[];listings=[];byProduct={};moves=[];syncLog=[];
+  render();
+}
+
+function fillCategorySelect(){
+  const cats=[...new Set(products.map(p=>p.category).filter(Boolean))].sort();
+  const cur=$("iCat").value;
+  $("iCat").innerHTML='<option value="">全カテゴリ</option>'+cats.map(c=>`<option${c===cur?' selected':''}>${esc(c)}</option>`).join('');
+}
+
+/* ===== 画面切り替え ===== */
+function setView(v){
+  view=v;
+  ['dash','items','stock','price','sync'].forEach(k=>{
+    $(k+"View").style.display=(k===v)?'block':'none';
+    $("t-"+k).classList.toggle('on',k===v);
+  });
+  render();
+}
+function render(){
+  if(view==='dash')  renderDash();
+  if(view==='items') renderItems();
+  if(view==='stock') renderStock();
+  if(view==='price') renderPrice();
+  if(view==='sync')  renderSync();
+}
+
+/* ===== 共通の見せ方 ===== */
+function mallPills(pid){
+  const map=byProduct[pid]||{};
+  const out=window.EightMalls.all().filter(m=>map[m.key]&&map[m.key].enabled).map(m=>{
+    const l=map[m.key];
+    return `<span class="pill on" style="background:${m.color}" title="${esc(m.label)}／${esc(stateLabel(l.state))}">${esc(m.short)}</span>`;
+  });
+  return out.length?`<span class="malls">${out.join('')}</span>`:'<span class="sub">未出品</span>';
+}
+function stateLabel(s){const f=LISTING_STATES.find(x=>x[0]===s);return f?f[1]:(s||'');}
+function stockClass(p){return p.stock<=0?'zero':(p.stock<=(p.safety_stock||0)?'low':'');}
+
+/* ===== ダッシュボード ===== */
+function renderDash(){
+  const act=products.filter(p=>p.status==='active');
+  const totalStock=act.reduce((s,p)=>s+(p.stock||0),0);
+  const value=act.reduce((s,p)=>s+(p.stock||0)*Number(p.cost||0),0);
+  const zero=act.filter(p=>(p.stock||0)<=0).length;
+  const low=act.filter(p=>(p.stock||0)>0&&(p.stock||0)<=(p.safety_stock||0)).length;
+  const nolist=act.filter(p=>!Object.values(byProduct[p.id]||{}).some(l=>l.enabled)).length;
+  const err=listings.filter(l=>l.state==='error').length;
+
+  $("dashStats").innerHTML=[
+    ['取扱中のSKU',act.length,'件',''],
+    ['在庫の合計',totalStock,'点',''],
+    ['在庫金額（仕入原価）',yen(Math.round(value)),'',''],
+    ['在庫切れ',zero,'件',zero?'bad':'ok'],
+    ['安全在庫以下',low,'件',low?'warn':'ok']
+  ].map(([lbl,v,unit,cls])=>
+    `<div class="stat ${cls}"><div class="lbl">${lbl}</div><div class="v">${typeof v==='number'?v.toLocaleString('ja-JP'):v}<span style="font-size:12px;font-weight:700">${unit||''}</span></div></div>`
+  ).join('');
+
+  const rows=window.EightMalls.all().map(m=>{
+    const ls=listings.filter(l=>l.mall===m.key);
+    const on=ls.filter(l=>l.enabled).length;
+    const listed=ls.filter(l=>l.state==='listed').length;
+    const bad=ls.filter(l=>l.state==='error').length;
+    return `<tr><td><span class="pill on" style="background:${m.color}">${esc(m.short)}</span> ${esc(m.label)}${m.phase>1?'<span class="sub"> Phase '+m.phase+'</span>':''}</td>
+      <td class="num">${on}</td><td class="num">${listed}</td><td class="num" style="color:${bad?'var(--red)':'inherit'}">${bad}</td></tr>`;
+  }).join('');
+  $("dashMalls").innerHTML=`<thead><tr><th>モール</th><th style="text-align:right">出す設定</th><th style="text-align:right">出品中</th><th style="text-align:right">エラー</th></tr></thead><tbody>${rows}</tbody>`;
+
+  const alerts=[];
+  if(zero) alerts.push(['bad','在庫切れが '+zero+' 件','在庫が0のまま出品が続くと、モールによっては評価が下がります。','stock','zero']);
+  if(low)  alerts.push(['warn','安全在庫以下が '+low+' 件','補充の手配をしてください。','stock','low']);
+  if(nolist) alerts.push(['warn','どのモールにも出していないSKUが '+nolist+' 件','商品一覧で出品先を選んでください。','items','']);
+  if(err)  alerts.push(['bad','連携エラーの出品が '+err+' 件','モール連携の履歴で内容を確かめてください。','sync','']);
+  $("dashAlerts").innerHTML=alerts.length
+    ? alerts.map(([cls,t,d,go,f])=>`<div class="note ${cls}" style="cursor:pointer" onclick="jump('${go}','${f}')"><strong>${esc(t)}</strong><br>${esc(d)}</div>`).join('')
+    : '<div class="note">いま手当てが要るものはありません。</div>';
+
+  const mrows=moves.slice(0,25).map(mv=>{
+    const p=products.find(x=>x.id===mv.product_id);
+    const sign=mv.delta>0?'+':'';
+    return `<tr><td class="sub">${when(mv.created_at)}</td>
+      <td>${p?`<span class="sku">${esc(p.sku)}</span> ${esc(p.name)}`:'<span class="sub">（削除された商品）</span>'}</td>
+      <td class="num" style="color:${mv.delta>0?'var(--green)':'var(--red)'}">${sign}${mv.delta}</td>
+      <td class="num">${mv.stock_after}</td>
+      <td class="sub">${esc(reasonLabel(mv.reason))}${mv.mall?'／'+esc(mv.mall):''}${mv.note?'／'+esc(mv.note):''}</td></tr>`;
+  }).join('');
+  $("dashMoves").innerHTML=moves.length
+    ?`<thead><tr><th>日時</th><th>商品</th><th style="text-align:right">増減</th><th style="text-align:right">残</th><th>理由</th></tr></thead><tbody>${mrows}</tbody>`
+    :'<tbody><tr><td style="padding:22px;text-align:center;color:var(--mute)">まだ在庫の動きはありません。</td></tr></tbody>';
+}
+function jump(v,f){setView(v);if(v==='stock'&&f){$("sFilter").value=f;renderStock();}}
+const REASONS={purchase:'仕入',order:'受注',cancel:'取消',stocktake:'棚卸調整',import:'CSV取込',manual:'手修正'};
+function reasonLabel(r){return REASONS[r]||r||'';}
+
+/* ===== 商品一覧 ===== */
+function itemsFiltered(){
+  const q=$("iq").value.trim().toLowerCase();
+  const cat=$("iCat").value, mall=$("iMall").value, st=$("iStatus").value;
+  return products.filter(p=>{
+    if(st&&p.status!==st) return false;
+    if(cat&&p.category!==cat) return false;
+    if(mall){const l=(byProduct[p.id]||{})[mall];if(!l||!l.enabled)return false;}
+    if(q){
+      const hay=[p.sku,p.name,p.model,p.jan,p.maker].filter(Boolean).join(' ').toLowerCase();
+      if(hay.indexOf(q)<0) return false;
+    }
+    return true;
+  });
+}
+function renderItems(){
+  const list=itemsFiltered();
+  if(!list.length){$("itemsBody").innerHTML=emptyMsg('商品がありません。「商品を追加」から登録するか、CSVで取り込んでください。');return;}
+  const rows=list.map(p=>`<tr style="cursor:pointer" onclick="openItem('${p.id}')">
+    <td><span class="sku">${esc(p.sku)}</span></td>
+    <td><span class="nm">${esc(p.name)}</span><span class="sub">${esc([p.maker,p.model,p.jan&&('JAN '+p.jan)].filter(Boolean).join('／'))}</span></td>
+    <td class="sub">${esc(p.category||'')}</td>
+    <td class="sub">${esc(p.condition||'')}</td>
+    <td class="num">${yen(p.price)}</td>
+    <td class="num ${stockClass(p)?'':''}" style="color:${p.stock<=0?'var(--red)':(p.stock<=(p.safety_stock||0)?'var(--amber)':'inherit')}">${p.stock}</td>
+    <td>${mallPills(p.id)}</td>
+    <td class="sub">${esc((STATUSES.find(s=>s[0]===p.status)||['','']) [1])}</td>
+  </tr>`).join('');
+  $("itemsBody").innerHTML=`<div class="tablewrap"><table class="grid">
+    <thead><tr><th>SKU</th><th>商品</th><th>カテゴリ</th><th>状態</th><th style="text-align:right">販売価格</th><th style="text-align:right">在庫</th><th>出品先</th><th>取扱</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>
+    <div class="sub" style="margin-bottom:8px">${list.length} 件</div>`;
+}
+function emptyMsg(t){return `<div class="empty">${esc(t)}</div>`;}
+
+/* ===== 在庫一元管理 ===== */
+function renderStock(){
+  const q=$("sq").value.trim().toLowerCase(), f=$("sFilter").value;
+  const list=products.filter(p=>{
+    if(p.status==='archived') return false;
+    if(f==='zero'&&(p.stock||0)>0) return false;
+    if(f==='low'&&!((p.stock||0)>0&&(p.stock||0)<=(p.safety_stock||0))) return false;
+    if(f==='has'&&(p.stock||0)<=0) return false;
+    if(q){const hay=[p.sku,p.name,p.model].filter(Boolean).join(' ').toLowerCase();if(hay.indexOf(q)<0)return false;}
+    return true;
+  });
+  if(!list.length){$("stockBody").innerHTML=emptyMsg('該当する商品がありません。');return;}
+  const rows=list.map(p=>`<tr>
+    <td><span class="sku">${esc(p.sku)}</span></td>
+    <td><span class="nm">${esc(p.name)}</span><span class="sub">${esc([p.maker,p.model].filter(Boolean).join('／'))}</span></td>
+    <td>${mallPills(p.id)}</td>
+    <td class="num sub">${p.safety_stock||0}</td>
+    <td><div class="stockbox">
+      <button onclick="bump('${p.id}',-1)" title="1つ減らす">−</button>
+      <span class="v ${stockClass(p)}">${p.stock}</span>
+      <button onclick="bump('${p.id}',1)" title="1つ増やす">＋</button>
+    </div></td>
+    <td class="num">${yen((p.stock||0)*Number(p.cost||0))}</td>
+    <td style="white-space:nowrap">
+      <button class="btn" onclick="openAdjust('${p.id}')"><span class="material-icons-outlined" style="font-size:15px">tune</span>調整</button>
+      <button class="btn" onclick="openHistory('${p.id}')"><span class="material-icons-outlined" style="font-size:15px">history</span>履歴</button>
+    </td></tr>`).join('');
+  const total=list.reduce((s,p)=>s+(p.stock||0),0);
+  const value=list.reduce((s,p)=>s+(p.stock||0)*Number(p.cost||0),0);
+  $("stockBody").innerHTML=`<div class="tablewrap"><table class="grid">
+    <thead><tr><th>SKU</th><th>商品</th><th>出品先</th><th style="text-align:right">安全在庫</th><th>在庫</th><th style="text-align:right">在庫金額</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table></div>
+    <div class="sub" style="margin-bottom:8px">${list.length} 件／在庫合計 ${total.toLocaleString('ja-JP')} 点／在庫金額 ${yen(Math.round(value))}</div>`;
+}
+
+/* 在庫の増減は必ず ec_stock_apply() を通す。画面で計算して書き戻さない */
+async function applyStock(id,delta,reason,mall,ref,note){
+  const {data,error}=await sb.rpc('ec_stock_apply',{
+    p_product_id:id,p_delta:delta,p_reason:reason||'manual',
+    p_mall:mall||null,p_ref:ref||null,p_note:note||null
+  });
+  if(error){toast('在庫を更新できませんでした：'+error.message);return null;}
+  const p=products.find(x=>x.id===id);
+  if(p)p.stock=data;
+  return data;
+}
+async function bump(id,delta){
+  const after=await applyStock(id,delta,'manual',null,null,null);
+  if(after==null)return;
+  await refreshMoves();
+  render();
+}
+async function refreshMoves(){
+  const m=await sb.from("ec_stock_moves").select("*").order("created_at",{ascending:false}).limit(60);
+  if(!m.error) moves=m.data||[];
+}
+
+function openAdjust(id){
+  const p=products.find(x=>x.id===id);if(!p)return;
+  openModal('在庫を調整：'+p.sku,`
+    <div class="note">いまの在庫は <strong>${p.stock}</strong> 点です。増やす数はプラス、減らす数はマイナスで入れてください。</div>
+    <div class="row">
+      <div class="fg"><label>増減数</label><input id="adjDelta" type="number" value="1" step="1"></div>
+      <div class="fg"><label>理由</label><select id="adjReason">
+        ${Object.entries(REASONS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}
+      </select></div>
+    </div>
+    <div class="row">
+      <div class="fg"><label>モール（任意）</label><select id="adjMall"><option value="">—</option>
+        ${window.EightMalls.all().map(m=>`<option value="${m.key}">${esc(m.label)}</option>`).join('')}</select></div>
+      <div class="fg"><label>注文番号など（任意）</label><input id="adjRef" placeholder="例 123456-20260910-0001"></div>
+    </div>
+    <div class="fg"><label>メモ（任意）</label><input id="adjNote" placeholder="例 検品でキズが見つかり除外"></div>
+  `,[['閉じる','closeModal()',''],['この内容で反映','doAdjust(\''+id+'\')','btn-add']]);
+}
+async function doAdjust(id){
+  const d=parseInt($("adjDelta").value,10);
+  if(!d){toast('増減数を入れてください（0は指定できません）');return;}
+  const after=await applyStock(id,d,$("adjReason").value,$("adjMall").value||null,$("adjRef").value.trim()||null,$("adjNote").value.trim()||null);
+  if(after==null)return;
+  closeModal();await refreshMoves();render();
+  toast('在庫を '+after+' 点にしました');
+}
+
+async function openHistory(id){
+  const p=products.find(x=>x.id===id);if(!p)return;
+  openModal('在庫の履歴：'+p.sku,'<div class="sub">読み込み中…</div>',[['閉じる','closeModal()','']]);
+  const {data,error}=await sb.from("ec_stock_moves").select("*").eq("product_id",id).order("created_at",{ascending:false}).limit(200);
+  if(error){$("mBody").innerHTML='<div class="note bad">履歴を読めませんでした：'+esc(error.message)+'</div>';return;}
+  const rows=(data||[]).map(mv=>`<tr><td class="sub">${when(mv.created_at)}</td>
+    <td class="num" style="color:${mv.delta>0?'var(--green)':'var(--red)'}">${mv.delta>0?'+':''}${mv.delta}</td>
+    <td class="num">${mv.stock_after}</td>
+    <td class="sub">${esc(reasonLabel(mv.reason))}${mv.mall?'／'+esc(mv.mall):''}</td>
+    <td class="sub">${esc(mv.ref||'')}${mv.note?' '+esc(mv.note):''}</td>
+    <td class="sub">${esc(mv.created_by||'')}</td></tr>`).join('');
+  $("mBody").innerHTML=(data||[]).length
+    ?`<table class="grid"><thead><tr><th>日時</th><th style="text-align:right">増減</th><th style="text-align:right">残</th><th>理由</th><th>メモ</th><th>操作者</th></tr></thead><tbody>${rows}</tbody></table>`
+    :'<div class="empty">まだ動きがありません。</div>';
+}
+
+function exportStockCsv(){
+  const rows=[['SKU','商品名','メーカー','型番','JAN','カテゴリ','在庫数','安全在庫','仕入価格','在庫金額','出品先']];
+  products.filter(p=>p.status!=='archived').forEach(p=>{
+    const malls=window.EightMalls.all().filter(m=>((byProduct[p.id]||{})[m.key]||{}).enabled).map(m=>m.label).join('／');
+    rows.push([p.sku,p.name,p.maker||'',p.model||'',p.jan||'',p.category||'',p.stock,p.safety_stock||0,p.cost||'',(p.stock||0)*Number(p.cost||0),malls]);
+  });
+  const {blob}=window.EightMalls.toBlob(window.EightMalls.buildCsv(rows,','),'utf-8');
+  downloadBlob('EC在庫_'+ymd()+'.csv',blob);
+  toast('在庫CSVを出力しました');
+}
+
+/* ===== 価格管理 ===== */
+function renderPrice(){
+  const q=$("pq").value.trim().toLowerCase(), mall=$("pMall").value;
+  const list=products.filter(p=>{
+    if(p.status==='archived')return false;
+    if(mall){const l=(byProduct[p.id]||{})[mall];if(!l||!l.enabled)return false;}
+    if(q){const hay=[p.sku,p.name,p.model].filter(Boolean).join(' ').toLowerCase();if(hay.indexOf(q)<0)return false;}
+    return true;
+  });
+  if(!list.length){$("priceBody").innerHTML=emptyMsg('該当する商品がありません。');return;}
+
+  const rows=list.map(p=>{
+    const key=p.id+'|'+(mall||'');
+    const l=mall?((byProduct[p.id]||{})[mall]||{}):null;
+    const base=mall?(l.price!=null&&l.price!==''?l.price:p.price):p.price;
+    const cur=edits[key]!==undefined?edits[key]:base;
+    const eff=numv(cur);
+    const under=isUnderFloor(p,eff);
+    const margin=marginOf(p,eff);
+    return `<tr>
+      <td><span class="sku">${esc(p.sku)}</span></td>
+      <td><span class="nm">${esc(p.name)}</span><span class="sub">${esc([p.maker,p.model].filter(Boolean).join('／'))}</span></td>
+      <td class="num sub">${yen(p.cost)}</td>
+      <td class="num sub">${yen(p.min_price)}</td>
+      ${mall?`<td class="num sub">${yen(p.price)}</td>`:''}
+      <td><input class="pinput ${under?'bad':''} ${edits[key]!==undefined?'dirty':''}" value="${cur==null?'':esc(cur)}"
+          oninput="onPriceInput('${p.id}','${mall}',this.value,this)" inputmode="numeric"
+          ${mall?`placeholder="${p.price==null?'':p.price}"`:''}></td>
+      <td class="num sub" style="color:${margin!=null&&margin<10?'var(--red)':'inherit'}">${margin==null?'—':margin+'%'}</td>
+      <td class="sub">${under?'<span class="pill st-error">最低価格割れ</span>':''}</td>
+    </tr>`;
+  }).join('');
+
+  $("priceBody").innerHTML=`<div class="tablewrap"><table class="grid">
+    <thead><tr><th>SKU</th><th>商品</th><th style="text-align:right">仕入</th><th style="text-align:right">最低販売価格</th>
+    ${mall?'<th style="text-align:right">マスター価格</th>':''}
+    <th>${mall?esc(window.EightMalls.get(mall).label)+'の価格':'販売価格'}</th><th style="text-align:right">粗利率</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table></div>
+    <div class="sub" style="margin-bottom:8px">${list.length} 件${mall?'（空欄ならマスター価格を使います）':''}</div>`;
+  refreshSaveBar();
+}
+function isUnderFloor(p,eff){return eff!=null&&p.min_price!=null&&p.min_price!==''&&eff<Number(p.min_price);}
+function marginOf(p,eff){
+  if(eff==null||!eff||p.cost==null||p.cost==='')return null;
+  return Math.round((eff-Number(p.cost))/eff*1000)/10;
+}
+
+/* 打つそばから「最低販売価格を割った」ことが分かるように、
+   表を作り直さずにその行の見た目だけ変える（作り直すと入力途中で focus が飛ぶ） */
+function onPriceInput(pid,mall,v,el){
+  const key=pid+'|'+(mall||'');
+  const p=products.find(x=>x.id===pid);
+  const base=mall?(((byProduct[pid]||{})[mall]||{}).price??''):(p.price??'');
+  if(String(v)===String(base==null?'':base)) delete edits[key];
+  else edits[key]=v;
+
+  if(el){
+    const eff=numv(v), under=isUnderFloor(p,eff), margin=marginOf(p,eff);
+    el.classList.toggle('bad',under);
+    el.classList.toggle('dirty',edits[key]!==undefined);
+    const tds=el.closest('tr')?el.closest('tr').querySelectorAll('td'):[];
+    if(tds.length>=2){
+      const mCell=tds[tds.length-2], wCell=tds[tds.length-1];
+      mCell.textContent=margin==null?'—':margin+'%';
+      mCell.style.color=(margin!=null&&margin<10)?'var(--red)':'';
+      wCell.innerHTML=under?'<span class="pill st-error">最低価格割れ</span>':'';
+    }
+  }
+  refreshSaveBar();
+}
+function refreshSaveBar(){
+  const n=Object.keys(edits).length;
+  $("savebar").classList.toggle('on',n>0);
+  $("saveN").textContent=n?`${n} 件の価格が未保存です`:'';
+}
+function discardEdits(){edits={};renderPrice();}
+async function saveEdits(){
+  const keys=Object.keys(edits);
+  if(!keys.length)return;
+  let ok=0,ng=0;
+  for(const key of keys){
+    const [pid,mall]=key.split('|');
+    const v=numv(edits[key]);
+    let res;
+    if(!mall){
+      res=await sb.from("ec_products").update({price:v,updated_by:SHARED_EMAIL}).eq("id",pid);
+      if(!res.error){const p=products.find(x=>x.id===pid);if(p)p.price=v;}
+    }else{
+      res=await sb.from("ec_listings").upsert({product_id:pid,mall,price:v},{onConflict:'product_id,mall'}).select();
+      if(!res.error&&res.data&&res.data[0]){
+        const l=res.data[0];
+        (byProduct[pid]=byProduct[pid]||{})[mall]=l;
+        const i=listings.findIndex(x=>x.id===l.id);
+        if(i>=0)listings[i]=l;else listings.push(l);
+      }
+    }
+    if(res.error){ng++;console.warn(key,res.error.message);}else ok++;
+  }
+  edits={};
+  renderPrice();
+  toast(ng?`${ok}件保存、${ng}件は失敗しました`:`${ok}件の価格を保存しました`);
+}
+
+function openBulkPrice(){
+  const mall=$("pMall").value;
+  openModal('価格の一括改定',`
+    <div class="note">いま表示している <strong>${itemsForBulk().length} 件</strong>の${mall?esc(window.EightMalls.get(mall).label)+'の価格':'販売価格'}をまとめて変えます。
+      入力欄に反映するだけなので、内容を見てから「まとめて保存」で確定できます。</div>
+    <div class="row c3">
+      <div class="fg"><label>基準</label><select id="bpBase">
+        <option value="current">いまの価格</option>
+        <option value="cost">仕入価格</option>
+        ${mall?'<option value="master">マスター価格</option>':''}
+      </select></div>
+      <div class="fg"><label>計算</label><select id="bpOp">
+        <option value="pct">×（％）</option>
+        <option value="add">＋（円）</option>
+        <option value="set">その値にする</option>
+      </select></div>
+      <div class="fg"><label>値</label><input id="bpVal" type="number" value="110" step="1"></div>
+    </div>
+    <div class="row">
+      <div class="fg"><label>端数</label><select id="bpRound">
+        <option value="100">100円単位で切り上げ</option>
+        <option value="10">10円単位で切り上げ</option>
+        <option value="1">そのまま</option>
+      </select></div>
+      <div class="fg"><label>最低販売価格</label><select id="bpFloor">
+        <option value="1">下回ったら最低販売価格に合わせる</option>
+        <option value="0">そのまま計算する（赤で警告）</option>
+      </select></div>
+    </div>
+  `,[['閉じる','closeModal()',''],['入力欄に反映','doBulkPrice()','btn-add']]);
+}
+function itemsForBulk(){
+  const q=$("pq").value.trim().toLowerCase(), mall=$("pMall").value;
+  return products.filter(p=>{
+    if(p.status==='archived')return false;
+    if(mall){const l=(byProduct[p.id]||{})[mall];if(!l||!l.enabled)return false;}
+    if(q){const hay=[p.sku,p.name,p.model].filter(Boolean).join(' ').toLowerCase();if(hay.indexOf(q)<0)return false;}
+    return true;
+  });
+}
+function doBulkPrice(){
+  const mall=$("pMall").value;
+  const base=$("bpBase").value, op=$("bpOp").value, val=Number($("bpVal").value||0);
+  const unit=Number($("bpRound").value||1), floor=$("bpFloor").value==='1';
+  let n=0;
+  itemsForBulk().forEach(p=>{
+    const l=mall?((byProduct[p.id]||{})[mall]||{}):null;
+    let src;
+    if(base==='cost') src=numv(p.cost);
+    else if(base==='master') src=numv(p.price);
+    else src=mall?(l.price!=null&&l.price!==''?numv(l.price):numv(p.price)):numv(p.price);
+    if(src==null&&op!=='set') return;
+    let out;
+    if(op==='pct') out=src*val/100;
+    else if(op==='add') out=src+val;
+    else out=val;
+    if(out==null||!isFinite(out)) return;
+    if(unit>1) out=Math.ceil(out/unit)*unit;
+    else out=Math.round(out);
+    if(floor&&p.min_price!=null&&out<Number(p.min_price)) out=Number(p.min_price);
+    edits[p.id+'|'+(mall||'')]=out;
+    n++;
+  });
+  closeModal();renderPrice();
+  toast(n+' 件に反映しました。内容を確かめて「まとめて保存」を押してください');
+}
+
+/* ===== 商品ドロワー ===== */
+function openItem(id){
+  editing=id?products.find(p=>p.id===id):null;
+  const p=editing||{sku:'',name:'',condition:'新品',status:'active',stock:0,safety_stock:0,image_urls:[]};
+  $("dTitle").textContent=editing?('商品：'+p.sku):'商品を追加';
+  $("dDel").style.display=editing?'inline-flex':'none';
+  const f=(id,label,val,type,extra)=>`<div class="fg"><label>${label}</label><input id="${id}" ${type?`type="${type}"`:''} value="${val==null?'':esc(val)}" ${extra||''}></div>`;
+  const sel=(id,label,opts,cur)=>`<div class="fg"><label>${label}</label><select id="${id}">${opts.map(o=>{
+    const [v,t]=Array.isArray(o)?o:[o,o];
+    return `<option value="${esc(v)}"${String(v)===String(cur==null?'':cur)?' selected':''}>${esc(t)}</option>`;}).join('')}</select></div>`;
+  const ta=(id,label,val,hint)=>`<div class="fg"><label>${label}</label><textarea id="${id}">${esc(val||'')}</textarea>${hint?`<div class="hint">${esc(hint)}</div>`:''}</div>`;
+
+  $("dBody").innerHTML=`
+    <div class="fs"><h3><span class="material-icons-outlined" style="font-size:16px">badge</span>基本</h3>
+      <div class="row">${f('d-sku','SKU（社内の商品キー）*',p.sku)}${f('d-jan','JANコード',p.jan)}</div>
+      ${f('d-name','商品名 *',p.name)}
+      <div class="row c3">${f('d-maker','メーカー',p.maker)}${f('d-model','型番',p.model)}
+        <div class="fg"><label>カテゴリ</label><input id="d-category" value="${esc(p.category||'')}" list="catList">
+          <datalist id="catList">${CATEGORY_HINTS.map(c=>`<option>${c}</option>`).join('')}</datalist></div></div>
+      <div class="row c3">${sel('d-condition','商品状態',CONDITIONS,p.condition)}${sel('d-status','取扱状態',STATUSES,p.status)}${f('d-warranty','保証内容',p.warranty)}</div>
+    </div>
+
+    <div class="fs"><h3><span class="material-icons-outlined" style="font-size:16px">sell</span>価格と在庫</h3>
+      <div class="row c3">${f('d-cost','仕入価格',p.cost,'number')}${f('d-price','販売価格',p.price,'number')}${f('d-min_price','最低販売価格',p.min_price,'number')}</div>
+      <div class="row c3">${f('d-shipping_fee','送料',p.shipping_fee,'number')}
+        ${editing?`<div class="fg"><label>在庫数</label><input value="${p.stock}" disabled>
+          <div class="hint">在庫は「在庫一元管理」から増減します（履歴を残すため）</div></div>`
+                 :f('d-stock','初期在庫数',p.stock,'number')}
+        ${f('d-safety_stock','安全在庫',p.safety_stock,'number')}</div>
+    </div>
+
+    <div class="fs"><h3><span class="material-icons-outlined" style="font-size:16px">description</span>商品情報</h3>
+      ${ta('d-spec','スペック',p.spec)}
+      ${ta('d-description','商品説明',p.description)}
+      ${ta('d-seo_keywords','SEOキーワード',p.seo_keywords,'検索されたい言葉を、読点や空白で区切って並べます')}
+      ${ta('d-image_urls','商品画像URL',(p.image_urls||[]).join('\n'),'1行に1つ。いちばん上がメイン画像になります')}
+    </div>
+
+    <div class="fs"><h3><span class="material-icons-outlined" style="font-size:16px">laptop</span>中古PC向けの項目</h3>
+      <div class="row c3">${f('d-cpu','CPU',p.cpu)}${f('d-memory','メモリ',p.memory)}${f('d-storage','ストレージ',p.storage)}</div>
+      <div class="row c3">${f('d-os','OS',p.os)}${f('d-office','Office',p.office)}${f('d-screen_size','画面サイズ',p.screen_size)}</div>
+      <div class="row c3">${f('d-battery','バッテリー',p.battery)}${f('d-grade','傷ランク',p.grade)}${f('d-accessories','付属品',p.accessories)}</div>
+    </div>
+
+    <div class="fs"><h3><span class="material-icons-outlined" style="font-size:16px">storefront</span>出品先</h3>
+      <p style="font-size:11.5px;color:var(--mute);margin-bottom:9px">出すモールをオンにします。商品名と価格を空にすると、上のマスターの値をそのまま使います。</p>
+      ${window.EightMalls.all().map(m=>mallBlock(m,(byProduct[p.id]||{})[m.key]||{})).join('')}
+    </div>
+
+    ${ta('d-note','社内メモ',p.note)}
+  `;
+  $("scrim").classList.add('on');$("drawer").classList.add('on');
+}
+function mallBlock(m,l){
+  const on=!!l.enabled;
+  return `<div class="mallrow ${on?'on':''}" id="mb-${m.key}">
+    <div class="h">
+      <span class="pill on" style="background:${m.color}">${esc(m.short)}</span>
+      <span class="name">${esc(m.label)}</span>
+      ${m.phase>1?'<span class="sub">Phase '+m.phase+'</span>':''}
+      ${l.mall_url?`<a class="sub" href="${esc(l.mall_url)}" target="_blank" rel="noopener">開く</a>`:''}
+      <label class="sw"><input type="checkbox" id="ml-${m.key}-enabled" ${on?'checked':''} onchange="document.getElementById('mb-${m.key}').classList.toggle('on',this.checked)">出品する</label>
+    </div>
+    <div class="body">
+      <div class="row">
+        <div class="fg"><label>このモール用の商品名</label><input id="ml-${m.key}-title" value="${esc(l.title||'')}" placeholder="空ならマスターの商品名"></div>
+        <div class="fg"><label>このモール用の価格</label><input id="ml-${m.key}-price" type="number" value="${l.price==null?'':esc(l.price)}" placeholder="空ならマスター価格"></div>
+      </div>
+      <div class="row c3">
+        <div class="fg"><label>出品状態</label><select id="ml-${m.key}-state">
+          ${LISTING_STATES.map(([v,t])=>`<option value="${v}"${(l.state||'draft')===v?' selected':''}>${t}</option>`).join('')}</select></div>
+        <div class="fg"><label>モール側の商品ID</label><input id="ml-${m.key}-mall_item_id" value="${esc(l.mall_item_id||'')}" placeholder="楽天の商品管理番号など"></div>
+        <div class="fg"><label>ジャンル・カテゴリID</label><input id="ml-${m.key}-mall_category" value="${esc(l.mall_category||'')}"></div>
+      </div>
+      ${l.last_error?`<div class="note bad" style="margin:0">前回のエラー：${esc(l.last_error)}</div>`:''}
+    </div>
+  </div>`;
+}
+function closeItem(){$("scrim").classList.remove('on');$("drawer").classList.remove('on');editing=null;}
+
+async function saveItem(){
+  const g=id=>{const el=$(id);return el?el.value.trim():'';};
+  const sku=g('d-sku'), name=g('d-name');
+  if(!sku||!name){toast('SKUと商品名は必須です');return;}
+  if(!editing&&products.some(p=>p.sku===sku)){toast('そのSKUは既に使われています');return;}
+
+  const rec={
+    sku,name,jan:g('d-jan')||null,maker:g('d-maker')||null,model:g('d-model')||null,
+    category:g('d-category')||null,condition:g('d-condition'),status:g('d-status'),
+    cost:numv(g('d-cost')),price:numv(g('d-price')),min_price:numv(g('d-min_price')),
+    shipping_fee:numv(g('d-shipping_fee')),safety_stock:parseInt(g('d-safety_stock')||'0',10)||0,
+    warranty:g('d-warranty')||null,spec:g('d-spec')||null,description:g('d-description')||null,
+    seo_keywords:g('d-seo_keywords')||null,
+    image_urls:g('d-image_urls').split('\n').map(s=>s.trim()).filter(Boolean),
+    cpu:g('d-cpu')||null,memory:g('d-memory')||null,storage:g('d-storage')||null,os:g('d-os')||null,
+    office:g('d-office')||null,screen_size:g('d-screen_size')||null,battery:g('d-battery')||null,
+    grade:g('d-grade')||null,accessories:g('d-accessories')||null,note:g('d-note')||null,
+    updated_by:SHARED_EMAIL
+  };
+
+  let pid=editing?editing.id:null;
+  if(editing){
+    const {error}=await sb.from("ec_products").update(rec).eq("id",pid);
+    if(error){toast('保存できませんでした：'+error.message);return;}
+  }else{
+    // 新規は在庫を0で作り、初期在庫は履歴が残るよう ec_stock_apply で入れる
+    const {data,error}=await sb.from("ec_products").insert({...rec,stock:0}).select().single();
+    if(error){toast('保存できませんでした：'+error.message);return;}
+    pid=data.id;
+    const init=parseInt(g('d-stock')||'0',10)||0;
+    if(init) await applyStock(pid,init,'purchase',null,null,'新規登録時の初期在庫');
+  }
+
+  // 出品設定は、オフのものも「オフである」ことを残すため upsert する
+  const rows=window.EightMalls.all().map(m=>({
+    product_id:pid, mall:m.key,
+    enabled:$("ml-"+m.key+"-enabled").checked,
+    title:$("ml-"+m.key+"-title").value.trim()||null,
+    price:numv($("ml-"+m.key+"-price").value),
+    state:$("ml-"+m.key+"-state").value,
+    mall_item_id:$("ml-"+m.key+"-mall_item_id").value.trim()||null,
+    mall_category:$("ml-"+m.key+"-mall_category").value.trim()||null
+  }));
+  const {error:le}=await sb.from("ec_listings").upsert(rows,{onConflict:'product_id,mall'});
+  if(le){toast('出品先を保存できませんでした：'+le.message);}
+
+  closeItem();await load();
+  toast('保存しました');
+}
+
+async function deleteItem(){
+  if(!editing)return;
+  if(!confirm(`${editing.sku}「${editing.name}」を削除します。出品設定と在庫履歴も一緒に消えます。よろしいですか？`))return;
+  const {error}=await sb.from("ec_products").delete().eq("id",editing.id);
+  if(error){toast('削除できませんでした：'+error.message);return;}
+  closeItem();await load();toast('削除しました');
+}
+
+/* ===== モール連携 ===== */
+function renderSync(){
+  const c=window.EightMalls.get($("cMall").value);
+  $("syncHelp").innerHTML=`<div class="note ${c.phase>1?'warn':''}">
+    <strong>${esc(c.label)}</strong>　${esc(c.help)}</div>`;
+  $("expEncHint").textContent='このモールの既定は '+(c.csv.encoding==='shift_jis'?'Shift_JIS':'UTF-8')+' です。'
+    +(c.csv.sep==='\t'?'区切りはタブです。':'');
+  const rows=syncLog.map(g=>`<tr>
+    <td class="sub">${when(g.created_at)}</td>
+    <td>${esc((window.EightMalls.get(g.mall)||{label:g.mall}).label)}</td>
+    <td class="sub">${g.kind==='export'?'出力':(g.kind==='import'?'取込':g.kind)}${g.target?'／'+esc(g.target):''}</td>
+    <td class="num" style="color:var(--green)">${g.ok_count}</td>
+    <td class="num" style="color:${g.ng_count?'var(--red)':'inherit'}">${g.ng_count}</td>
+    <td class="sub">${esc(g.message||'')}</td></tr>`).join('');
+  $("syncLog").innerHTML=syncLog.length
+    ?`<thead><tr><th>日時</th><th>モール</th><th>種類</th><th style="text-align:right">成功</th><th style="text-align:right">失敗</th><th>内容</th></tr></thead><tbody>${rows}</tbody>`
+    :'<tbody><tr><td style="padding:22px;text-align:center;color:var(--mute)">まだ履歴はありません。</td></tr></tbody>';
+}
+
+async function logSync(mall,kind,target,ok,ng,message,detail){
+  await sb.from("ec_sync_log").insert({mall,kind,target,ok_count:ok,ng_count:ng,message,detail:detail||null,created_by:SHARED_EMAIL});
+  const g=await sb.from("ec_sync_log").select("*").order("created_at",{ascending:false}).limit(30);
+  if(!g.error)syncLog=g.data||[];
+}
+
+function doExport(){
+  const mall=$("cMall").value, c=window.EightMalls.get(mall), scope=$("expScope").value;
+  const items=products.filter(p=>{
+    if(p.status!=='active')return false;
+    const l=(byProduct[p.id]||{})[mall];
+    if(scope==='enabled') return !!(l&&l.enabled);
+    if(scope==='listed')  return !!(l&&l.state==='listed');
+    return true;
+  }).map(p=>({product:p,listing:(byProduct[p.id]||{})[mall]||{}}));
+
+  if(!items.length){toast('出力する商品がありません');return;}
+
+  const text=window.EightMalls.exportRows(mall,items);
+  const enc=$("expEnc").value||c.csv.encoding;
+  const {blob,unmappable}=window.EightMalls.toBlob(text,enc);
+  const name=c.csv.filename(ymd());
+  downloadBlob(name,blob);
+
+  if(unmappable.length){
+    toast(`出力しました（${enc==='shift_jis'?'Shift_JIS':'UTF-8'}に変換できない文字 ${unmappable.length} 種を「?」にしました：${unmappable.slice(0,8).join('')}）`);
+  }else{
+    toast(`${items.length} 件を ${name} に出力しました`);
+  }
+  logSync(mall,'export','商品',items.length,unmappable.length,
+    `${scope==='enabled'?'出す設定':scope==='listed'?'出品中':'取扱中すべて'}／${enc}`,
+    unmappable.length?{unmappable}:null).then(renderSync);
+}
+
+function pickImport(){$("impFile").value='';$("impFile").click();}
+
+async function readImport(input){
+  const file=input.files&&input.files[0];
+  if(!file)return;
+  const mall=$("cMall").value;
+  const buf=await file.arrayBuffer();
+  const {text,encoding}=window.EightMalls.decodeBytes(buf);
+  let res;
+  try{ res=window.EightMalls.importRows(mall,text); }
+  catch(e){ toast('CSVを読めませんでした：'+e.message); return; }
+
+  if(!res.match||!res.match.keyHeader){
+    openModal('取り込めませんでした',`
+      <div class="note bad">SKUにあたる列が見つかりませんでした。<br>
+        このモールで探した列名：<strong>${esc((window.EightMalls.get(mall).csv.keyField||[]).join('／'))}</strong></div>
+      <p style="font-size:12.5px;margin-bottom:8px">ファイルにあった列名：</p>
+      <div class="sub" style="font-family:Inter,monospace;font-size:11.5px;line-height:1.9">${res.header.map(esc).join(' ／ ')}</div>
+    `,[['閉じる','closeModal()','']]);
+    return;
+  }
+
+  // SKU・モール側商品ID・JANの順で商品を探す
+  const bySku={},byMallId={},byJan={};
+  products.forEach(p=>{
+    bySku[p.sku]=p;
+    if(p.jan)byJan[p.jan]=p;
+    const l=(byProduct[p.id]||{})[mall];
+    if(l&&l.mall_item_id)byMallId[l.mall_item_id]=p;
+  });
+
+  const plan=[];
+  res.rows.forEach(r=>{
+    const p=bySku[r.key]||byMallId[r.key]||byJan[r.key];
+    if(!p){plan.push({key:r.key,miss:true});return;}
+    const changes=[];
+    Object.entries(r.product).forEach(([k,v])=>{
+      if(k==='stock'){
+        const delta=Number(v)-Number(p.stock||0);
+        if(delta) changes.push({kind:'stock',label:'在庫数',from:p.stock,to:Number(v),delta});
+      }else if(String(p[k]==null?'':p[k])!==String(v)){
+        changes.push({kind:'product',field:k,label:k,from:p[k],to:v});
+      }
+    });
+    const l=(byProduct[p.id]||{})[mall]||{};
+    Object.entries(r.listing).forEach(([k,v])=>{
+      if(String(l[k]==null?'':l[k])!==String(v)) changes.push({kind:'listing',field:k,label:k,from:l[k],to:v});
+    });
+    if(changes.length) plan.push({key:r.key,product:p,changes});
+  });
+
+  importState={mall,plan,encoding,file:file.name,match:res.match,skipped:res.skipped};
+  showImportPreview();
+}
+
+const FIELD_LABEL={stock:'在庫数',price:'価格',title:'商品名',jan:'JANコード',mall_item_id:'モール側の商品ID',mall_category:'ジャンルID',name:'商品名'};
+function fieldLabel(k){return FIELD_LABEL[k]||k;}
+
+function showImportPreview(){
+  const st=importState, c=window.EightMalls.get(st.mall);
+  const hit=st.plan.filter(x=>!x.miss);
+  const miss=st.plan.filter(x=>x.miss);
+  const rows=hit.slice(0,200).map(x=>`<tr>
+    <td><span class="sku">${esc(x.product.sku)}</span><span class="sub">${esc(x.product.name)}</span></td>
+    <td>${x.changes.map(ch=>{
+      if(ch.kind==='stock') return `<div>在庫数 <span class="sub">${ch.from}</span> → <strong>${ch.to}</strong> <span class="sub">(${ch.delta>0?'+':''}${ch.delta})</span></div>`;
+      return `<div>${esc(fieldLabel(ch.field))} <span class="sub">${esc(ch.from==null?'—':String(ch.from).slice(0,40))}</span> → <strong>${esc(String(ch.to).slice(0,40))}</strong></div>`;
+    }).join('')}</td></tr>`).join('');
+
+  openModal('取り込む内容の確認',`
+    <div class="note">${esc(st.file)}（${st.encoding==='shift_jis'?'Shift_JIS':'UTF-8'}として読み込み）<br>
+      <strong>${hit.length} 件</strong>に変更があります。${miss.length?`<strong style="color:var(--red)">${miss.length} 件</strong>は商品が見つかりませんでした。`:''}
+      ${st.skipped?`${st.skipped} 行は中身が空のため飛ばしました。`:''}</div>
+    ${st.match.unknown.length?`<div class="note warn">こちらで使っていない列が ${st.match.unknown.length} 個あります（無視します）：
+      <span style="font-family:Inter,monospace;font-size:11px">${st.match.unknown.slice(0,20).map(esc).join(' ／ ')}</span></div>`:''}
+    ${miss.length?`<div class="note bad">見つからなかったキー：<span style="font-family:Inter,monospace;font-size:11px">${miss.slice(0,20).map(x=>esc(x.key)).join(' ／ ')}</span></div>`:''}
+    ${hit.length?`<div class="tablewrap" style="max-height:46vh"><table class="grid"><thead><tr><th>商品</th><th>変わるところ</th></tr></thead><tbody>${rows}</tbody></table></div>
+      ${hit.length>200?`<div class="sub">先頭200件だけ表示しています。</div>`:''}`
+      :'<div class="empty">変わるところはありませんでした。</div>'}
+  `,[['閉じる','closeModal()',''],...(hit.length?[['この内容で反映','applyImport()','btn-add']]:[])]);
+}
+
+async function applyImport(){
+  const st=importState;if(!st)return;
+  const hit=st.plan.filter(x=>!x.miss);
+  closeModal();
+  let ok=0,ng=0;const errs=[];
+
+  for(const x of hit){
+    const pPatch={},lPatch={};
+    let stockDelta=0;
+    x.changes.forEach(ch=>{
+      if(ch.kind==='stock') stockDelta=ch.delta;
+      else if(ch.kind==='product') pPatch[ch.field]=ch.to;
+      else lPatch[ch.field]=ch.to;
+    });
+    try{
+      if(Object.keys(pPatch).length){
+        const {error}=await sb.from("ec_products").update({...pPatch,updated_by:SHARED_EMAIL}).eq("id",x.product.id);
+        if(error) throw error;
+      }
+      if(stockDelta){
+        const after=await applyStock(x.product.id,stockDelta,'import',st.mall,st.file,'CSV取込による在庫合わせ');
+        if(after==null) throw new Error('在庫を更新できませんでした');
+      }
+      if(Object.keys(lPatch).length){
+        const {error}=await sb.from("ec_listings").upsert({product_id:x.product.id,mall:st.mall,...lPatch},{onConflict:'product_id,mall'});
+        if(error) throw error;
+      }
+      ok++;
+    }catch(e){ng++;errs.push({sku:x.product.sku,message:e.message||String(e)});}
+  }
+
+  await logSync(st.mall,'import','商品',ok,ng+st.plan.filter(x=>x.miss).length,
+    st.file+'（'+st.encoding+'）',
+    (errs.length||st.plan.some(x=>x.miss))?{errors:errs,notFound:st.plan.filter(x=>x.miss).map(x=>x.key)}:null);
+  importState=null;
+  await load();
+  toast(ng?`${ok}件を反映、${ng}件は失敗しました`:`${ok}件を反映しました`);
+}
+
+/* モールのテンプレートを読ませて、こちらの想定と噛み合っているか見る */
+function openHeaderCheck(){
+  openModal('ヘッダー照合',`
+    <div class="note">モールからダウンロードした<strong>実物のテンプレートCSV</strong>を読み込むと、
+      こちらが想定している列とどれだけ噛み合っているかを出します。ファイルの中身は取り込みません。</div>
+    <button class="btn-add" onclick="document.getElementById('hcFile').click()">
+      <span class="material-icons-outlined" style="font-size:18px">upload_file</span>テンプレートCSVを選ぶ</button>
+    <input type="file" id="hcFile" accept=".csv,.txt,.tsv,text/csv" style="display:none" onchange="doHeaderCheck(this)">
+    <div id="hcOut" style="margin-top:12px"></div>
+  `,[['閉じる','closeModal()','']]);
+}
+async function doHeaderCheck(input){
+  const file=input.files&&input.files[0];if(!file)return;
+  const mall=$("cMall").value, c=window.EightMalls.get(mall);
+  const {text,encoding}=window.EightMalls.decodeBytes(await file.arrayBuffer());
+  const table=window.EightMalls.parseCsv(text,c.csv.sep);
+  if(!table.length){$("hcOut").innerHTML='<div class="note bad">中身が読めませんでした。</div>';return;}
+  const header=table[0].map(h=>String(h||'').replace(/^﻿/,'').trim());
+  const m=window.EightMalls.matchHeaders(mall,header);
+  const ours=c.csv.columns.map(x=>x.h);
+  const notInTemplate=ours.filter(h=>header.indexOf(h)<0);
+
+  $("hcOut").innerHTML=`
+    <div class="note">${esc(file.name)}（${encoding==='shift_jis'?'Shift_JIS':'UTF-8'}）／列 ${header.length} 個</div>
+    <div class="note ${m.keyHeader?'':'bad'}">SKUにあたる列：<strong>${m.keyHeader?esc(m.keyHeader):'見つかりません'}</strong></div>
+    <div class="note ${notInTemplate.length?'warn':''}">
+      <strong>出力側</strong>：こちらが書き出す ${ours.length} 列のうち、テンプレートに無い列が <strong>${notInTemplate.length}</strong> 個
+      ${notInTemplate.length?`<br><span style="font-family:Inter,monospace;font-size:11px">${notInTemplate.map(esc).join(' ／ ')}</span>`:''}</div>
+    <div class="note ${m.missing.length?'warn':''}">
+      <strong>取込側</strong>：読み取れる項目 ${m.mapped.length} 個
+      ${m.mapped.length?`<br><span style="font-size:11.5px">${m.mapped.map(x=>esc(fieldLabel(x.field))+'←'+esc(x.header)).join(' ／ ')}</span>`:''}
+      ${m.missing.length?`<br>見つからなかった項目：<span style="font-size:11.5px">${m.missing.map(x=>esc(fieldLabel(x.field))).join(' ／ ')}</span>`:''}</div>
+    <div class="note">テンプレート側にあってこちらで使っていない列：${m.unknown.length} 個
+      ${m.unknown.length?`<br><span style="font-family:Inter,monospace;font-size:11px">${m.unknown.slice(0,40).map(esc).join(' ／ ')}</span>`:''}</div>
+    <p style="font-size:12px;color:var(--mute);line-height:1.9">食い違いがあれば
+      <code style="font-family:Inter,monospace">admin/ec/connectors.js</code> の列名を直せば合わせられます。</p>`;
+}
+
+/* ===== モーダル ===== */
+function openModal(title,body,buttons){
+  $("mTitle").textContent=title;
+  $("mBody").innerHTML=body;
+  $("mFoot").innerHTML=(buttons||[]).map(([t,fn,cls])=>`<button class="${cls||'btn'}" onclick="${fn}">${esc(t)}</button>`).join('');
+  $("modal").classList.add('on');
+}
+function closeModal(){$("modal").classList.remove('on');}
+$("modal").addEventListener('click',e=>{if(e.target===$("modal"))closeModal();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();closeItem();}});
+</script>
+</body>
+</html>
