@@ -68,7 +68,7 @@ const ui = {
   screen: 'dash', itemId: null, prodId: null, locId: null,
   q: '', fCat: '', fMaker: '', fLoc: '', fStock: '', fList: '',
   fAction: '', hq: '', regKind: 'ind', made: null, tab: 'info',
-  drafts: {}, labelSel: {}, stScope: '', loaded: false, sel: {}, fBatch: null
+  drafts: {}, labelSel: {}, stScope: '', loaded: false, sel: {}, fBatch: null, doneBatch: null
 };
 
 /* 仕入の置き場所はたいてい柏の倉庫なので、取込の初期値にする。
@@ -984,8 +984,10 @@ function openImportHist() {
 }
 
 /* ---- 「今回登録した商品だけ表示」 ---- */
-function showBatch(id) {
+function showBatch(id, justNow) {
   ui.fBatch = id;
+  // 「今回」と言えるのは取り込んだ直後だけ。履歴から過去の回を選んだ時点で終わり
+  ui.doneBatch = justNow ? id : null;
   ui.q = ''; ui.fCat = ''; ui.fMaker = ''; ui.fLoc = ''; ui.fStock = ''; ui.fList = '';
   ui.sel = {};
   go('list');
@@ -997,12 +999,13 @@ function batchBanner() {
   if (!b) return '';
   const codes = b.product_codes || [];
   const alive = codes.filter(c => prod(c)).length;
-  return `<div class="batchbar">
-    <span class="ms">filter_alt</span>
+  const now = ui.doneBatch === b.id;
+  return `<div class="batchbar${now ? ' done' : ''}">
+    <span class="ms">${now ? 'check_circle' : 'filter_alt'}</span>
     <div style="flex:1;min-width:0">
-      <div style="font-weight:500">この取込で登録した商品だけ表示しています</div>
-      <div class="meta">${esc(fmtDT(b.imported_at))}　${esc(b.file_name || '')}
-        商品 ${alive}${alive !== codes.length ? ` / ${codes.length}（${codes.length - alive}件は削除済み）` : ''}　個体 ${b.item_count}</div>
+      <div class="bt">${now ? `今回登録した商品 ${alive}件` : `この取込で登録した商品 ${alive}件`}</div>
+      <div class="meta">個体 ${b.item_count}台　${esc(fmtDT(b.imported_at))}　${esc(b.file_name || '')}${
+        alive !== codes.length ? `　（${codes.length - alive}件は削除済み）` : ''}</div>
     </div>
     <button class="btn sm ghost" onclick="clearBatch()">すべて表示</button>
   </div>`;
@@ -1747,8 +1750,8 @@ async function applyInventoryImport() {
   impMap.loc = {}; impMap.cat = {}; planPrice = {};
   await loadAll();
   // 取り込んだら商品管理一覧に戻り、今回の分だけを出す
-  if (batchId) showBatch(batchId); else { ui.fBatch = null; go('list'); }
-  toast(wasBuy ? `${units.length}台を登録しました（原価 ${yen(t.cost)}／想定利益 ${t.priced ? yen(t.gain) : '—'}）`
+  if (batchId) showBatch(batchId, true); else { ui.fBatch = null; ui.doneBatch = null; go('list'); }
+  toast(wasBuy ? `商品 ${touched.length}件・個体 ${units.length}台を登録しました（原価 ${yen(t.cost)}／想定利益 ${t.priced ? yen(t.gain) : '—'}）`
                : `${masters.length}商品・${units.length}台を取り込みました`);
 }
 
@@ -2420,8 +2423,43 @@ function viewHist() {
     <div id="histBody">${histBodyHtml()}</div>`;
 }
 
-/* ===== 11. 商品登録 ===== */
+/* ===== 11. 商品登録 =====
+   毎週の仕入はCSVでまとめて入れる。1件ずつの登録は、CSVに載らないものを
+   足すときの例外。画面もその順で、CSVを主、フォームを従にしている。 */
 function setRegKind(k) { ui.regKind = k; ui.made = null; render(); }
+
+function regCsvMain() {
+  const last = db.imports[0];
+  const done = lastImportDone();
+  return `<div class="regmain">
+    <div class="rmh">
+      <span class="ms">upload_file</span>
+      <div style="flex:1;min-width:220px">
+        <h2>仕入CSVでまとめて登録</h2>
+        <p>毎週の仕入CSVをアップロードすると、商品・個体・仕入価格をまとめて登録できます</p>
+      </div>
+      <button class="btn lime rmbtn" onclick="openImport()" ${canAdmin() ? '' : 'disabled'}>
+        <span class="ms">upload_file</span>仕入CSVを取り込む</button>
+    </div>
+    ${done ? `<div class="rmdone">
+      <span class="ms">check_circle</span>
+      <div style="flex:1;min-width:0">
+        <div class="t">今回登録した商品 ${done.prods}件</div>
+        <div class="meta">個体 ${done.items}台　${esc(done.file)}</div>
+      </div>
+      <button class="btn sm ghost" onclick="showBatch(${done.id},true)">一覧で見る</button>
+    </div>` : ''}
+    ${last ? `<div class="rmlast">最終取込 ${esc(fmtDT(last.imported_at))}　${esc(last.file_name || '')}
+      商品 ${last.product_count}／個体 ${last.item_count}　${esc(last.actor || '')}</div>` : ''}
+  </div>`;
+}
+/* 取り込んだ直後だけ「今回登録した商品 ○件」を出す。
+   商品登録に戻ってきたときにも見えるよう、直近の取込IDを覚えておく */
+function lastImportDone() {
+  const b = batchOf(ui.doneBatch);
+  if (!b) return null;
+  return { id: b.id, prods: (b.product_codes || []).length, items: b.item_count, file: b.file_name || '' };
+}
 
 function viewReg() {
   if (ui.made) {
@@ -2451,15 +2489,10 @@ function viewReg() {
   return `<h1>商品登録</h1>
     ${canAdmin() ? '' : '<div class="card" style="margin:15px 0">商品の登録は管理者だけができます。</div>'}
 
-    <div class="regcsv">
-      <span class="ms">upload_file</span>
-      <div style="flex:1;min-width:0">
-        <div style="font-weight:500">仕入CSVでまとめて登録</div>
-        <div class="meta">オークションの仕入CSVをそのまま取り込みます。1台ずつ入れなくて済みます。</div>
-      </div>
-      <button class="btn" onclick="openImport()" ${canAdmin() ? '' : 'disabled'}>仕入CSV取込</button>
-    </div>
-    <p class="meta" style="margin:12px 0 0">1件ずつ登録するときは、下のフォームを使います。</p>
+    ${regCsvMain()}
+
+    <div class="sec regsub">1件ずつ商品登録</div>
+    <p class="meta" style="margin:-8px 0 0">CSVに載らないものを手で足すときに使います。</p>
 
     <div class="seg" style="margin:15px 0">
       <button class="${ind ? 'on' : ''}" onclick="setRegKind('ind')">個体管理</button>
@@ -2481,7 +2514,7 @@ function viewReg() {
       ${ta('note', '備考')}
     </div>
     <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:18px">
-      <button class="btn lime" style="min-height:52px" onclick="doRegister()" ${canAdmin() ? '' : 'disabled'}>
+      <button class="btn pri" onclick="doRegister()" ${canAdmin() ? '' : 'disabled'}>
         <span class="ms">add</span>登録してQR発行</button>
       <span class="meta">発行予定の${ind ? '管理番号' : '商品コード'}: <b id="idPreview" class="num">—</b></span>
     </div>`;

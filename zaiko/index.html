@@ -361,15 +361,32 @@ table.t.buy td .meta{font-size:11.5px;margin-top:2px}
 .drop .t{font-size:15px;font-weight:500;margin-bottom:14px}
 .drop .btn{min-height:46px;padding:10px 22px}
 .listtools{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.regcsv{display:flex;align-items:center;gap:13px;flex-wrap:wrap;margin-top:18px;
-  background:var(--l100);border:1px solid var(--l500);border-radius:var(--r2);padding:14px 16px}
-.regcsv .ms{font-size:24px}
+/* 商品登録は「CSVでまとめて」が主、「1件ずつ」が従。見た目もその順に振る */
+.regmain{margin-top:18px;background:var(--l100);border:2px solid var(--l500);border-radius:var(--r4);padding:20px 22px}
+.regmain .rmh{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.regmain .rmh > .ms{font-size:38px;color:var(--ink)}
+.regmain h2{font-size:23px;letter-spacing:-.02em;line-height:1.3}
+.regmain p{font-size:14px;color:var(--n700);margin-top:5px;line-height:1.7}
+.regmain .rmbtn{min-height:56px;padding:12px 26px;font-size:17px;flex:0 0 auto}
+.regmain .rmbtn .ms{font-size:22px}
+.regmain .rmdone{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin-top:16px;
+  background:#fff;border:1px solid var(--l500);border-radius:var(--r2);padding:12px 14px}
+.regmain .rmdone .ms{font-size:22px;color:#2E7D32}
+.regmain .rmdone .t{font-weight:700;font-size:16px}
+.regmain .rmlast{margin-top:14px;font-size:12.5px;color:var(--n600)}
+.sec.regsub{font-size:18px;margin:38px 0 10px;color:var(--n700)}
+@media(max-width:560px){.regmain .rmbtn{width:100%}}
 .histline{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:0 0 10px}
 .histline .ms{font-size:17px;color:var(--n500)}
 .histline .btn{margin-left:auto}
 .batchbar{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin:0 0 12px;
   background:var(--l100);border:1px solid var(--l500);border-radius:var(--r2);padding:11px 14px}
 .batchbar .ms{font-size:20px}
+.batchbar .bt{font-weight:500}
+/* 取り込んだ直後は件数がいちばんに目に入るようにする */
+.batchbar.done{border-width:2px;padding:13px 15px}
+.batchbar.done .ms{color:#2E7D32;font-size:24px}
+.batchbar.done .bt{font-weight:700;font-size:18px}
 
 /* ---- トースト ---- */
 #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:95;background:var(--n900);color:#fff;
