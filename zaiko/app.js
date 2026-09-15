@@ -221,6 +221,23 @@ function priceTotals(code) {
   }, { cost: 0, plan: 0, sold: 0, n: list.length });
 }
 
+/* 型番は表記ゆれがある（全角・半角、前後の空白、大文字小文字、ハイフンの種類）。
+   そろえてから突き合わせる。DB側の inv_norm_model と同じ規則にしてある */
+function normModel(s) {
+  return String(s == null ? '' : s)
+    .normalize('NFKC')
+    .replace(/[‐‑‒–—―−]/g, '-')
+    .replace(/\s+/g, '')
+    .toUpperCase();
+}
+/* 型番（無ければ商品名）で既存の商品を探す */
+function findMaster(model, name, kind) {
+  const key = normModel(model || name);
+  if (!key) return null;
+  return db.masters.find(p => p.kind === (kind || 'individual')
+    && normModel(p.model || p.name) === key) || null;
+}
+
 const isLong = (it) => it.status === '貸出中' && daysSince(it.loaned_at) > LOAN_LONG_DAYS;
 const needsOrder = (p) => (p.qty || 0) <= (p.min_qty || 0);
 
@@ -1136,21 +1153,27 @@ function planMaster(H, idx, body, file, encoding, headRow) {
     const kind = g('管理方式') === '数量管理' ? 'quantity' : 'individual';
     const key = g('商品ID') || g('型番') || name;
 
-    const exists = (g('商品ID') && prod(g('商品ID')))
-      || db.masters.find(p => p.kind === kind && (p.model || p.name || '') === (g('型番') || name));
+    // 型番をそろえて既存を探す。CSVの商品IDは当てにしない
+    // （手元のメモでしかなく、DBの主キーと同じとはかぎらない）
+    const exists = findMaster(g('型番'), name, kind)
+      || db.masters.find(p => g('商品ID') && p.source_code === g('商品ID'));
     if (exists) { skip.push({ line, key: exists.code, name: titleOf(exists) }); return; }
-    if (seen[key]) { bad.push({ line, key, reason: 'dup', why: `${seen[key]}行目と重複しています` }); return; }
-    seen[key] = line;
+    // 同じ型番が2行に分かれていても、商品は1つにまとめて個体を両方ぶら下げる
+    const dupKey = normModel(g('型番') || name) + '/' + kind;
+    const twin = seen[dupKey] || null;
 
     const ca = findCat(g('カテゴリ'), kind);
     if (!ca.id) { bad.push({ line, key, ...ca }); return; }
     const lo = findLoc(g('保管場所').split(' ほか')[0]);
     if (!lo.id) { bad.push({ line, key, ...lo }); return; }
 
-    add.push({
+    const entry = {
       line, key,
+      sharesWith: twin ? twin.key : null,
       master: {
-        code: g('商品ID') || null, name: g('商品名') || null, model: g('型番') || null,
+        // CSVの商品IDは主キーにしない。DB側で採番し、元の番号は控えとして持つ
+        code: null, source_code: g('商品ID') || null,
+        name: g('商品名') || null, model: g('型番') || null,
         maker: g('メーカー') || null, category_id: ca.id, kind, spec: g('スペック') || null,
         location_id: lo.id, qty: kind === 'quantity' ? (numOf(g('現在庫')) || 0) : 0,
         min_qty: numOf(cellAny(idx, row, ['最低在庫', '最低在庫数'])) || 0,
@@ -1160,7 +1183,9 @@ function planMaster(H, idx, body, file, encoding, headRow) {
       },
       units: (g('管理番号一覧') || '').split('/').map(x => x.trim()).filter(Boolean).map(id => ({ id })),
       channels: readChannels(idx, row)
-    });
+    };
+    if (!twin) seen[dupKey] = entry;
+    add.push(entry);
   });
   return { mode: 'master', add, skip, bad, file, encoding };
 }
@@ -1208,10 +1233,12 @@ function planLegacy(H, idx, body, file, encoding, headRow) {
     const model = g('型番');
     if (!model) { bad.push({ line, key: '', reason: 'no-model', why: '型番が空です' }); return; }
 
-    const exists = db.masters.find(p => (p.model || '') === model);
+    const exists = findMaster(model, model, 'individual');
     if (exists) { skip.push({ line, key: exists.code, name: titleOf(exists) }); return; }
-    if (seenModel[model]) { bad.push({ line, key: model, reason: 'dup', why: `${seenModel[model]}行目と型番が重複しています` }); return; }
-    seenModel[model] = line;
+    // 同じ型番が2行に分かれていることがある（「A B」と「AB」など空白の有無）。
+    // 商品は1つにまとめ、管理番号は捨てずに両方ぶら下げる
+    const mk = normModel(model);
+    const twin = seenModel[mk] || null;
 
     const nos = [], dropped = [];
     (g('管理番号一覧') || '').split('/').map(x => x.trim()).filter(Boolean).forEach(no => {
@@ -1244,8 +1271,9 @@ function planLegacy(H, idx, body, file, encoding, headRow) {
       else c.note = (c.note ? c.note + ' ／ ' : '') + v;
     });
 
-    add.push({
+    const entry = {
       line, key: model,
+      sharesWith: twin ? twin.key : null,
       master: {
         code: null, name: g('商品名') || null, model, maker: g('メーカー') || null,
         category_id: null, kind: 'individual', spec: g('スペック') || null,
@@ -1254,7 +1282,9 @@ function planLegacy(H, idx, body, file, encoding, headRow) {
       units: nos.map((id, k) => ({ id, status: states[k] || '不明' })),
       channels: chans,
       dropped: dropped.length
-    });
+    };
+    if (!twin) seenModel[mk] = entry;
+    add.push(entry);
   });
   return { mode: 'legacy', add, skip, bad, file, encoding };
 }
@@ -1406,8 +1436,8 @@ function planPurchase(H, idx, body, file, encoding, headRow) {
 
     // 同じ型番を別の出品番号で買うことがある。商品は1つにまとめ、個体だけ足す
     // （値段は個体ごとに持つので、仕入額が違っても1つの商品にぶら下げられる）
-    const known = db.masters.find(q => (q.model || '') === model);
-    const earlier = add.find(a => a.master.model === model);
+    const known = findMaster(model, model, 'individual');
+    const earlier = add.find(a => normModel(a.master.model) === normModel(model));
 
     const x = {
       line, key,
@@ -1618,7 +1648,8 @@ function countPlan(p) {
   let intoExisting = 0;
   p.add.forEach(x => {
     const known = x.master.code && prod(x.master.code);
-    const key = known ? x.master.code : (x.master.model || x.master.name || x.key);
+    const key = known ? x.master.code
+      : normModel(x.master.model || x.master.name || x.key) + '/' + (x.master.kind || 'individual');
     touched[key] = true;
     if (known || fresh[key]) { intoExisting++; return; }   // すでにある商品／この取込で作った商品に足す
     fresh[key] = true;
@@ -1688,7 +1719,7 @@ function showImportPreview() {
       <div><div class="lbl">想定利益</div>
         <div class="v add" id="sumGain">${t.priced ? yen(t.gain) : '—'}</div></div>
     </div>` : `<div class="sum">
-      <div><div class="lbl">商品マスタ</div><div class="v add">${p.add.length}</div></div>
+      <div><div class="lbl">商品マスタ</div><div class="v add">${c.prods}</div></div>
       <div><div class="lbl">個体</div><div class="v add">${units}</div></div>
       <div><div class="lbl">すでにある</div><div class="v skip">${p.skip.length}</div></div>
       <div><div class="lbl">取り込めない</div><div class="v err">${p.bad.length}</div></div>
@@ -1773,30 +1804,28 @@ async function applyInventoryImport() {
   closeModal();
   toast(p.mode === 'purchase' ? `仕入 ${p.add.length}件を登録しています…` : `${p.add.length}商品を取り込んでいます…`);
 
-  const masters = [], units = [], chans = [], txs = [];
-  const madeCode = {};                     // 型番 → この取り込みで使う商品ID
+  const units = [], chans = [], txs = [];
   const touched = [];                      // 今回さわった商品。取込履歴に残して一覧を絞れるようにする
+  let madeProds = 0;                       // 実際に新しく作った商品の数
   for (const x of p.add) {
     const m = Object.assign({}, x.master);
     if (pickHere) { m.category_id = catId; m.location_id = locId; }
-
-    // 仕入CSVは同じ型番を別の出品番号で買うことがある。商品は作らず、個体だけ足す
-    const share = p.mode === 'purchase' ? (m.model || m.name || '') : '';
-    let have = false;
-    if (share && madeCode[share]) { m.code = madeCode[share]; have = true; }
-    if (m.code && prod(m.code)) {
-      const q = prod(m.code);
-      m.category_id = q.category_id;       // 既にある商品の分類に合わせる（置き場所は今回選んだところ）
-      have = true;
-    }
-    if (!m.code) {
-      const { data, error } = await sb.rpc('inv_next_id', { p_prefix: m.kind === 'individual' ? 'P' : 'SKU', p_digits: m.kind === 'individual' ? 5 : 4 });
-      if (error) { toast('商品IDを採番できませんでした：' + error.message); return; }
-      m.code = data;
-    }
     if (!m.name) m.name = m.model;
-    if (share) madeCode[share] = m.code;
-    if (!have) masters.push(m);
+
+    // 商品は「型番で探して、無ければ作る」を関数の中で1回でやる。
+    // CSVの商品IDを主キーにしない（既存の主キーとぶつかるため）。
+    // 同じ型番を毎週仕入れても、商品は1つのまま個体だけ増えていく。
+    const up = await sb.rpc('inv_upsert_product', { p_row: {
+      model: m.model, name: m.name, kind: m.kind, maker: m.maker,
+      category_id: m.category_id, location_id: m.location_id, spec: m.spec,
+      qty: m.qty, min_qty: m.min_qty, supplier: m.supplier, unit_price: m.unit_price,
+      note: m.note, legacy_note: m.legacy_note, source_code: m.source_code || null
+    } });
+    if (up.error) { toast('商品を登録できませんでした：' + up.error.message); return; }
+    m.code = up.data.code;
+    if (up.data.created) madeProds++;
+    // 個体の分類は商品に合わせる（置き場所は今回選んだところ）
+    else if (up.data.category_id) m.category_id = up.data.category_id;
     if (touched.indexOf(m.code) < 0) touched.push(m.code);
 
     for (const u of x.units) {
@@ -1838,10 +1867,8 @@ async function applyInventoryImport() {
   };
   const wasBuy = p.mode === 'purchase';
   const t = purchaseTotals(p.add);
-  const cnt = countPlan(p);             // 確認画面で見せた件数と同じものを履歴に残す
   let batchId = null;
   try {
-    if (masters.length) await ins('inventory_products', masters);
     if (units.length) await ins('inventory_items', units);
     if (chans.length) await ins('inventory_channels', chans);
     if (txs.length) await ins('inventory_transactions', txs);
@@ -1852,9 +1879,9 @@ async function applyInventoryImport() {
       product_codes: touched,
       item_ids: units.map(u => u.id),      // 今回のQRだけまとめて印刷するのに使う
       summary: wasBuy
-        ? `新規 ${cnt.newProd}商品／既存へ追加 ${cnt.intoExisting}件`
+        ? `新規 ${madeProds}商品／既存へ追加 ${touched.length - madeProds}商品`
           + `／原価 ${yen(t.cost)}／想定利益 ${t.priced ? yen(t.gain) : '—'}`
-        : `新規 ${masters.length}商品`
+        : `新規 ${madeProds}商品`
     }).select();
     if (!error && data && data[0]) batchId = data[0].id;
   } catch (e) { toast(e.message); return; }
@@ -1865,7 +1892,7 @@ async function applyInventoryImport() {
   // 取り込んだら商品管理一覧に戻り、今回の分だけを出す
   if (batchId) showBatch(batchId, true); else { ui.fBatch = null; ui.doneBatch = null; go('list'); }
   toast(wasBuy ? `商品 ${touched.length}件・個体 ${units.length}台を登録しました（原価 ${yen(t.cost)}／想定利益 ${t.priced ? yen(t.gain) : '—'}）`
-               : `${masters.length}商品・${units.length}台を取り込みました`);
+               : `${madeProds}商品・${units.length}台を取り込みました`);
 }
 
 /* ---------------------------------------------------------------- モーダル */
@@ -2646,19 +2673,18 @@ async function previewId() {
 }
 
 /* 同じ型番の商品マスタを探す。無ければ作る */
+/* 商品は「探して、無ければ作る」を関数の中で1回でやる。
+   手元のキャッシュだけで判断すると、別の人が足した商品に気づかず
+   主キーがぶつかる。商品IDの採番もDB側に任せる。 */
 async function findOrCreateMaster(fields, kind) {
-  const key = (fields.model || fields.name || '').trim();
-  const hit = db.masters.find(p => p.kind === kind && (p.model || p.name || '').trim() === key);
+  const { data, error } = await sb.rpc('inv_upsert_product',
+    { p_row: Object.assign({ kind }, fields) });
+  if (error) throw new Error('商品を登録できませんでした：' + error.message);
+  const hit = prod(data.code);
   if (hit) return hit;
-
-  const pre = kind === 'individual' ? 'P' : 'SKU';
-  const { data: code, error } = await sb.rpc('inv_next_id', { p_prefix: pre, p_digits: kind === 'individual' ? 5 : 4 });
-  if (error) throw new Error('商品IDを採番できませんでした：' + error.message);
-  const rec = Object.assign({ code, kind }, fields);
-  const { data, error: e2 } = await sb.from('inventory_products').insert(rec).select().single();
-  if (e2) throw new Error('商品マスタを作れませんでした：' + e2.message);
-  db.masters.push(data);
-  return data;
+  const rec = Object.assign({ code: data.code, kind }, fields, { category_id: data.category_id });
+  db.masters.push(rec);
+  return rec;
 }
 
 async function doRegister() {

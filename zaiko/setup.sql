@@ -1372,7 +1372,175 @@ create policy "inventory_imports insert" on public.inventory_imports
 
 
 -- ============================================================
--- 26) 追加分の権限
+-- 26) 商品は「探して、無ければ作る」
+--
+--     取込で inventory_products_pkey の重複が出ていた。原因は2つある。
+--
+--     (a) CSVの「商品ID」をそのまま主キーにして入れていた。
+--         CSVの番号は手元のメモでしかなく、DBの主キーとは別物。
+--         すでに同じ番号が入っていれば当然ぶつかる。
+--     (b) inv_next_id がカウンタだけを見ていた。
+--         (a) などでカウンタを追い越したIDが入ると、以後の採番は
+--         既存とぶつかり続ける。
+--
+--     そこで、
+--       ・DBのIDは必ずDB側で採番する（CSVの番号は source_code に控えるだけ）
+--       ・採番は空いている番号が出るまで進める
+--       ・商品は型番をそろえて検索し、あれば作らず再利用する
+--     の3つにする。
+--
+--     番号の役割を混ぜないこと：
+--       inventory_products.code        商品コード（DBが採番。QRのURLに入る）
+--       inventory_products.source_code 取込元の商品ID（CSVに書いてあった番号）
+--       inventory_items.id             管理番号（DBが採番、または現物のバーコード）
+--       inventory_items.source_id      仕入先の個品ID
+-- ============================================================
+
+alter table public.inventory_products add column if not exists source_code text;
+comment on column public.inventory_products.source_code is
+  '取込元の商品ID（CSVに書いてあった番号）。主キーではなく、元データをたどるための控え。';
+
+-- 型番の表記ゆれをそろえる。全角／半角・空白・大文字小文字・ハイフンの種類を吸収する
+create or replace function public.inv_norm_model(s text)
+returns text language sql immutable set search_path = public as $$
+  select upper(regexp_replace(
+           translate(normalize(coalesce(s, ''), NFKC), '‐‑‒–—―−', '-------'),
+           '[[:space:]]', '', 'g'))
+$$;
+comment on function public.inv_norm_model is
+  '型番の突き合わせ用に表記をそろえる（全角→半角・空白除去・大文字化）。';
+
+create index if not exists inventory_products_norm_model_idx
+  on public.inventory_products (public.inv_norm_model(coalesce(nullif(model,''), name)), kind);
+create index if not exists inventory_products_source_idx
+  on public.inventory_products (source_code);
+
+-- 採番が既存のIDとぶつからないようにする。空いている番号が出るまで進める
+create or replace function public.inv_next_id(p_prefix text, p_digits integer default 5)
+returns text
+language plpgsql security invoker set search_path = public as $$
+declare
+  n integer;
+  v text;
+  guard integer := 0;
+begin
+  if not public.inv_can_edit() then
+    raise exception '登録する権限がありません';
+  end if;
+
+  insert into public.inventory_counters (prefix, next_no) values (p_prefix, 1)
+  on conflict (prefix) do nothing;
+
+  loop
+    update public.inventory_counters
+       set next_no = next_no + 1
+     where prefix = p_prefix
+     returning next_no - 1 into n;
+
+    v := p_prefix || '-' || lpad(n::text, p_digits, '0');
+
+    -- カウンタが追い越されていても、使われていない番号が出るまで進める
+    exit when not exists (select 1 from public.inventory_products where code = v)
+          and not exists (select 1 from public.inventory_items    where id   = v);
+
+    guard := guard + 1;
+    if guard > 100000 then
+      raise exception '採番できる番号が見つかりません（接頭辞 %）', p_prefix;
+    end if;
+  end loop;
+
+  return v;
+end $$;
+
+-- 採番の続きを、いま入っているIDに合わせる。
+-- 手やCSVから入ったIDがカウンタより先に進んでいると、採番が既存とぶつかるため
+do $$
+declare r record;
+begin
+  for r in
+    select prefix, max(n) as mx from (
+      select split_part(code, '-', 1) as prefix, (split_part(code, '-', 2))::bigint as n
+        from public.inventory_products where code ~ '^[A-Za-z0-9]+-[0-9]+$'
+      union all
+      select split_part(id, '-', 1), (split_part(id, '-', 2))::bigint
+        from public.inventory_items where id ~ '^[A-Za-z0-9]+-[0-9]+$'
+    ) t group by prefix
+  loop
+    insert into public.inventory_counters (prefix, next_no) values (r.prefix, r.mx + 1)
+    on conflict (prefix) do update
+      set next_no = greatest(public.inventory_counters.next_no, excluded.next_no);
+  end loop;
+end $$;
+
+-- 商品を型番で探し、無ければ作る。取込も手登録もここを通す。
+-- 同じ型番を毎週仕入れても、商品は1つのまま個体だけ増えていく
+create or replace function public.inv_upsert_product(p_row jsonb)
+returns jsonb
+language plpgsql security invoker set search_path = public as $$
+declare
+  v_model text := nullif(btrim(coalesce(p_row->>'model', '')), '');
+  v_name  text := nullif(btrim(coalesce(p_row->>'name',  '')), '');
+  v_kind  text := coalesce(nullif(p_row->>'kind', ''), 'individual');
+  v_src   text := nullif(btrim(coalesce(p_row->>'source_code', '')), '');
+  v_key   text;
+  v_code  text;
+  v_cat   text;
+  v_loc   text;
+begin
+  if not public.inv_is_admin() then
+    raise exception '商品の登録は管理者だけができます';
+  end if;
+  if v_model is null and v_name is null then
+    raise exception '型番か商品名のどちらかは要ります';
+  end if;
+  if v_kind not in ('individual', 'quantity') then
+    raise exception '知らない管理方式です（%）', v_kind;
+  end if;
+
+  -- 1) 型番（無ければ商品名）をそろえて既存商品を探す
+  v_key := public.inv_norm_model(coalesce(v_model, v_name));
+  select code, category_id into v_code, v_cat
+    from public.inventory_products
+   where kind = v_kind
+     and public.inv_norm_model(coalesce(nullif(model, ''), name)) = v_key
+   order by created_at nulls last, code
+   limit 1;
+
+  -- 2) あれば作らない。商品はそのまま、個体だけあとで足す
+  if v_code is not null then
+    if v_src is not null then
+      update public.inventory_products set source_code = coalesce(source_code, v_src)
+       where code = v_code;
+    end if;
+    return jsonb_build_object('code', v_code, 'created', false, 'category_id', v_cat);
+  end if;
+
+  -- 3) 無ければ作る。IDはDB側で採番する（CSVの商品IDは主キーにしない）
+  v_cat := nullif(p_row->>'category_id', '');
+  v_loc := nullif(p_row->>'location_id', '');
+  v_code := public.inv_next_id(
+    case when v_kind = 'individual' then 'P' else 'SKU' end,
+    case when v_kind = 'individual' then 5 else 4 end);
+
+  insert into public.inventory_products
+    (code, name, model, maker, category_id, kind, spec, location_id,
+     qty, min_qty, supplier, unit_price, note, legacy_note, source_code)
+  values
+    (v_code, coalesce(v_name, v_model), v_model, nullif(p_row->>'maker', ''),
+     v_cat, v_kind, nullif(p_row->>'spec', ''), v_loc,
+     coalesce((p_row->>'qty')::integer, 0), coalesce((p_row->>'min_qty')::integer, 0),
+     nullif(p_row->>'supplier', ''), (nullif(p_row->>'unit_price', ''))::numeric,
+     nullif(p_row->>'note', ''), nullif(p_row->>'legacy_note', ''), v_src);
+
+  return jsonb_build_object('code', v_code, 'created', true, 'category_id', v_cat);
+end $$;
+
+comment on function public.inv_upsert_product is
+  '型番で商品を探し、無ければ採番して作る。CSVの商品IDは主キーにせず source_code に残す。';
+
+
+-- ============================================================
+-- 27) 追加分の権限
 -- ============================================================
 
 grant select, insert, update, delete on public.inventory_channels to authenticated;
@@ -1382,6 +1550,8 @@ grant execute on function public.inv_item_price(text,numeric,numeric,numeric) to
 grant execute on function public.inv_wipe_inventory(text) to authenticated;
 grant execute on function public.inv_bulk_update_products(text[],text,text,text,boolean) to authenticated;
 grant execute on function public.inv_delete_products(text[]) to authenticated;
+grant execute on function public.inv_norm_model(text) to authenticated;
+grant execute on function public.inv_upsert_product(jsonb) to authenticated;
 
 alter table public.inventory_channels enable row level security;
 
