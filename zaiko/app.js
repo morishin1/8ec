@@ -68,7 +68,8 @@ const ui = {
   screen: 'dash', itemId: null, prodId: null, locId: null,
   q: '', fCat: '', fMaker: '', fLoc: '', fStock: '', fList: '',
   fAction: '', hq: '', regKind: 'ind', made: null, tab: 'info',
-  drafts: {}, labelSel: {}, stScope: '', loaded: false, sel: {}, fBatch: null, doneBatch: null
+  drafts: {}, labelSel: {}, stScope: '', loaded: false, sel: {}, fBatch: null, doneBatch: null,
+  listMode: 'unit', fSt: ''
 };
 
 /* 仕入の置き場所はたいてい柏の倉庫なので、取込の初期値にする。
@@ -577,6 +578,7 @@ function onFilter() {
   ui.fMaker = ($('f-maker') || {}).value || '';
   ui.fLoc = ($('f-loc') || {}).value || '';
   ui.fStock = ($('f-stock') || {}).value || '';
+  ui.fSt = ($('f-st') || {}).value || '';
   ui.fList = ($('f-list') || {}).value || '';
   renderListBody();
 }
@@ -613,28 +615,39 @@ function listFiltered() {
   });
 }
 
+function setListMode(m) { ui.listMode = m; ui.sel = {}; render(); }
+
 function viewList() {
   const makers = [...new Set(db.masters.map(p => p.maker).filter(Boolean))].sort();
+  const unit = ui.listMode !== 'model';
   return `
     <h1>在庫一覧</h1>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:15px 0 4px">
       <p class="meta" style="flex:1 1 260px">
-        型番・商品単位でまとめています。<strong>現在庫は各個体の状態から自動で数えます</strong>（手入力しません）。
-        行をクリックすると、個体の一覧や販売情報まで見られます。</p>
+        ${unit ? '<strong>実物1台＝1行</strong>で並べています。行をクリックすると、その1台の詳細と履歴が見られます。'
+               : '<strong>型番でまとめて</strong>数だけ見ています。行をクリックすると、個体の一覧や販売情報まで見られます。'}</p>
       <div class="listtools">
         <button class="btn sm ghost" onclick="exportInventoryCsv()">
           <span class="ms">download</span>CSVダウンロード</button>
-        <button class="btn sm" onclick="openImport()" ${canAdmin() ? '' : 'disabled'}
-          title="${canAdmin() ? '仕入CSVをそのまま取り込みます（この画面の書き出し形式・統合在庫一覧も読めます）' : '追加できる権限がありません'}">
-          <span class="ms">upload_file</span>仕入CSV取込</button>
+        <button class="btn sm ghost" onclick="openImport('stock')" ${canAdmin() ? '' : 'disabled'}
+          title="${canAdmin() ? '既存の在庫一覧CSV。販売状況や保管場所を補うのに使います' : '追加できる権限がありません'}">
+          <span class="ms">upload_file</span>既存在庫CSV取込</button>
+        <button class="btn sm" onclick="openImport('purchase')" ${canAdmin() ? '' : 'disabled'}
+          title="${canAdmin() ? '毎週の自社落札CSV。ここから商品と個体が増えていきます' : '追加できる権限がありません'}">
+          <span class="ms">upload_file</span>自社落札CSV取込</button>
         <button class="btn sm lime" onclick="go('reg')" ${canAdmin() ? '' : 'disabled'}>
           <span class="ms">add</span>商品登録</button>
       </div>
     </div>
     ${importHistLine()}
     ${batchBanner()}
+    <div class="seg" style="margin:10px 0 4px">
+      <button class="${unit ? 'on' : ''}" onclick="setListMode('unit')">個体別</button>
+      <button class="${unit ? '' : 'on'}" onclick="setListMode('model')">型番別</button>
+    </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:4px">
-      <input class="input" id="f-q" value="${esc(ui.q)}" oninput="onFilter()" placeholder="商品名・型番・管理番号…">
+      <input class="input" id="f-q" value="${esc(ui.q)}" oninput="onFilter()"
+             placeholder="${unit ? '管理番号・型番・S/N…' : '型番・商品名・管理番号…'}">
       <select class="input" id="f-cat" onchange="onFilter()">
         <option value="">全カテゴリ</option>
         ${db.cats.map(c => `<option value="${esc(c.id)}"${ui.fCat === c.id ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}
@@ -644,10 +657,15 @@ function viewList() {
         ${makers.map(m => `<option${ui.fMaker === m ? ' selected' : ''}>${esc(m)}</option>`).join('')}
       </select>
       <select class="input" id="f-loc" onchange="onFilter()">${locOptions(ui.fLoc, '全保管場所')}</select>
-      <select class="input" id="f-stock" onchange="onFilter()">
-        <option value="">全在庫状態</option>
-        ${STOCK_LABELS.map(s => `<option${ui.fStock === s ? ' selected' : ''}>${esc(s)}</option>`).join('')}
-      </select>
+      ${unit
+        ? `<select class="input" id="f-st" onchange="onFilter()">
+            <option value="">すべての状態</option>
+            ${STATUSES.map(s => `<option${ui.fSt === s ? ' selected' : ''}>${esc(s)}</option>`).join('')}
+          </select>`
+        : `<select class="input" id="f-stock" onchange="onFilter()">
+            <option value="">全在庫状態</option>
+            ${STOCK_LABELS.map(s => `<option${ui.fStock === s ? ' selected' : ''}>${esc(s)}</option>`).join('')}
+          </select>`}
       <select class="input" id="f-list" onchange="onFilter()">
         <option value="">全出品状態</option>
         ${LIST_STATES.map(s => `<option${ui.fList === s ? ' selected' : ''}>${esc(s)}</option>`).join('')}
@@ -825,7 +843,89 @@ function unitNos(p) {
   return head + (list.length > 2 ? `<br><span class="meta">ほか ${list.length - 2}件</span>` : '');
 }
 
+/* 個体別の一覧。実物1台＝1行。
+   詰め込みすぎないよう、出すのは 管理番号・型番・メーカー・仕入日・原価・
+   販売予定価格・保管場所・状態 だけ。S/Nやスペックは行をクリックした先で見る。
+   数量管理の品目は個体を持たないので、1品目1行として数だけ出す。 */
+function unitsFiltered() {
+  const q = ui.q.trim().toLowerCase();
+  const inScope = ui.fLoc ? locTree(ui.fLoc) : null;
+  const batch = batchOf(ui.fBatch);
+  const only = batch ? (batch.product_codes || []) : null;
+  const hit = (i, m) => {
+    if (only && only.indexOf(i.product_code) < 0) return false;
+    if (ui.fCat && i.category_id !== ui.fCat) return false;
+    if (ui.fMaker && ((m && m.maker) || i.maker || '') !== ui.fMaker) return false;
+    if (ui.fSt && i.status !== ui.fSt) return false;
+    if (inScope && !inScope.includes(i.location_id)) return false;
+    if (ui.fList && !channelsOf(i.product_code).some(c => c.state === ui.fList)) return false;
+    if (q) {
+      const hay = [i.id, i.serial, i.source_id, (m && m.model) || i.model, (m && m.name) || i.name, i.note]
+        .filter(Boolean).join(' ').toLowerCase();
+      if (hay.indexOf(q) < 0) return false;
+    }
+    return true;
+  };
+  const out = db.items.filter(i => hit(i, prod(i.product_code)))
+    .map(i => ({ kind: 'item', i, m: prod(i.product_code) }));
+  // 数量管理は個体を持たない。見えなくならないよう1品目1行で混ぜる
+  db.masters.filter(p => p.kind !== 'individual').forEach(p => {
+    const fake = { id: p.code, product_code: p.code, category_id: p.category_id, maker: p.maker,
+                   model: p.model, name: p.name, location_id: p.location_id, status: '' };
+    if (ui.fSt) return;
+    if (hit(fake, p)) out.push({ kind: 'qty', i: fake, m: p });
+  });
+  return out;
+}
+
+function unitsBodyHtml() {
+  const rows = unitsFiltered();
+  if (!rows.length) return `<div class="empty" style="margin-top:15px">該当する在庫はありません。</div>`;
+  const live = rows.filter(r => r.kind === 'item' && IN_STOCK.includes(r.i.status)).length;
+  const qty = rows.filter(r => r.kind === 'qty').reduce((n, r) => n + (r.m.qty || 0), 0);
+  return `<div class="meta" style="margin:12px 0 4px">${rows.length} 件${
+      live ? `／うち在庫・出品中 ${live}台` : ''}${qty ? `／数量品 ${qty}` : ''}</div>
+    <div class="table-wrap"><table class="t">
+    <thead><tr>
+      <th>管理番号</th><th>型番</th><th>メーカー</th><th>仕入日</th>
+      <th style="text-align:right">原価</th><th style="text-align:right">販売予定価格</th>
+      <th>保管場所</th><th>状態</th>${canEdit() ? '<th></th>' : ''}
+    </tr></thead>
+    <tbody>${rows.slice(0, 600).map(r => {
+      const { i, m } = r;
+      if (r.kind === 'qty') return `<tr class="clk" onclick="go('prod','${esc(m.code)}')">
+        <td class="num" style="font-weight:600">${esc(m.code)}</td>
+        <td class="nowrap">${esc(m.model || titleOf(m))}</td>
+        <td class="nowrap">${esc(m.maker || '')}</td>
+        <td class="meta">—</td>
+        <td class="num meta r">${yen(m.unit_price)}</td>
+        <td class="num meta r">—</td>
+        <td class="meta">${esc(locPath(m.location_id))}</td>
+        <td><span class="tag act">数量 ${m.qty}</span></td>
+        ${canEdit() ? `<td class="nowrap ops2" onclick="event.stopPropagation()">
+          <button class="btn sm" onclick="sheetIn('${esc(m.code)}')">入庫</button>
+          <button class="btn sm" onclick="sheetOut('${esc(m.code)}')" ${m.qty > 0 ? '' : 'disabled'}>出庫</button></td>` : ''}
+      </tr>`;
+      const cost = costOf(i), plan = planOf(i);
+      return `<tr class="clk" onclick="go('item','${esc(i.id)}')">
+        <td class="num" style="font-weight:600">${esc(i.id)}
+          ${i.source_id ? `<div class="meta">仕入元 ${esc(i.source_id)}</div>` : ''}</td>
+        <td class="nowrap">${esc((m && m.model) || i.model || '')}</td>
+        <td class="nowrap">${esc((m && m.maker) || i.maker || '')}</td>
+        <td class="meta nowrap">${i.purchased_on ? fmtD(i.purchased_on) : '—'}</td>
+        <td class="num r">${cost ? yen(cost) : '<span class="meta">—</span>'}</td>
+        <td class="num r">${plan == null ? '<span class="meta">—</span>' : yen(plan)}</td>
+        <td class="meta">${esc(locPath(i.location_id))}</td>
+        <td>${statusTag(i.status)}</td>
+        ${canEdit() ? `<td class="nowrap ops2" onclick="event.stopPropagation()">
+          <button class="btn sm" onclick="unitMenu('${esc(i.id)}')">操作</button></td>` : ''}
+      </tr>`;
+    }).join('')}</tbody></table></div>
+    ${rows.length > 600 ? '<div class="meta" style="margin-top:8px">先頭600件だけ表示しています。絞り込んでください。</div>' : ''}`;
+}
+
 function listBodyHtml() {
+  if (ui.listMode !== 'model') return unitsBodyHtml();
   const rows = listFiltered();
   if (!rows.length) return `<div class="empty" style="margin-top:15px">該当する商品はありません。</div>`;
   const totalUnits = rows.reduce((n, p) => n + stockOf(p).inStock, 0);
@@ -1003,9 +1103,16 @@ function pickImport() { $('csvFile').value = ''; $('csvFile').click(); }
 /* ---- 仕入CSV取込の入口 ----
    毎週の作業なので、一覧 → 取込 → 内容確認 → 一括登録 の4手で終わるようにする。
    ここはファイルを渡すだけの画面。落とすか選ぶかのどちらでもよい。 */
-function openImport() {
+/* 取込の入口は2つ。どちらもファイルを見て自動で判別するが、
+   何のためのCSVかで説明を変える。
+     purchase … 毎週の自社落札CSV。ここから商品と個体が増えていく（こちらが主）
+     stock    … 既存の在庫一覧CSV。販売状況や保管場所を補う（初期移行・照合用） */
+let importIntent = 'purchase';
+function openImport(intent) {
   if (!canAdmin()) { toast('取り込みは管理者だけができます'); return; }
-  openModal('仕入CSV取込', `
+  importIntent = intent === 'stock' ? 'stock' : 'purchase';
+  const buy = importIntent === 'purchase';
+  openModal(buy ? '自社落札CSV取込' : '既存在庫CSV取込', `
     <div class="drop" id="drop"
          ondragover="dropOver(event,true)" ondragleave="dropOver(event,false)" ondrop="dropFile(event)">
       <span class="ms">upload_file</span>
@@ -1013,9 +1120,15 @@ function openImport() {
       <button class="btn lime" onclick="pickImport()">ファイルを選ぶ</button>
     </div>
     <p class="meta" style="margin-top:12px">
-      仕入CSV（<code>出品番号</code>と<code>落札価格</code>の列がある形）をそのまま読めます。
-      この画面の「CSVダウンロード」で出した形と、統合在庫一覧（型番別）も同じ入口から読めます。<br>
-      次の画面で中身を確認してから登録します。<strong>すでに登録した個体は二重に入りません。</strong></p>
+      ${buy
+        ? `毎週の<strong>自社落札CSV</strong>（<code>出品番号</code>と<code>落札価格</code>の列がある形）を読みます。
+           <strong>ここで登録した商品と個体が、そのまま在庫一覧になります。</strong>
+           管理番号とQRは1台ずつ発行します。`
+        : `<strong>既存の在庫一覧CSV</strong>を読みます。現在庫・保管場所・販売状況などを補うための入口です。
+           <strong>管理番号・S/N・仕入価格・原価といった仕入の情報は書き換えません。</strong>
+           足りない個体を足すだけです。`}<br>
+      ファイルの中身を見て自動で判別するので、どちらの入口からでも読めます。
+      次の画面で確認してから登録します。<strong>すでに登録した個体は二重に入りません。</strong></p>
     ${db.imports.length ? `<div class="lbl" style="margin:16px 0 6px">前回の取込</div>
       <div class="meta">${esc(fmtDT(db.imports[0].imported_at))}　${esc(db.imports[0].file_name || '')}
         商品 ${db.imports[0].product_count}／個体 ${db.imports[0].item_count}　${esc(db.imports[0].actor || '')}</div>` : ''}
@@ -1462,13 +1575,16 @@ const gainLot = (x) => x.plan == null ? null : x.plan * x.lot.qty - x.lot.cost;
 
 function planPurchase(H, idx, body, file, encoding, headRow) {
   const add = [], skip = [], bad = [];
-  const seenNo = {}, seenLot = {};
+  const seenNo = {}, seenLot = {}, seenSn = {};
   db.items.forEach(i => {
     seenNo[i.id] = 'すでに在庫にあります';
     // 採番して入れたものは、元の個品IDでも二重登録を防げるようにする
     String(i.source_id || '').split('/').forEach(v => {
       const t = v.trim(); if (t) seenNo[t] = 'すでに在庫にあります';
     });
+    // 照合は 管理番号・個品ID → S/N → 型番 の順。S/Nは実物1台を指す
+    const sn = String(i.serial || '').trim().toUpperCase();
+    if (sn) seenSn[sn] = i.id;
   });
 
   // 出品番号ごとにまとめる。親（落札価格のある行）と子（個品IDのある行）に分ける
@@ -1503,7 +1619,11 @@ function planPurchase(H, idx, body, file, encoding, headRow) {
       const id = cell(idx, k.row, '個品ID(バーコード)') || cell(idx, k.row, '個品ID');
       if (!id) { dropped.push(`${k.line}行目（個品IDが空）`); return; }
       if (seenNo[id]) { dropped.push(`${id}（${seenNo[id]}）`); already++; return; }
+      // 個品IDが新しくても、S/Nが一致すれば同じ実物。二重に登録しない
+      const sn = cell(idx, k.row, 'Ｓ／Ｎ').trim().toUpperCase();
+      if (sn && seenSn[sn]) { dropped.push(`${id}（S/N ${sn} が ${seenSn[sn]} にあります）`); already++; return; }
       seenNo[id] = `${k.line}行目`;
+      if (sn) seenSn[sn] = `${k.line}行目`;
       kids.push({ id, row: k.row });
     });
     // 同じ仕入CSVをもう一度入れたとき。「取り込めない」ではなく「すでにある」として出す
