@@ -61,6 +61,7 @@ const yen = (n) => (n == null || n === '') ? '—' : '¥' + Number(n).toLocaleSt
 const P2 = (n) => String(n).padStart(2, '0');
 function fmtDT(s) { if (!s) return '—'; const d = new Date(s); return `${d.getFullYear()}/${P2(d.getMonth() + 1)}/${P2(d.getDate())} ${P2(d.getHours())}:${P2(d.getMinutes())}`; }
 function fmtD(s) { if (!s) return '—'; const d = new Date(s); return `${d.getFullYear()}/${P2(d.getMonth() + 1)}/${P2(d.getDate())}`; }
+function ymd(d) { d = d || new Date(); return `${d.getFullYear()}-${P2(d.getMonth() + 1)}-${P2(d.getDate())}`; }
 function daysSince(s) { if (!s) return 0; return Math.floor((Date.now() - new Date(s).getTime()) / 86400000); }
 function canEdit() { return me.role === 'admin' || me.role === 'member'; }
 function canAdmin() { return me.role === 'admin'; }
@@ -437,12 +438,25 @@ function listFiltered() {
 }
 function viewList() {
   const cats = db.cats.filter(c => c.kind === (ui.kind === 'ind' ? 'individual' : 'quantity'));
+  const canAdd = ui.kind === 'ind' ? canAdmin() : canEdit();
   return `
     <h1>在庫一覧</h1>
-    <div class="seg" style="margin:15px 0">
-      <button class="${ui.kind === 'ind' ? 'on' : ''}" onclick="setKind('ind')">個体管理</button>
-      <button class="${ui.kind === 'qty' ? 'on' : ''}" onclick="setKind('qty')">数量管理</button>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:15px 0">
+      <div class="seg">
+        <button class="${ui.kind === 'ind' ? 'on' : ''}" onclick="setKind('ind')">個体管理</button>
+        <button class="${ui.kind === 'qty' ? 'on' : ''}" onclick="setKind('qty')">数量管理</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-left:auto;flex-wrap:wrap">
+        <button class="btn sm ghost" onclick="exportInventoryCsv()">
+          <span class="ms">download</span>CSVダウンロード</button>
+        <button class="btn sm ghost" onclick="pickImport()" ${canAdd ? '' : 'disabled'}
+          title="${canAdd ? 'CSVにあって在庫に無いものだけを追加します' : '追加できる権限がありません'}">
+          <span class="ms">upload_file</span>CSV取込</button>
+        <input type="file" id="csvFile" accept=".csv,.txt,text/csv" style="display:none" onchange="readInventoryCsv(this)">
+      </div>
     </div>
+    <p class="meta" style="margin:-6px 0 12px">
+      ダウンロードはいま絞り込んでいる分だけ。取込は<strong>すでにある在庫を書き換えず、無いものだけを追加</strong>します。</p>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
       <input class="input" id="f-q" value="${esc(ui.q)}" oninput="onFilter()" placeholder="商品名・管理番号・型番・利用者…">
       <select class="input" id="f-cat" onchange="onFilter()">
@@ -491,6 +505,246 @@ function listBodyHtml() {
 function statusTag(s, big) {
   return `<span class="tag st-${esc(s)}${big ? ' big' : ''}"><span class="ms">${STATUS_ICON[s] || 'inventory_2'}</span>${esc(s)}</span>`;
 }
+
+/* ---------------------------------------------------------------- 在庫一覧のCSV
+
+   取り込みは「足すだけ」。すでにある在庫は書き換えない。
+   在庫の数や状態は、入庫・出庫・貸出といった操作で動かすものなので、
+   表計算の上書きで静かに変わってしまうと、履歴と現物が合わなくなる。
+   だからCSVにあって在庫に無いものだけを新規登録する。
+
+   書き出した列をそのまま読み戻せるようにしてあるので、
+   ダウンロード → Excelで追記 → 取込 という往復ができる。              */
+
+const CSV_IND = [
+  ['管理番号', i => i.id],
+  ['商品名', i => i.name],
+  ['カテゴリ', i => catName(i.category_id)],
+  ['メーカー', i => i.maker],
+  ['型番', i => i.model],
+  ['シリアル番号', i => i.serial],
+  ['購入日', i => i.purchased_on],
+  ['購入価格', i => i.price],
+  ['保管場所', i => locPath(i.location_id)],
+  ['状態', i => i.status],
+  ['利用者', i => i.user_name],
+  ['備考', i => i.note],
+  ['最終棚卸', i => i.last_checked_at ? fmtDT(i.last_checked_at) : '']
+];
+const CSV_QTY = [
+  ['商品コード', p => p.code],
+  ['商品名', p => p.name],
+  ['カテゴリ', p => catName(p.category_id)],
+  ['現在庫', p => p.qty],
+  ['最低在庫', p => p.min_qty],
+  ['保管場所', p => locPath(p.location_id)],
+  ['仕入先', p => p.supplier],
+  ['単価', p => p.unit_price],
+  ['備考', p => p.note],
+  ['最終棚卸', p => p.last_checked_at ? fmtDT(p.last_checked_at) : '']
+];
+
+function exportInventoryCsv() {
+  const ind = ui.kind === 'ind';
+  const cols = ind ? CSV_IND : CSV_QTY;
+  const rows = listFiltered();
+  if (!rows.length) { toast('書き出すものがありません'); return; }
+  const table = [cols.map(c => c[0])].concat(rows.map(r => cols.map(c => {
+    const v = c[1](r);
+    return v == null ? '' : v;
+  })));
+  const name = `備品在庫_${ind ? '個体' : '数量'}_${ymd()}.csv`;
+  window.EightCsv.download(name, window.EightCsv.blob(window.EightCsv.build(table)));
+  toast(`${rows.length}件を ${name} に書き出しました`);
+}
+
+/* カテゴリ名 → ID。表計算では名前で書くほうが扱いやすいので名前で受ける */
+function findCat(name, kind) {
+  const n = String(name || '').trim();
+  if (!n) return null;
+  const hit = db.cats.filter(c => c.kind === kind && c.name === n);
+  return hit.length === 1 ? hit[0].id : null;
+}
+/* 保管場所は「本社 / 倉庫 / 棚A-01」でも「棚A-01」でも受ける。
+   末尾だけの指定で同じ名前が複数あるときは、取り違えないよう取り込まない */
+function findLoc(text) {
+  const t = String(text || '').trim();
+  if (!t) return { id: null, why: '保管場所が空です' };
+  const byPath = db.locs.filter(l => locPath(l.id) === t);
+  if (byPath.length === 1) return { id: byPath[0].id };
+  const byName = db.locs.filter(l => l.name === t);
+  if (byName.length === 1) return { id: byName[0].id };
+  if (byName.length > 1) {
+    const cand = byName.slice(0, 3).map(l => locPath(l.id)).join('、');
+    return { id: null, why: `「${t}」が複数あります（${cand}）。どれかをそのまま書いてください` };
+  }
+  return { id: null, why: `保管場所「${t}」がありません` };
+}
+
+function pickImport() { $('csvFile').value = ''; $('csvFile').click(); }
+
+async function readInventoryCsv(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const { text, encoding } = window.EightCsv.decode(await file.arrayBuffer());
+  const table = window.EightCsv.parse(text);
+  if (table.length < 2) { toast('中身が読み取れませんでした'); return; }
+
+  const ind = ui.kind === 'ind';
+  const head = table[0].map(h => String(h || '').replace(/^﻿/, '').trim());
+  const idx = {};
+  head.forEach((h, i) => { if (idx[h] == null) idx[h] = i; });
+  const get = (row, h) => (idx[h] == null ? '' : String(row[idx[h]] == null ? '' : row[idx[h]]).trim());
+
+  const keyCol = ind ? '管理番号' : '商品コード';
+  if (idx['商品名'] == null) {
+    openModal('取り込めませんでした', `
+      <div class="card" style="margin-bottom:12px">「商品名」の列が見つかりませんでした。</div>
+      <div class="lbl" style="margin-bottom:6px">ファイルにあった列</div>
+      <div class="meta" style="word-break:break-all">${head.map(esc).join(' ／ ')}</div>
+      <div class="lbl" style="margin:15px 0 6px">必要な列</div>
+      <div class="meta">${(ind ? CSV_IND : CSV_QTY).map(c => esc(c[0])).join(' ／ ')}</div>`,
+      [['閉じる', 'closeModal()', 'btn ghost']]);
+    return;
+  }
+
+  const add = [], skip = [], bad = [];
+  const seen = {};
+  for (let r = 1; r < table.length; r++) {
+    const row = table[r];
+    const line = r + 1;
+    const key = get(row, keyCol);
+    const name = get(row, '商品名');
+    if (!name) { bad.push({ line, key, why: '商品名が空です' }); continue; }
+
+    // すでにある在庫はいっさい触らない
+    const exists = ind
+      ? (key && item(key)) || (get(row, 'シリアル番号') && db.items.find(i => i.serial && i.serial === get(row, 'シリアル番号')))
+      : (key && prod(key)) || db.prods.find(p => p.name === name);
+    if (exists) { skip.push({ line, key: exists.id || exists.code, name }); continue; }
+
+    // 同じCSVの中の重複も弾く
+    const dupKey = key || (ind ? get(row, 'シリアル番号') : name);
+    if (dupKey && seen[dupKey]) { bad.push({ line, key: dupKey, why: `${seen[dupKey]}行目と重複しています` }); continue; }
+    if (dupKey) seen[dupKey] = line;
+
+    const catId = findCat(get(row, 'カテゴリ'), ind ? 'individual' : 'quantity');
+    if (!catId) { bad.push({ line, key: key || name, why: `カテゴリ「${get(row, 'カテゴリ')}」がありません` }); continue; }
+    const lo = findLoc(get(row, '保管場所'));
+    if (!lo.id) { bad.push({ line, key: key || name, why: lo.why }); continue; }
+
+    if (ind) {
+      const st = get(row, '状態');
+      add.push({
+        line, key, rec: {
+          id: key || null, name, category_id: catId, location_id: lo.id,
+          status: STATUSES.includes(st) ? st : '在庫',
+          user_name: get(row, '利用者') || null,
+          maker: get(row, 'メーカー') || null, model: get(row, '型番') || null,
+          serial: get(row, 'シリアル番号') || null,
+          purchased_on: get(row, '購入日') || null,
+          price: get(row, '購入価格') === '' ? null : Number(get(row, '購入価格').replace(/[,¥\s]/g, '')),
+          note: get(row, '備考') || null
+        }
+      });
+    } else {
+      const qty = get(row, '現在庫'), min = get(row, '最低在庫');
+      if (qty !== '' && !isFinite(Number(qty))) { bad.push({ line, key: key || name, why: '現在庫が数値ではありません' }); continue; }
+      add.push({
+        line, key, rec: {
+          code: key || null, name, category_id: catId, location_id: lo.id,
+          qty: qty === '' ? 0 : Math.round(Number(qty)),
+          min_qty: min === '' ? 0 : Math.round(Number(min)),
+          supplier: get(row, '仕入先') || null,
+          unit_price: get(row, '単価') === '' ? null : Number(get(row, '単価').replace(/[,¥\s]/g, '')),
+          note: get(row, '備考') || null
+        }
+      });
+    }
+  }
+
+  importPlan = { ind, add, skip, bad, file: file.name, encoding };
+  showImportPreview();
+}
+
+let importPlan = null;
+
+function showImportPreview() {
+  const p = importPlan;
+  const nm = (x) => x.rec ? (x.rec.name || '') : (x.name || '');
+  const list = (rows, cls) => `<div class="plist">${rows.slice(0, 200).map(x =>
+    `<div class="p"><span class="c">${esc(x.key || '（採番）')}</span><span>${esc(nm(x))}</span>
+      ${x.why ? `<span class="why">${esc(x.line)}行目：${esc(x.why)}</span>` : `<span class="meta" style="margin-left:auto">${x.line}行目</span>`}</div>`
+  ).join('')}</div>${rows.length > 200 ? '<div class="meta" style="margin-bottom:12px">先頭200件だけ表示しています。</div>' : ''}`;
+
+  const canGo = p.add.length > 0 && (p.ind ? canAdmin() : canEdit());
+  openModal('取り込む内容の確認', `
+    <div class="card" style="margin-bottom:15px">
+      ${esc(p.file)}（${p.encoding === 'shift_jis' ? 'Shift_JIS' : 'UTF-8'}として読み込み）／${p.ind ? '個体管理' : '数量管理'}<br>
+      <strong>すでにある在庫は書き換えません。</strong>CSVにあって在庫に無いものだけを追加します。
+    </div>
+    <div class="sum">
+      <div><div class="lbl">追加する</div><div class="v add">${p.add.length}</div></div>
+      <div><div class="lbl">すでにある</div><div class="v skip">${p.skip.length}</div></div>
+      <div><div class="lbl">取り込めない</div><div class="v err">${p.bad.length}</div></div>
+    </div>
+    ${p.add.length ? `<div class="lbl" style="margin-bottom:6px">追加する${p.ind ? '機器' : '品目'}</div>${list(p.add)}` : ''}
+    ${p.skip.length ? `<div class="lbl" style="margin-bottom:6px">すでにあるので変更しません</div>${list(p.skip)}` : ''}
+    ${p.bad.length ? `<div class="lbl" style="margin-bottom:6px">取り込めない行</div>${list(p.bad)}` : ''}
+    ${p.ind && !canAdmin() ? '<div class="card">機器の追加は管理者だけができます。</div>' : ''}
+  `, [
+    ['閉じる', 'closeModal()', 'btn ghost'],
+    ...(canGo ? [[`${p.add.length}件を追加`, 'applyInventoryImport()', 'btn lime']] : [])
+  ]);
+}
+
+async function applyInventoryImport() {
+  const p = importPlan;
+  if (!p || !p.add.length) return;
+  closeModal();
+  toast(`${p.add.length}件を追加しています…`);
+
+  // 管理番号が空の行はここで採番する。採番は update ... returning で取るので、
+  // 同時に誰かが登録していても番号はぶつからない
+  const recs = [];
+  for (const x of p.add) {
+    const rec = Object.assign({}, x.rec);
+    if (!(p.ind ? rec.id : rec.code)) {
+      const pre = p.ind ? ((cat(rec.category_id) || {}).code_prefix || 'IT') : 'SKU';
+      const { data, error } = await sb.rpc('inv_next_id', { p_prefix: pre, p_digits: p.ind ? 5 : 4 });
+      if (error) { toast('採番できませんでした：' + error.message); return; }
+      if (p.ind) rec.id = data; else rec.code = data;
+    }
+    recs.push(rec);
+  }
+
+  const table = p.ind ? 'inventory_items' : 'inventory_products';
+  const { error } = await sb.from(table).insert(recs);
+  if (error) { toast('追加できませんでした：' + error.message); return; }
+
+  // 登録は関数を通らないので、履歴をここでまとめて足す（追記のみの表なので入れられる）
+  await sb.from('inventory_transactions').insert(recs.map(r => ({
+    actor: me.name, ref_kind: p.ind ? 'item' : 'product',
+    ref_id: p.ind ? r.id : r.code, label: r.name, action: '登録',
+    before_value: '—',
+    after_value: (p.ind ? r.status : String(r.qty)) + '（' + locPath(r.location_id) + '）／CSV取込'
+  })));
+
+  importPlan = null;
+  await loadAll();
+  render();
+  toast(`${recs.length}件を追加しました`);
+}
+
+/* ---------------------------------------------------------------- モーダル */
+function openModal(title, body, buttons) {
+  $('modalTitle').textContent = title;
+  $('modalBody').innerHTML = body;
+  $('modalFoot').innerHTML = (buttons || []).map(([t, fn, cls]) =>
+    `<button class="${cls || 'btn'}" onclick="${fn}">${esc(t)}</button>`).join('');
+  $('modal').classList.add('on');
+}
+function closeModal() { $('modal').classList.remove('on'); }
 
 /* ===== 3. 個体の詳細（QRを読んだ直後の画面） ===== */
 function viewItem() {
@@ -1243,3 +1497,11 @@ function handleCode(raw) {
   }
   toast('該当する商品が見つかりません：' + key);
 }
+
+/* Escapeで、開いているものを手前から順に閉じる */
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if ($('modal').classList.contains('on')) { closeModal(); return; }
+  if ($('sheet').classList.contains('on')) { closeSheet(); return; }
+  if (scan.on) closeScan();
+});

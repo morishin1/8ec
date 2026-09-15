@@ -228,6 +228,27 @@ table.t tr.clk:hover td{background:var(--n100)}
 #sheet .acts .btn.cancel{width:120px}
 #sheet input[type=number].input{font-size:20px;min-height:48px;text-align:center}
 
+/* ---- モーダル（CSV取込の確認など、下からのシートに収まらないもの） ---- */
+#modal{position:fixed;inset:0;z-index:93;background:rgba(17,17,17,.5);display:none;place-items:center;padding:20px}
+#modal.on{display:grid}
+#modal .mbox{background:var(--bg);border-radius:var(--r4);width:min(760px,100%);max-height:88vh;display:flex;flex-direction:column;box-shadow:var(--sh-lg)}
+#modal .mh{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
+#modal .mh h2{flex:1;font-size:22px}
+#modal .mh .x{border:none;background:transparent;cursor:pointer;color:var(--n600);padding:4px;display:flex}
+#modal .mc{padding:16px 20px;overflow:auto;font-size:14px}
+#modal .mf{padding:12px 20px;border-top:1px solid var(--line);display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}
+.sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:15px}
+.sum > div{background:var(--panel);padding:11px 13px;border-radius:var(--r2)}
+.sum .v{font-size:28px;font-weight:700;line-height:1.1}
+.sum .v.add{color:var(--ink)}
+.sum .v.skip{color:var(--n600)}
+.sum .v.err{color:#B3261E}
+.plist{max-height:34vh;overflow:auto;border:1px solid var(--line);border-radius:var(--r2);margin-bottom:12px}
+.plist .p{display:flex;gap:10px;align-items:baseline;padding:7px 11px;border-bottom:1px solid var(--rule);font-size:12.5px}
+.plist .p:last-child{border-bottom:none}
+.plist .p .c{font-weight:700;flex:0 0 auto;min-width:88px}
+.plist .p .why{color:#B3261E;margin-left:auto;text-align:right}
+
 /* ---- トースト ---- */
 #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:95;background:var(--n900);color:#fff;
   padding:12px 20px;border-radius:var(--r4);box-shadow:var(--sh-lg);font-size:14px;display:none;align-items:center;gap:10px;
@@ -335,9 +356,19 @@ table.t tr.clk:hover td{background:var(--n100)}
   <div class="p" id="sheetPanel"></div>
 </div>
 
+<div id="modal" data-noprint onclick="if(event.target===this)closeModal()">
+  <div class="mbox">
+    <div class="mh"><h2 id="modalTitle"></h2>
+      <button class="x" onclick="closeModal()"><span class="ms">close</span></button></div>
+    <div class="mc" id="modalBody"></div>
+    <div class="mf" id="modalFoot"></div>
+  </div>
+</div>
+
 <div id="toast" data-noprint><span class="ms">check_circle</span><span id="toastMsg"></span></div>
 
 <!-- /zaiko（末尾スラッシュなし）でも読めるよう、パスは絶対で書く -->
+<script src="/assets/csv.js"></script>
 <script src="/zaiko/app.js"></script>
 </body>
 </html>
