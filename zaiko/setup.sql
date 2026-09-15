@@ -940,16 +940,20 @@ begin
     raise exception '実施中の棚卸があります。先に棚卸を終了してください';
   end if;
 
-  delete from public.inventory_loans;
-  delete from public.inventory_stocktake_items;
+  -- どの DELETE にも WHERE を付ける。Supabase で「WHEREのないDELETE/UPDATE」を
+  -- 禁止する保護（safeupdate）が入っていると、関数の中でも弾かれるため。
+  -- where true や 1=1 はプランナに畳み込まれて消えてしまい保護をすり抜けられないので、
+  -- 主キーへの is not null を使う（全行が対象になり、Filter としてプランに残る）。
+  delete from public.inventory_loans           where id is not null;
+  delete from public.inventory_stocktake_items where item_id is not null;
 
-  with d as (delete from public.inventory_items returning 1)
+  with d as (delete from public.inventory_items where id is not null returning 1)
   select count(*) into n_items from d;
 
   if p_scope = 'all' then
-    with d as (delete from public.inventory_channels returning 1)
+    with d as (delete from public.inventory_channels where id is not null returning 1)
     select count(*) into n_chans from d;
-    with d as (delete from public.inventory_products returning 1)
+    with d as (delete from public.inventory_products where code is not null returning 1)
     select count(*) into n_masters from d;
   end if;
 
@@ -1109,12 +1113,261 @@ comment on function public.inv_delete_products is
 
 
 -- ============================================================
--- 23) 追加分の権限
+-- 23) 価格（仕入れ → 原価 → 売値 → 利益）
+--
+--     項目は増やさず、この5つだけで回す。
+--
+--       仕入価格      price（落札価格）
+--       手数料        purchase_fee（落札料）
+--       原価          cost = 仕入価格 + 手数料   ← 生成列。手では入れない
+--       販売予定価格  plan_price（取り込み時は原価×1.3。あとから直せる）
+--       実際の販売価格 sold_price（売却したときに入る）
+--
+--     想定利益 = 販売予定価格 − 原価、利益 = 実際の販売価格 − 原価。
+--     どちらも引き算なので列は持たず、その場で出す。
+-- ============================================================
+
+alter table public.inventory_items add column if not exists purchase_fee numeric;
+alter table public.inventory_items add column if not exists plan_price   numeric;
+alter table public.inventory_items add column if not exists sold_price   numeric;
+
+comment on column public.inventory_items.price        is '仕入価格（落札価格）。';
+comment on column public.inventory_items.purchase_fee is '手数料（落札料）。';
+comment on column public.inventory_items.plan_price   is '販売予定価格。取り込み時は原価×1.3を入れるが、あとから直せる。';
+comment on column public.inventory_items.sold_price   is '実際に売れた価格。売却の操作で入る。';
+
+-- 原価は足し算なので、手で入れられないよう生成列にする（仕入価格や手数料と食い違わない）
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+     where table_schema='public' and table_name='inventory_items' and column_name='cost')
+  then
+    alter table public.inventory_items
+      add column cost numeric
+      generated always as (coalesce(price,0) + coalesce(purchase_fee,0)) stored;
+  end if;
+end $$;
+
+comment on column public.inventory_items.cost is
+  '原価 ＝ 仕入価格 ＋ 手数料。生成列なので直接は書き込めない。';
+
+create index if not exists inventory_items_plan_idx on public.inventory_items (plan_price);
+
+-- 値段を直す。3つまとめて受け取り、何がどう変わったかを履歴に残す。
+-- 渡さなかった（null の）ものは「空にする」という意味なので、画面からは必ず3つとも送る。
+create or replace function public.inv_item_price(
+  p_item_id text,
+  p_price   numeric default null,
+  p_fee     numeric default null,
+  p_plan    numeric default null
+) returns public.inventory_items
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  it public.inventory_items;
+  v_before text;
+  v_after  text;
+  fmt      text := 'FM9,999,999,999';
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  if coalesce(p_price,0) < 0 or coalesce(p_fee,0) < 0 or coalesce(p_plan,0) < 0 then
+    raise exception 'マイナスの金額は入れられません';
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+
+  v_before := '原価 ' || to_char(coalesce(it.cost,0), fmt) || '円／予定 '
+              || coalesce(to_char(it.plan_price, fmt) || '円', '未定');
+
+  update public.inventory_items
+     set price = p_price, purchase_fee = p_fee, plan_price = p_plan
+   where id = p_item_id returning * into it;
+
+  v_after := '原価 ' || to_char(coalesce(it.cost,0), fmt) || '円／予定 '
+             || coalesce(to_char(it.plan_price, fmt) || '円', '未定');
+
+  if v_before is distinct from v_after then
+    insert into public.inventory_transactions (actor, ref_kind, ref_id, label, action, before_value, after_value)
+    values (public.inv_actor(), 'item', p_item_id, it.name, '価格変更', v_before, v_after);
+  end if;
+
+  return it;
+end $$;
+
+comment on function public.inv_item_price is
+  '個体の仕入価格・手数料・販売予定価格をまとめて直す。原価は生成列なので自動で付いてくる。';
+
+
+-- ============================================================
+-- 24) 売却のときに実際の販売価格を受け取る
+--     inv_item_op の '売却' で p_value に価格を渡せるようにする
+-- ============================================================
+
+create or replace function public.inv_item_op(
+  p_item_id text,
+  p_action  text,
+  p_value   text default null,
+  p_note    text default null
+) returns public.inventory_items
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  it       public.inventory_items;
+  actor    text := public.inv_actor();
+  v_before text;
+  v_after  text;
+  st_id    bigint;
+  v_sold   numeric;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+
+  if p_action = '貸出' then
+    if coalesce(p_value,'') = '' then raise exception '利用者を選んでください'; end if;
+    if it.status <> '在庫' then raise exception '「在庫」のものだけ貸し出せます（いまは %）', it.status; end if;
+    v_before := it.status;
+    v_after  := '貸出中（' || p_value || '）';
+    update public.inventory_items
+       set status='貸出中', user_name=p_value, loaned_at=now()
+     where id=p_item_id returning * into it;
+    insert into public.inventory_loans (item_id, user_name, actor) values (p_item_id, p_value, actor);
+
+  elsif p_action = '返却' then
+    if it.status <> '貸出中' then raise exception '貸出中のものだけ返却できます（いまは %）', it.status; end if;
+    v_before := '貸出中（' || coalesce(it.user_name,'') || '）';
+    v_after  := '在庫（' || public.inv_location_path(it.location_id) || '）';
+    update public.inventory_items
+       set status='在庫', user_name=null, loaned_at=null
+     where id=p_item_id returning * into it;
+    update public.inventory_loans set returned_at=now()
+     where item_id=p_item_id and returned_at is null;
+
+  elsif p_action = '移動' then
+    if coalesce(p_value,'') = '' then raise exception '移動先を選んでください'; end if;
+    v_before := public.inv_location_path(it.location_id);
+    v_after  := public.inv_location_path(p_value);
+    update public.inventory_items set location_id=p_value where id=p_item_id returning * into it;
+
+  elsif p_action = '社内使用' then
+    v_before := it.status;
+    v_after  := '社内使用' || coalesce('（' || nullif(p_value,'') || '）', '');
+    update public.inventory_items
+       set status='社内使用', user_name=nullif(p_value,''), loaned_at=null
+     where id=p_item_id returning * into it;
+
+  elsif p_action = '売却' then
+    -- 実際に売れた価格を受け取る。原価と突き合わせて利益が出せる。
+    -- 原価が入っていない（0）ものは、売値をそのまま利益と書くと嘘になるので利益は出さない
+    v_sold := nullif(regexp_replace(coalesce(p_value,''), '[^0-9.-]', '', 'g'), '')::numeric;
+    v_before := it.status;
+    v_after  := '売却済'
+                || coalesce('（' || to_char(v_sold, 'FM9,999,999,999') || '円'
+                   || case when coalesce(it.cost,0) > 0
+                        then '／利益 ' || to_char(v_sold - it.cost, 'FM9,999,999,999') || '円'
+                        else '' end || '）', '');
+    update public.inventory_items
+       set status='売却済', sold_price=coalesce(v_sold, it.sold_price), user_name=null, loaned_at=null
+     where id=p_item_id returning * into it;
+
+  elsif p_action in ('状態変更','廃棄') then
+    if p_action = '廃棄' and not public.inv_is_admin() then
+      raise exception '廃棄は管理者だけができます';
+    end if;
+    v_before := it.status;
+    v_after  := case when p_action='廃棄' then '廃棄' else coalesce(p_value, it.status) end;
+    update public.inventory_items
+       set status = v_after,
+           user_name = case when v_after in ('貸出中','社内使用') then it.user_name else null end,
+           loaned_at = case when v_after = '貸出中' then it.loaned_at else null end
+     where id=p_item_id returning * into it;
+
+  elsif p_action = '棚卸確認' then
+    v_before := it.status;
+    v_after  := it.status || '（確認済み）';
+    update public.inventory_items set last_checked_at=now() where id=p_item_id returning * into it;
+    select id into st_id from public.inventory_stocktakes where status='open' limit 1;
+    if st_id is not null then
+      insert into public.inventory_stocktake_items (stocktake_id, item_id, expected, checked_at)
+      values (st_id, p_item_id, true, now())
+      on conflict (stocktake_id, item_id) do update set checked_at = excluded.checked_at;
+    end if;
+
+  else
+    raise exception '知らない操作です（%）', p_action;
+  end if;
+
+  insert into public.inventory_transactions (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (actor, 'item', p_item_id, it.name,
+          case p_action when '廃棄' then '廃棄' else p_action end,
+          v_before, v_after || coalesce('／' || nullif(p_note,''), ''));
+
+  return it;
+end $$;
+
+
+-- ============================================================
+-- 25) CSV取込の履歴
+--
+--     毎週の仕入CSVを取り込む運用になるので、「いつ・どのファイルを・誰が」
+--     入れたかを残す。何を入れたかは product_codes に持たせ、取り込んだ直後に
+--     「今回登録した商品だけ表示」できるようにする。
+--     履歴なので UPDATE / DELETE の権限は渡さない（追記だけ）。
+-- ============================================================
+
+create table if not exists public.inventory_imports (
+  id            bigserial primary key,
+  imported_at   timestamptz default now(),
+  actor         text,
+  file_name     text,
+  kind          text,                       -- purchase / master / legacy
+  product_count integer default 0,
+  item_count    integer default 0,
+  product_codes text[]  default '{}',       -- 今回登録した商品。一覧の絞り込みに使う
+  summary       text
+);
+
+create index if not exists inventory_imports_at_idx on public.inventory_imports (imported_at desc);
+
+comment on table public.inventory_imports is
+  'CSV取込の履歴。取込日・ファイル名・登録数・登録者と、登録した商品IDを残す。追記のみ。';
+
+grant select, insert on public.inventory_imports to authenticated;
+alter table public.inventory_imports enable row level security;
+
+drop policy if exists "inventory_imports read" on public.inventory_imports;
+create policy "inventory_imports read" on public.inventory_imports
+  for select to authenticated using (true);
+
+-- 取り込みは商品の登録なので、入れられるのは管理者だけ（inventory_items insert と同じ）
+drop policy if exists "inventory_imports insert" on public.inventory_imports;
+create policy "inventory_imports insert" on public.inventory_imports
+  for insert to authenticated with check (public.inv_is_admin());
+
+
+-- ============================================================
+-- 26) 追加分の権限
 -- ============================================================
 
 grant select, insert, update, delete on public.inventory_channels to authenticated;
 grant usage, select on all sequences in schema public to authenticated;
 grant execute on function public.inv_item_op(text,text,text,text) to authenticated;
+grant execute on function public.inv_item_price(text,numeric,numeric,numeric) to authenticated;
 grant execute on function public.inv_wipe_inventory(text) to authenticated;
 grant execute on function public.inv_bulk_update_products(text[],text,text,text,boolean) to authenticated;
 grant execute on function public.inv_delete_products(text[]) to authenticated;
