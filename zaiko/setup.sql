@@ -1322,7 +1322,46 @@ end $$;
 
 
 -- ============================================================
--- 25) 追加分の権限
+-- 25) CSV取込の履歴
+--
+--     毎週の仕入CSVを取り込む運用になるので、「いつ・どのファイルを・誰が」
+--     入れたかを残す。何を入れたかは product_codes に持たせ、取り込んだ直後に
+--     「今回登録した商品だけ表示」できるようにする。
+--     履歴なので UPDATE / DELETE の権限は渡さない（追記だけ）。
+-- ============================================================
+
+create table if not exists public.inventory_imports (
+  id            bigserial primary key,
+  imported_at   timestamptz default now(),
+  actor         text,
+  file_name     text,
+  kind          text,                       -- purchase / master / legacy
+  product_count integer default 0,
+  item_count    integer default 0,
+  product_codes text[]  default '{}',       -- 今回登録した商品。一覧の絞り込みに使う
+  summary       text
+);
+
+create index if not exists inventory_imports_at_idx on public.inventory_imports (imported_at desc);
+
+comment on table public.inventory_imports is
+  'CSV取込の履歴。取込日・ファイル名・登録数・登録者と、登録した商品IDを残す。追記のみ。';
+
+grant select, insert on public.inventory_imports to authenticated;
+alter table public.inventory_imports enable row level security;
+
+drop policy if exists "inventory_imports read" on public.inventory_imports;
+create policy "inventory_imports read" on public.inventory_imports
+  for select to authenticated using (true);
+
+-- 取り込みは商品の登録なので、入れられるのは管理者だけ（inventory_items insert と同じ）
+drop policy if exists "inventory_imports insert" on public.inventory_imports;
+create policy "inventory_imports insert" on public.inventory_imports
+  for insert to authenticated with check (public.inv_is_admin());
+
+
+-- ============================================================
+-- 26) 追加分の権限
 -- ============================================================
 
 grant select, insert, update, delete on public.inventory_channels to authenticated;
