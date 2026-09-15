@@ -852,6 +852,13 @@ begin
     v_after  := public.inv_location_path(p_value);
     update public.inventory_items set location_id=p_value where id=p_item_id returning * into it;
 
+  elsif p_action = '社内使用' then
+    v_before := it.status;
+    v_after  := '社内使用' || coalesce('（' || nullif(p_value,'') || '）', '');
+    update public.inventory_items
+       set status='社内使用', user_name=nullif(p_value,''), loaned_at=null
+     where id=p_item_id returning * into it;
+
   elsif p_action in ('状態変更','廃棄','売却') then
     if p_action = '廃棄' and not public.inv_is_admin() then
       raise exception '廃棄は管理者だけができます';
@@ -892,12 +899,82 @@ end $$;
 
 
 -- ============================================================
--- 17) 追加分の権限
+-- 18) 社内使用にする（利用者も一緒に入れる）
+--
+--     貸出と同じく「誰が使っているか」を残したいので、
+--     状態変更とは別の操作にして p_value に利用者を取る。
+--     inv_item_op の中に足す（下の 19 で作り直している）
+-- ============================================================
+
+
+-- ============================================================
+-- 19) 在庫データの全削除
+--
+--     移行をやり直したいときのための操作。取り返しがつかないので
+--     管理者だけ、かつ実施中の棚卸がないときに限る。
+--     履歴（inventory_transactions）は消さない。追記のみの記録で、
+--     何をいつ消したかもここに残す。
+--
+--       p_scope = 'all'   商品マスタ・個体・販売情報をすべて消す
+--       p_scope = 'units' 個体だけ消す（商品マスタと販売情報は残す）
+-- ============================================================
+
+create or replace function public.inv_wipe_inventory(p_scope text default 'all')
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  n_items   integer := 0;
+  n_masters integer := 0;
+  n_chans   integer := 0;
+begin
+  if not public.inv_is_admin() then
+    raise exception '在庫の全削除は管理者だけができます';
+  end if;
+  if p_scope is null or p_scope not in ('all','units') then
+    raise exception '範囲の指定が違います（all または units）';
+  end if;
+  if exists (select 1 from public.inventory_stocktakes where status = 'open') then
+    raise exception '実施中の棚卸があります。先に棚卸を終了してください';
+  end if;
+
+  delete from public.inventory_loans;
+  delete from public.inventory_stocktake_items;
+
+  with d as (delete from public.inventory_items returning 1)
+  select count(*) into n_items from d;
+
+  if p_scope = 'all' then
+    with d as (delete from public.inventory_channels returning 1)
+    select count(*) into n_chans from d;
+    with d as (delete from public.inventory_products returning 1)
+    select count(*) into n_masters from d;
+  end if;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values
+    (public.inv_actor(), 'item', '-', '在庫データ', '全削除',
+     format('個体 %s件／商品マスタ %s件／販売情報 %s件', n_items, n_masters, n_chans),
+     case p_scope when 'all' then 'すべて削除' else '個体だけ削除' end);
+
+  return jsonb_build_object('items', n_items, 'masters', n_masters, 'channels', n_chans);
+end $$;
+
+comment on function public.inv_wipe_inventory is
+  '在庫データを消す。管理者のみ。履歴は消さず、何を消したかを履歴に残す。';
+
+
+-- ============================================================
+-- 20) 追加分の権限
 -- ============================================================
 
 grant select, insert, update, delete on public.inventory_channels to authenticated;
 grant usage, select on all sequences in schema public to authenticated;
 grant execute on function public.inv_item_op(text,text,text,text) to authenticated;
+grant execute on function public.inv_wipe_inventory(text) to authenticated;
 
 alter table public.inventory_channels enable row level security;
 

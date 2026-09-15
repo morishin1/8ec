@@ -553,7 +553,57 @@ function viewList() {
         ${LIST_STATES.map(s => `<option${ui.fList === s ? ' selected' : ''}>${esc(s)}</option>`).join('')}
       </select>
     </div>
-    <div id="listBody">${listBodyHtml()}</div>`;
+    <div id="listBody">${listBodyHtml()}</div>
+    ${canAdmin() ? `<div class="danger">
+      <span class="ms">warning_amber</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:500">在庫データの削除</div>
+        <div class="meta">取り込みをやり直したいときに使います。履歴は消えません。</div>
+      </div>
+      <button class="btn sm" onclick="openWipe()">削除する…</button>
+    </div>` : ''}`;
+}
+
+/* ---- 在庫データの全削除。取り返しがつかないので、合言葉を打ってもらう ---- */
+const WIPE_WORD = '削除します';
+function openWipe() {
+  const units = db.items.length;
+  const masters = db.masters.length;
+  const chans = db.channels.length;
+  openModal('在庫データの削除', `
+    <div class="card" style="background:#FDECEC;margin-bottom:15px">
+      <strong>元に戻せません。</strong>いま登録されているものが消えます。<br>
+      <span class="meta">操作の履歴（誰がいつ何をしたか）は追記のみの記録なので残ります。
+        何をいつ消したかも履歴に入ります。</span>
+    </div>
+    <div class="sum">
+      <div><div class="lbl">商品マスタ</div><div class="v err">${masters}</div></div>
+      <div><div class="lbl">個体</div><div class="v err">${units}</div></div>
+      <div><div class="lbl">販売情報</div><div class="v err">${chans}</div></div>
+    </div>
+    <label class="field" style="margin-bottom:12px"><span>消す範囲</span>
+      <select class="input" id="wipeScope">
+        <option value="all">すべて消す（商品マスタ・個体・販売情報）</option>
+        <option value="units">個体だけ消す（商品マスタと販売情報は残す）</option>
+      </select></label>
+    <label class="field"><span>確認のため「${WIPE_WORD}」と入力してください</span>
+      <input class="input" id="wipeWord" autocomplete="off" placeholder="${WIPE_WORD}"
+             oninput="document.getElementById('wipeGo').disabled = this.value.trim() !== '${WIPE_WORD}'"></label>
+  `, [['閉じる', 'closeModal()', 'btn ghost'], ['削除する', 'doWipe()', 'btn danger']]);
+  const go = $('modalFoot').querySelector('.btn.danger');
+  go.id = 'wipeGo';
+  go.disabled = true;
+}
+async function doWipe() {
+  if ((($('wipeWord') || {}).value || '').trim() !== WIPE_WORD) return;
+  const scope = ($('wipeScope') || {}).value || 'all';
+  closeModal();
+  toast('削除しています…');
+  const { data, error } = await sb.rpc('inv_wipe_inventory', { p_scope: scope });
+  if (error) { toast('削除できませんでした：' + error.message); return; }
+  await loadAll();
+  render();
+  toast(`個体 ${data.items}件・商品マスタ ${data.masters}件・販売情報 ${data.channels}件を削除しました`);
 }
 function renderListBody() { const el = $('listBody'); if (el) el.innerHTML = listBodyHtml(); }
 
@@ -1149,6 +1199,10 @@ function unitMenu(id) {
         <span class="ms">assignment_return</span><span class="t">返却</span></button>
       <button class="btn" onclick="closeModal();sheetMove('${esc(id)}')">
         <span class="ms">move_down</span><span class="t">移動</span></button>
+      <button class="btn" onclick="closeModal();sheetUnitOut('${esc(id)}')" ${can(!GONE.includes(it.status))}>
+        <span class="ms">logout</span><span class="t">出庫</span></button>
+      <button class="btn" onclick="closeModal();sheetUnitIn('${esc(id)}')" ${can(it.status !== '在庫' && !GONE.includes(it.status))}>
+        <span class="ms">login</span><span class="t">入庫</span></button>
       <button class="btn" onclick="closeModal();sheetStatus('${esc(id)}')">
         <span class="ms">build</span><span class="t">修理・状態</span></button>
       <button class="btn" onclick="closeModal();sheetSell('${esc(id)}')" ${can(!GONE.includes(it.status))}>
@@ -1240,14 +1294,16 @@ function sheetSell(id) {
   });
 }
 
-/* ===== 5・6. 入庫 / 出庫 ===== */
+/* ===== 5・6. 入庫 / 出庫 =====
+   数量管理は qty を増減する。個体管理は1台ずつなので、
+   出庫＝手元から出る（貸出・社内使用・売却）、入庫＝手元に戻る（在庫に戻す）に対応させる。
+   どちらもQRを読めば続けて処理できる。                                      */
 function draftSet(code, v) { ui.drafts[code] = v; }
 function viewIn() { return moveList('in'); }
 function viewOut() { return moveList('out'); }
 function moveList(mode) {
   const isIn = mode === 'in';
   const targets = db.masters.filter(p => p.kind !== 'individual');
-  if (!targets.length) return `<h1>${isIn ? '入庫' : '出庫'}</h1><div class="empty" style="margin-top:20px">数量管理の品目がまだありません。「商品登録」から登録してください。</div>`;
   const rows = targets.map(p => `
     <div class="rowline" style="gap:14px;align-items:center">
       <div style="flex:1 1 220px;min-width:0">
@@ -1260,12 +1316,72 @@ function moveList(mode) {
       <button class="btn ${isIn ? 'pri' : ''}" onclick="${isIn ? 'sheetIn' : 'sheetOut'}('${esc(p.code)}',true)" ${dis()}>
         ${isIn ? '入庫' : '出庫'}</button>
     </div>`).join('');
+
   return `<h1>${isIn ? '入庫' : '出庫'}</h1>
-    <p class="sub" style="margin:8px 0 15px">数量を入れて「${isIn ? '入庫' : '出庫'}」を押すと、確認のうえ在庫に反映し、履歴に前後の数を残します。</p>
-    ${guardNote()}${rows}`;
+    <p class="sub" style="margin:8px 0 14px">
+      ${isIn ? 'モノが増える・戻ってくるときの記録です。' : 'モノが減る・手元から出るときの記録です。'}
+      <strong>QRを読めば続けて処理できます</strong>（数量品は数を入れ、個体は1台ずつ）。</p>
+    ${guardNote()}
+    <button class="btn lime" style="min-height:62px;width:100%;font-size:18px;margin-bottom:18px"
+            onclick="openScan('${mode}')" ${dis()}>
+      <span class="ms" style="font-size:28px">qr_code_scanner</span>QRを読んで${isIn ? '入庫' : '出庫'}</button>
+
+    <div class="sec" style="margin-top:0">数量管理から選ぶ</div>
+    ${targets.length ? rows : '<div class="empty">数量管理の品目はまだありません。</div>'}
+
+    <div class="sec">個体は1台ずつ</div>
+    <p class="meta">個体管理の機器は、上のQR読み取りか、商品詳細の「個体一覧」から操作してください。
+      現在庫は各個体の状態から数えるので、ここで数を足し引きすることはありません。</p>`;
 }
 
-/* ===== 7. 貸出・返却 ===== */
+/* 個体を出す（貸出・社内使用・売却）。QRの出庫モードと個体一覧から使う */
+function sheetUnitOut(id, after) {
+  const it = item(id); if (!it) return;
+  const m = prod(it.product_code);
+  openSheet({
+    title: '出庫', subject: id, cta: '記録する',
+    hint: `${esc(titleOf(m) || it.name)}　いまの状態 ${esc(it.status)}`,
+    body: `<label class="field" style="margin-bottom:10px"><span>どこへ出すか</span>
+        <select class="input" id="sheetVal">
+          <option value="社内使用">社内使用にする</option>
+          <option value="貸出">貸出にする</option>
+          <option value="売却">売却する</option>
+        </select></label>
+      <label class="field"><span>利用者・メモ</span>
+        <input class="input" id="outWho" list="uOpts" placeholder="例 佐藤 健" autocomplete="off">
+        <datalist id="uOpts">${userOptions()}</datalist></label>`,
+    run: async (kind) => {
+      const who = (($('outWho') || {}).value || '').trim();
+      if (kind === '貸出') {
+        if (!who) { toast('貸出のときは利用者を入れてください'); return; }
+        await itemOp(id, '貸出', who);
+      } else if (kind === '売却') {
+        await itemOp(id, '売却', null, who || null);
+      } else {
+        await itemOp(id, '社内使用', who || null);
+      }
+      if (after) after();
+    }
+  });
+}
+
+/* 個体を戻す（在庫に戻す）。貸出中なら返却として記録する */
+function sheetUnitIn(id, after) {
+  const it = item(id); if (!it) return;
+  const m = prod(it.product_code);
+  const back = it.status === '貸出中';
+  openSheet({
+    title: '入庫', subject: id, cta: back ? '返却として記録' : '在庫に戻す',
+    hint: `${esc(titleOf(m) || it.name)}　いまの状態 ${esc(it.status)}${back ? '（' + esc(it.user_name || '') + '）' : ''}
+      → 在庫（${esc(locPath(it.location_id))}）`,
+    run: async () => {
+      await itemOp(id, back ? '返却' : '状態変更', back ? null : '在庫');
+      if (after) after();
+    }
+  });
+}
+
+/* ===== 7. 貸出・返却 ===== *//* ===== 7. 貸出・返却 ===== */
 function viewLoan() {
   const out = db.items.filter(i => i.status === '貸出中');
   const avail = db.items.filter(i => i.status === '在庫');
@@ -1675,7 +1791,11 @@ function openSheet(cfg) {
   const first = $('sheetPanel').querySelector('select,input');
   if (first) setTimeout(() => first.focus(), 60);
 }
-function closeSheet() { $('sheet').classList.remove('on'); sheetState = null; }
+function closeSheet() {
+  $('sheet').classList.remove('on');
+  sheetState = null;
+  reopenScan();          // 入庫・出庫のQR読み取り中なら、やめても読み取りに戻る
+}
 async function confirmSheet() {
   if (!sheetState) return;
   const fn = sheetState.run;
@@ -1722,7 +1842,7 @@ function sheetStatus(id) {
     title: '状態を変える', subject: id, cta: '変更を記録',
     hint: `いまの状態：${esc(it.status)}`,
     body: `<label class="field"><span>新しい状態</span><select class="input" id="sheetVal">
-      ${['在庫', '出品中', '社内使用', '修理中', '故障', '紛失', '不明'].map(s => `<option${s === it.status ? ' selected' : ''}>${s}</option>`).join('')}
+      ${['在庫', '出品中', '修理中', '故障', '紛失', '不明'].map(s => `<option${s === it.status ? ' selected' : ''}>${s}</option>`).join('')}
     </select></label>`,
     run: (v) => itemOp(id, '状態変更', v)
   });
@@ -1760,18 +1880,19 @@ function topSite(id) {
 }
 function sheetIn(code, useDraft) { qtySheet(code, '入庫', useDraft); }
 function sheetOut(code, useDraft) { qtySheet(code, '出庫', useDraft); }
-function qtySheet(code, action, useDraft) {
+function qtySheet(code, action, useDraft, after) {
   const p = prod(code); if (!p) return;
-  const pre = useDraft ? (ui.drafts[code] || '') : '';
+  const pre = useDraft ? (ui.drafts[code] || '') : '1';
   openSheet({
     title: action, subject: code, cta: action + 'を記録',
-    hint: `${esc(p.name)}　いまの在庫 ${p.qty}`,
+    hint: `${esc(titleOf(p))}　いまの在庫 ${p.qty}`,
     body: `<label class="field"><span>数量</span>
       <input class="input num" type="number" min="1" id="sheetVal" value="${esc(pre)}" placeholder="0"></label>`,
     run: async (v) => {
       const n = parseInt(v, 10);
       if (!n || n < 1) { toast('数量を入れてください'); return; }
       await productMove(code, action === '入庫' ? n : -n);
+      if (after) after();
     }
   });
 }
@@ -1825,14 +1946,17 @@ async function checkItem(id) {
 }
 
 /* ---------------------------------------------------------------- QRスキャナ */
-let scan = { on: false, mode: 'lookup', stream: null, raf: null, last: {}, canvas: null };
+let scan = { on: false, mode: 'lookup', stream: null, raf: null, last: {}, canvas: null, done: 0 };
+
+const SCAN_TITLE = { stocktake: '棚卸：連続読取', in: '入庫：QRを読む', out: '出庫：QRを読む' };
 
 function openScan(mode) {
   scan.mode = mode || 'lookup';
   scan.on = true;
   scan.last = {};
+  scan.done = 0;
   $('scan').classList.add('on');
-  $('scanTitle').textContent = scan.mode === 'stocktake' ? '棚卸：連続読取' : 'QRコードを読み取る';
+  $('scanTitle').textContent = SCAN_TITLE[scan.mode] || 'QRコードを読み取る';
   updateScanCount();
   renderScanSim();
   $('scanNoCam').style.display = 'none';
@@ -1843,11 +1967,22 @@ function closeScan() {
   stopCam();
   $('scan').classList.remove('on');
 }
+/* 確認シートを出しているあいだはカメラを止める。読み取り続けて二重に記録しないため */
+function pauseScan() { stopCam(); $('scan').classList.remove('on'); }
+function reopenScan() {
+  if (!scan.on) return;
+  $('scan').classList.add('on');
+  renderScanSim();
+  setTimeout(startCam, 120);
+}
 function updateScanCount() {
   const el = $('scanCount');
   if (scan.mode === 'stocktake' && db.stocktake) {
     const done = db.stChecked.filter(x => x.checked_at).length;
     el.textContent = `確認済み ${done} / ${db.stChecked.length}`;
+    el.style.display = '';
+  } else if (scan.mode === 'in' || scan.mode === 'out') {
+    el.textContent = `${scan.mode === 'in' ? '入庫' : '出庫'} ${scan.done}件`;
     el.style.display = '';
   } else el.style.display = 'none';
 }
@@ -1927,6 +2062,28 @@ function handleCode(raw) {
   if (scan.mode === 'stocktake') {
     if (!it) { toast('棚卸の対象に見つかりません：' + key); return; }
     checkItem(it.id).then(updateScanCount);
+    return;
+  }
+
+  // 入庫・出庫モードも画面を移らない。1件ごとに確認シートを出し、
+  // 確定したらスキャナに戻るので、そのまま次のQRを読める
+  if (scan.mode === 'in' || scan.mode === 'out') {
+    const isIn = scan.mode === 'in';
+    const done = () => { scan.done++; scan.last = {}; updateScanCount(); reopenScan(); };
+    if (pr) {
+      if (pr.kind === 'individual') { toast('この商品は個体管理です。個体のQRを読んでください'); return; }
+      pauseScan();
+      qtySheet(pr.code, isIn ? '入庫' : '出庫', false, done);
+      return;
+    }
+    if (it) {
+      if (GONE.includes(it.status)) { toast(`${it.id} は${it.status}です`); return; }
+      if (isIn && it.status === '在庫') { toast(`${it.id} はすでに在庫です`); return; }
+      pauseScan();
+      (isIn ? sheetUnitIn : sheetUnitOut)(it.id, done);
+      return;
+    }
+    toast('該当する商品が見つかりません：' + key);
     return;
   }
 
