@@ -361,6 +361,9 @@ table.t.buy td .meta{font-size:11.5px;margin-top:2px}
 .drop .t{font-size:15px;font-weight:500;margin-bottom:14px}
 .drop .btn{min-height:46px;padding:10px 22px}
 .listtools{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.regcsv{display:flex;align-items:center;gap:13px;flex-wrap:wrap;margin-top:18px;
+  background:var(--l100);border:1px solid var(--l500);border-radius:var(--r2);padding:14px 16px}
+.regcsv .ms{font-size:24px}
 .histline{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:0 0 10px}
 .histline .ms{font-size:17px;color:var(--n500)}
 .histline .btn{margin-left:auto}
@@ -470,6 +473,9 @@ table.t.buy td .meta{font-size:11.5px;margin-top:2px}
     </div>
   </div>
 </div>
+
+<!-- CSVの取込はどの画面からでも呼べるので、ファイル選択は画面の外に置く -->
+<input type="file" id="csvFile" accept=".csv,.txt,text/csv" style="display:none" onchange="readInventoryCsv(this)">
 
 <div id="sheet" data-noprint onclick="if(event.target===this)closeSheet()">
   <div class="p" id="sheetPanel"></div>

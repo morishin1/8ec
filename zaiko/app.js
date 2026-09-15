@@ -573,7 +573,6 @@ function viewList() {
           <span class="ms">upload_file</span>仕入CSV取込</button>
         <button class="btn sm lime" onclick="go('reg')" ${canAdmin() ? '' : 'disabled'}>
           <span class="ms">add</span>商品登録</button>
-        <input type="file" id="csvFile" accept=".csv,.txt,text/csv" style="display:none" onchange="readInventoryCsv(this)">
       </div>
     </div>
     ${importHistLine()}
@@ -1016,6 +1015,9 @@ const impMap = { loc: {}, cat: {} };   // 取り込み画面でのその場の�
 async function readInventoryCsv(input) {
   const file = input.files && input.files[0];
   if (!file) return;
+  // 同じファイルを続けて選ぶと value が変わらず change が起きないので、読んだら空にしておく。
+  // File はもう手元にあるので、ここで消しても読み込みには影響しない
+  try { input.value = ''; } catch (e) { /* ドロップから来たときは input ではない */ }
   const { text, encoding } = window.EightCsv.decode(await file.arrayBuffer());
   const table = window.EightCsv.parse(text);
   if (!table.length) { toast('中身が読み取れませんでした'); return; }
@@ -2448,6 +2450,17 @@ function viewReg() {
 
   return `<h1>商品登録</h1>
     ${canAdmin() ? '' : '<div class="card" style="margin:15px 0">商品の登録は管理者だけができます。</div>'}
+
+    <div class="regcsv">
+      <span class="ms">upload_file</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:500">仕入CSVでまとめて登録</div>
+        <div class="meta">オークションの仕入CSVをそのまま取り込みます。1台ずつ入れなくて済みます。</div>
+      </div>
+      <button class="btn" onclick="openImport()" ${canAdmin() ? '' : 'disabled'}>仕入CSV取込</button>
+    </div>
+    <p class="meta" style="margin:12px 0 0">1件ずつ登録するときは、下のフォームを使います。</p>
+
     <div class="seg" style="margin:15px 0">
       <button class="${ind ? 'on' : ''}" onclick="setRegKind('ind')">個体管理</button>
       <button class="${!ind ? 'on' : ''}" onclick="setRegKind('qty')">数量管理</button>
