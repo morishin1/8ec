@@ -221,6 +221,62 @@ function priceTotals(code) {
   }, { cost: 0, plan: 0, sold: 0, n: list.length });
 }
 
+/* 型番は表記ゆれがある（全角・半角、前後の空白、大文字小文字、ハイフンの種類）。
+   そろえてから突き合わせる。DB側の inv_norm_model と同じ規則にしてある */
+function normModel(s) {
+  return String(s == null ? '' : s)
+    .normalize('NFKC')
+    .replace(/[‐‑‒–—―−]/g, '-')
+    .replace(/\s+/g, '')
+    .toUpperCase();
+}
+/* 型番の欄に状態や不具合まで書かれていることがある。
+   （例「CF-QV9TFLVS ちゃんと閉められない」→ 型番と、状態の説明に分ける）
+   日本語が始まるところで切る。英数字だけの続き（Western Digital など）は型番の一部として残す。 */
+const JP_HEAD = /^[ぁ-ゟ゠-ヿｦ-ﾟ一-鿿々-〇]/;
+function tidyModel(m) {
+  let t = String(m).trim();
+  const o = (t.match(/[(（]/g) || []).length, c = (t.match(/[)）]/g) || []).length;
+  if (o > c) { const i = t.search(/[(（][^(（)）]*$/); if (i > 0) t = t.slice(0, i); }
+  return t.trim().replace(/[\s,、.。;；:：/_-]+$/, '');
+}
+const JP_ANY = /[ぁ-ゟ゠-ヿｦ-ﾟ一-鿿々-〇]/;
+function splitModel(raw) {
+  const t = String(raw == null ? '' : raw).trim();
+  if (!t) return { model: '', note: '' };
+  const notes = [];
+
+  // 末尾の（　）に日本語が入っていれば、それは型番ではなく補足
+  // （例「20H7-S0SU00（長筆さんの）」→ 型番と備考に分ける）
+  let head = t;
+  for (;;) {
+    const m = head.match(/^(.*?)\s*[(（]([^()（）]*)[)）]\s*$/);
+    if (!m || !JP_ANY.test(m[2])) break;
+    notes.unshift(m[2].trim());
+    head = m[1].trim();
+  }
+
+  // 空白のあとから日本語が始まったら、そこから先は状態や不具合の説明
+  const parts = head.split(/(\s+)/);
+  let model = parts[0];
+  for (let k = 1; k < parts.length; k += 2) {
+    const rest = parts.slice(k + 1).join('').trim();
+    if (JP_HEAD.test(rest)) { notes.unshift(rest); model = tidyModel(model) || head; head = ''; break; }
+    model += parts[k] + parts[k + 1];
+  }
+  if (head) model = head;
+
+  return { model: tidyModel(model) || t, note: notes.filter(Boolean).join(' ／ ') };
+}
+
+/* 型番（無ければ商品名）で既存の商品を探す */
+function findMaster(model, name, kind) {
+  const key = normModel(model || name);
+  if (!key) return null;
+  return db.masters.find(p => p.kind === (kind || 'individual')
+    && normModel(p.model || p.name) === key) || null;
+}
+
 const isLong = (it) => it.status === '貸出中' && daysSince(it.loaned_at) > LOAN_LONG_DAYS;
 const needsOrder = (p) => (p.qty || 0) <= (p.min_qty || 0);
 
@@ -757,6 +813,18 @@ function renderListBody() {
   refreshSelBar();
 }
 
+/* 商品名が型番と同じなら二重に出さない（例「16-AG0005AU」） */
+const sameName = (p) => !p.name || !p.model || normModel(p.name) === normModel(p.model);
+
+/* 一覧に出す管理番号。1商品に何十台もぶら下がるので、先頭だけ出して残りは件数にする */
+function unitNos(p) {
+  if (p.kind !== 'individual') return '<span class="meta">—</span>';
+  const list = itemsOf(p.code).filter(i => !GONE.includes(i.status));
+  if (!list.length) return '<span class="meta" style="color:#B3261E">個体なし</span>';
+  const head = list.slice(0, 2).map(i => esc(i.id)).join('<br>');
+  return head + (list.length > 2 ? `<br><span class="meta">ほか ${list.length - 2}件</span>` : '');
+}
+
 function listBodyHtml() {
   const rows = listFiltered();
   if (!rows.length) return `<div class="empty" style="margin-top:15px">該当する商品はありません。</div>`;
@@ -766,9 +834,10 @@ function listBodyHtml() {
     <thead><tr>
       ${canEdit() ? `<th class="ck"><input type="checkbox" id="selAll" onclick="toggleAll(this.checked)"
         ${allSelected(rows) ? 'checked' : ''} title="表示中をすべて選ぶ"></th>` : ''}
-      <th>商品名</th><th>型番</th><th>メーカー</th><th>カテゴリ</th>
+      <th>型番</th><th>管理番号</th><th>メーカー</th><th>カテゴリ</th>
       <th style="text-align:right">現在庫</th><th style="text-align:right">登録数</th>
       <th>保管場所</th><th>在庫状態</th><th>販売状況</th><th>最終更新</th>
+      ${canEdit() ? '<th>在庫を動かす</th>' : ''}
     </tr></thead>
     <tbody>${rows.map(p => {
       const s = stockOf(p);
@@ -776,9 +845,10 @@ function listBodyHtml() {
       return `<tr class="clk${ui.sel[p.code] ? ' on' : ''}" onclick="go('prod','${esc(p.code)}')">
         ${canEdit() ? `<td class="ck" onclick="event.stopPropagation()">
           <input type="checkbox" ${ui.sel[p.code] ? 'checked' : ''} onchange="toggleOne('${esc(p.code)}',this.checked)"></td>` : ''}
-        <td><span style="font-weight:500">${esc(titleOf(p))}</span>
+        <td><span style="font-weight:500">${esc(p.model || titleOf(p))}</span>
+          ${sameName(p) ? '' : `<div class="meta">${esc(p.name)}</div>`}
           <div class="meta">${esc(p.code)}${p.kind === 'quantity' ? '／数量管理' : ''}</div></td>
-        <td class="nowrap">${esc(p.model || '')}</td>
+        <td class="meta nos">${unitNos(p)}</td>
         <td class="nowrap">${esc(p.maker || '')}</td>
         <td class="nowrap">${esc(catName(p.category_id))}</td>
         <td class="num" style="font-size:18px;font-weight:600;${s.inStock <= 0 ? 'color:#B3261E' : ''}">${s.inStock}</td>
@@ -787,6 +857,13 @@ function listBodyHtml() {
         <td>${stockTag(lbl)}</td>
         <td>${channelChips(p.code)}</td>
         <td class="meta nowrap">${touchedAt(p) ? fmtD(touchedAt(p)) : '—'}</td>
+        ${canEdit() ? `<td class="nowrap ops2" onclick="event.stopPropagation()">${
+          p.kind === 'individual'
+            ? `<button class="btn sm" onclick="sheetSellQty('${esc(p.code)}')" ${s.inStock ? '' : 'disabled'}
+                 title="売れたぶんを在庫から引きます">売れた</button>`
+            : `<button class="btn sm" onclick="sheetIn('${esc(p.code)}')">入庫</button>
+               <button class="btn sm" onclick="sheetOut('${esc(p.code)}')" ${p.qty > 0 ? '' : 'disabled'}>出庫</button>`
+        }</td>` : ''}
       </tr>`;
     }).join('')}</tbody></table></div>`;
 }
@@ -994,6 +1071,22 @@ function showBatch(id, justNow) {
 }
 function clearBatch() { ui.fBatch = null; render(); }
 function batchOf(id) { return db.imports.find(r => r.id === id) || null; }
+
+/* 今回発行したQRだけをまとめて印刷する。棚に貼るのは取り込んだ直後なので、
+   選び直さなくてよいようにここから直接ラベル画面へ渡す */
+function printBatchQr(id) {
+  const b = batchOf(id);
+  const ids = (b && b.item_ids) || [];
+  const live = ids.filter(x => item(x));
+  if (!live.length) { toast('印刷できるQRがありません'); return; }
+  ui.labelSel = {};
+  live.forEach(x => { ui.labelSel[labelKey('item', x)] = true; });
+  go('labels');
+  if (live.length < ids.length) toast(`${ids.length - live.length}件は削除済みのため除きました`);
+}
+const batchQrBtn = (b, cls) => (b && (b.item_ids || []).length)
+  ? `<button class="btn ${cls || 'sm'}" onclick="printBatchQr(${b.id})">
+      <span class="ms">print</span>今回登録したQRを印刷（${(b.item_ids || []).length}枚）</button>` : '';
 function batchBanner() {
   const b = batchOf(ui.fBatch);
   if (!b) return '';
@@ -1007,6 +1100,7 @@ function batchBanner() {
       <div class="meta">個体 ${b.item_count}台　${esc(fmtDT(b.imported_at))}　${esc(b.file_name || '')}${
         alive !== codes.length ? `　（${codes.length - alive}件は削除済み）` : ''}</div>
     </div>
+    ${batchQrBtn(b)}
     <button class="btn sm ghost" onclick="clearBatch()">すべて表示</button>
   </div>`;
 }
@@ -1053,7 +1147,7 @@ async function readInventoryCsv(input) {
   const body = table.slice(head + 1).filter(r => r.some(c => String(c).trim() !== ''));
 
   impMap.loc = {}; impMap.cat = {};
-  planPrice = {};
+  planPrice = {}; planQty = {};
   importSrc = { mode, H, idx, body, file: file.name, encoding, headRow: head };
   replan();
   showImportPreview();
@@ -1119,21 +1213,37 @@ function planMaster(H, idx, body, file, encoding, headRow) {
     const kind = g('管理方式') === '数量管理' ? 'quantity' : 'individual';
     const key = g('商品ID') || g('型番') || name;
 
-    const exists = (g('商品ID') && prod(g('商品ID')))
-      || db.masters.find(p => p.kind === kind && (p.model || p.name || '') === (g('型番') || name));
-    if (exists) { skip.push({ line, key: exists.code, name: titleOf(exists) }); return; }
-    if (seen[key]) { bad.push({ line, key, reason: 'dup', why: `${seen[key]}行目と重複しています` }); return; }
-    seen[key] = line;
+    // 型番に状態や不具合が混ざっていたら分ける
+    const sp = splitModel(g('型番'));
+    const model = sp.model || g('型番');
+
+    // 型番をそろえて既存を探す。CSVの商品IDは当てにしない
+    // （手元のメモでしかなく、DBの主キーと同じとはかぎらない）
+    const exists = findMaster(model, name, kind)
+      || db.masters.find(p => g('商品ID') && p.source_code === g('商品ID'));
+    // 同じ型番が2行に分かれていても、商品は1つにまとめて個体を両方ぶら下げる
+    const dupKey = normModel(model || name) + '/' + kind;
+    const twin = seen[dupKey] || null;
 
     const ca = findCat(g('カテゴリ'), kind);
     if (!ca.id) { bad.push({ line, key, ...ca }); return; }
     const lo = findLoc(g('保管場所').split(' ほか')[0]);
     if (!lo.id) { bad.push({ line, key, ...lo }); return; }
 
-    add.push({
+    const nos = (g('管理番号一覧') || '').split('/').map(x => x.trim())
+      .filter(no => no && !item(no));
+    // 商品はあっても管理番号が入っていないことがある。足りない個体だけ足す
+    if (exists && !nos.length) { skip.push({ line, key: exists.code, name: titleOf(exists) }); return; }
+    const unitNote = [sp.note || '', sp.note ? `元の型番表記: ${g('型番')}` : ''].filter(Boolean).join('\n') || null;
+
+    const entry = {
       line, key,
+      sharesWith: exists ? exists.code : (twin ? twin.key : null),
+      repair: !!exists,
       master: {
-        code: g('商品ID') || null, name: g('商品名') || null, model: g('型番') || null,
+        // CSVの商品IDは主キーにしない。DB側で採番し、元の番号は控えとして持つ
+        code: exists ? exists.code : null, source_code: g('商品ID') || null,
+        name: g('商品名') || null, model: model || null,
         maker: g('メーカー') || null, category_id: ca.id, kind, spec: g('スペック') || null,
         location_id: lo.id, qty: kind === 'quantity' ? (numOf(g('現在庫')) || 0) : 0,
         min_qty: numOf(cellAny(idx, row, ['最低在庫', '最低在庫数'])) || 0,
@@ -1141,9 +1251,11 @@ function planMaster(H, idx, body, file, encoding, headRow) {
         note: g('備考') || null,
         legacy_note: cellAny(idx, row, ['旧データ備考', '旧データ在庫内訳']) || null
       },
-      units: (g('管理番号一覧') || '').split('/').map(x => x.trim()).filter(Boolean).map(id => ({ id })),
-      channels: readChannels(idx, row)
-    });
+      units: nos.map(id => ({ id, note: unitNote })),
+      channels: exists ? [] : readChannels(idx, row)
+    };
+    if (!twin) seen[dupKey] = entry;
+    add.push(entry);
   });
   return { mode: 'master', add, skip, bad, file, encoding };
 }
@@ -1188,13 +1300,17 @@ function planLegacy(H, idx, body, file, encoding, headRow) {
   body.forEach((row, n) => {
     const line = headRow + 2 + n;
     const g = h => cell(idx, row, h);
-    const model = g('型番');
-    if (!model) { bad.push({ line, key: '', reason: 'no-model', why: '型番が空です' }); return; }
+    const rawModel = g('型番');
+    if (!rawModel) { bad.push({ line, key: '', reason: 'no-model', why: '型番が空です' }); return; }
+    // 型番に状態や不具合が混ざっていたら分ける。説明は個体の備考に回す
+    const sp = splitModel(rawModel);
+    const model = sp.model || rawModel;
 
-    const exists = db.masters.find(p => (p.model || '') === model);
-    if (exists) { skip.push({ line, key: exists.code, name: titleOf(exists) }); return; }
-    if (seenModel[model]) { bad.push({ line, key: model, reason: 'dup', why: `${seenModel[model]}行目と型番が重複しています` }); return; }
-    seenModel[model] = line;
+    const exists = findMaster(model, model, 'individual');
+    // 同じ型番が2行に分かれていることがある（「A B」と「AB」など空白の有無）。
+    // 商品は1つにまとめ、管理番号は捨てずに両方ぶら下げる
+    const mk = normModel(model);
+    const twin = seenModel[mk] || null;
 
     const nos = [], dropped = [];
     (g('管理番号一覧') || '').split('/').map(x => x.trim()).filter(Boolean).forEach(no => {
@@ -1227,17 +1343,32 @@ function planLegacy(H, idx, body, file, encoding, headRow) {
       else c.note = (c.note ? c.note + ' ／ ' : '') + v;
     });
 
-    add.push({
+    // 商品はあっても管理番号が入っていないことがある（取込が途中で止まった等）。
+    // そのときは商品を作らず、足りない個体だけ足す＝再取込がそのまま個体補完になる
+    if (exists && !nos.length) {
+      skip.push({ line, key: exists.code, name: titleOf(exists) });
+      return;
+    }
+
+    // 型番から切り出した状態・不具合は、その行の個体の備考に付ける
+    const unitNote = [sp.note || '', sp.note ? `元の型番表記: ${rawModel}` : ''].filter(Boolean).join('\n') || null;
+
+    const entry = {
       line, key: model,
+      sharesWith: exists ? exists.code : (twin ? twin.key : null),
       master: {
-        code: null, name: g('商品名') || null, model, maker: g('メーカー') || null,
+        code: exists ? exists.code : null,
+        name: g('商品名') || null, model, maker: g('メーカー') || null,
         category_id: null, kind: 'individual', spec: g('スペック') || null,
         location_id: null, qty: 0, min_qty: 0, note: null, legacy_note: legacyNote
       },
-      units: nos.map((id, k) => ({ id, status: states[k] || '不明' })),
-      channels: chans,
-      dropped: dropped.length
-    });
+      units: nos.map((id, k) => ({ id, status: states[k] || '不明', note: unitNote })),
+      channels: exists ? [] : chans,
+      dropped: dropped.length,
+      repair: !!exists
+    };
+    if (!twin) seenModel[mk] = entry;
+    add.push(entry);
   });
   return { mode: 'legacy', add, skip, bad, file, encoding };
 }
@@ -1249,7 +1380,16 @@ function planLegacy(H, idx, body, file, encoding, headRow) {
    価格は親にしか無いので、落札価格と落札料を子の台数で割って1台ずつに持たせる。
    割り切れないぶんは先頭の1台に寄せる（合計が仕入額とずれないように）。
    「商品名」の列は出品カテゴリ（NTPC / ｻﾌﾟﾗｲ）なので商品名には使わない。 */
-let planPrice = {};   // 出品番号 → 手で直した販売予定価格（仕入1件ぶんの合計）
+let planPrice = {};   // 出品番号 → 手で直した販売予定価格（1台あたり）
+let planQty = {};     // 出品番号 → 手で直した登録数量
+
+/* 採番する管理番号の頭。型番の先頭の英数字を使う（WKBｾｯﾄ → WKB）。
+   取れなければカテゴリの記号に任せる */
+function idPrefixOf(model) {
+  const m = String(model || '').toUpperCase().match(/^[A-Z0-9]+/);
+  const p = m ? m[0].slice(0, 6) : '';
+  return /[A-Z]/.test(p) ? p : '';
+}
 
 /* 「RYZEN7(7735U)-2.7GHZ / 16GB / 512GB / 14型」のように、中身のある列だけ並べる */
 const SPEC_COLS = [['CPU（性能）', ''], ['RAMサイズ', ''], ['ＨＤ容量', ''],
@@ -1281,10 +1421,49 @@ function splitEven(total, n) {
   return out;
 }
 
+/* 登録数量ぶんの個体を組み立てる。数量を変えるたびにここで作り直す。
+     数量と個品IDの数が合っている  → 個品IDをそのまま管理番号にする（現物のバーコードと一致）
+     合っていない（セットなど）    → 管理番号を1台ずつ採番し、元の個品IDは仕入元IDとして残す
+   落札価格と落札料は仕入全体の金額なので、登録数量で割って1台ずつに持たせる。
+   端数は先頭の1台に寄せて、合計が仕入額とずれないようにする。 */
+function buildUnits(x) {
+  const qty = x.lot.qty, s = x.src;
+  const same = qty === s.kids.length;
+  const buy = splitEven(x.lot.buy, qty), fee = splitEven(x.lot.fee, qty);
+  const src = s.kids.map(k => k.id).join(' / ');
+  const out = [];
+  for (let i = 0; i < qty; i++) {
+    const k = same ? s.kids[i] : s.kids[0];
+    out.push({
+      id: same ? k.id : null,              // null なら取り込むときに採番する
+      source_id: same ? null : src,
+      idPrefix: x.idPrefix,
+      status: '在庫',
+      // シリアル番号は1台を指すものなので、数が合わないときは付けない（同じ番号が並ぶのを防ぐ）
+      serial: same ? (k.serial || null) : null,
+      note: k.note || null,
+      purchased_on: s.bought,
+      price: buy[i],
+      purchase_fee: fee[i],
+      plan_price: x.plan                   // 販売予定価格は1台あたり
+    });
+  }
+  return out;
+}
+const costPer = (x) => x.lot.qty ? x.lot.cost / x.lot.qty : 0;
+const gainPer = (x) => x.plan == null ? null : x.plan - costPer(x);
+const gainLot = (x) => x.plan == null ? null : x.plan * x.lot.qty - x.lot.cost;
+
 function planPurchase(H, idx, body, file, encoding, headRow) {
   const add = [], skip = [], bad = [];
   const seenNo = {}, seenLot = {};
-  db.items.forEach(i => { seenNo[i.id] = 'すでに在庫にあります'; });
+  db.items.forEach(i => {
+    seenNo[i.id] = 'すでに在庫にあります';
+    // 採番して入れたものは、元の個品IDでも二重登録を防げるようにする
+    String(i.source_id || '').split('/').forEach(v => {
+      const t = v.trim(); if (t) seenNo[t] = 'すでに在庫にあります';
+    });
+  });
 
   // 出品番号ごとにまとめる。親（落札価格のある行）と子（個品IDのある行）に分ける
   const lots = [], byLot = {};
@@ -1312,13 +1491,12 @@ function planPurchase(H, idx, body, file, encoding, headRow) {
     const model = P('型番') || lot.kids.map(k => cell(idx, k.row, '型番')).find(Boolean) || '';
     if (!model) { bad.push({ line, key, reason: 'no-model', why: '型番が空です' }); return; }
 
-    // 個品ID（バーコード）をそのまま管理番号にする。現物に貼ってある番号と一致する
     const kids = [], dropped = [];
     let already = 0;
     lot.kids.forEach(k => {
       const id = cell(idx, k.row, '個品ID(バーコード)') || cell(idx, k.row, '個品ID');
       if (!id) { dropped.push(`${k.line}行目（個品IDが空）`); return; }
-      if (seenNo[id]) { dropped.push(`${id}（${seenNo[id]}）`); if (item(id)) already++; return; }
+      if (seenNo[id]) { dropped.push(`${id}（${seenNo[id]}）`); already++; return; }
       seenNo[id] = `${k.line}行目`;
       kids.push({ id, row: k.row });
     });
@@ -1332,22 +1510,32 @@ function planPurchase(H, idx, body, file, encoding, headRow) {
     const buy = numOf(P('落札価格')) || 0;
     const fee = numOf(P('落札料')) || 0;
     const cost = buy + fee;
-    const plan = planPrice[key] != null ? planPrice[key] : suggestPlan(cost);
-
-    const n = kids.length;
-    const parts = { buy: splitEven(buy, n), fee: splitEven(fee, n), plan: plan == null ? null : splitEven(plan, n) };
-    const total = numOf(P('総数'));
     const bought = ymd8(P('開催日'));
+
+    // 在庫数の基準は個品IDの数ではなく「総数」。
+    // セット出品は個品IDが1つでも現物は9個ある、という形で来るため。
+    const csvQty = numOf(P('総数')) || kids.length;
+    const qty = planQty[key] != null ? planQty[key] : csvQty;
+    const plan = planPrice[key] != null ? planPrice[key] : suggestPlan(cost / qty);
 
     // 同じ型番を別の出品番号で買うことがある。商品は1つにまとめ、個体だけ足す
     // （値段は個体ごとに持つので、仕入額が違っても1つの商品にぶら下げられる）
-    const known = db.masters.find(q => (q.model || '') === model);
-    const earlier = add.find(a => a.master.model === model);
+    const known = findMaster(model, model, 'individual');
+    const earlier = add.find(a => normModel(a.master.model) === normModel(model));
 
-    add.push({
+    const x = {
       line, key,
-      lot: { no: key, buy, fee, cost, qty: n, total: total || n, kumi: P('構成') || '' },
+      lot: { no: key, buy, fee, cost, qty, csvQty, kumi: P('構成') || '' },
       plan,
+      idPrefix: idPrefixOf(model),
+      src: {
+        bought,
+        kids: kids.map(k => ({
+          id: k.id,
+          serial: cell(idx, k.row, 'Ｓ／Ｎ') || null,
+          note: purchaseNote(idx, k.row) || null
+        }))
+      },
       sharesWith: known ? known.code : (earlier ? earlier.key : null),
       master: {
         code: known ? known.code : null, name: model, model, maker: maker || null,
@@ -1355,23 +1543,15 @@ function planPurchase(H, idx, body, file, encoding, headRow) {
         spec: purchaseSpec(idx, kids[0].row) || null,
         location_id: null, qty: 0, min_qty: 0,
         note: [`出品番号 ${key}`,
-               P('構成') ? `構成 ${P('構成')}（総数 ${total || n}）` : '',
+               P('構成') ? `構成 ${P('構成')}（総数 ${csvQty}）` : '',
                bought ? `仕入日 ${bought}` : ''].filter(Boolean).join('　'),
         legacy_note: null
       },
-      units: kids.map((k, i) => ({
-        id: k.id,
-        status: '在庫',
-        serial: cell(idx, k.row, 'Ｓ／Ｎ') || null,
-        note: purchaseNote(idx, k.row) || null,
-        purchased_on: bought,
-        price: parts.buy[i],
-        purchase_fee: parts.fee[i],
-        plan_price: parts.plan ? parts.plan[i] : null
-      })),
       channels: [],
       dropped: dropped.length
-    });
+    };
+    x.units = buildUnits(x);
+    add.push(x);
   });
   return { mode: 'purchase', add, skip, bad, file, encoding };
 }
@@ -1385,11 +1565,31 @@ function setPlanPrice(i, v) {
   const n = s === '' ? null : numOf(s);
   if (n == null || isNaN(n)) delete planPrice[x.key]; else planPrice[x.key] = n;
   x.plan = planPrice[x.key] != null ? planPrice[x.key] : null;
-  const parts = x.plan == null ? null : splitEven(x.plan, x.units.length);
-  x.units.forEach((u, k) => { u.plan_price = parts ? parts[k] : null; });
+  x.units.forEach(u => { u.plan_price = x.plan; });
   paintPurchase(i);
 }
-function paintPurchase(i) {
+
+/* 登録数量を直す。個体の数・QRの数・1台あたり原価・想定利益がその場で変わる。
+   値段を手で決めていなければ、1台あたり原価が変わったぶん目安も付け直す。 */
+function setPlanQty(i, v) {
+  const x = (importPlan.add || [])[i];
+  if (!x) return;
+  const n = Math.floor(numOf(String(v == null ? '' : v).trim()));
+  if (!n || isNaN(n) || n < 1 || n > 999) return;    // 入力の途中は触らない
+  x.lot.qty = n;
+  planQty[x.key] = n;
+  if (planPrice[x.key] == null) x.plan = suggestPlan(x.lot.cost / n);
+  x.units = buildUnits(x);
+  paintPurchase(i, true);
+}
+/* 数量の欄から離れたとき、入れかけの値が残らないように戻す */
+function fixPlanQty(i) {
+  const x = (importPlan.add || [])[i];
+  const el = $('pq-' + i);
+  if (x && el) el.value = x.lot.qty;
+}
+
+function paintPurchase(i, qtyChanged) {
   const x = (importPlan.add || [])[i];
   const set = (id, text, minus) => {
     const e = $(id);
@@ -1398,23 +1598,37 @@ function paintPurchase(i) {
     e.classList.toggle('minus', !!minus);
   };
   if (x) {
-    const g = x.plan == null ? null : x.plan - x.lot.cost;
-    set('pg-' + i, g == null ? '—' : yen(g), g != null && g < 0);
+    const g = gainPer(x);
+    set('pc-' + i, yen(Math.round(costPer(x))));
+    set('pg-' + i, g == null ? '—' : yen(Math.round(g)), g != null && g < 0);
+    set('pgl-' + i, gainLot(x) == null ? '' : `合計 ${yen(Math.round(gainLot(x)))}`);
+    const note = $('pqn-' + i);
+    if (note) {
+      note.textContent = x.lot.qty === x.lot.csvQty ? `CSV ${x.lot.csvQty}` : `CSV ${x.lot.csvQty} → ${x.lot.qty}`;
+      note.classList.toggle('chg', x.lot.qty !== x.lot.csvQty);
+    }
+    const pp = $('pp-' + i);
+    if (qtyChanged && pp && planPrice[x.key] == null) pp.value = x.plan == null ? '' : x.plan;
   }
-  // 表の合計と、上のまとめの両方を書き換える（片方だけ古いままにならないように）
+  // 表の合計・上のまとめ・ボタンを、どれも古いまま残さないように一度に書き換える
   const t = purchaseTotals(importPlan.add);
   const minus = t.priced && t.gain < 0;
+  set('ptQty', String(t.units));
   set('ptCost', yen(t.cost));   set('sumCost', yen(t.cost));
   set('ptPlan', t.plan ? yen(t.plan) : '—');
   set('sumPlan', t.plan ? yen(t.plan) : '—');
   set('ptGain', t.priced ? yen(t.gain) : '—', minus);
   set('sumGain', t.priced ? yen(t.gain) : '—', minus);
+  const su = $('sumUnits');
+  if (su) su.innerHTML = `${t.units}<span class="u">台</span>`;
+  const btn = $('btnApply');
+  if (btn) btn.textContent = `一括登録（商品 ${countPlan(importPlan).prods}・個体 ${t.units}）`;
 }
 function purchaseTotals(add) {
   return (add || []).filter(x => x.lot).reduce((a, x) => {
     a.cost += x.lot.cost;
-    a.units += x.units.length;
-    if (x.plan != null) { a.plan += x.plan; a.gain += x.plan - x.lot.cost; a.priced++; }
+    a.units += x.lot.qty;
+    if (x.plan != null) { a.plan += x.plan * x.lot.qty; a.gain += x.plan * x.lot.qty - x.lot.cost; a.priced++; }
     return a;
   }, { cost: 0, plan: 0, gain: 0, units: 0, priced: 0 });
 }
@@ -1473,31 +1687,39 @@ function purchaseTable(add) {
   return `<div class="table-wrap"><table class="t buy">
     <thead><tr>
       <th>商品名</th><th>型番</th><th class="r">数量</th>
-      <th class="r">原価</th><th class="r">販売予定価格</th><th class="r">想定利益</th>
+      <th class="r">1台あたり原価</th><th class="r">販売予定価格</th><th class="r">想定利益</th>
     </tr></thead>
     <tbody>${add.map((x, i) => {
-      const g = x.plan == null ? null : x.plan - x.lot.cost;
+      const g = gainPer(x), gl = gainLot(x);
+      const set = x.lot.csvQty > x.src.kids.length;
       return `<tr>
-        <td>${esc(x.master.name)}${x.lot.qty !== x.lot.total
-              ? `<div class="meta">${esc(x.lot.kumi || 'セット')}　総数 ${x.lot.total}</div>` : ''}</td>
+        <td>${esc(x.master.name)}${set
+              ? `<div class="meta">${esc(x.lot.kumi || 'セット')}　個品ID ${x.src.kids.length}件 → 管理番号は1台ずつ発行</div>` : ''}</td>
         <td class="nowrap">${esc(x.master.model)}</td>
-        <td class="r num">${x.lot.qty}</td>
-        <td class="r num">${yen(x.lot.cost)}
-          <div class="meta">仕入 ${yen(x.lot.buy)}＋手数料 ${yen(x.lot.fee)}</div></td>
-        <td class="r"><input class="input num plan" type="number" min="0" step="100"
+        <td class="r">
+          <input class="input num qty" type="number" min="1" max="999" step="1" id="pq-${i}"
+                 value="${x.lot.qty}" oninput="setPlanQty(${i},this.value)" onchange="fixPlanQty(${i})">
+          <div class="meta qn${x.lot.qty !== x.lot.csvQty ? ' chg' : ''}" id="pqn-${i}">${
+            x.lot.qty === x.lot.csvQty ? `CSV ${x.lot.csvQty}` : `CSV ${x.lot.csvQty} → ${x.lot.qty}`}</div></td>
+        <td class="r num" ><span id="pc-${i}">${yen(Math.round(costPer(x)))}</span>
+          <div class="meta">仕入合計 ${yen(x.lot.cost)}<br>（${yen(x.lot.buy)}＋手数料 ${yen(x.lot.fee)}）</div></td>
+        <td class="r"><input class="input num plan" type="number" min="0" step="100" id="pp-${i}"
               value="${x.plan == null ? '' : esc(x.plan)}" placeholder="—"
               oninput="setPlanPrice(${i},this.value)"></td>
-        <td class="r num${g != null && g < 0 ? ' minus' : ''}" id="pg-${i}">${g == null ? '—' : yen(g)}</td>
+        <td class="r num"><span id="pg-${i}" class="${g != null && g < 0 ? 'minus' : ''}">${
+            g == null ? '—' : yen(Math.round(g))}</span>
+          <div class="meta" id="pgl-${i}">${gl == null ? '' : `合計 ${yen(Math.round(gl))}`}</div></td>
       </tr>`;
     }).join('')}</tbody>
     <tfoot><tr>
       <th colspan="2">合計</th>
-      <th class="r num">${t.units}</th>
+      <th class="r num" id="ptQty">${t.units}</th>
       <th class="r num" id="ptCost">${yen(t.cost)}</th>
       <th class="r num" id="ptPlan">${t.plan ? yen(t.plan) : '—'}</th>
       <th class="r num${t.priced && t.gain < 0 ? ' minus' : ''}" id="ptGain">${t.priced ? yen(t.gain) : '—'}</th>
     </tr></tfoot>
-  </table></div>`;
+  </table></div>
+  <p class="meta" style="margin:6px 0 0">合計の欄は、数量ぶんを足した金額です（1台あたりではありません）。</p>`;
 }
 
 /* 確認画面に出す件数。二重登録を防いでいることが数で分かるようにする。
@@ -1510,7 +1732,8 @@ function countPlan(p) {
   let intoExisting = 0;
   p.add.forEach(x => {
     const known = x.master.code && prod(x.master.code);
-    const key = known ? x.master.code : (x.master.model || x.master.name || x.key);
+    const key = known ? x.master.code
+      : normModel(x.master.model || x.master.name || x.key) + '/' + (x.master.kind || 'individual');
     touched[key] = true;
     if (known || fresh[key]) { intoExisting++; return; }   // すでにある商品／この取込で作った商品に足す
     fresh[key] = true;
@@ -1558,11 +1781,13 @@ function showImportPreview() {
   const t = purchaseTotals(p.add);
   const shared = p.add.filter(x => x.sharesWith).length;
   const c = countPlan(p);
+  const repair = p.add.filter(x => x.repair);
+  const repairUnits = repair.reduce((n, x) => n + x.units.length, 0);
 
   openModal(buy ? '仕入CSV取込の確認' : '取り込む内容の確認', `
     <div class="card" style="margin-bottom:15px">
       ${esc(p.file)}（${p.encoding === 'shift_jis' ? 'Shift_JIS' : 'UTF-8'}として読み込み）<br>
-      ${buy ? '<strong>仕入CSV</strong>として読みました。出品番号ごとに値段をまとめ、個品IDを管理番号にして1台ずつ登録します。'
+      ${buy ? '<strong>仕入CSV</strong>として読みました。<strong>「総数」を在庫の台数として</strong>、1台ずつ管理番号とQRを発行します。'
             : legacy ? '<strong>統合在庫一覧（型番別）</strong>として読みました。型番ごとに商品マスタを作り、管理番号を1台ずつの個体に分けます。'
                      : '<strong>この画面の書き出し形式</strong>として読みました。'}<br>
       <strong>すでにある在庫は書き換えません。</strong>CSVにあって在庫に無いものだけを追加します。
@@ -1570,7 +1795,7 @@ function showImportPreview() {
     ${buy ? `<div class="sum five">
       <div><div class="lbl">新規商品</div><div class="v add">${c.newProd}</div></div>
       <div><div class="lbl">既存商品への追加</div><div class="v add">${c.intoExisting}</div></div>
-      <div><div class="lbl">個体</div><div class="v add">${units}<span class="u">台</span></div></div>
+      <div><div class="lbl">個体・QR</div><div class="v add" id="sumUnits">${units}<span class="u">台</span></div></div>
       <div><div class="lbl">登録済み</div><div class="v skip">${c.done}</div></div>
       <div><div class="lbl">重複・取り込めない</div><div class="v${c.skipped ? ' err' : ''}">${c.skipped}</div></div>
     </div>
@@ -1580,7 +1805,7 @@ function showImportPreview() {
       <div><div class="lbl">想定利益</div>
         <div class="v add" id="sumGain">${t.priced ? yen(t.gain) : '—'}</div></div>
     </div>` : `<div class="sum">
-      <div><div class="lbl">商品マスタ</div><div class="v add">${p.add.length}</div></div>
+      <div><div class="lbl">商品マスタ</div><div class="v add">${c.newProd}</div></div>
       <div><div class="lbl">個体</div><div class="v add">${units}</div></div>
       <div><div class="lbl">すでにある</div><div class="v skip">${p.skip.length}</div></div>
       <div><div class="lbl">取り込めない</div><div class="v err">${p.bad.length}</div></div>
@@ -1589,9 +1814,12 @@ function showImportPreview() {
     ${buy && p.add.length ? `<div class="lbl" style="margin-bottom:6px">取り込む商品</div>
       ${purchaseTable(p.add)}
       <p class="meta" style="margin:-4px 0 14px">
-        原価 ＝ 落札価格 ＋ 落札料。販売予定価格は原価の1.3倍を目安に入れてあります。<strong>その場で直せます。</strong>
-        ${p.add.some(x => x.lot.qty > 1) ? '複数台のものは、原価と販売予定価格を台数で割って1台ずつに持たせます。' : ''}
-        ${shared ? `同じ型番の <strong>${shared}件</strong> は、商品を分けずに個体だけ足します（値段は1台ずつ持ちます）。` : ''}</p>` : ''}
+        <strong>数量はその場で直せます。</strong>直すと個体数・QRの発行枚数・1台あたり原価・想定利益がすぐ付いてきます。<br>
+        1台あたり原価 ＝（落札価格 ＋ 落札料）÷ 数量。端数は先頭の1台に寄せるので、合計は仕入額と一致します。
+        販売予定価格は1台あたり原価の1.3倍を目安に入れてあります（手で直したものはそのまま残します）。
+        ${p.add.some(x => x.lot.csvQty > x.src.kids.length)
+          ? '<br>個品IDより総数が多いものは、<strong>管理番号を1台ずつ発行して別々のQRにします</strong>。元の個品IDは仕入元IDとして全台に残します。' : ''}
+        ${shared ? `<br>同じ型番の <strong>${shared}件</strong> は、商品を分けずに個体だけ足します（値段は1台ずつ持ちます）。` : ''}</p>` : ''}
 
     ${buy && p.add.length ? `<div class="card" style="margin-bottom:15px">
       <div class="lbl" style="margin-bottom:5px">カテゴリと保管場所</div>
@@ -1605,6 +1833,14 @@ function showImportPreview() {
           <select class="input" id="impLoc">${locOptions(defaultImportLoc(), '選択してください')}</select></label>
       </div>
       ${dropped ? `<p class="meta" style="margin:10px 0 0">個品IDが空か重複していた <strong>${dropped}行</strong> は取り込みません。</p>` : ''}
+    </div>` : ''}
+
+    ${repair.length ? `<div class="card" style="margin-bottom:15px">
+      <div class="lbl" style="margin-bottom:5px">足りない個体を補います</div>
+      すでにある商品 <strong>${repair.length}件</strong> に、まだ入っていない管理番号
+      <strong>${repairUnits}件</strong> を足します。<strong>商品マスタは作り直しません。</strong><br>
+      <span class="meta">${repair.slice(0, 8).map(x => esc(x.master.model || x.key)).join('、')}${
+        repair.length > 8 ? ` ほか${repair.length - 8}件` : ''}</span>
     </div>` : ''}
 
     ${groups.length ? `<div class="lbl" style="margin-bottom:6px">取り込めない理由</div>
@@ -1648,7 +1884,7 @@ function showImportPreview() {
   `, [
     ['閉じる', 'closeModal()', 'btn ghost'],
     ...(p.add.length && canAdmin() ? [[buy ? `一括登録（商品 ${c.prods}・個体 ${units}）` : `${p.add.length}商品・${units}台を追加`,
-                                       'applyInventoryImport()', 'btn lime']] : [])
+                                       'applyInventoryImport()', 'btn lime', 'btnApply']] : [])
   ]);
 }
 
@@ -1662,36 +1898,35 @@ async function applyInventoryImport() {
   closeModal();
   toast(p.mode === 'purchase' ? `仕入 ${p.add.length}件を登録しています…` : `${p.add.length}商品を取り込んでいます…`);
 
-  const masters = [], units = [], chans = [], txs = [];
-  const madeCode = {};                     // 型番 → この取り込みで使う商品ID
+  const units = [], chans = [], txs = [];
   const touched = [];                      // 今回さわった商品。取込履歴に残して一覧を絞れるようにする
+  let madeProds = 0;                       // 実際に新しく作った商品の数
   for (const x of p.add) {
     const m = Object.assign({}, x.master);
     if (pickHere) { m.category_id = catId; m.location_id = locId; }
-
-    // 仕入CSVは同じ型番を別の出品番号で買うことがある。商品は作らず、個体だけ足す
-    const share = p.mode === 'purchase' ? (m.model || m.name || '') : '';
-    let have = false;
-    if (share && madeCode[share]) { m.code = madeCode[share]; have = true; }
-    if (m.code && prod(m.code)) {
-      const q = prod(m.code);
-      m.category_id = q.category_id;       // 既にある商品の分類に合わせる（置き場所は今回選んだところ）
-      have = true;
-    }
-    if (!m.code) {
-      const { data, error } = await sb.rpc('inv_next_id', { p_prefix: m.kind === 'individual' ? 'P' : 'SKU', p_digits: m.kind === 'individual' ? 5 : 4 });
-      if (error) { toast('商品IDを採番できませんでした：' + error.message); return; }
-      m.code = data;
-    }
     if (!m.name) m.name = m.model;
-    if (share) madeCode[share] = m.code;
-    if (!have) masters.push(m);
+
+    // 商品は「型番で探して、無ければ作る」を関数の中で1回でやる。
+    // CSVの商品IDを主キーにしない（既存の主キーとぶつかるため）。
+    // 同じ型番を毎週仕入れても、商品は1つのまま個体だけ増えていく。
+    const up = await sb.rpc('inv_upsert_product', { p_row: {
+      model: m.model, name: m.name, kind: m.kind, maker: m.maker,
+      category_id: m.category_id, location_id: m.location_id, spec: m.spec,
+      qty: m.qty, min_qty: m.min_qty, supplier: m.supplier, unit_price: m.unit_price,
+      note: m.note, legacy_note: m.legacy_note, source_code: m.source_code || null
+    } });
+    if (up.error) { toast('商品を登録できませんでした：' + up.error.message); return; }
+    m.code = up.data.code;
+    if (up.data.created) madeProds++;
+    // 個体の分類は商品に合わせる（置き場所は今回選んだところ）
+    else if (up.data.category_id) m.category_id = up.data.category_id;
     if (touched.indexOf(m.code) < 0) touched.push(m.code);
 
     for (const u of x.units) {
       let id = u.id;
       if (!id) {
-        const pre = (cat(m.category_id) || {}).code_prefix || 'IT';
+        // 型番から取れる記号を頭に使う（WKBｾｯﾄ → WKB-00001）。取れなければカテゴリの記号
+        const pre = u.idPrefix || (cat(m.category_id) || {}).code_prefix || 'IT';
         const { data, error } = await sb.rpc('inv_next_id', { p_prefix: pre, p_digits: 5 });
         if (error) { toast('管理番号を採番できませんでした：' + error.message); return; }
         id = data;
@@ -1702,7 +1937,7 @@ async function applyInventoryImport() {
         status: u.status || '在庫', legacy_note: m.legacy_note
       };
       // 仕入CSVは1台ずつに値段と個体の情報が付く。cost は計算される列なので送らない
-      ['serial', 'note', 'purchased_on', 'price', 'purchase_fee', 'plan_price'].forEach(k => {
+      ['serial', 'note', 'purchased_on', 'price', 'purchase_fee', 'plan_price', 'source_id'].forEach(k => {
         if (u[k] != null && u[k] !== '') row[k] = u[k];
       });
       units.push(row);
@@ -1726,10 +1961,8 @@ async function applyInventoryImport() {
   };
   const wasBuy = p.mode === 'purchase';
   const t = purchaseTotals(p.add);
-  const cnt = countPlan(p);             // 確認画面で見せた件数と同じものを履歴に残す
   let batchId = null;
   try {
-    if (masters.length) await ins('inventory_products', masters);
     if (units.length) await ins('inventory_items', units);
     if (chans.length) await ins('inventory_channels', chans);
     if (txs.length) await ins('inventory_transactions', txs);
@@ -1738,29 +1971,30 @@ async function applyInventoryImport() {
       actor: me.name, file_name: p.file, kind: p.mode,
       product_count: touched.length, item_count: units.length,
       product_codes: touched,
+      item_ids: units.map(u => u.id),      // 今回のQRだけまとめて印刷するのに使う
       summary: wasBuy
-        ? `新規 ${cnt.newProd}商品／既存へ追加 ${cnt.intoExisting}件`
+        ? `新規 ${madeProds}商品／既存へ追加 ${touched.length - madeProds}商品`
           + `／原価 ${yen(t.cost)}／想定利益 ${t.priced ? yen(t.gain) : '—'}`
-        : `新規 ${masters.length}商品`
+        : `新規 ${madeProds}商品`
     }).select();
     if (!error && data && data[0]) batchId = data[0].id;
   } catch (e) { toast(e.message); return; }
 
   importPlan = null; importSrc = null;
-  impMap.loc = {}; impMap.cat = {}; planPrice = {};
+  impMap.loc = {}; impMap.cat = {}; planPrice = {}; planQty = {};
   await loadAll();
   // 取り込んだら商品管理一覧に戻り、今回の分だけを出す
   if (batchId) showBatch(batchId, true); else { ui.fBatch = null; ui.doneBatch = null; go('list'); }
   toast(wasBuy ? `商品 ${touched.length}件・個体 ${units.length}台を登録しました（原価 ${yen(t.cost)}／想定利益 ${t.priced ? yen(t.gain) : '—'}）`
-               : `${masters.length}商品・${units.length}台を取り込みました`);
+               : `${madeProds}商品・${units.length}台を取り込みました`);
 }
 
 /* ---------------------------------------------------------------- モーダル */
 function openModal(title, body, buttons) {
   $('modalTitle').textContent = title;
   $('modalBody').innerHTML = body;
-  $('modalFoot').innerHTML = (buttons || []).map(([t, fn, cls]) =>
-    `<button class="${cls || 'btn'}" onclick="${fn}">${esc(t)}</button>`).join('');
+  $('modalFoot').innerHTML = (buttons || []).map(([t, fn, cls, id]) =>
+    `<button class="${cls || 'btn'}"${id ? ` id="${esc(id)}"` : ''} onclick="${fn}">${esc(t)}</button>`).join('');
   $('modal').classList.add('on');
 }
 function closeModal() { $('modal').classList.remove('on'); }
@@ -1792,6 +2026,7 @@ function viewItem() {
         <div><span class="k">メーカー・型番</span>${esc([(m || it).maker, (m || it).model].filter(Boolean).join(' ') || '—')}</div>
         ${m ? `<div><span class="k">商品</span><a href="#" onclick="go('prod','${esc(m.code)}');return false">${esc(m.code)} を見る</a></div>` : ''}
         <div><span class="k">シリアル番号</span>${esc(it.serial || '—')}</div>
+        ${it.source_id ? `<div><span class="k">仕入元ID</span>${esc(it.source_id)}</div>` : ''}
         <div><span class="k">仕入日</span>${it.purchased_on ? fmtD(it.purchased_on) : '—'}</div>
         <div><span class="k">棚卸確認</span>${it.last_checked_at ? fmtDT(it.last_checked_at) : '未確認'}</div>
       </div>
@@ -1989,6 +2224,7 @@ function tabUnits(p) {
           <div style="margin:3px 0">${statusTag(i.status)}</div>
           <div class="meta">${esc(locPath(i.location_id) || '—')}</div>
           ${i.serial ? `<div class="meta">S/N ${esc(i.serial)}</div>` : ''}
+          ${i.source_id ? `<div class="meta">仕入元 ${esc(i.source_id)}</div>` : ''}
           ${i.user_name ? `<div class="meta">${esc(i.user_name)}</div>` : ''}
           ${unitPriceLine(i)}
         </div>
@@ -2126,6 +2362,61 @@ function sheetSell(id) {
     run: (v) => itemOp(id, '売却', v, (($('sellNote') || {}).value || '').trim() || null)
   });
 }
+/* 一覧から「売れた」を記録する。個体管理は在庫の古いものから台数ぶん売却済にする。
+   1台ずつどれを売ったか選びたいときは、商品詳細の個体一覧から操作する。 */
+function sheetSellQty(code) {
+  const p = prod(code); if (!p) return;
+  const avail = itemsOf(code).filter(i => IN_STOCK.includes(i.status));
+  if (!avail.length) { toast('売れる在庫がありません'); return; }
+  const plan = planOf(avail[0]);
+  openSheet({
+    title: '売れた（在庫を引く）', subject: code, cta: '売却を記録',
+    hint: `${esc(titleOf(p))}　現在庫 ${avail.length}台。<strong>管理番号の若いものから</strong>売却済にします。`,
+    body: `<label class="field" style="margin-bottom:10px"><span>売れた台数</span>
+        <input class="input num" type="number" min="1" max="${avail.length}" id="sqQty" value="1"
+               oninput="paintSellQty('${esc(code)}')"></label>
+      <label class="field"><span>1台あたりの販売価格</span>
+        <input class="input num" type="number" min="0" id="sheetVal" value="${plan == null ? '' : esc(plan)}"
+               oninput="paintSellQty('${esc(code)}')" placeholder="0"></label>
+      <div class="prow"><span>売上</span><b class="num" id="sqSum">—</b></div>
+      <div class="prow"><span>利益</span><b class="num" id="sqGain">—</b></div>
+      <div class="prow" style="border-bottom:1px solid var(--rule)">
+        <span>売却する管理番号</span><b class="num" id="sqIds" style="font-size:13px;text-align:right">—</b></div>`,
+    run: async (price) => {
+      const n = Math.max(1, Math.min(avail.length, parseInt(numField('sqQty') || 1, 10)));
+      const v = String(price || '').trim();
+      let ok = 0;
+      for (const it of avail.slice(0, n)) {
+        const { data, error } = await sb.rpc('inv_item_op',
+          { p_item_id: it.id, p_action: '売却', p_value: v || null, p_note: '一覧から売却' });
+        if (error) { toast(error.message || '記録できませんでした'); break; }
+        const i = db.items.findIndex(x => x.id === it.id);
+        if (i >= 0 && data) db.items[i] = data;
+        ok++;
+      }
+      await refreshTx();
+      render();
+      toast(`${ok}台を売却しました（残り ${avail.length - ok}台）`);
+    }
+  });
+  paintSellQty(code);
+}
+function paintSellQty(code) {
+  const avail = itemsOf(code).filter(i => IN_STOCK.includes(i.status));
+  const n = Math.max(1, Math.min(avail.length, parseInt(numField('sqQty') || 1, 10) || 1));
+  const price = numField('sheetVal');
+  const picked = avail.slice(0, n);
+  const cost = picked.reduce((a, i) => a + costOf(i), 0);
+  const set = (id, text, minus) => {
+    const e = $(id); if (!e) return;
+    e.textContent = text; e.classList.toggle('minus', !!minus);
+  };
+  set('sqSum', price == null ? '—' : yen(price * n));
+  const gain = (price == null || !cost) ? null : price * n - cost;
+  set('sqGain', gain == null ? '—' : yen(gain), gain != null && gain < 0);
+  set('sqIds', picked.map(i => i.id).slice(0, 4).join('、') + (n > 4 ? ` ほか${n - 4}台` : ''));
+}
+
 function paintSellSheet(cost) {
   const s = (($('sheetVal') || {}).value || '').trim();
   const g = $('slGain'); if (!g) return;
@@ -2447,6 +2738,7 @@ function regCsvMain() {
         <div class="t">今回登録した商品 ${done.prods}件</div>
         <div class="meta">個体 ${done.items}台　${esc(done.file)}</div>
       </div>
+      ${batchQrBtn(batchOf(done.id))}
       <button class="btn sm ghost" onclick="showBatch(${done.id},true)">一覧で見る</button>
     </div>` : ''}
     ${last ? `<div class="rmlast">最終取込 ${esc(fmtDT(last.imported_at))}　${esc(last.file_name || '')}
@@ -2530,19 +2822,18 @@ async function previewId() {
 }
 
 /* 同じ型番の商品マスタを探す。無ければ作る */
+/* 商品は「探して、無ければ作る」を関数の中で1回でやる。
+   手元のキャッシュだけで判断すると、別の人が足した商品に気づかず
+   主キーがぶつかる。商品IDの採番もDB側に任せる。 */
 async function findOrCreateMaster(fields, kind) {
-  const key = (fields.model || fields.name || '').trim();
-  const hit = db.masters.find(p => p.kind === kind && (p.model || p.name || '').trim() === key);
+  const { data, error } = await sb.rpc('inv_upsert_product',
+    { p_row: Object.assign({ kind }, fields) });
+  if (error) throw new Error('商品を登録できませんでした：' + error.message);
+  const hit = prod(data.code);
   if (hit) return hit;
-
-  const pre = kind === 'individual' ? 'P' : 'SKU';
-  const { data: code, error } = await sb.rpc('inv_next_id', { p_prefix: pre, p_digits: kind === 'individual' ? 5 : 4 });
-  if (error) throw new Error('商品IDを採番できませんでした：' + error.message);
-  const rec = Object.assign({ code, kind }, fields);
-  const { data, error: e2 } = await sb.from('inventory_products').insert(rec).select().single();
-  if (e2) throw new Error('商品マスタを作れませんでした：' + e2.message);
-  db.masters.push(data);
-  return data;
+  const rec = Object.assign({ code: data.code, kind }, fields, { category_id: data.category_id });
+  db.masters.push(rec);
+  return rec;
 }
 
 async function doRegister() {
