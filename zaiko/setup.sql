@@ -940,16 +940,20 @@ begin
     raise exception '実施中の棚卸があります。先に棚卸を終了してください';
   end if;
 
-  delete from public.inventory_loans;
-  delete from public.inventory_stocktake_items;
+  -- どの DELETE にも WHERE を付ける。Supabase で「WHEREのないDELETE/UPDATE」を
+  -- 禁止する保護（safeupdate）が入っていると、関数の中でも弾かれるため。
+  -- where true や 1=1 はプランナに畳み込まれて消えてしまい保護をすり抜けられないので、
+  -- 主キーへの is not null を使う（全行が対象になり、Filter としてプランに残る）。
+  delete from public.inventory_loans           where id is not null;
+  delete from public.inventory_stocktake_items where item_id is not null;
 
-  with d as (delete from public.inventory_items returning 1)
+  with d as (delete from public.inventory_items where id is not null returning 1)
   select count(*) into n_items from d;
 
   if p_scope = 'all' then
-    with d as (delete from public.inventory_channels returning 1)
+    with d as (delete from public.inventory_channels where id is not null returning 1)
     select count(*) into n_chans from d;
-    with d as (delete from public.inventory_products returning 1)
+    with d as (delete from public.inventory_products where code is not null returning 1)
     select count(*) into n_masters from d;
   end if;
 

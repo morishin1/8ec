@@ -449,6 +449,16 @@ values ('yamada@8grp.co.jp', '山田 太郎', 'member');
 - **履歴は消えません。** 追記のみの記録なので、いつ誰が何を消したかもここに残ります
 - 実施中の棚卸があるときは断ります（中途半端になるため）
 
+> **SQLを書き足すときの注意：** Supabase には「WHEREのないDELETE/UPDATE」を禁止する保護
+> （safeupdate）があり、入っていると**関数の中でも**弾かれます
+> （`DELETE requires a WHERE clause`）。全行が対象のときも WHERE を書いてください。
+> ただし `where true` や `where 1=1` はプランナに畳み込まれて消えるため保護をすり抜けられません。
+> 主キーへの `is not null` のように、プランに Filter として残る条件を使います。
+>
+> ```bash
+> python3 tools/check-sql.py     # WHEREのないDELETE/UPDATEが無いか点検する
+> ```
+
 ### 在庫一覧のCSV
 
 在庫一覧から、いま絞り込んでいる分をCSVに書き出せます。Excelでそのまま開けるBOM付きUTF-8です。
