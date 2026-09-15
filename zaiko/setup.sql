@@ -852,6 +852,13 @@ begin
     v_after  := public.inv_location_path(p_value);
     update public.inventory_items set location_id=p_value where id=p_item_id returning * into it;
 
+  elsif p_action = '社内使用' then
+    v_before := it.status;
+    v_after  := '社内使用' || coalesce('（' || nullif(p_value,'') || '）', '');
+    update public.inventory_items
+       set status='社内使用', user_name=nullif(p_value,''), loaned_at=null
+     where id=p_item_id returning * into it;
+
   elsif p_action in ('状態変更','廃棄','売却') then
     if p_action = '廃棄' and not public.inv_is_admin() then
       raise exception '廃棄は管理者だけができます';
@@ -892,12 +899,225 @@ end $$;
 
 
 -- ============================================================
--- 17) 追加分の権限
+-- 18) 社内使用にする（利用者も一緒に入れる）
+--
+--     貸出と同じく「誰が使っているか」を残したいので、
+--     状態変更とは別の操作にして p_value に利用者を取る。
+--     inv_item_op の中に足す（下の 19 で作り直している）
+-- ============================================================
+
+
+-- ============================================================
+-- 19) 在庫データの全削除
+--
+--     移行をやり直したいときのための操作。取り返しがつかないので
+--     管理者だけ、かつ実施中の棚卸がないときに限る。
+--     履歴（inventory_transactions）は消さない。追記のみの記録で、
+--     何をいつ消したかもここに残す。
+--
+--       p_scope = 'all'   商品マスタ・個体・販売情報をすべて消す
+--       p_scope = 'units' 個体だけ消す（商品マスタと販売情報は残す）
+-- ============================================================
+
+create or replace function public.inv_wipe_inventory(p_scope text default 'all')
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  n_items   integer := 0;
+  n_masters integer := 0;
+  n_chans   integer := 0;
+begin
+  if not public.inv_is_admin() then
+    raise exception '在庫の全削除は管理者だけができます';
+  end if;
+  if p_scope is null or p_scope not in ('all','units') then
+    raise exception '範囲の指定が違います（all または units）';
+  end if;
+  if exists (select 1 from public.inventory_stocktakes where status = 'open') then
+    raise exception '実施中の棚卸があります。先に棚卸を終了してください';
+  end if;
+
+  delete from public.inventory_loans;
+  delete from public.inventory_stocktake_items;
+
+  with d as (delete from public.inventory_items returning 1)
+  select count(*) into n_items from d;
+
+  if p_scope = 'all' then
+    with d as (delete from public.inventory_channels returning 1)
+    select count(*) into n_chans from d;
+    with d as (delete from public.inventory_products returning 1)
+    select count(*) into n_masters from d;
+  end if;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values
+    (public.inv_actor(), 'item', '-', '在庫データ', '全削除',
+     format('個体 %s件／商品マスタ %s件／販売情報 %s件', n_items, n_masters, n_chans),
+     case p_scope when 'all' then 'すべて削除' else '個体だけ削除' end);
+
+  return jsonb_build_object('items', n_items, 'masters', n_masters, 'channels', n_chans);
+end $$;
+
+comment on function public.inv_wipe_inventory is
+  '在庫データを消す。管理者のみ。履歴は消さず、何を消したかを履歴に残す。';
+
+
+-- ============================================================
+-- 21) 選んだ商品をまとめて更新する
+--
+--     取り込んだ直後は、カテゴリも保管場所も全件が同じになる。
+--     一覧でチェックを入れて、まとめて直せるようにする。
+--     null を渡した項目は変えない（「カテゴリだけ直す」ができる）。
+--
+--     保管場所は、個体もいっしょに動かすかを選べる。動かすときは
+--     1台ずつ履歴を残す（あとで「いつ柏へ移したか」を追えるように）。
+-- ============================================================
+
+create or replace function public.inv_bulk_update_products(
+  p_codes      text[],
+  p_category   text default null,
+  p_maker      text default null,
+  p_location   text default null,
+  p_move_units boolean default false
+) returns jsonb
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  n_products integer := 0;
+  n_units    integer := 0;
+  it         record;
+begin
+  if not public.inv_can_edit() then
+    raise exception '変更する権限がありません（閲覧のみ）';
+  end if;
+  if p_codes is null or array_length(p_codes, 1) is null then
+    raise exception '対象が選ばれていません';
+  end if;
+  if p_category is null and p_maker is null and p_location is null then
+    raise exception '変える項目が選ばれていません';
+  end if;
+
+  update public.inventory_products p
+     set category_id = coalesce(p_category, p.category_id),
+         maker       = coalesce(p_maker, p.maker),
+         location_id = coalesce(p_location, p.location_id)
+   where p.code = any(p_codes);
+  get diagnostics n_products = row_count;
+
+  -- 個体も動かす場合。売却済・廃棄はもう手元に無いので触らない
+  if p_location is not null and coalesce(p_move_units, false) then
+    for it in
+      select i.id, i.name, i.location_id
+        from public.inventory_items i
+       where i.product_code = any(p_codes)
+         and i.status not in ('売却済','廃棄')
+         and coalesce(i.location_id,'') is distinct from p_location
+    loop
+      update public.inventory_items set location_id = p_location where id = it.id;
+      insert into public.inventory_transactions
+        (actor, ref_kind, ref_id, label, action, before_value, after_value)
+      values
+        (public.inv_actor(), 'item', it.id, it.name, '移動',
+         public.inv_location_path(it.location_id),
+         public.inv_location_path(p_location) || '／一括変更');
+      n_units := n_units + 1;
+    end loop;
+  end if;
+
+  -- 個体に持たせている表示用の写しも、マスタに合わせておく
+  if p_category is not null or p_maker is not null then
+    update public.inventory_items i
+       set category_id = coalesce(p_category, i.category_id),
+           maker       = coalesce(p_maker, i.maker)
+     where i.product_code = any(p_codes);
+  end if;
+
+  return jsonb_build_object('products', n_products, 'units', n_units);
+end $$;
+
+comment on function public.inv_bulk_update_products is
+  '選んだ商品のカテゴリ・メーカー・保管場所をまとめて直す。null の項目は変えない。';
+
+
+-- ============================================================
+-- 22) 選んだ商品をまとめて削除する
+--
+--     ぶら下がる個体と販売情報も一緒に消える。管理者だけ。
+--     何を消したかは商品ごとに履歴へ残す。
+-- ============================================================
+
+create or replace function public.inv_delete_products(p_codes text[])
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  n_products integer := 0;
+  n_units    integer := 0;
+  n_chans    integer := 0;
+  p          record;
+begin
+  if not public.inv_is_admin() then
+    raise exception '削除は管理者だけができます';
+  end if;
+  if p_codes is null or array_length(p_codes, 1) is null then
+    raise exception '対象が選ばれていません';
+  end if;
+  if exists (select 1 from public.inventory_stocktakes where status = 'open') then
+    raise exception '実施中の棚卸があります。先に棚卸を終了してください';
+  end if;
+
+  -- 先に「何を消すのか」を履歴へ。消したあとでは名前が分からなくなる
+  for p in
+    select pr.code, pr.name, pr.model,
+           (select count(*) from public.inventory_items i where i.product_code = pr.code) as units
+      from public.inventory_products pr
+     where pr.code = any(p_codes)
+  loop
+    insert into public.inventory_transactions
+      (actor, ref_kind, ref_id, label, action, before_value, after_value)
+    values
+      (public.inv_actor(), 'product', p.code, coalesce(nullif(p.name,''), p.model), '削除',
+       format('%s（個体 %s台）', coalesce(nullif(p.model,''), p.code), p.units), '削除');
+  end loop;
+
+  delete from public.inventory_loans
+   where item_id in (select id from public.inventory_items where product_code = any(p_codes));
+  delete from public.inventory_stocktake_items
+   where item_id in (select id from public.inventory_items where product_code = any(p_codes));
+
+  with d as (delete from public.inventory_items where product_code = any(p_codes) returning 1)
+  select count(*) into n_units from d;
+  with d as (delete from public.inventory_channels where product_code = any(p_codes) returning 1)
+  select count(*) into n_chans from d;
+  with d as (delete from public.inventory_products where code = any(p_codes) returning 1)
+  select count(*) into n_products from d;
+
+  return jsonb_build_object('products', n_products, 'units', n_units, 'channels', n_chans);
+end $$;
+
+comment on function public.inv_delete_products is
+  '選んだ商品を、ぶら下がる個体と販売情報ごと消す。管理者のみ。何を消したかは履歴に残す。';
+
+
+-- ============================================================
+-- 23) 追加分の権限
 -- ============================================================
 
 grant select, insert, update, delete on public.inventory_channels to authenticated;
 grant usage, select on all sequences in schema public to authenticated;
 grant execute on function public.inv_item_op(text,text,text,text) to authenticated;
+grant execute on function public.inv_wipe_inventory(text) to authenticated;
+grant execute on function public.inv_bulk_update_products(text[],text,text,text,boolean) to authenticated;
+grant execute on function public.inv_delete_products(text[]) to authenticated;
 
 alter table public.inventory_channels enable row level security;
 
