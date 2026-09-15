@@ -1204,7 +1204,8 @@ function readChannels(idx, row) {
 /* --- (1) この画面が書き出した形 --- */
 function planMaster(H, idx, body, file, encoding, headRow) {
   const add = [], skip = [], bad = [];
-  const seen = {};
+  const seen = {}, seenNo = {};
+  db.items.forEach(i => { seenNo[i.id] = 'すでに在庫にあります'; });
   body.forEach((row, n) => {
     const line = headRow + 2 + n;
     const g = h => cell(idx, row, h);
@@ -1230,8 +1231,13 @@ function planMaster(H, idx, body, file, encoding, headRow) {
     const lo = findLoc(g('保管場所').split(' ほか')[0]);
     if (!lo.id) { bad.push({ line, key, ...lo }); return; }
 
-    const nos = (g('管理番号一覧') || '').split('/').map(x => x.trim())
-      .filter(no => no && !item(no));
+    // 同じ管理番号がCSVの2行に出てくることがある。1台は1回しか入れない
+    const nos = [];
+    (g('管理番号一覧') || '').split('/').map(x => x.trim()).filter(Boolean).forEach(no => {
+      if (seenNo[no]) return;
+      seenNo[no] = `${line}行目`;
+      nos.push(no);
+    });
     // 商品はあっても管理番号が入っていないことがある。足りない個体だけ足す
     if (exists && !nos.length) { skip.push({ line, key: exists.code, name: titleOf(exists) }); return; }
     const unitNote = [sp.note || '', sp.note ? `元の型番表記: ${g('型番')}` : ''].filter(Boolean).join('\n') || null;
@@ -1898,7 +1904,8 @@ async function applyInventoryImport() {
   closeModal();
   toast(p.mode === 'purchase' ? `仕入 ${p.add.length}件を登録しています…` : `${p.add.length}商品を取り込んでいます…`);
 
-  const units = [], chans = [], txs = [];
+  let units = [], txs = [];
+  const chans = [];
   const touched = [];                      // 今回さわった商品。取込履歴に残して一覧を絞れるようにする
   let madeProds = 0;                       // 実際に新しく作った商品の数
   for (const x of p.add) {
@@ -1953,9 +1960,32 @@ async function applyInventoryImport() {
     (x.channels || []).forEach(c => chans.push(Object.assign({ product_code: m.code }, c)));
   }
 
-  const ins = async (table, rows) => {
+  // 手元のキャッシュは読み込み上限（LOAD_LIMIT）で頭打ちになるし、
+  // 別の人が入れたものにも気づけない。入れる直前にDBへ問い合わせて、
+  // すでにある管理番号を外す。これをしないと管理番号の主キーがぶつかる
+  const ids = units.map(u => u.id);
+  const taken = {};
+  for (let i = 0; i < ids.length; i += 300) {
+    const { data, error } = await sb.from('inventory_items')
+      .select('id').in('id', ids.slice(i, i + 300));
+    if (error) { toast('管理番号を確かめられませんでした：' + error.message); return; }
+    (data || []).forEach(r => { taken[r.id] = true; });
+  }
+  const dupIds = ids.filter(x => taken[x]);
+  if (dupIds.length) {
+    const keep = new Set(units.filter(u => !taken[u.id]).map(u => u.id));
+    units = units.filter(u => keep.has(u.id));
+    txs = txs.filter(x => x.ref_kind !== 'item' || keep.has(x.ref_id));
+  }
+
+  // 追記するだけの取り込みなので、万一かち合っても上書きせず黙って飛ばす。
+  // 途中まで入って止まる、という中途半端な結果にしないため
+  const ins = async (table, rows, key) => {
     for (let i = 0; i < rows.length; i += 200) {
-      const { error } = await sb.from(table).insert(rows.slice(i, i + 200));
+      const chunk = rows.slice(i, i + 200);
+      const { error } = key
+        ? await sb.from(table).upsert(chunk, { onConflict: key, ignoreDuplicates: true })
+        : await sb.from(table).insert(chunk);
       if (error) throw new Error(`${table} に入れられませんでした：${error.message}`);
     }
   };
@@ -1963,8 +1993,8 @@ async function applyInventoryImport() {
   const t = purchaseTotals(p.add);
   let batchId = null;
   try {
-    if (units.length) await ins('inventory_items', units);
-    if (chans.length) await ins('inventory_channels', chans);
+    if (units.length) await ins('inventory_items', units, 'id');
+    if (chans.length) await ins('inventory_channels', chans, 'product_code,channel');
     if (txs.length) await ins('inventory_transactions', txs);
     // 履歴は最後に入れる。ここまで通ってはじめて「取り込めた」と言えるため
     const { data, error } = await sb.from('inventory_imports').insert({
@@ -1985,8 +2015,9 @@ async function applyInventoryImport() {
   await loadAll();
   // 取り込んだら商品管理一覧に戻り、今回の分だけを出す
   if (batchId) showBatch(batchId, true); else { ui.fBatch = null; ui.doneBatch = null; go('list'); }
-  toast(wasBuy ? `商品 ${touched.length}件・個体 ${units.length}台を登録しました（原価 ${yen(t.cost)}／想定利益 ${t.priced ? yen(t.gain) : '—'}）`
-               : `${madeProds}商品・${units.length}台を取り込みました`);
+  const skipped = dupIds.length ? `／すでにあった ${dupIds.length}台は飛ばしました` : '';
+  toast(wasBuy ? `商品 ${touched.length}件・個体 ${units.length}台を登録しました（原価 ${yen(t.cost)}／想定利益 ${t.priced ? yen(t.gain) : '—'}）${skipped}`
+               : `${madeProds}商品・${units.length}台を取り込みました${skipped}`);
 }
 
 /* ---------------------------------------------------------------- モーダル */
