@@ -17,61 +17,13 @@
 (function () {
   'use strict';
 
-  /* ---------------------------------------------------------------- CSV入出力 */
+  /* ---------------------------------------------------------------- CSV入出力
+     読み書きそのものは assets/csv.js（管理画面で共通）。ここではモール固有の
+     事情——タブ区切りと、出力時の Shift_JIS 変換——だけを足す。 */
 
-  /* RFC4180のCSVを読む。改行やカンマを含む引用符つきの値に対応する。
-     区切り文字を渡せばTSV（Amazonの在庫ファイル）も読める。 */
-  function parseCsv(text, sep) {
-    sep = sep || ',';
-    text = text.replace(/^﻿/, '');           // BOMは落とす
-    var rows = [], row = [], val = '', quoted = false, i = 0;
-    while (i < text.length) {
-      var c = text[i];
-      if (quoted) {
-        if (c === '"') {
-          if (text[i + 1] === '"') { val += '"'; i += 2; continue; }
-          quoted = false; i++; continue;
-        }
-        val += c; i++; continue;
-      }
-      if (c === '"') { quoted = true; i++; continue; }
-      if (c === sep) { row.push(val); val = ''; i++; continue; }
-      if (c === '\r') { i++; continue; }
-      if (c === '\n') { row.push(val); rows.push(row); row = []; val = ''; i++; continue; }
-      val += c; i++;
-    }
-    if (val !== '' || row.length) { row.push(val); rows.push(row); }
-    return rows.filter(function (r) { return r.length > 1 || (r[0] || '').trim() !== ''; });
-  }
-
-  function csvCell(v, sep) {
-    var s = (v == null ? '' : String(v));
-    return /["\r\n]/.test(s) || s.indexOf(sep) >= 0 ? '"' + s.replace(/"/g, '""') + '"' : s;
-  }
-
-  function buildCsv(rows, sep) {
-    sep = sep || ',';
-    return rows.map(function (r) {
-      return r.map(function (c) { return csvCell(c, sep); }).join(sep);
-    }).join('\r\n') + '\r\n';
-  }
-
-  /* モールから落としたCSVは Shift_JIS のことが多い。
-     TextDecoder は Shift_JIS を読めるので、UTF-8で読んで化けたら読み直す。 */
-  function decodeBytes(buf) {
-    var utf8 = new TextDecoder('utf-8', { fatal: false }).decode(buf);
-    // U+FFFD が混ざる＝UTF-8として壊れている。Shift_JISで読み直す
-    if (utf8.indexOf('�') < 0) return { text: utf8, encoding: 'utf-8' };
-    try {
-      var sjis = new TextDecoder('shift_jis', { fatal: false }).decode(buf);
-      if (sjis.indexOf('�') < 0) return { text: sjis, encoding: 'shift_jis' };
-      // どちらも欠けるなら、化けの少ない方を採る
-      var a = (utf8.match(/�/g) || []).length, b = (sjis.match(/�/g) || []).length;
-      return b < a ? { text: sjis, encoding: 'shift_jis' } : { text: utf8, encoding: 'utf-8' };
-    } catch (e) {
-      return { text: utf8, encoding: 'utf-8' };
-    }
-  }
+  var parseCsv   = function (text, sep) { return window.EightCsv.parse(text, sep); };
+  var buildCsv   = function (rows, sep) { return window.EightCsv.build(rows, sep); };
+  var decodeBytes = function (buf) { return window.EightCsv.decode(buf); };
 
   /* 文字列をファイルにする。Shift_JIS は cp932.js の変換表で書く
      （ブラウザは Shift_JIS を読めても書けないため）。 */
