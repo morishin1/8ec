@@ -26,11 +26,25 @@ const LOAN_LONG_DAYS = 30;             // これを超えたら「長期貸出�
 const DUP_SCAN_MS = 1800;              // 同じQRの読み直しを無視する時間
 const LOAD_LIMIT = 3000;
 
-const STATUSES = ['在庫', '貸出中', '使用中', '修理中', '故障', '紛失', '廃棄'];
+/* 個体の状態。「現在庫」に数えるのは在庫と出品中（どちらもまだ手元にある）。
+   売却済・廃棄は持っていないので「登録数」からも外す */
+const STATUSES = ['在庫', '出品中', '社内使用', '貸出中', '修理中', '故障', '紛失', '売却済', '廃棄', '不明'];
+const IN_STOCK = ['在庫', '出品中'];
+const GONE = ['売却済', '廃棄'];
 const STATUS_ICON = {
-  '在庫': 'inventory_2', '貸出中': 'assignment_ind', '使用中': 'person',
-  '修理中': 'build', '故障': 'error', '紛失': 'help', '廃棄': 'delete'
+  '在庫': 'inventory_2', '出品中': 'sell', '社内使用': 'person', '貸出中': 'assignment_ind',
+  '修理中': 'build', '故障': 'error', '紛失': 'help', '売却済': 'paid', '廃棄': 'delete', '不明': 'help'
 };
+/* 販売チャネル。左から画面に並ぶ */
+const CHANNELS = [
+  { key: 'amazon', label: 'Amazon', short: 'Am' },
+  { key: 'rakuten', label: '楽天', short: '楽' },
+  { key: 'mercari', label: 'メルカリ', short: 'メ' },
+  { key: 'yahuoku', label: 'ヤフオク', short: 'ヤ' },
+  { key: 'yahoo_free', label: 'ヤフーフリマ', short: 'フ' },
+  { key: 'notion', label: 'Notion', short: 'No' }
+];
+const LIST_STATES = ['出品中', '出品停止', '保留', '売り切れ', '出品中止', '販売済み'];
 const MENU = [
   ['dash', 'space_dashboard', 'ダッシュボード', ''],
   ['list', 'list_alt', '在庫一覧', '/list'],
@@ -46,11 +60,14 @@ const MENU = [
 
 let sb = null;
 let me = { email: '', name: '', role: 'viewer' };
-const db = { cats: [], locs: [], items: [], prods: [], tx: [], stocktake: null, stChecked: [], stPast: [], members: [] };
+const db = {
+  cats: [], locs: [], masters: [], items: [], channels: [],
+  tx: [], stocktake: null, stChecked: [], stPast: [], members: []
+};
 const ui = {
   screen: 'dash', itemId: null, prodId: null, locId: null,
-  kind: 'ind', q: '', fCat: '', fLoc: '', fStatus: '',
-  fAction: '', hq: '', regKind: 'ind', made: null,
+  q: '', fCat: '', fMaker: '', fLoc: '', fStock: '', fList: '',
+  fAction: '', hq: '', regKind: 'ind', made: null, tab: 'info',
   drafts: {}, labelSel: {}, stScope: '', loaded: false
 };
 
@@ -93,10 +110,50 @@ const locUrl = (id) => origin() + BASE + '/locations/' + id;
 
 /* ---------------------------------------------------------------- 参照 */
 const item = (id) => db.items.find(i => i.id === id);
-const prod = (code) => db.prods.find(p => p.code === code);
+const prod = (code) => db.masters.find(p => p.code === code);
 const loc = (id) => db.locs.find(l => l.id === id);
 const cat = (id) => db.cats.find(c => c.id === id);
 const catName = (id) => (cat(id) || {}).name || '';
+
+/* 商品マスタまわり。商品名が空の型番が多いので、名前は型番で代用する */
+const titleOf = (p) => (p && (p.name || p.model)) || '';
+const itemsOf = (code) => db.items.filter(i => i.product_code === code);
+const channelsOf = (code) => db.channels.filter(c => c.product_code === code);
+
+/* 個体管理の在庫数は手入力させず、各個体の状態から数える。
+   数量管理は qty をそのまま使う                                   */
+function stockOf(p) {
+  if (!p) return { inStock: 0, registered: 0, total: 0 };
+  if (p.kind !== 'individual') return { inStock: p.qty || 0, registered: p.qty || 0, total: p.qty || 0 };
+  const list = itemsOf(p.code);
+  return {
+    inStock: list.filter(i => IN_STOCK.includes(i.status)).length,
+    registered: list.filter(i => !GONE.includes(i.status)).length,
+    total: list.length
+  };
+}
+/* 在庫状態のことば。数量管理は最低在庫を基準に、個体管理は台数で見る */
+function stockLabel(p) {
+  const s = stockOf(p);
+  if (p.kind !== 'individual') return s.inStock <= 0 ? '在庫なし' : (s.inStock <= (p.min_qty || 0) ? '要発注' : '在庫あり');
+  if (s.inStock <= 0) return '在庫なし';
+  return s.inStock <= 2 ? '残りわずか' : '在庫あり';
+}
+const STOCK_LABELS = ['在庫あり', '残りわずか', '在庫なし', '要発注'];
+
+/* その商品がいまどこにあるか。個体が散っていたら「複数」 */
+function placeOf(p) {
+  if (p.kind !== 'individual') return locPath(p.location_id);
+  const ids = [...new Set(itemsOf(p.code).filter(i => !GONE.includes(i.status)).map(i => i.location_id))];
+  if (!ids.length) return locPath(p.location_id);
+  return ids.length === 1 ? locPath(ids[0]) : `${locPath(ids[0])} ほか${ids.length - 1}`;
+}
+/* マスタと、その個体のうち最後に動いたもの */
+function touchedAt(p) {
+  let t = p.updated_at || p.created_at || '';
+  itemsOf(p.code).forEach(i => { if ((i.updated_at || '') > t) t = i.updated_at; });
+  return t;
+}
 
 function locPath(id) {
   const out = [];
@@ -208,16 +265,18 @@ async function loadAll() {
     sb.from('inventory_items').select('*').limit(LOAD_LIMIT),
     sb.from('inventory_products').select('*').limit(LOAD_LIMIT),
     sb.from('inventory_transactions').select('*').order('occurred_at', { ascending: false }).limit(300),
-    sb.from('inventory_stocktakes').select('*').order('started_at', { ascending: false }).limit(20)
+    sb.from('inventory_stocktakes').select('*').order('started_at', { ascending: false }).limit(20),
+    sb.from('inventory_channels').select('*').limit(LOAD_LIMIT)
   ];
-  const [c, l, i, p, t, s] = await Promise.all(q);
-  const bad = [c, l, i, p, t, s].find(r => r.error);
+  const [c, l, i, p, t, s, ch] = await Promise.all(q);
+  const bad = [c, l, i, p, t, s, ch].find(r => r.error);
   if (bad) { showSetup(bad.error); return false; }
 
   db.cats = c.data || [];
   db.locs = l.data || [];
   db.items = (i.data || []).sort((a, b) => a.id.localeCompare(b.id, 'ja'));
-  db.prods = (p.data || []).sort((a, b) => a.code.localeCompare(b.code, 'ja'));
+  db.masters = (p.data || []).sort((a, b) => titleOf(a).localeCompare(titleOf(b), 'ja'));
+  db.channels = ch.data || [];
   db.tx = t.data || [];
   const sts = s.data || [];
   db.stocktake = sts.find(x => x.status === 'open') || null;
@@ -300,13 +359,31 @@ async function loadOne(r) {
     : await sb.from('inventory_products').select('*').eq('code', r.prodId).maybeSingle();
   if (res.error) { showSetup(res.error); return false; }
   if (!res.data) return false;
-  if (r.screen === 'item') db.items = [res.data]; else db.prods = [res.data];
-  // 保管場所とカテゴリだけは表示に要るので一緒に取る
+
+  // 保管場所とカテゴリは表示に要るので一緒に取る
   const [l, c] = await Promise.all([
     sb.from('inventory_locations').select('*').order('sort_no'),
     sb.from('inventory_categories').select('*').order('sort_no')
   ]);
   db.locs = l.data || []; db.cats = c.data || [];
+
+  if (r.screen === 'item') {
+    db.items = [res.data];
+    // 個体の画面は商品名などをマスタから出すので、その1件も取る
+    if (res.data.product_code) {
+      const m = await sb.from('inventory_products').select('*').eq('code', res.data.product_code).maybeSingle();
+      if (m.data) db.masters = [m.data];
+    }
+  } else {
+    db.masters = [res.data];
+    // 商品の画面はぶら下がる個体と販売情報まで見せる
+    const [its, chs] = await Promise.all([
+      sb.from('inventory_items').select('*').eq('product_code', res.data.code).limit(LOAD_LIMIT),
+      sb.from('inventory_channels').select('*').eq('product_code', res.data.code)
+    ]);
+    db.items = its.data || [];
+    db.channels = chs.data || [];
+  }
   return true;
 }
 
@@ -335,12 +412,14 @@ const dis = () => canEdit() ? '' : 'disabled';
 /* ===== 1. ダッシュボード ===== */
 function viewDash() {
   const live = db.items.filter(i => i.status !== '廃棄');
-  const qtySum = db.prods.reduce((s, p) => s + (p.qty || 0), 0);
+  const qtyMasters = db.masters.filter(p => p.kind !== 'individual');
+  const qtySum = qtyMasters.reduce((s, p) => s + (p.qty || 0), 0);
   const loans = live.filter(i => i.status === '貸出中');
   const longs = loans.filter(isLong);
   const using = live.filter(i => i.status === '使用中');
-  const zero = db.prods.filter(p => (p.qty || 0) <= 0);
-  const order = db.prods.filter(needsOrder);
+  const zero = qtyMasters.filter(p => (p.qty || 0) <= 0)
+    .concat(db.masters.filter(p => p.kind === 'individual' && stockOf(p).inStock <= 0));
+  const order = qtyMasters.filter(needsOrder);
   const broken = live.filter(i => i.status === '修理中' || i.status === '故障');
   const now = new Date(), ym = now.getFullYear() + '-' + P2(now.getMonth() + 1);
   const bought = db.items.filter(i => (i.purchased_on || '').slice(0, 7) === ym);
@@ -376,10 +455,10 @@ function viewDash() {
 
     <div class="sec">要確認</div>
     <div class="checks">
-      ${chk('shopping_cart', '在庫数不足', order.length, '最低在庫を下回っている品目', 'list', "ui.kind='qty';ui.fStatus='';")}
+      ${chk('shopping_cart', '在庫数不足', order.length, '最低在庫を下回っている品目', 'list', "ui.fStock='要発注';")}
       ${chk('schedule', '長期貸出', longs.length, `${LOAN_LONG_DAYS}日を超えて返却されていないもの`, 'loan')}
       ${chk('help', '棚卸未確認', stLeft, db.stocktake ? '実施中の棚卸で、まだ確認できていないもの' : '棚卸は実施していません', 'stock')}
-      ${chk('build', '故障・修理中', broken.length, '使えない状態のまま残っているもの', 'list', "ui.kind='ind';ui.fStatus='修理中';")}
+      ${chk('build', '故障・修理中', broken.length, '使えない状態のまま残っているもの', 'list', "ui.q='';")}
     </div>
 
     <div class="sec">直近の操作</div>
@@ -397,111 +476,132 @@ function txRow(t) {
   </div>`;
 }
 
-/* ===== 2. 在庫一覧 ===== */
-function setKind(k) { ui.kind = k; ui.fCat = ''; ui.fStatus = ''; render(); }
+/* ===== 2. 在庫一覧（商品マスタ単位。一覧はシンプルに、詳細で全部わかるように） ===== */
 function onFilter() {
   ui.q = ($('f-q') || {}).value || '';
   ui.fCat = ($('f-cat') || {}).value || '';
+  ui.fMaker = ($('f-maker') || {}).value || '';
   ui.fLoc = ($('f-loc') || {}).value || '';
-  ui.fStatus = ($('f-status') || {}).value || '';
+  ui.fStock = ($('f-stock') || {}).value || '';
+  ui.fList = ($('f-list') || {}).value || '';
   renderListBody();
 }
 function locOptions(sel, allLabel) {
   return `<option value="">${esc(allLabel)}</option>` + locsOrdered().map(l =>
-    `<option value="${esc(l.id)}"${sel === l.id ? ' selected' : ''}>${'　'.repeat(locDepth(l.id))}${esc(l.name)}</option>`).join('');
+    `<option value="${esc(l.id)}"${sel === l.id ? ' selected' : ''}>${'\u3000'.repeat(locDepth(l.id))}${esc(l.name)}</option>`).join('');
 }
+
 function listFiltered() {
   const q = ui.q.trim().toLowerCase();
   const inScope = ui.fLoc ? locTree(ui.fLoc) : null;
-  if (ui.kind === 'ind') {
-    return db.items.filter(i => {
-      if (ui.fCat && i.category_id !== ui.fCat) return false;
-      if (ui.fStatus && i.status !== ui.fStatus) return false;
-      if (inScope && !inScope.includes(i.location_id)) return false;
-      if (q) {
-        const hay = [i.id, i.name, i.model, i.serial, i.user_name, i.maker].filter(Boolean).join(' ').toLowerCase();
-        if (hay.indexOf(q) < 0) return false;
-      }
-      return true;
-    });
-  }
-  return db.prods.filter(p => {
+  return db.masters.filter(p => {
     if (ui.fCat && p.category_id !== ui.fCat) return false;
-    if (inScope && !inScope.includes(p.location_id)) return false;
-    if (ui.fStatus === 'low' && !needsOrder(p)) return false;
+    if (ui.fMaker && (p.maker || '') !== ui.fMaker) return false;
+    if (ui.fStock && stockLabel(p) !== ui.fStock) return false;
+    if (ui.fList && !channelsOf(p.code).some(c => c.state === ui.fList)) return false;
+    if (inScope) {
+      const here = p.kind === 'individual'
+        ? itemsOf(p.code).some(i => inScope.includes(i.location_id))
+        : inScope.includes(p.location_id);
+      if (!here) return false;
+    }
     if (q) {
-      const hay = [p.code, p.name, p.supplier].filter(Boolean).join(' ').toLowerCase();
-      if (hay.indexOf(q) < 0) return false;
+      // 商品名・型番のほか、ぶら下がる管理番号でも引けるようにする
+      const hay = [p.name, p.model, p.maker, p.code, p.spec].filter(Boolean).join(' ').toLowerCase();
+      const byNo = itemsOf(p.code).some(i =>
+        (i.id || '').toLowerCase().includes(q) || (i.serial || '').toLowerCase().includes(q));
+      if (hay.indexOf(q) < 0 && !byNo) return false;
     }
     return true;
   });
 }
+
 function viewList() {
-  const cats = db.cats.filter(c => c.kind === (ui.kind === 'ind' ? 'individual' : 'quantity'));
-  const canAdd = ui.kind === 'ind' ? canAdmin() : canEdit();
+  const makers = [...new Set(db.masters.map(p => p.maker).filter(Boolean))].sort();
   return `
     <h1>在庫一覧</h1>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:15px 0">
-      <div class="seg">
-        <button class="${ui.kind === 'ind' ? 'on' : ''}" onclick="setKind('ind')">個体管理</button>
-        <button class="${ui.kind === 'qty' ? 'on' : ''}" onclick="setKind('qty')">数量管理</button>
-      </div>
-      <div style="display:flex;gap:8px;margin-left:auto;flex-wrap:wrap">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:15px 0 4px">
+      <p class="meta" style="flex:1 1 260px">
+        型番・商品単位でまとめています。<strong>現在庫は各個体の状態から自動で数えます</strong>（手入力しません）。
+        行をクリックすると、個体の一覧や販売情報まで見られます。</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn sm ghost" onclick="exportInventoryCsv()">
           <span class="ms">download</span>CSVダウンロード</button>
-        <button class="btn sm ghost" onclick="pickImport()" ${canAdd ? '' : 'disabled'}
-          title="${canAdd ? 'CSVにあって在庫に無いものだけを追加します' : '追加できる権限がありません'}">
+        <button class="btn sm ghost" onclick="pickImport()" ${canAdmin() ? '' : 'disabled'}
+          title="${canAdmin() ? 'CSVにあって在庫に無いものだけを追加します' : '追加できる権限がありません'}">
           <span class="ms">upload_file</span>CSV取込</button>
         <input type="file" id="csvFile" accept=".csv,.txt,text/csv" style="display:none" onchange="readInventoryCsv(this)">
       </div>
     </div>
-    <p class="meta" style="margin:-6px 0 12px">
-      ダウンロードはいま絞り込んでいる分だけ。取込は<strong>すでにある在庫を書き換えず、無いものだけを追加</strong>します。</p>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
-      <input class="input" id="f-q" value="${esc(ui.q)}" oninput="onFilter()" placeholder="商品名・管理番号・型番・利用者…">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:4px">
+      <input class="input" id="f-q" value="${esc(ui.q)}" oninput="onFilter()" placeholder="商品名・型番・管理番号…">
       <select class="input" id="f-cat" onchange="onFilter()">
         <option value="">全カテゴリ</option>
-        ${cats.map(c => `<option value="${esc(c.id)}"${ui.fCat === c.id ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}
+        ${db.cats.map(c => `<option value="${esc(c.id)}"${ui.fCat === c.id ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}
+      </select>
+      <select class="input" id="f-maker" onchange="onFilter()">
+        <option value="">全メーカー</option>
+        ${makers.map(m => `<option${ui.fMaker === m ? ' selected' : ''}>${esc(m)}</option>`).join('')}
       </select>
       <select class="input" id="f-loc" onchange="onFilter()">${locOptions(ui.fLoc, '全保管場所')}</select>
-      <select class="input" id="f-status" onchange="onFilter()">
-        ${ui.kind === 'ind'
-          ? `<option value="">全状態</option>` + STATUSES.map(s => `<option${ui.fStatus === s ? ' selected' : ''}>${s}</option>`).join('')
-          : `<option value="">すべて</option><option value="low"${ui.fStatus === 'low' ? ' selected' : ''}>最低在庫以下</option>`}
+      <select class="input" id="f-stock" onchange="onFilter()">
+        <option value="">全在庫状態</option>
+        ${STOCK_LABELS.map(s => `<option${ui.fStock === s ? ' selected' : ''}>${esc(s)}</option>`).join('')}
+      </select>
+      <select class="input" id="f-list" onchange="onFilter()">
+        <option value="">全出品状態</option>
+        ${LIST_STATES.map(s => `<option${ui.fList === s ? ' selected' : ''}>${esc(s)}</option>`).join('')}
       </select>
     </div>
     <div id="listBody">${listBodyHtml()}</div>`;
 }
 function renderListBody() { const el = $('listBody'); if (el) el.innerHTML = listBodyHtml(); }
+
 function listBodyHtml() {
   const rows = listFiltered();
-  if (!rows.length) return `<div class="empty" style="margin-top:15px">該当する${ui.kind === 'ind' ? '機器' : '品目'}はありません。</div>`;
-  if (ui.kind === 'ind') {
-    return `<div class="meta" style="margin-top:12px">${rows.length} 件</div>
-      <div class="table-wrap"><table class="t">
-      <thead><tr><th>管理番号</th><th>商品名</th><th>カテゴリ</th><th>状態</th><th>保管場所</th><th>利用者</th><th></th></tr></thead>
-      <tbody>${rows.map(i => `<tr class="clk" onclick="go('item','${esc(i.id)}')">
-        <td class="nowrap num">${esc(i.id)}</td>
-        <td>${esc(i.name)}<div class="meta">${esc([i.maker, i.model].filter(Boolean).join(' '))}</div></td>
-        <td class="nowrap">${esc(catName(i.category_id))}</td>
-        <td>${statusTag(i.status)}</td>
-        <td class="meta">${esc(locPath(i.location_id))}</td>
-        <td class="nowrap">${esc(i.user_name || '')}</td>
-        <td class="nowrap"><span class="btn sm ghost">開く</span></td></tr>`).join('')}</tbody></table></div>`;
-  }
-  return `<div class="meta" style="margin-top:12px">${rows.length} 件</div>
+  if (!rows.length) return `<div class="empty" style="margin-top:15px">該当する商品はありません。</div>`;
+  const totalUnits = rows.reduce((n, p) => n + stockOf(p).inStock, 0);
+  return `<div class="meta" style="margin:12px 0 4px">${rows.length} 商品／現在庫 ${totalUnits}</div>
     <div class="table-wrap"><table class="t">
-    <thead><tr><th>商品コード</th><th>商品名</th><th>カテゴリ</th><th>現在庫</th><th>最低在庫</th><th>保管場所</th><th>単価</th><th></th></tr></thead>
-    <tbody>${rows.map(p => `<tr class="clk" onclick="go('prod','${esc(p.code)}')">
-      <td class="nowrap num">${esc(p.code)}</td>
-      <td>${esc(p.name)}<div class="meta">${esc(p.supplier || '')}</div></td>
-      <td class="nowrap">${esc(catName(p.category_id))}</td>
-      <td class="num" style="font-size:19px;font-weight:500;${needsOrder(p) ? 'color:#B3261E' : ''}">${p.qty}</td>
-      <td class="num meta">${p.min_qty}</td>
-      <td class="meta">${esc(locPath(p.location_id))}</td>
-      <td class="num meta">${yen(p.unit_price)}</td>
-      <td class="nowrap"><span class="btn sm ghost">開く</span></td></tr>`).join('')}</tbody></table></div>`;
+    <thead><tr>
+      <th>商品名</th><th>型番</th><th>メーカー</th><th>カテゴリ</th>
+      <th style="text-align:right">現在庫</th><th style="text-align:right">登録数</th>
+      <th>保管場所</th><th>在庫状態</th><th>販売状況</th><th>最終更新</th>
+    </tr></thead>
+    <tbody>${rows.map(p => {
+      const s = stockOf(p);
+      const lbl = stockLabel(p);
+      return `<tr class="clk" onclick="go('prod','${esc(p.code)}')">
+        <td><span style="font-weight:500">${esc(titleOf(p))}</span>
+          <div class="meta">${esc(p.code)}${p.kind === 'quantity' ? '／数量管理' : ''}</div></td>
+        <td class="nowrap">${esc(p.model || '')}</td>
+        <td class="nowrap">${esc(p.maker || '')}</td>
+        <td class="nowrap">${esc(catName(p.category_id))}</td>
+        <td class="num" style="font-size:18px;font-weight:600;${s.inStock <= 0 ? 'color:#B3261E' : ''}">${s.inStock}</td>
+        <td class="num meta">${s.registered}</td>
+        <td class="meta">${esc(placeOf(p))}</td>
+        <td>${stockTag(lbl)}</td>
+        <td>${channelChips(p.code)}</td>
+        <td class="meta nowrap">${touchedAt(p) ? fmtD(touchedAt(p)) : '—'}</td>
+      </tr>`;
+    }).join('')}</tbody></table></div>`;
 }
+
+function stockTag(lbl) {
+  const cls = { '在庫あり': 'ok', '残りわずか': 'few', '在庫なし': 'none', '要発注': 'few' }[lbl] || 'none';
+  return `<span class="tag stk-${cls}">${esc(lbl)}</span>`;
+}
+/* 販売状況は一覧では小さく。出しているモールだけ色を付ける */
+function channelChips(code) {
+  const list = channelsOf(code);
+  if (!list.length) return '<span class="meta">—</span>';
+  return '<span class="malls">' + CHANNELS.filter(c => list.some(x => x.channel === c.key)).map(c => {
+    const x = list.find(v => v.channel === c.key);
+    const on = x.state === '出品中';
+    return `<span class="tag ch ${on ? 'on' : ''}" title="${esc(c.label)}：${esc(x.state || '—')}">${esc(c.short)}</span>`;
+  }).join('') + '</span>';
+}
+
 function statusTag(s, big) {
   return `<span class="tag st-${esc(s)}${big ? ' big' : ''}"><span class="ms">${STATUS_ICON[s] || 'inventory_2'}</span>${esc(s)}</span>`;
 }
@@ -511,49 +611,47 @@ function statusTag(s, big) {
    取り込みは「足すだけ」。すでにある在庫は書き換えない。
    在庫の数や状態は、入庫・出庫・貸出といった操作で動かすものなので、
    表計算の上書きで静かに変わってしまうと、履歴と現物が合わなくなる。
-   だからCSVにあって在庫に無いものだけを新規登録する。
 
-   書き出した列をそのまま読み戻せるようにしてあるので、
-   ダウンロード → Excelで追記 → 取込 という往復ができる。              */
+   読めるCSVは2種類ある。列を見て自動で見分ける。
+     (1) この画面が書き出した形（商品マスタ1行＝1商品）
+     (2) これまで使っていた「統合在庫一覧（型番別）」
+         型番1行 → 商品マスタ1件、管理番号一覧を「 / 」で割って個体1台ずつ、
+         出品状況 → 販売チャネル情報、へ組み替える。
+         元の値は消さず「旧データ備考」に残す。                           */
 
-const CSV_IND = [
-  ['管理番号', i => i.id],
-  ['商品名', i => i.name],
-  ['カテゴリ', i => catName(i.category_id)],
-  ['メーカー', i => i.maker],
-  ['型番', i => i.model],
-  ['シリアル番号', i => i.serial],
-  ['購入日', i => i.purchased_on],
-  ['購入価格', i => i.price],
-  ['保管場所', i => locPath(i.location_id)],
-  ['状態', i => i.status],
-  ['利用者', i => i.user_name],
-  ['備考', i => i.note],
-  ['最終棚卸', i => i.last_checked_at ? fmtDT(i.last_checked_at) : '']
-];
-const CSV_QTY = [
-  ['商品コード', p => p.code],
+const CSV_MASTER = [
+  ['商品ID', p => p.code],
   ['商品名', p => p.name],
+  ['型番', p => p.model],
+  ['メーカー', p => p.maker],
   ['カテゴリ', p => catName(p.category_id)],
-  ['現在庫', p => p.qty],
-  ['最低在庫', p => p.min_qty],
-  ['保管場所', p => locPath(p.location_id)],
+  ['管理方式', p => p.kind === 'individual' ? '個体管理' : '数量管理'],
+  ['スペック', p => p.spec],
+  ['現在庫', p => stockOf(p).inStock],
+  ['登録数', p => stockOf(p).registered],
+  ['最低在庫', p => p.kind === 'individual' ? '' : p.min_qty],
+  ['保管場所', p => placeOf(p)],
+  ['在庫状態', p => stockLabel(p)],
+  ['販売状況', p => channelsOf(p.code).map(c => {
+    const m = CHANNELS.find(x => x.key === c.channel) || { label: c.channel };
+    return `${m.label}:${c.state || '未設定'}`;
+  }).join(' ｜ ')],
+  ['管理番号一覧', p => itemsOf(p.code).map(i => i.id).join(' / ')],
   ['仕入先', p => p.supplier],
   ['単価', p => p.unit_price],
   ['備考', p => p.note],
-  ['最終棚卸', p => p.last_checked_at ? fmtDT(p.last_checked_at) : '']
+  ['旧データ備考', p => p.legacy_note],
+  ['最終更新', p => touchedAt(p) ? fmtDT(touchedAt(p)) : '']
 ];
 
 function exportInventoryCsv() {
-  const ind = ui.kind === 'ind';
-  const cols = ind ? CSV_IND : CSV_QTY;
   const rows = listFiltered();
   if (!rows.length) { toast('書き出すものがありません'); return; }
-  const table = [cols.map(c => c[0])].concat(rows.map(r => cols.map(c => {
+  const table = [CSV_MASTER.map(c => c[0])].concat(rows.map(r => CSV_MASTER.map(c => {
     const v = c[1](r);
     return v == null ? '' : v;
   })));
-  const name = `備品在庫_${ind ? '個体' : '数量'}_${ymd()}.csv`;
+  const name = `備品在庫_${ymd()}.csv`;
   window.EightCsv.download(name, window.EightCsv.blob(window.EightCsv.build(table)));
   toast(`${rows.length}件を ${name} に書き出しました`);
 }
@@ -583,157 +681,297 @@ function findLoc(text) {
 
 function pickImport() { $('csvFile').value = ''; $('csvFile').click(); }
 
+let importPlan = null;
+
 async function readInventoryCsv(input) {
   const file = input.files && input.files[0];
   if (!file) return;
   const { text, encoding } = window.EightCsv.decode(await file.arrayBuffer());
   const table = window.EightCsv.parse(text);
-  if (table.length < 2) { toast('中身が読み取れませんでした'); return; }
+  if (!table.length) { toast('中身が読み取れませんでした'); return; }
 
-  const ind = ui.kind === 'ind';
-  const head = table[0].map(h => String(h || '').replace(/^﻿/, '').trim());
-  const idx = {};
-  head.forEach((h, i) => { if (idx[h] == null) idx[h] = i; });
-  const get = (row, h) => (idx[h] == null ? '' : String(row[idx[h]] == null ? '' : row[idx[h]]).trim());
-
-  const keyCol = ind ? '管理番号' : '商品コード';
-  if (idx['商品名'] == null) {
+  // 「統合在庫一覧」は先頭に見出しや集計が入っているので、本当のヘッダー行を探す
+  let head = -1;
+  for (let r = 0; r < Math.min(table.length, 12); r++) {
+    const row = table[r].map(c => String(c || '').replace(/^﻿/, '').trim());
+    if (row.includes('型番') && row.includes('管理番号一覧')) { head = r; break; }
+    if (row.includes('商品ID') || (row.includes('商品名') && row.includes('管理方式'))) { head = r; break; }
+  }
+  if (head < 0) {
     openModal('取り込めませんでした', `
-      <div class="card" style="margin-bottom:12px">「商品名」の列が見つかりませんでした。</div>
-      <div class="lbl" style="margin-bottom:6px">ファイルにあった列</div>
-      <div class="meta" style="word-break:break-all">${head.map(esc).join(' ／ ')}</div>
-      <div class="lbl" style="margin:15px 0 6px">必要な列</div>
-      <div class="meta">${(ind ? CSV_IND : CSV_QTY).map(c => esc(c[0])).join(' ／ ')}</div>`,
+      <div class="card" style="margin-bottom:12px">見出しの行が見つかりませんでした。</div>
+      <p class="meta">読めるのは次の2種類です。<br>
+        ・この画面の「CSVダウンロード」で出した形（<code>商品ID</code> の列がある）<br>
+        ・統合在庫一覧（型番別）（<code>型番</code> と <code>管理番号一覧</code> の列がある）</p>`,
       [['閉じる', 'closeModal()', 'btn ghost']]);
     return;
   }
 
-  const add = [], skip = [], bad = [];
-  const seen = {};
-  for (let r = 1; r < table.length; r++) {
-    const row = table[r];
-    const line = r + 1;
-    const key = get(row, keyCol);
-    const name = get(row, '商品名');
-    if (!name) { bad.push({ line, key, why: '商品名が空です' }); continue; }
+  const H = table[head].map(c => String(c || '').replace(/^﻿/, '').trim());
+  const idx = {};
+  H.forEach((h, i) => { if (idx[h] == null) idx[h] = i; });
+  const legacy = idx['管理番号一覧'] != null && idx['型番'] != null && idx['商品ID'] == null;
+  const body = table.slice(head + 1).filter(r => r.some(c => String(c).trim() !== ''));
 
-    // すでにある在庫はいっさい触らない
-    const exists = ind
-      ? (key && item(key)) || (get(row, 'シリアル番号') && db.items.find(i => i.serial && i.serial === get(row, 'シリアル番号')))
-      : (key && prod(key)) || db.prods.find(p => p.name === name);
-    if (exists) { skip.push({ line, key: exists.id || exists.code, name }); continue; }
-
-    // 同じCSVの中の重複も弾く
-    const dupKey = key || (ind ? get(row, 'シリアル番号') : name);
-    if (dupKey && seen[dupKey]) { bad.push({ line, key: dupKey, why: `${seen[dupKey]}行目と重複しています` }); continue; }
-    if (dupKey) seen[dupKey] = line;
-
-    const catId = findCat(get(row, 'カテゴリ'), ind ? 'individual' : 'quantity');
-    if (!catId) { bad.push({ line, key: key || name, why: `カテゴリ「${get(row, 'カテゴリ')}」がありません` }); continue; }
-    const lo = findLoc(get(row, '保管場所'));
-    if (!lo.id) { bad.push({ line, key: key || name, why: lo.why }); continue; }
-
-    if (ind) {
-      const st = get(row, '状態');
-      add.push({
-        line, key, rec: {
-          id: key || null, name, category_id: catId, location_id: lo.id,
-          status: STATUSES.includes(st) ? st : '在庫',
-          user_name: get(row, '利用者') || null,
-          maker: get(row, 'メーカー') || null, model: get(row, '型番') || null,
-          serial: get(row, 'シリアル番号') || null,
-          purchased_on: get(row, '購入日') || null,
-          price: get(row, '購入価格') === '' ? null : Number(get(row, '購入価格').replace(/[,¥\s]/g, '')),
-          note: get(row, '備考') || null
-        }
-      });
-    } else {
-      const qty = get(row, '現在庫'), min = get(row, '最低在庫');
-      if (qty !== '' && !isFinite(Number(qty))) { bad.push({ line, key: key || name, why: '現在庫が数値ではありません' }); continue; }
-      add.push({
-        line, key, rec: {
-          code: key || null, name, category_id: catId, location_id: lo.id,
-          qty: qty === '' ? 0 : Math.round(Number(qty)),
-          min_qty: min === '' ? 0 : Math.round(Number(min)),
-          supplier: get(row, '仕入先') || null,
-          unit_price: get(row, '単価') === '' ? null : Number(get(row, '単価').replace(/[,¥\s]/g, '')),
-          note: get(row, '備考') || null
-        }
-      });
-    }
-  }
-
-  importPlan = { ind, add, skip, bad, file: file.name, encoding };
+  importPlan = legacy
+    ? planLegacy(H, idx, body, file.name, encoding, head)
+    : planMaster(H, idx, body, file.name, encoding, head);
   showImportPreview();
 }
 
-let importPlan = null;
+const cell = (idx, row, h) => (idx[h] == null || idx[h] >= row.length) ? '' : String(row[idx[h]] == null ? '' : row[idx[h]]).trim();
+const numOf = (v) => v === '' ? null : Number(String(v).replace(/[,¥\s]/g, ''));
+
+/* --- (1) この画面が書き出した形 --- */
+function planMaster(H, idx, body, file, encoding, headRow) {
+  const add = [], skip = [], bad = [];
+  const seen = {};
+  body.forEach((row, n) => {
+    const line = headRow + 2 + n;
+    const g = h => cell(idx, row, h);
+    const name = g('商品名') || g('型番');
+    if (!name) { bad.push({ line, key: g('商品ID'), why: '商品名も型番も空です' }); return; }
+    const kind = g('管理方式') === '数量管理' ? 'quantity' : 'individual';
+    const key = g('商品ID') || g('型番') || name;
+
+    const exists = (g('商品ID') && prod(g('商品ID')))
+      || db.masters.find(p => p.kind === kind && (p.model || p.name || '') === (g('型番') || name));
+    if (exists) { skip.push({ line, key: exists.code, name: titleOf(exists) }); return; }
+    if (seen[key]) { bad.push({ line, key, why: `${seen[key]}行目と重複しています` }); return; }
+    seen[key] = line;
+
+    const catId = findCat(g('カテゴリ'), kind);
+    if (!catId) { bad.push({ line, key, why: `カテゴリ「${g('カテゴリ')}」がありません` }); return; }
+    const lo = findLoc(g('保管場所').split(' ほか')[0]);
+    if (!lo.id) { bad.push({ line, key, why: lo.why }); return; }
+
+    add.push({
+      line, key,
+      master: {
+        code: g('商品ID') || null, name: g('商品名') || null, model: g('型番') || null,
+        maker: g('メーカー') || null, category_id: catId, kind, spec: g('スペック') || null,
+        location_id: lo.id, qty: kind === 'quantity' ? (numOf(g('現在庫')) || 0) : 0,
+        min_qty: numOf(g('最低在庫')) || 0, supplier: g('仕入先') || null,
+        unit_price: numOf(g('単価')), note: g('備考') || null, legacy_note: g('旧データ備考') || null
+      },
+      units: (g('管理番号一覧') || '').split('/').map(x => x.trim()).filter(Boolean).map(id => ({ id })),
+      channels: []
+    });
+  });
+  return { mode: 'master', add, skip, bad, file, encoding };
+}
+
+/* --- (2) 統合在庫一覧（型番別）--- */
+const LEGACY_STATUS = { 'あり': '在庫', '社内使用': '社内使用', '未設定': '不明', '不明': '不明', 'なし': '不明' };
+const LEGACY_CHANNEL = {
+  'Amazon': 'amazon', 'amazon': 'amazon', '楽天': 'rakuten', 'メルカリ': 'mercari',
+  'ヤフオク': 'yahuoku', 'ヤフーフリマ': 'yahoo_free', 'Notion': 'notion'
+};
+
+/* 「あり:21 / 社内使用:4」→ [['在庫',21],['社内使用',4]] */
+function parseBreakdown(text) {
+  const out = [];
+  String(text || '').split('/').forEach(part => {
+    const m = part.trim().match(/^(.+?):\s*(\d+)$/);
+    if (m) out.push([LEGACY_STATUS[m[1].trim()] || '不明', Number(m[2]), m[1].trim()]);
+  });
+  return out;
+}
+/* 「Amazon:出品停止/出品中 ｜ 楽天:出品中」→ チャネルごとの行 */
+function parseListing(text) {
+  const out = [];
+  String(text || '').split('｜').forEach(seg => {
+    const i = seg.indexOf(':');
+    if (i < 0) return;
+    const name = seg.slice(0, i).trim();
+    const key = LEGACY_CHANNEL[name];
+    if (!key) return;
+    const rest = seg.slice(i + 1).trim();
+    // 先頭の状態を代表にする。元の並びはメモに丸ごと残す
+    const first = rest.split(/[/,]/).map(x => x.trim()).find(x => LIST_STATES.includes(x)) || null;
+    out.push({ channel: key, state: first, note: rest });
+  });
+  return out;
+}
+
+function planLegacy(H, idx, body, file, encoding, headRow) {
+  const add = [], skip = [], bad = [];
+  const seenModel = {}, seenNo = {};
+  // いま在庫にある管理番号は、二重に作らないよう先に控える
+  db.items.forEach(i => { seenNo[i.id] = 'すでに在庫にあります'; });
+
+  body.forEach((row, n) => {
+    const line = headRow + 2 + n;
+    const g = h => cell(idx, row, h);
+    const model = g('型番');
+    if (!model) { bad.push({ line, key: '', why: '型番が空です' }); return; }
+
+    const exists = db.masters.find(p => (p.model || '') === model);
+    if (exists) { skip.push({ line, key: exists.code, name: titleOf(exists) }); return; }
+    if (seenModel[model]) { bad.push({ line, key: model, why: `${seenModel[model]}行目と型番が重複しています` }); return; }
+    seenModel[model] = line;
+
+    // 管理番号を1台ずつに割る。同じ番号は1回だけ取る
+    const nos = [], dropped = [];
+    (g('管理番号一覧') || '').split('/').map(x => x.trim()).filter(Boolean).forEach(no => {
+      if (seenNo[no]) { dropped.push(`${no}（${seenNo[no]}）`); return; }
+      seenNo[no] = `${line}行目`;
+      nos.push(no);
+    });
+
+    // 状態の内訳を、台数ぶんの状態の列に広げる。
+    // どの番号がどの状態かは元データに無いので、件数のぶんだけ順に当てる
+    const bd = parseBreakdown(g('元データ在庫内訳'));
+    const states = [];
+    bd.forEach(([st, cnt]) => { for (let k = 0; k < cnt; k++) states.push(st); });
+
+    const legacyNote = [
+      g('元データ在庫内訳') ? `元データ在庫内訳: ${g('元データ在庫内訳')}` : '',
+      g('在庫数') ? `旧在庫数: ${g('在庫数')}` : '',
+      g('登録台数') ? `旧登録台数: ${g('登録台数')}` : '',
+      g('在庫状況') ? `旧在庫状況: ${g('在庫状況')}` : '',
+      g('備考') ? `備考: ${g('備考')}` : '',
+      dropped.length ? `取り込まなかった重複管理番号: ${dropped.join(' / ')}` : ''
+    ].filter(Boolean).join('\n');
+
+    // URL列は自由記述が混ざっているので、http で始まるものだけURLにする
+    const chans = parseListing(g('出品状況'));
+    [['Amazon URL', 'amazon'], ['メルカリURL', 'mercari'], ['ヤフオクURL', 'yahuoku'],
+     ['ヤフーフリマURL', 'yahoo_free'], ['楽天URL', 'rakuten'], ['Notion URL', 'notion']].forEach(([h, key]) => {
+      const v = g(h);
+      if (!v) return;
+      let c = chans.find(x => x.channel === key);
+      if (!c) { c = { channel: key, state: null, note: '' }; chans.push(c); }
+      if (/^https?:/i.test(v)) c.url = v;
+      else c.note = (c.note ? c.note + ' ／ ' : '') + v;
+    });
+
+    add.push({
+      line, key: model,
+      master: {
+        code: null, name: g('商品名') || null, model, maker: g('メーカー') || null,
+        category_id: null, kind: 'individual', spec: g('スペック') || null,
+        location_id: null, qty: 0, min_qty: 0, note: null, legacy_note: legacyNote
+      },
+      units: nos.map((id, k) => ({ id, status: states[k] || '不明' })),
+      channels: chans,
+      dropped: dropped.length
+    });
+  });
+  return { mode: 'legacy', add, skip, bad, file, encoding };
+}
 
 function showImportPreview() {
   const p = importPlan;
-  const nm = (x) => x.rec ? (x.rec.name || '') : (x.name || '');
-  const list = (rows, cls) => `<div class="plist">${rows.slice(0, 200).map(x =>
-    `<div class="p"><span class="c">${esc(x.key || '（採番）')}</span><span>${esc(nm(x))}</span>
+  const legacy = p.mode === 'legacy';
+  const units = p.add.reduce((n, x) => n + x.units.length, 0);
+  const dropped = p.add.reduce((n, x) => n + (x.dropped || 0), 0);
+  const unknown = p.add.reduce((n, x) => n + x.units.filter(u => u.status === '不明').length, 0);
+
+  const list = (rows) => `<div class="plist">${rows.slice(0, 200).map(x =>
+    `<div class="p"><span class="c">${esc(x.key || '（採番）')}</span>
+      <span>${esc(x.name || (x.master && (x.master.name || x.master.model)) || '')}</span>
+      ${x.units && x.units.length ? `<span class="meta">個体 ${x.units.length}台</span>` : ''}
       ${x.why ? `<span class="why">${esc(x.line)}行目：${esc(x.why)}</span>` : `<span class="meta" style="margin-left:auto">${x.line}行目</span>`}</div>`
   ).join('')}</div>${rows.length > 200 ? '<div class="meta" style="margin-bottom:12px">先頭200件だけ表示しています。</div>' : ''}`;
 
-  const canGo = p.add.length > 0 && (p.ind ? canAdmin() : canEdit());
   openModal('取り込む内容の確認', `
     <div class="card" style="margin-bottom:15px">
-      ${esc(p.file)}（${p.encoding === 'shift_jis' ? 'Shift_JIS' : 'UTF-8'}として読み込み）／${p.ind ? '個体管理' : '数量管理'}<br>
+      ${esc(p.file)}（${p.encoding === 'shift_jis' ? 'Shift_JIS' : 'UTF-8'}として読み込み）<br>
+      ${legacy ? '<strong>統合在庫一覧（型番別）</strong>として読みました。型番ごとに商品マスタを作り、管理番号を1台ずつの個体に分けます。'
+               : '<strong>この画面の書き出し形式</strong>として読みました。'}<br>
       <strong>すでにある在庫は書き換えません。</strong>CSVにあって在庫に無いものだけを追加します。
     </div>
     <div class="sum">
-      <div><div class="lbl">追加する</div><div class="v add">${p.add.length}</div></div>
+      <div><div class="lbl">商品マスタ</div><div class="v add">${p.add.length}</div></div>
+      <div><div class="lbl">個体</div><div class="v add">${units}</div></div>
       <div><div class="lbl">すでにある</div><div class="v skip">${p.skip.length}</div></div>
       <div><div class="lbl">取り込めない</div><div class="v err">${p.bad.length}</div></div>
     </div>
-    ${p.add.length ? `<div class="lbl" style="margin-bottom:6px">追加する${p.ind ? '機器' : '品目'}</div>${list(p.add)}` : ''}
+    ${legacy ? `<div class="card" style="margin-bottom:15px">
+      <div class="lbl" style="margin-bottom:5px">取り込みかたの確認</div>
+      ・カテゴリと保管場所は元データに無いので、下で選んだものを全件に当てます。<br>
+      ・状態は「元データ在庫内訳」の件数どおりに割り当てます。ただし<strong>どの管理番号がどの状態かは元データに書かれていない</strong>ので、
+        並び順で当てています。${unknown ? `うち <strong>${unknown}台</strong> は「不明」です。` : ''}
+        棚卸で現物を確認して確定してください。<br>
+      ・在庫数は取り込みません。<strong>各個体の状態から数えます</strong>（手入力の数と現物のずれを持ち込まないため）。<br>
+      ・元の値は消さず「旧データ備考」に残します。
+      ${dropped ? `<br>・重複していた管理番号 <strong>${dropped}件</strong> は1台だけ取り込み、残りは旧データ備考に書きます。` : ''}
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:12px">
+        <label class="field"><span>カテゴリ *</span><select class="input" id="impCat">
+          ${db.cats.filter(c => c.kind === 'individual').map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
+        </select></label>
+        <label class="field"><span>保管場所 *</span><select class="input" id="impLoc">${locOptions('', '選択してください')}</select></label>
+      </div></div>` : ''}
+    ${p.add.length ? `<div class="lbl" style="margin-bottom:6px">追加する商品</div>${list(p.add)}` : ''}
     ${p.skip.length ? `<div class="lbl" style="margin-bottom:6px">すでにあるので変更しません</div>${list(p.skip)}` : ''}
     ${p.bad.length ? `<div class="lbl" style="margin-bottom:6px">取り込めない行</div>${list(p.bad)}` : ''}
-    ${p.ind && !canAdmin() ? '<div class="card">機器の追加は管理者だけができます。</div>' : ''}
+    ${canAdmin() ? '' : '<div class="card">商品の追加は管理者だけができます。</div>'}
   `, [
     ['閉じる', 'closeModal()', 'btn ghost'],
-    ...(canGo ? [[`${p.add.length}件を追加`, 'applyInventoryImport()', 'btn lime']] : [])
+    ...(p.add.length && canAdmin() ? [[`${p.add.length}商品・${units}台を追加`, 'applyInventoryImport()', 'btn lime']] : [])
   ]);
 }
 
 async function applyInventoryImport() {
   const p = importPlan;
   if (!p || !p.add.length) return;
+  const catId = ($('impCat') || {}).value || null;
+  const locId = ($('impLoc') || {}).value || null;
+  if (p.mode === 'legacy' && (!catId || !locId)) { toast('カテゴリと保管場所を選んでください'); return; }
   closeModal();
-  toast(`${p.add.length}件を追加しています…`);
+  toast(`${p.add.length}商品を取り込んでいます…`);
 
-  // 管理番号が空の行はここで採番する。採番は update ... returning で取るので、
-  // 同時に誰かが登録していても番号はぶつからない
-  const recs = [];
+  const masters = [], units = [], chans = [], txs = [];
   for (const x of p.add) {
-    const rec = Object.assign({}, x.rec);
-    if (!(p.ind ? rec.id : rec.code)) {
-      const pre = p.ind ? ((cat(rec.category_id) || {}).code_prefix || 'IT') : 'SKU';
-      const { data, error } = await sb.rpc('inv_next_id', { p_prefix: pre, p_digits: p.ind ? 5 : 4 });
-      if (error) { toast('採番できませんでした：' + error.message); return; }
-      if (p.ind) rec.id = data; else rec.code = data;
+    const m = Object.assign({}, x.master);
+    if (p.mode === 'legacy') { m.category_id = catId; m.location_id = locId; }
+    if (!m.code) {
+      const { data, error } = await sb.rpc('inv_next_id', { p_prefix: m.kind === 'individual' ? 'P' : 'SKU', p_digits: m.kind === 'individual' ? 5 : 4 });
+      if (error) { toast('商品IDを採番できませんでした：' + error.message); return; }
+      m.code = data;
     }
-    recs.push(rec);
+    if (!m.name) m.name = m.model;
+    masters.push(m);
+
+    for (const u of x.units) {
+      let id = u.id;
+      if (!id) {
+        const pre = (cat(m.category_id) || {}).code_prefix || 'IT';
+        const { data, error } = await sb.rpc('inv_next_id', { p_prefix: pre, p_digits: 5 });
+        if (error) { toast('管理番号を採番できませんでした：' + error.message); return; }
+        id = data;
+      }
+      units.push({
+        id, product_code: m.code, name: m.name, category_id: m.category_id,
+        maker: m.maker, model: m.model, location_id: m.location_id,
+        status: u.status || '在庫', legacy_note: m.legacy_note
+      });
+      txs.push({
+        actor: me.name, ref_kind: 'item', ref_id: id, label: m.name, action: '登録',
+        before_value: '—', after_value: (u.status || '在庫') + '（' + locPath(m.location_id) + '）／CSV取込'
+      });
+    }
+    (x.channels || []).forEach(c => chans.push(Object.assign({ product_code: m.code }, c)));
   }
 
-  const table = p.ind ? 'inventory_items' : 'inventory_products';
-  const { error } = await sb.from(table).insert(recs);
-  if (error) { toast('追加できませんでした：' + error.message); return; }
-
-  // 登録は関数を通らないので、履歴をここでまとめて足す（追記のみの表なので入れられる）
-  await sb.from('inventory_transactions').insert(recs.map(r => ({
-    actor: me.name, ref_kind: p.ind ? 'item' : 'product',
-    ref_id: p.ind ? r.id : r.code, label: r.name, action: '登録',
-    before_value: '—',
-    after_value: (p.ind ? r.status : String(r.qty)) + '（' + locPath(r.location_id) + '）／CSV取込'
-  })));
+  const ins = async (table, rows) => {
+    for (let i = 0; i < rows.length; i += 200) {
+      const { error } = await sb.from(table).insert(rows.slice(i, i + 200));
+      if (error) throw new Error(`${table} に入れられませんでした：${error.message}`);
+    }
+  };
+  try {
+    await ins('inventory_products', masters);
+    if (units.length) await ins('inventory_items', units);
+    if (chans.length) await ins('inventory_channels', chans);
+    if (txs.length) await ins('inventory_transactions', txs);
+  } catch (e) { toast(e.message); return; }
 
   importPlan = null;
   await loadAll();
   render();
-  toast(`${recs.length}件を追加しました`);
+  toast(`${masters.length}商品・${units.length}台を取り込みました`);
 }
 
 /* ---------------------------------------------------------------- モーダル */
@@ -751,6 +989,7 @@ function viewItem() {
   const it = item(ui.itemId);
   if (!it) return `<div class="empty">該当する機器が見つかりません（${esc(ui.itemId || '')}）</div>`;
   const url = itemUrl(it.id);
+  const m = prod(it.product_code);          // 商品名・型番はマスタ側が正
   const hist = db.tx.filter(t => t.ref_kind === 'item' && t.ref_id === it.id);
   const op = (icon, label, fn, pri, on) =>
     `<button class="btn ${pri ? 'pri' : ''}" onclick="${fn}" ${on === false || !canEdit() ? 'disabled' : ''}>
@@ -759,8 +998,8 @@ function viewItem() {
   return `
   <div class="detail">
     <div class="main">
-      <div class="kind">${esc(catName(it.category_id) || '機器')}</div>
-      <h1>${esc(it.name)}</h1>
+      <div class="kind">${esc(catName((m || it).category_id) || '機器')}</div>
+      <h1>${esc(m ? titleOf(m) : it.name)}</h1>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <span class="num" style="font-size:19px;font-weight:500">${esc(it.id)}</span>
         ${statusTag(it.status, true)}
@@ -769,7 +1008,8 @@ function viewItem() {
       <div class="info">
         <div><span class="k">保管場所</span>${esc(locPath(it.location_id)) || '—'}</div>
         <div><span class="k">利用者</span>${esc(it.user_name || '—')}</div>
-        <div><span class="k">メーカー・型番</span>${esc([it.maker, it.model].filter(Boolean).join(' ') || '—')}</div>
+        <div><span class="k">メーカー・型番</span>${esc([(m || it).maker, (m || it).model].filter(Boolean).join(' ') || '—')}</div>
+        ${m ? `<div><span class="k">商品</span><a href="#" onclick="go('prod','${esc(m.code)}');return false">${esc(m.code)} を見る</a></div>` : ''}
         <div><span class="k">シリアル番号</span>${esc(it.serial || '—')}</div>
         <div><span class="k">購入日・価格</span>${it.purchased_on ? fmtD(it.purchased_on) : '—'}　${yen(it.price)}</div>
         <div><span class="k">棚卸確認</span>${it.last_checked_at ? fmtDT(it.last_checked_at) : '未確認'}</div>
@@ -780,6 +1020,7 @@ function viewItem() {
         ${op('assignment_return', '返却', `sheetReturn('${esc(it.id)}')`, false, it.status === '貸出中')}
         ${op('move_down', '移動', `sheetMove('${esc(it.id)}')`)}
         ${op('build', '修理・故障', `sheetStatus('${esc(it.id)}')`)}
+        ${op('paid', '売却', `sheetSell('${esc(it.id)}')`, false, !GONE.includes(it.status))}
         ${op('fact_check', '棚卸確認', `checkItem('${esc(it.id)}')`)}
         ${canAdmin() ? op('delete', '廃棄', `sheetScrap('${esc(it.id)}')`) : ''}
       </div>
@@ -789,46 +1030,214 @@ function viewItem() {
       <div class="u">${esc(url)}</div>
     </div>
   </div>
+  ${m && m.spec ? `<div class="sec">スペック</div><div class="pre">${esc(m.spec)}</div>` : ''}
+  ${it.legacy_note ? `<div class="sec">旧データ備考</div><div class="pre legacy">${esc(it.legacy_note)}</div>` : ''}
   <div class="sec">この機器の履歴</div>
   ${hist.length ? hist.map(txRow).join('') : '<div class="empty">まだ記録はありません。</div>'}`;
 }
 
-/* ===== 4. 数量品の詳細 ===== */
+/* ===== 4. 商品詳細（基本情報・個体一覧・販売情報・履歴の4タブ） ===== */
+const TABS = [['info', 'info', '基本情報'], ['units', 'inventory_2', '個体一覧'],
+              ['sales', 'storefront', '販売情報'], ['hist', 'history', '履歴']];
+function setTab(t) { ui.tab = t; render(); }
+
 function viewProd() {
   const p = prod(ui.prodId);
-  if (!p) return `<div class="empty">該当する品目が見つかりません（${esc(ui.prodId || '')}）</div>`;
+  if (!p) return `<div class="empty">該当する商品が見つかりません（${esc(ui.prodId || '')}）</div>`;
+  const ind = p.kind === 'individual';
+  const s = stockOf(p);
   const url = prodUrl(p.code);
-  const hist = db.tx.filter(t => t.ref_kind === 'product' && t.ref_id === p.code);
+
+  const body = {
+    info: tabInfo, units: tabUnits, sales: tabSales, hist: tabHist
+  }[ui.tab] || tabInfo;
+
   return `
   <div class="detail">
     <div class="main">
-      <div class="kind">${esc(catName(p.category_id) || '消耗品')}</div>
-      <h1>${esc(p.name)}</h1>
-      <div class="num" style="font-size:19px;font-weight:500">${esc(p.code)}</div>
-      <div style="display:flex;align-items:flex-end;gap:20px;margin:18px 0 12px;flex-wrap:wrap">
-        <div><div class="lbl">現在庫</div><div class="bignum num" ${needsOrder(p) ? 'style="color:#B3261E"' : ''}>${p.qty}</div></div>
-        <div class="sub" style="display:grid;gap:4px">
-          <div>最低在庫　<b class="num">${p.min_qty}</b></div>
-          <div>保管場所　${esc(locPath(p.location_id)) || '—'}</div>
-          <div>${esc(p.supplier || '—')}　${yen(p.unit_price)}</div>
-          <div>棚卸確認　${p.last_checked_at ? fmtDT(p.last_checked_at) : '未確認'}</div>
+      <div class="kind">${esc(catName(p.category_id) || (ind ? '個体管理' : '数量管理'))}</div>
+      <h1>${esc(titleOf(p))}</h1>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:4px">
+        <span class="num" style="font-size:17px;font-weight:500">${esc(p.model || p.code)}</span>
+        ${stockTag(stockLabel(p))}
+        <span class="meta">${esc(ind ? '個体管理' : '数量管理')}</span>
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:22px;margin:18px 0 4px;flex-wrap:wrap">
+        <div><div class="lbl">現在庫</div><div class="bignum num"${s.inStock <= 0 ? ' style="color:#B3261E"' : ''}>${s.inStock}</div></div>
+        <div><div class="lbl">登録数</div><div class="num" style="font-size:28px;font-weight:600">${s.registered}</div></div>
+        <div class="sub" style="display:grid;gap:3px">
+          <div>保管場所　${esc(placeOf(p)) || '—'}</div>
+          <div>メーカー　${esc(p.maker || '—')}</div>
+          ${!ind ? `<div>最低在庫　<b class="num">${p.min_qty}</b>　単価 ${yen(p.unit_price)}</div>` : ''}
         </div>
       </div>
-      ${needsOrder(p) ? `<div class="needorder"><span class="ms">shopping_cart</span>要発注：最低在庫（${p.min_qty}）を下回っています</div>` : ''}
-      ${guardNote()}
-      <div class="ops">
-        <button class="btn pri" onclick="sheetIn('${esc(p.code)}')" ${dis()}><span class="ms">login</span><span class="t">入庫</span></button>
-        <button class="btn" onclick="sheetOut('${esc(p.code)}')" ${dis()}><span class="ms">logout</span><span class="t">出庫</span></button>
-        <button class="btn" onclick="sheetCount('${esc(p.code)}')" ${dis()}><span class="ms">fact_check</span><span class="t">棚卸</span></button>
-      </div>
+      ${!ind && needsOrder(p) ? `<div class="needorder" style="margin-top:10px"><span class="ms">shopping_cart</span>要発注：最低在庫（${p.min_qty}）を下回っています</div>` : ''}
     </div>
     <div class="qrbox">
       <img src="${qr(url)}" alt="${esc(p.code)} のQRコード" width="140" height="140">
       <div class="u">${esc(url)}</div>
     </div>
   </div>
-  <div class="sec">この品目の履歴</div>
-  ${hist.length ? hist.map(txRow).join('') : '<div class="empty">まだ記録はありません。</div>'}`;
+
+  <div class="tabs2">${TABS.map(([k, ic, lb]) =>
+    `<button class="${ui.tab === k ? 'on' : ''}" onclick="setTab('${k}')"><span class="ms">${ic}</span>${lb}${
+      k === 'units' && ind ? `<span class="n">${s.total}</span>` : ''}${
+      k === 'sales' ? `<span class="n">${channelsOf(p.code).length}</span>` : ''}</button>`).join('')}</div>
+  <div id="tabBody">${body(p)}</div>`;
+}
+
+/* --- 基本情報 --- */
+function tabInfo(p) {
+  const ind = p.kind === 'individual';
+  return `
+    <div class="info">
+      <div><span class="k">商品ID</span>${esc(p.code)}</div>
+      <div><span class="k">商品名</span>${esc(p.name || '（型番で代用）')}</div>
+      <div><span class="k">型番</span>${esc(p.model || '—')}</div>
+      <div><span class="k">メーカー</span>${esc(p.maker || '—')}</div>
+      <div><span class="k">カテゴリ</span>${esc(catName(p.category_id) || '—')}</div>
+      <div><span class="k">管理方式</span>${ind ? '個体管理（1台＝1レコード）' : '数量管理'}</div>
+      ${!ind ? `<div><span class="k">仕入先</span>${esc(p.supplier || '—')}</div>
+                <div><span class="k">単価</span>${yen(p.unit_price)}</div>` : ''}
+    </div>
+    ${p.spec ? `<div class="sec">スペック</div><div class="pre">${esc(p.spec)}</div>` : ''}
+    ${p.note ? `<div class="sec">備考</div><div class="pre">${esc(p.note)}</div>` : ''}
+    ${p.legacy_note ? `<div class="sec">旧データ備考</div>
+      <div class="pre legacy">${esc(p.legacy_note)}</div>
+      <p class="meta">移行前のデータです。消さずに残しています。</p>` : ''}
+    ${!ind ? `${guardNote()}<div class="ops" style="max-width:520px;margin-top:18px">
+      <button class="btn pri" onclick="sheetIn('${esc(p.code)}')" ${dis()}><span class="ms">login</span><span class="t">入庫</span></button>
+      <button class="btn" onclick="sheetOut('${esc(p.code)}')" ${dis()}><span class="ms">logout</span><span class="t">出庫</span></button>
+      <button class="btn" onclick="sheetCount('${esc(p.code)}')" ${dis()}><span class="ms">fact_check</span><span class="t">棚卸</span></button>
+    </div>` : ''}`;
+}
+
+/* --- 個体一覧。QRを出し、クリックで操作できる --- */
+function tabUnits(p) {
+  if (p.kind !== 'individual') return '<div class="empty">数量管理の商品なので、個体は持ちません。</div>';
+  const list = itemsOf(p.code);
+  if (!list.length) return '<div class="empty">個体がまだ登録されていません。</div>';
+  return `${guardNote()}
+    <div class="units">${list.map(i => `
+      <div class="unit">
+        <img src="${qr(itemUrl(i.id))}" alt="" width="72" height="72" onclick="go('item','${esc(i.id)}')" style="cursor:pointer">
+        <div class="ux">
+          <div class="num" style="font-weight:600;font-size:14px">${esc(i.id)}</div>
+          <div style="margin:3px 0">${statusTag(i.status)}</div>
+          <div class="meta">${esc(locPath(i.location_id) || '—')}</div>
+          ${i.serial ? `<div class="meta">S/N ${esc(i.serial)}</div>` : ''}
+          ${i.user_name ? `<div class="meta">${esc(i.user_name)}</div>` : ''}
+        </div>
+        <div class="ua">
+          <button class="btn sm ghost" onclick="go('item','${esc(i.id)}')">開く</button>
+          <button class="btn sm" onclick="unitMenu('${esc(i.id)}')" ${dis()}>操作</button>
+        </div>
+      </div>`).join('')}</div>`;
+}
+
+/* 個体をクリックしたときの操作メニュー */
+function unitMenu(id) {
+  const it = item(id); if (!it) return;
+  const can = (ok) => ok ? '' : 'disabled';
+  openModal(`${it.id} の操作`, `
+    <div class="card" style="margin-bottom:14px">${esc(titleOf(prod(it.product_code)) || it.name)}　${statusTag(it.status)}
+      <div class="meta" style="margin-top:4px">${esc(locPath(it.location_id))}</div></div>
+    <div class="ops" style="margin:0">
+      <button class="btn pri" onclick="closeModal();sheetLoan('${esc(id)}')" ${can(it.status === '在庫')}>
+        <span class="ms">assignment_ind</span><span class="t">貸出</span></button>
+      <button class="btn" onclick="closeModal();sheetReturn('${esc(id)}')" ${can(it.status === '貸出中')}>
+        <span class="ms">assignment_return</span><span class="t">返却</span></button>
+      <button class="btn" onclick="closeModal();sheetMove('${esc(id)}')">
+        <span class="ms">move_down</span><span class="t">移動</span></button>
+      <button class="btn" onclick="closeModal();sheetStatus('${esc(id)}')">
+        <span class="ms">build</span><span class="t">修理・状態</span></button>
+      <button class="btn" onclick="closeModal();sheetSell('${esc(id)}')" ${can(!GONE.includes(it.status))}>
+        <span class="ms">paid</span><span class="t">売却</span></button>
+      ${canAdmin() ? `<button class="btn" onclick="closeModal();sheetScrap('${esc(id)}')" ${can(it.status !== '廃棄')}>
+        <span class="ms">delete</span><span class="t">廃棄</span></button>` : ''}
+    </div>`, [['閉じる', 'closeModal()', 'btn ghost']]);
+}
+
+/* --- 販売情報 --- */
+function tabSales(p) {
+  const list = channelsOf(p.code);
+  return `${guardNote()}
+    <p class="meta" style="margin-bottom:12px">モールごとの出品情報です。在庫一覧には出さず、ここでまとめて見ます。</p>
+    <div class="table-wrap"><table class="t">
+      <thead><tr><th>販売チャネル</th><th>SKU</th><th>商品URL</th><th>出品状態</th><th>メモ</th><th></th></tr></thead>
+      <tbody>${CHANNELS.map(c => {
+        const x = list.find(v => v.channel === c.key) || {};
+        return `<tr>
+          <td class="nowrap"><span class="tag ch ${x.state === '出品中' ? 'on' : ''}">${esc(c.short)}</span> ${esc(c.label)}</td>
+          <td class="nowrap">${esc(x.sku || '—')}</td>
+          <td>${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener" class="meta" style="word-break:break-all">開く</a>` : '<span class="meta">—</span>'}</td>
+          <td class="nowrap">${x.state ? `<span class="tag ${x.state === '出品中' ? 'ch on' : 'act'}">${esc(x.state)}</span>` : '<span class="meta">—</span>'}</td>
+          <td class="meta" style="max-width:260px">${esc((x.note || '').slice(0, 80))}</td>
+          <td class="nowrap"><button class="btn sm ghost" onclick="sheetChannel('${esc(p.code)}','${c.key}')" ${dis()}>編集</button></td>
+        </tr>`;
+      }).join('')}</tbody></table></div>`;
+}
+
+function sheetChannel(code, ch) {
+  const c = CHANNELS.find(x => x.key === ch) || { label: ch };
+  const x = db.channels.find(v => v.product_code === code && v.channel === ch) || {};
+  openSheet({
+    title: c.label, subject: code, cta: '保存',
+    hint: 'このモールでの出品情報を入れます。空にすると「未設定」になります。',
+    body: `<label class="field" style="margin-bottom:10px"><span>SKU</span>
+        <input class="input" id="chSku" value="${esc(x.sku || '')}" placeholder="モールでの商品コード"></label>
+      <label class="field" style="margin-bottom:10px"><span>商品URL</span>
+        <input class="input" id="chUrl" value="${esc(x.url || '')}" placeholder="https://…"></label>
+      <label class="field" style="margin-bottom:10px"><span>出品状態</span>
+        <select class="input" id="sheetVal"><option value="">未設定</option>
+        ${LIST_STATES.map(s => `<option${x.state === s ? ' selected' : ''}>${s}</option>`).join('')}</select></label>
+      <label class="field"><span>メモ</span>
+        <input class="input" id="chNote" value="${esc(x.note || '')}"></label>`,
+    run: async (state) => {
+      const row = {
+        product_code: code, channel: ch,
+        sku: ($('chSku') || {}).value || null,
+        url: ($('chUrl') || {}).value || null,
+        state: state || null,
+        note: ($('chNote') || {}).value || null
+      };
+      const { data, error } = await sb.from('inventory_channels')
+        .upsert(row, { onConflict: 'product_code,channel' }).select();
+      if (error) { toast('保存できませんでした：' + error.message); return; }
+      const got = (data && data[0]) || row;
+      const i = db.channels.findIndex(v => v.product_code === code && v.channel === ch);
+      if (i >= 0) db.channels[i] = got; else db.channels.push(got);
+      render();
+      toast(c.label + 'の販売情報を保存しました');
+    }
+  });
+}
+
+/* --- 履歴 --- */
+function tabHist(p) {
+  const ids = itemsOf(p.code).map(i => i.id);
+  const rows = db.tx.filter(t =>
+    (t.ref_kind === 'product' && t.ref_id === p.code) ||
+    (t.ref_kind === 'item' && ids.includes(t.ref_id)));
+  if (!rows.length) return '<div class="empty">まだ記録はありません。</div>';
+  return rows.map(t => `<div class="rowline">
+    <span class="meta num" style="width:126px;flex:0 0 auto">${fmtDT(t.occurred_at)}</span>
+    <span class="meta" style="width:72px;flex:0 0 auto">${esc(t.actor || '')}</span>
+    <span class="num" style="flex:0 0 auto;font-size:12px">${esc(t.ref_id)}</span>
+    <span class="tag act">${esc(t.action)}</span>
+    <span class="meta" style="flex:1 1 200px">${esc(t.before_value || '—')} → ${esc(t.after_value || '—')}</span>
+  </div>`).join('');
+}
+
+function sheetSell(id) {
+  const it = item(id); if (!it) return;
+  openSheet({
+    title: '売却', subject: id, cta: '売却を記録',
+    hint: `${esc(titleOf(prod(it.product_code)) || it.name)} を売却済にします。現在庫からも登録数からも外れますが、履歴は残ります。`,
+    body: `<label class="field"><span>メモ（任意）</span>
+      <input class="input" id="sheetVal" placeholder="例 メルカリで販売"></label>`,
+    run: (v) => itemOp(id, '売却', null, v)
+  });
 }
 
 /* ===== 5・6. 入庫 / 出庫 ===== */
@@ -837,11 +1246,12 @@ function viewIn() { return moveList('in'); }
 function viewOut() { return moveList('out'); }
 function moveList(mode) {
   const isIn = mode === 'in';
-  if (!db.prods.length) return `<h1>${isIn ? '入庫' : '出庫'}</h1><div class="empty" style="margin-top:20px">数量管理の品目がまだありません。「商品登録」から登録してください。</div>`;
-  const rows = db.prods.map(p => `
+  const targets = db.masters.filter(p => p.kind !== 'individual');
+  if (!targets.length) return `<h1>${isIn ? '入庫' : '出庫'}</h1><div class="empty" style="margin-top:20px">数量管理の品目がまだありません。「商品登録」から登録してください。</div>`;
+  const rows = targets.map(p => `
     <div class="rowline" style="gap:14px;align-items:center">
       <div style="flex:1 1 220px;min-width:0">
-        <div style="font-weight:500">${esc(p.name)}</div>
+        <div style="font-weight:500">${esc(titleOf(p))}</div>
         <div class="meta">${esc(p.code)}　${isIn ? esc(locPath(p.location_id)) : '最低在庫 ' + p.min_qty}</div>
       </div>
       <div class="num" style="font-size:22px;font-weight:500;width:56px;text-align:right;${!isIn && needsOrder(p) ? 'color:#B3261E' : ''}">${p.qty}</div>
@@ -973,7 +1383,7 @@ function viewLocs() {
       const d = locDepth(l.id);
       const tree = locTree(l.id);
       const ni = db.items.filter(i => tree.includes(i.location_id) && i.status !== '廃棄').length;
-      const np = db.prods.filter(p => tree.includes(p.location_id)).length;
+      const np = db.masters.filter(p => p.kind !== 'individual' && tree.includes(p.location_id)).length;
       return `<div class="r ${l.kind}" style="padding-left:${d * 18}px">
         <span class="ms">${icon[l.kind] || 'shelves'}</span>
         <div style="min-width:0">
@@ -981,7 +1391,7 @@ function viewLocs() {
           <div class="c">個体 ${ni}件／数量品 ${np}種</div>
         </div>
         <div class="sp">
-          <button class="btn sm ghost" onclick="ui.kind='ind';ui.fLoc='${esc(l.id)}';go('list')">在庫</button>
+          <button class="btn sm ghost" onclick="ui.fLoc='${esc(l.id)}';go('list')">在庫</button>
           ${l.kind === 'shelf' ? `<button class="btn sm ghost" onclick="go('loc','${esc(l.id)}')">棚QR</button>` : ''}
         </div></div>`;
     }).join('')}</div>`;
@@ -992,7 +1402,7 @@ function viewLoc() {
   if (!l) return `<div class="empty">該当する保管場所が見つかりません（${esc(ui.locId || '')}）</div>`;
   const tree = locTree(l.id);
   const items = db.items.filter(i => tree.includes(i.location_id) && i.status !== '廃棄');
-  const prods = db.prods.filter(p => tree.includes(p.location_id));
+  const prods = db.masters.filter(p => p.kind !== 'individual' && tree.includes(p.location_id));
   const url = locUrl(l.id);
   return `<div class="detail">
     <div class="main">
@@ -1059,16 +1469,21 @@ function viewHist() {
 
 /* ===== 11. 商品登録 ===== */
 function setRegKind(k) { ui.regKind = k; ui.made = null; render(); }
+
 function viewReg() {
   if (ui.made) {
     const m = ui.made;
     return `<h1>商品登録</h1>
-      <div class="card" style="margin-top:20px;max-width:460px;display:flex;align-items:center;gap:18px">
+      <div class="card" style="margin-top:20px;max-width:480px;display:flex;align-items:center;gap:18px">
         <img src="${qr(m.url)}" width="120" height="120" style="image-rendering:pixelated;background:#fff;padding:5px" alt="QR">
         <div style="min-width:0">
           <div style="font-weight:500">${esc(m.name)}</div>
           <div class="num" style="font-size:19px">${esc(m.id)}</div>
-          <button class="btn sm pri" style="margin-top:10px" onclick="ui.labelSel={'${m.kind}_${esc(m.id)}':true};go('labels')">ラベル印刷へ →</button>
+          <div class="meta">${esc(m.sub || '')}</div>
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+            <button class="btn sm pri" onclick="ui.labelSel={'${m.kind}_${esc(m.id)}':true};go('labels')">ラベル印刷へ →</button>
+            <button class="btn sm ghost" onclick="go('prod','${esc(m.code)}')">商品を見る</button>
+          </div>
         </div>
       </div>
       <button class="btn" style="margin-top:15px" onclick="ui.made=null;render()">続けて登録する</button>`;
@@ -1077,30 +1492,38 @@ function viewReg() {
   const cats = db.cats.filter(c => c.kind === (ind ? 'individual' : 'quantity'));
   const f = (id, label, type, extra) =>
     `<label class="field"><span>${esc(label)}</span><input class="input" id="r-${id}" ${type ? `type="${type}"` : ''} ${extra || ''}></label>`;
+  const ta = (id, label) =>
+    `<label class="field" style="grid-column:1/-1"><span>${esc(label)}</span><textarea class="input" id="r-${id}" rows="2"></textarea></label>`;
+
   return `<h1>商品登録</h1>
     ${canAdmin() ? '' : '<div class="card" style="margin:15px 0">商品の登録は管理者だけができます。</div>'}
     <div class="seg" style="margin:15px 0">
       <button class="${ind ? 'on' : ''}" onclick="setRegKind('ind')">個体管理</button>
       <button class="${!ind ? 'on' : ''}" onclick="setRegKind('qty')">数量管理</button>
     </div>
+    <p class="meta" style="margin-bottom:12px">${ind
+      ? '1台＝1レコードで登録します。同じ型番がすでにあれば、その商品にぶら下がる個体として足します。'
+      : '数が増減する消耗品などです。1品目＝1レコードで、在庫数を持ちます。'}</p>
     <div class="fields">
       ${f('name', '商品名 *')}
       <label class="field"><span>カテゴリ *</span><select class="input" id="r-cat" onchange="previewId()">
         ${cats.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select></label>
       <label class="field"><span>保管場所 *</span><select class="input" id="r-loc">${locOptions('', '選択してください')}</select></label>
-      ${ind ? f('maker', 'メーカー') + f('model', '型番') + f('serial', 'シリアル番号')
-            + f('buy', '購入日', 'date') + f('price', '購入価格', 'number')
-            : f('qty', '初期在庫 *', 'number') + f('min', '最低在庫数 *', 'number')
-            + f('supplier', '仕入先') + f('unit', '単価', 'number')}
-      ${f('note', '備考')}
+      ${f('maker', 'メーカー')}
+      ${f('model', '型番')}
+      ${ta('spec', 'スペック')}
+      ${ind ? f('serial', 'シリアル番号') + f('buy', '購入日', 'date') + f('price', '購入価格', 'number')
+            : f('qty', '初期在庫数 *', 'number') + f('min', '最低在庫数 *', 'number') + f('unit', '購入単価', 'number')}
+      ${ta('note', '備考')}
     </div>
     <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:18px">
       <button class="btn lime" style="min-height:52px" onclick="doRegister()" ${canAdmin() ? '' : 'disabled'}>
         <span class="ms">add</span>登録してQR発行</button>
-      <span class="meta">発行予定の管理番号: <b id="idPreview" class="num">—</b></span>
+      <span class="meta">発行予定の${ind ? '管理番号' : '商品コード'}: <b id="idPreview" class="num">—</b></span>
     </div>`;
 }
-/* 採番カウンタは「読むだけ」で予告する。実際の採番は登録のときに1回だけ */
+
+/* 採番カウンタは読むだけで予告する。実際の採番は登録のときに1回だけ */
 async function previewId() {
   const el = $('idPreview'); if (!el) return;
   const pre = ui.regKind === 'ind' ? ((cat(($('r-cat') || {}).value) || {}).code_prefix || 'IT') : 'SKU';
@@ -1108,47 +1531,71 @@ async function previewId() {
   const n = (data && data.next_no) || 1;
   el.textContent = pre + '-' + String(n).padStart(ui.regKind === 'ind' ? 5 : 4, '0');
 }
+
+/* 同じ型番の商品マスタを探す。無ければ作る */
+async function findOrCreateMaster(fields, kind) {
+  const key = (fields.model || fields.name || '').trim();
+  const hit = db.masters.find(p => p.kind === kind && (p.model || p.name || '').trim() === key);
+  if (hit) return hit;
+
+  const pre = kind === 'individual' ? 'P' : 'SKU';
+  const { data: code, error } = await sb.rpc('inv_next_id', { p_prefix: pre, p_digits: kind === 'individual' ? 5 : 4 });
+  if (error) throw new Error('商品IDを採番できませんでした：' + error.message);
+  const rec = Object.assign({ code, kind }, fields);
+  const { data, error: e2 } = await sb.from('inventory_products').insert(rec).select().single();
+  if (e2) throw new Error('商品マスタを作れませんでした：' + e2.message);
+  db.masters.push(data);
+  return data;
+}
+
 async function doRegister() {
   const g = id => (($('r-' + id) || {}).value || '').trim();
   const name = g('name'), catId = g('cat'), locId = g('loc');
   if (!name || !catId || !locId) { toast('商品名・カテゴリ・保管場所は必ず入れてください'); return; }
   const ind = ui.regKind === 'ind';
-  if (!ind && (g('qty') === '' || g('min') === '')) { toast('初期在庫と最低在庫数を入れてください'); return; }
+  if (!ind && (g('qty') === '' || g('min') === '')) { toast('初期在庫数と最低在庫数を入れてください'); return; }
 
-  const pre = ind ? ((cat(catId) || {}).code_prefix || 'IT') : 'SKU';
-  const { data: newId, error: e1 } = await sb.rpc('inv_next_id', { p_prefix: pre, p_digits: ind ? 5 : 4 });
-  if (e1) { toast('採番できませんでした：' + e1.message); return; }
+  try {
+    if (ind) {
+      const m = await findOrCreateMaster({
+        name, category_id: catId, maker: g('maker') || null, model: g('model') || null,
+        spec: g('spec') || null, note: g('note') || null, location_id: locId, qty: 0, min_qty: 0
+      }, 'individual');
 
-  if (ind) {
-    const rec = {
-      id: newId, name, category_id: catId, location_id: locId, status: '在庫',
-      maker: g('maker') || null, model: g('model') || null, serial: g('serial') || null,
-      purchased_on: g('buy') || null, price: g('price') === '' ? null : Number(g('price')),
-      note: g('note') || null
-    };
-    const { error } = await sb.from('inventory_items').insert(rec);
-    if (error) { toast('登録できませんでした：' + error.message); return; }
-    db.items.push(rec);
-    await logRegister('item', newId, name, '在庫（' + locPath(locId) + '）');
-    ui.made = { kind: 'item', id: newId, name, url: itemUrl(newId) };
-  } else {
-    const rec = {
-      code: newId, name, category_id: catId, location_id: locId,
-      qty: Number(g('qty') || 0), min_qty: Number(g('min') || 0),
-      supplier: g('supplier') || null, unit_price: g('unit') === '' ? null : Number(g('unit')),
-      note: g('note') || null
-    };
-    const { error } = await sb.from('inventory_products').insert(rec);
-    if (error) { toast('登録できませんでした：' + error.message); return; }
-    db.prods.push(rec);
-    await logRegister('product', newId, name, rec.qty + '（' + locPath(locId) + '）');
-    ui.made = { kind: 'prod', id: newId, name, url: prodUrl(newId) };
-  }
+      const pre = (cat(catId) || {}).code_prefix || 'IT';
+      const { data: newId, error } = await sb.rpc('inv_next_id', { p_prefix: pre, p_digits: 5 });
+      if (error) { toast('採番できませんでした：' + error.message); return; }
+
+      const rec = {
+        id: newId, product_code: m.code, name, category_id: catId, location_id: locId, status: '在庫',
+        maker: g('maker') || null, model: g('model') || null, serial: g('serial') || null,
+        purchased_on: g('buy') || null, price: g('price') === '' ? null : Number(g('price')),
+        note: g('note') || null
+      };
+      const { error: e2 } = await sb.from('inventory_items').insert(rec);
+      if (e2) { toast('登録できませんでした：' + e2.message); return; }
+      db.items.push(rec);
+      await logRegister('item', newId, name, '在庫（' + locPath(locId) + '）');
+      ui.made = { kind: 'item', id: newId, code: m.code, name, url: itemUrl(newId), sub: '商品 ' + m.code };
+      toast(newId + ' を登録しました');
+    } else {
+      const m = await findOrCreateMaster({
+        name, category_id: catId, maker: g('maker') || null, model: g('model') || null,
+        spec: g('spec') || null, note: g('note') || null, location_id: locId,
+        qty: Number(g('qty') || 0), min_qty: Number(g('min') || 0),
+        unit_price: g('unit') === '' ? null : Number(g('unit'))
+      }, 'quantity');
+      await logRegister('product', m.code, name, m.qty + '（' + locPath(locId) + '）');
+      ui.made = { kind: 'prod', id: m.code, code: m.code, name, url: prodUrl(m.code), sub: '数量管理' };
+      toast(m.code + ' を登録しました');
+    }
+  } catch (e) { toast(e.message || String(e)); return; }
+
   await refreshTx();
   render();
-  toast(newId + ' を登録しました');
 }
-/* 登録だけは関数を通さないので、履歴をここで足す（追記のみの表なので追加はできる） */
+
+/* 登録だけは関数を通らないので、履歴をここで足す（追記のみの表なので入れられる） */
 async function logRegister(kind, id, label, after) {
   await sb.from('inventory_transactions').insert({
     actor: me.name, ref_kind: kind, ref_id: id, label, action: '登録', before_value: '—', after_value: after
@@ -1166,7 +1613,7 @@ function pickAll(on) {
   ui.labelSel = {};
   if (on) {
     db.items.filter(i => i.status !== '廃棄').forEach(i => ui.labelSel[labelKey('item', i.id)] = true);
-    db.prods.forEach(p => ui.labelSel[labelKey('prod', p.code)] = true);
+    db.masters.forEach(p => ui.labelSel[labelKey('prod', p.code)] = true);
     db.locs.filter(l => l.kind === 'shelf').forEach(l => ui.labelSel[labelKey('loc', l.id)] = true);
   }
   render();
@@ -1175,7 +1622,7 @@ function selectedLabels() {
   const out = [];
   db.items.filter(i => ui.labelSel[labelKey('item', i.id)]).forEach(i =>
     out.push({ id: i.id, name: i.name, loc: locPath(i.location_id), url: itemUrl(i.id) }));
-  db.prods.filter(p => ui.labelSel[labelKey('prod', p.code)]).forEach(p =>
+  db.masters.filter(p => ui.labelSel[labelKey('prod', p.code)]).forEach(p =>
     out.push({ id: p.code, name: p.name, loc: locPath(p.location_id), url: prodUrl(p.code) }));
   db.locs.filter(l => ui.labelSel[labelKey('loc', l.id)]).forEach(l =>
     out.push({ id: l.id, name: l.name, loc: locPath(l.id), url: locUrl(l.id) }));
@@ -1200,7 +1647,7 @@ function viewLabels() {
       <div class="sec" style="margin-top:20px">機器（個体）</div>
       <div class="picks">${db.items.filter(i => i.status !== '廃棄').map(i => pick('item', i.id, i.name, locPath(i.location_id))).join('') || '<div class="meta">ありません</div>'}</div>
       <div class="sec">数量品</div>
-      <div class="picks">${db.prods.map(p => pick('prod', p.code, p.name, locPath(p.location_id))).join('') || '<div class="meta">ありません</div>'}</div>
+      <div class="picks">${db.masters.map(p => pick('prod', p.code, titleOf(p), placeOf(p))).join('') || '<div class="meta">ありません</div>'}</div>
       <div class="sec">棚</div>
       <div class="picks">${db.locs.filter(l => l.kind === 'shelf').map(l => pick('loc', l.id, l.name, locPath(l.id))).join('') || '<div class="meta">ありません</div>'}</div>
       <div class="sec">印刷イメージ</div>
@@ -1275,7 +1722,7 @@ function sheetStatus(id) {
     title: '状態を変える', subject: id, cta: '変更を記録',
     hint: `いまの状態：${esc(it.status)}`,
     body: `<label class="field"><span>新しい状態</span><select class="input" id="sheetVal">
-      ${['修理中', '故障', '紛失', '在庫', '使用中'].map(s => `<option${s === it.status ? ' selected' : ''}>${s}</option>`).join('')}
+      ${['在庫', '出品中', '社内使用', '修理中', '故障', '紛失', '不明'].map(s => `<option${s === it.status ? ' selected' : ''}>${s}</option>`).join('')}
     </select></label>`,
     run: (v) => itemOp(id, '状態変更', v)
   });
@@ -1348,8 +1795,8 @@ function sheetCount(code) {
 }
 
 /* ---------------------------------------------------------------- 操作（すべて関数経由） */
-async function itemOp(id, action, value) {
-  const { data, error } = await sb.rpc('inv_item_op', { p_item_id: id, p_action: action, p_value: value || null, p_note: null });
+async function itemOp(id, action, value, note) {
+  const { data, error } = await sb.rpc('inv_item_op', { p_item_id: id, p_action: action, p_value: value || null, p_note: note || null });
   if (error) { toast(error.message || '記録できませんでした'); return; }
   const i = db.items.findIndex(x => x.id === id);
   if (i >= 0 && data) db.items[i] = data;
@@ -1408,7 +1855,7 @@ function renderScanSim() {
   const pick = (arr, n) => arr.slice(0, n);
   const parts = []
     .concat(pick(db.items, 6).map(i => ({ t: i.id, u: itemUrl(i.id) })))
-    .concat(pick(db.prods, 3).map(p => ({ t: p.code, u: prodUrl(p.code) })))
+    .concat(pick(db.masters, 3).map(p => ({ t: p.code, u: prodUrl(p.code) })))
     .concat(pick(db.locs.filter(l => l.kind === 'shelf'), 3).map(l => ({ t: l.name, u: locUrl(l.id) })));
   $('scanSim').innerHTML = parts.length
     ? parts.map(p => `<button onclick="handleCode('${esc(p.u)}')">${esc(p.t)}</button>`).join('')
@@ -1473,7 +1920,7 @@ function handleCode(raw) {
   const kindHint = seg.length > 1 ? seg[seg.length - 2] : '';
 
   const it = db.items.find(i => i.id === key);
-  const pr = db.prods.find(p => p.code === key);
+  const pr = db.masters.find(p => p.code === key);
   const lc = db.locs.find(l => l.id === key || l.name === key);
 
   // 棚卸の連続読取中は画面を移らず、確認済みに足していく

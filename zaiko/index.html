@@ -228,6 +228,35 @@ table.t tr.clk:hover td{background:var(--n100)}
 #sheet .acts .btn.cancel{width:120px}
 #sheet input[type=number].input{font-size:20px;min-height:48px;text-align:center}
 
+/* ---- 商品詳細のタブ ---- */
+.tabs2{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:24px 0 18px;overflow-x:auto}
+.tabs2 button{border:none;background:transparent;padding:11px 16px;font-size:14px;font-weight:500;color:var(--n600);
+  cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;border-bottom:3px solid transparent;margin-bottom:-1px}
+.tabs2 button .ms{font-size:19px}
+.tabs2 button .n{font-size:11px;background:var(--n200);color:var(--n700);padding:1px 7px;border-radius:10px}
+.tabs2 button:hover{color:var(--ink)}
+.tabs2 button.on{color:var(--ink);border-bottom-color:var(--ink);font-weight:700}
+.tabs2 button.on .n{background:var(--ink);color:#fff}
+
+/* ---- 在庫状態・販売チャネルのタグ ---- */
+.tag.stk-ok{background:var(--i100);color:var(--i800)}
+.tag.stk-few{background:var(--l200);color:#111}
+.tag.stk-none{background:var(--n300);color:var(--n800)}
+.tag.ch{background:var(--n200);color:var(--n700);font-weight:700;font-size:11px;padding:2px 7px}
+.tag.ch.on{background:var(--ink);color:#fff}
+
+/* ---- 個体一覧 ---- */
+.units{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:10px}
+.unit{display:flex;gap:11px;align-items:flex-start;background:var(--panel);padding:11px;border-radius:var(--r2);box-shadow:var(--sh-sm)}
+.unit img{image-rendering:pixelated;background:#fff;padding:3px;flex:0 0 auto;border:1px solid var(--line)}
+.unit .ux{flex:1;min-width:0}
+.unit .ua{display:flex;flex-direction:column;gap:5px;flex:0 0 auto}
+.unit .ua .btn{min-height:32px;padding:5px 10px;font-size:12px}
+
+/* ---- 長い自由記述 ---- */
+.pre{white-space:pre-wrap;word-break:break-word;background:var(--panel);padding:12px 14px;border-radius:var(--r2);font-size:13.5px;line-height:1.75}
+.pre.legacy{background:var(--l100);font-size:12.5px;color:var(--n700)}
+
 /* ---- モーダル（CSV取込の確認など、下からのシートに収まらないもの） ---- */
 #modal{position:fixed;inset:0;z-index:93;background:rgba(17,17,17,.5);display:none;place-items:center;padding:20px}
 #modal.on{display:grid}
