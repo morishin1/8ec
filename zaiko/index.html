@@ -253,10 +253,28 @@ table.t tr.clk:hover td{background:var(--n100)}
 .unit .ua{display:flex;flex-direction:column;gap:5px;flex:0 0 auto}
 .unit .ua .btn{min-height:32px;padding:5px 10px;font-size:12px}
 
+/* ---- 一覧のチェックボックスと一括操作 ---- */
+table.t th.ck,table.t td.ck{width:34px;padding-right:0}
+table.t td.ck input,table.t th.ck input{width:17px;height:17px;accent-color:var(--ink);cursor:pointer;vertical-align:middle}
+table.t tr.clk.on td{background:var(--i100)}
+table.t tr.clk.on:hover td{background:var(--i200)}
+
+#selbar{position:fixed;left:0;right:0;bottom:0;z-index:35;background:var(--bg);border-top:1px solid var(--line);
+  box-shadow:0 -4px 18px rgba(17,17,17,.10);padding:11px 20px;display:none;align-items:center;gap:10px;flex-wrap:wrap}
+#selbar.on{display:flex}
+#selbar .n{font-weight:500;margin-right:auto;font-size:14px}
+
+.bulkrow{border-bottom:1px solid var(--rule);padding:12px 0}
+.bulkrow:last-child{border-bottom:none}
+.bchk{display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:500;cursor:pointer}
+.bchk input{width:17px;height:17px;accent-color:var(--ink);cursor:pointer}
+.bfield{margin:9px 0 0 25px}
+.bfield.off{opacity:.35;pointer-events:none}
+
 /* ---- 取り返しのつかない操作 ---- */
-.danger{display:flex;align-items:center;gap:12px;margin:40px 0 0;padding:13px 15px;
+.dangerzone{display:flex;align-items:center;gap:12px;margin:40px 0 0;padding:13px 15px;
   border:1px solid #E7C4C4;background:#FDF5F5;border-radius:var(--r2)}
-.danger .ms{font-size:22px;color:#B3261E}
+.dangerzone .ms{font-size:22px;color:#B3261E}
 .btn.danger{border-color:#B3261E;color:#B3261E}
 .btn.danger:hover{background:#FDECEC}
 .btn.danger:disabled{opacity:.4}
@@ -401,6 +419,13 @@ table.t tr.clk:hover td{background:var(--n100)}
     <div class="mc" id="modalBody"></div>
     <div class="mf" id="modalFoot"></div>
   </div>
+</div>
+
+<div id="selbar" data-noprint>
+  <span class="n" id="selN"></span>
+  <button class="btn sm ghost" onclick="clearSel()">選択を解除</button>
+  <button class="btn sm" onclick="openBulkEdit()"><span class="ms">edit</span>まとめて直す</button>
+  <button class="btn sm danger" id="selDel" onclick="openBulkDelete()"><span class="ms">delete</span>削除</button>
 </div>
 
 <div id="toast" data-noprint><span class="ms">check_circle</span><span id="toastMsg"></span></div>

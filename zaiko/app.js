@@ -68,7 +68,7 @@ const ui = {
   screen: 'dash', itemId: null, prodId: null, locId: null,
   q: '', fCat: '', fMaker: '', fLoc: '', fStock: '', fList: '',
   fAction: '', hq: '', regKind: 'ind', made: null, tab: 'info',
-  drafts: {}, labelSel: {}, stScope: '', loaded: false
+  drafts: {}, labelSel: {}, stScope: '', loaded: false, sel: {}
 };
 
 /* ---------------------------------------------------------------- 小道具 */
@@ -397,6 +397,7 @@ function renderMenu() {
 
 /* ---------------------------------------------------------------- 描画 */
 function render() {
+  refreshSelBar();
   const v = $('view');
   const fn = {
     dash: viewDash, list: viewList, item: viewItem, prod: viewProd, in: viewIn, out: viewOut,
@@ -554,7 +555,7 @@ function viewList() {
       </select>
     </div>
     <div id="listBody">${listBodyHtml()}</div>
-    ${canAdmin() ? `<div class="danger">
+    ${canAdmin() ? `<div class="dangerzone">
       <span class="ms">warning_amber</span>
       <div style="flex:1;min-width:0">
         <div style="font-weight:500">在庫データの削除</div>
@@ -562,6 +563,108 @@ function viewList() {
       </div>
       <button class="btn sm" onclick="openWipe()">削除する…</button>
     </div>` : ''}`;
+}
+
+/* ---- 選んだ商品をまとめて直す ----
+   取り込んだ直後はカテゴリも保管場所も全件が同じになるので、
+   ここで分けていくのが実際の使いかたになる。
+   触る項目だけチェックを入れてもらう（うっかり全部を上書きしないため）。 */
+function openBulkEdit() {
+  const codes = selCodes();
+  if (!codes.length) return;
+  const units = codes.reduce((a, c) => a + itemsOf(c).filter(i => !GONE.includes(i.status)).length, 0);
+  const row = (key, label, inner) => `
+    <div class="bulkrow">
+      <label class="bchk"><input type="checkbox" id="bu-${key}" onchange="syncBulk()"> ${esc(label)}</label>
+      <div class="bfield" id="bw-${key}">${inner}</div>
+    </div>`;
+  openModal(`${codes.length}商品をまとめて直す`, `
+    <p class="meta" style="margin-bottom:14px">チェックを入れた項目だけを変えます。入れていない項目はそのままです。</p>
+    ${row('cat', 'カテゴリ', `<select class="input" id="bv-cat">
+      ${db.cats.map(c => `<option value="${esc(c.id)}">${esc(c.name)}（${c.kind === 'individual' ? '個体' : '数量'}）</option>`).join('')}
+    </select>`)}
+    ${row('maker', 'メーカー', `<input class="input" id="bv-maker" placeholder="例 Lenovo">`)}
+    ${row('loc', '保管場所', `<select class="input" id="bv-loc">${locOptions('', '選択してください')}</select>
+      <label class="bchk" style="margin-top:8px"><input type="checkbox" id="bv-units" checked>
+        ぶら下がる個体（${units}台）も一緒に動かす</label>
+      <div class="meta">外すと、商品の置き場所だけを直します。売却済・廃棄の個体は動かしません。</div>`)}
+  `, [['閉じる', 'closeModal()', 'btn ghost'], ['この内容で直す', 'doBulkEdit()', 'btn lime']]);
+  syncBulk();
+}
+function syncBulk() {
+  let any = false;
+  ['cat', 'maker', 'loc'].forEach(k => {
+    const on = ($('bu-' + k) || {}).checked;
+    const w = $('bw-' + k);
+    if (w) w.classList.toggle('off', !on);
+    if (on) any = true;
+  });
+  const go = $('modalFoot').querySelector('.btn.lime');
+  if (go) go.disabled = !any;
+}
+async function doBulkEdit() {
+  const codes = selCodes();
+  const on = k => ($('bu-' + k) || {}).checked;
+  const args = {
+    p_codes: codes,
+    p_category: on('cat') ? ($('bv-cat') || {}).value || null : null,
+    p_maker: on('maker') ? (($('bv-maker') || {}).value || '').trim() : null,
+    p_location: on('loc') ? ($('bv-loc') || {}).value || null : null,
+    p_move_units: on('loc') ? !!($('bv-units') || {}).checked : false
+  };
+  if (args.p_category === null && args.p_maker === null && args.p_location === null) return;
+  if (on('loc') && !args.p_location) { toast('保管場所を選んでください'); return; }
+  closeModal();
+  toast('直しています…');
+  const { data, error } = await sb.rpc('inv_bulk_update_products', args);
+  if (error) { toast('直せませんでした：' + error.message); return; }
+  await loadAll();
+  render();
+  toast(`${data.products}商品を直しました${data.units ? `（個体 ${data.units}台を移動）` : ''}`);
+}
+
+/* ---- 選んだ商品をまとめて消す ---- */
+function openBulkDelete() {
+  const codes = selCodes();
+  if (!codes.length) return;
+  const units = codes.reduce((a, c) => a + itemsOf(c).length, 0);
+  const chans = codes.reduce((a, c) => a + channelsOf(c).length, 0);
+  const list = codes.slice(0, 50).map(c => {
+    const p = prod(c);
+    return `<div class="p"><span class="c">${esc(c)}</span><span>${esc(titleOf(p))}</span>
+      <span class="meta" style="margin-left:auto">個体 ${itemsOf(c).length}台</span></div>`;
+  }).join('');
+  openModal(`${codes.length}商品を削除`, `
+    <div class="card" style="background:#FDECEC;margin-bottom:15px">
+      <strong>元に戻せません。</strong>ぶら下がる個体と販売情報も一緒に消えます。<br>
+      <span class="meta">操作の履歴は残り、何を消したかも記録されます。</span>
+    </div>
+    <div class="sum">
+      <div><div class="lbl">商品</div><div class="v err">${codes.length}</div></div>
+      <div><div class="lbl">個体</div><div class="v err">${units}</div></div>
+      <div><div class="lbl">販売情報</div><div class="v err">${chans}</div></div>
+    </div>
+    <div class="plist">${list}</div>
+    ${codes.length > 50 ? `<div class="meta" style="margin-bottom:12px">先頭50件だけ表示しています。</div>` : ''}
+    <label class="field"><span>確認のため「${WIPE_WORD}」と入力してください</span>
+      <input class="input" id="bdWord" autocomplete="off" placeholder="${WIPE_WORD}"
+             oninput="document.getElementById('bdGo').disabled = this.value.trim() !== '${WIPE_WORD}'"></label>
+  `, [['閉じる', 'closeModal()', 'btn ghost'], ['削除する', 'doBulkDelete()', 'btn danger']]);
+  const go = $('modalFoot').querySelector('.btn.danger');
+  go.id = 'bdGo';
+  go.disabled = true;
+}
+async function doBulkDelete() {
+  if ((($('bdWord') || {}).value || '').trim() !== WIPE_WORD) return;
+  const codes = selCodes();
+  closeModal();
+  toast('削除しています…');
+  const { data, error } = await sb.rpc('inv_delete_products', { p_codes: codes });
+  if (error) { toast('削除できませんでした：' + error.message); return; }
+  ui.sel = {};
+  await loadAll();
+  render();
+  toast(`${data.products}商品・個体 ${data.units}台・販売情報 ${data.channels}件を削除しました`);
 }
 
 /* ---- 在庫データの全削除。取り返しがつかないので、合言葉を打ってもらう ---- */
@@ -605,7 +708,11 @@ async function doWipe() {
   render();
   toast(`個体 ${data.items}件・商品マスタ ${data.masters}件・販売情報 ${data.channels}件を削除しました`);
 }
-function renderListBody() { const el = $('listBody'); if (el) el.innerHTML = listBodyHtml(); }
+function renderListBody() {
+  const el = $('listBody');
+  if (el) el.innerHTML = listBodyHtml();
+  refreshSelBar();
+}
 
 function listBodyHtml() {
   const rows = listFiltered();
@@ -614,6 +721,8 @@ function listBodyHtml() {
   return `<div class="meta" style="margin:12px 0 4px">${rows.length} 商品／現在庫 ${totalUnits}</div>
     <div class="table-wrap"><table class="t">
     <thead><tr>
+      ${canEdit() ? `<th class="ck"><input type="checkbox" id="selAll" onclick="toggleAll(this.checked)"
+        ${allSelected(rows) ? 'checked' : ''} title="表示中をすべて選ぶ"></th>` : ''}
       <th>商品名</th><th>型番</th><th>メーカー</th><th>カテゴリ</th>
       <th style="text-align:right">現在庫</th><th style="text-align:right">登録数</th>
       <th>保管場所</th><th>在庫状態</th><th>販売状況</th><th>最終更新</th>
@@ -621,7 +730,9 @@ function listBodyHtml() {
     <tbody>${rows.map(p => {
       const s = stockOf(p);
       const lbl = stockLabel(p);
-      return `<tr class="clk" onclick="go('prod','${esc(p.code)}')">
+      return `<tr class="clk${ui.sel[p.code] ? ' on' : ''}" onclick="go('prod','${esc(p.code)}')">
+        ${canEdit() ? `<td class="ck" onclick="event.stopPropagation()">
+          <input type="checkbox" ${ui.sel[p.code] ? 'checked' : ''} onchange="toggleOne('${esc(p.code)}',this.checked)"></td>` : ''}
         <td><span style="font-weight:500">${esc(titleOf(p))}</span>
           <div class="meta">${esc(p.code)}${p.kind === 'quantity' ? '／数量管理' : ''}</div></td>
         <td class="nowrap">${esc(p.model || '')}</td>
@@ -635,6 +746,31 @@ function listBodyHtml() {
         <td class="meta nowrap">${touchedAt(p) ? fmtD(touchedAt(p)) : '—'}</td>
       </tr>`;
     }).join('')}</tbody></table></div>`;
+}
+
+/* ---- 選ぶ ---- */
+const selCodes = () => Object.keys(ui.sel).filter(k => ui.sel[k]);
+function allSelected(rows) { return rows.length > 0 && rows.every(p => ui.sel[p.code]); }
+function toggleOne(code, on) {
+  if (on) ui.sel[code] = true; else delete ui.sel[code];
+  renderListBody(); refreshSelBar();
+}
+function toggleAll(on) {
+  listFiltered().forEach(p => { if (on) ui.sel[p.code] = true; else delete ui.sel[p.code]; });
+  renderListBody(); refreshSelBar();
+}
+function clearSel() { ui.sel = {}; renderListBody(); refreshSelBar(); }
+
+function refreshSelBar() {
+  const bar = $('selbar');
+  if (!bar) return;
+  const n = selCodes().length;
+  // 一覧以外の画面に移ったら、選択中でもバーは出さない
+  bar.classList.toggle('on', n > 0 && ui.screen === 'list' && canEdit());
+  $('selDel').style.display = canAdmin() ? '' : 'none';
+  if (!n) return;
+  const units = selCodes().reduce((a, c) => a + itemsOf(c).length, 0);
+  $('selN').textContent = `${n} 商品を選択中（個体 ${units}台）`;
 }
 
 function stockTag(lbl) {
