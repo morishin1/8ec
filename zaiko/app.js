@@ -843,31 +843,46 @@ function exportInventoryCsv() {
 }
 
 /* カテゴリ名 → ID。表計算では名前で書くほうが扱いやすいので名前で受ける */
+/* カテゴリ名 → ID。なぜ引けなかったかまで返す（取り込み画面で理由を出すため）。
+   読み替え（impMap）が指定されていればそれを優先する */
 function findCat(name, kind) {
   const n = String(name || '').trim();
-  if (!n) return null;
+  if (!n) return { id: null, reason: 'cat-empty', why: 'カテゴリが空です' };
+  if (impMap.cat[n]) return { id: impMap.cat[n] };
   const hit = db.cats.filter(c => c.kind === kind && c.name === n);
-  return hit.length === 1 ? hit[0].id : null;
+  if (hit.length === 1) return { id: hit[0].id };
+  const other = db.cats.filter(c => c.name === n);
+  if (other.length) {
+    const forWhat = other[0].kind === 'quantity' ? '数量管理' : '個体管理';
+    return { id: null, reason: 'cat-kind', value: n, kind,
+             why: `カテゴリ「${n}」は${forWhat}用として登録されています` };
+  }
+  return { id: null, reason: 'cat-missing', value: n, kind, why: `カテゴリ「${n}」がありません` };
 }
+
 /* 保管場所は「本社 / 倉庫 / 棚A-01」でも「棚A-01」でも受ける。
    末尾だけの指定で同じ名前が複数あるときは、取り違えないよう取り込まない */
 function findLoc(text) {
   const t = String(text || '').trim();
-  if (!t) return { id: null, why: '保管場所が空です' };
+  if (!t) return { id: null, reason: 'loc-empty', why: '保管場所が空です' };
+  if (impMap.loc[t]) return { id: impMap.loc[t] };
   const byPath = db.locs.filter(l => locPath(l.id) === t);
   if (byPath.length === 1) return { id: byPath[0].id };
   const byName = db.locs.filter(l => l.name === t);
   if (byName.length === 1) return { id: byName[0].id };
   if (byName.length > 1) {
     const cand = byName.slice(0, 3).map(l => locPath(l.id)).join('、');
-    return { id: null, why: `「${t}」が複数あります（${cand}）。どれかをそのまま書いてください` };
+    return { id: null, reason: 'loc-ambiguous', value: t,
+             why: `「${t}」が複数あります（${cand}）` };
   }
-  return { id: null, why: `保管場所「${t}」がありません` };
+  return { id: null, reason: 'loc-missing', value: t, why: `保管場所「${t}」がありません` };
 }
 
 function pickImport() { $('csvFile').value = ''; $('csvFile').click(); }
 
+let importSrc = null;                  // 読み込んだCSVそのもの。読み替えを変えたら組み直す
 let importPlan = null;
+const impMap = { loc: {}, cat: {} };   // 取り込み画面でのその場の読み替え
 
 async function readInventoryCsv(input) {
   const file = input.files && input.files[0];
@@ -880,7 +895,7 @@ async function readInventoryCsv(input) {
   let head = -1;
   for (let r = 0; r < Math.min(table.length, 12); r++) {
     const row = table[r].map(c => String(c || '').replace(/^﻿/, '').trim());
-    if (row.includes('型番') && row.includes('管理番号一覧')) { head = r; break; }
+    if (row.includes('型番') && row.includes('管理番号一覧') && !row.includes('商品ID')) { head = r; break; }
     if (row.includes('商品ID') || (row.includes('商品名') && row.includes('管理方式'))) { head = r; break; }
   }
   if (head < 0) {
@@ -899,14 +914,60 @@ async function readInventoryCsv(input) {
   const legacy = idx['管理番号一覧'] != null && idx['型番'] != null && idx['商品ID'] == null;
   const body = table.slice(head + 1).filter(r => r.some(c => String(c).trim() !== ''));
 
-  importPlan = legacy
-    ? planLegacy(H, idx, body, file.name, encoding, head)
-    : planMaster(H, idx, body, file.name, encoding, head);
+  impMap.loc = {}; impMap.cat = {};
+  importSrc = { legacy, H, idx, body, file: file.name, encoding, headRow: head };
+  replan();
+  showImportPreview();
+}
+
+/* 読み替えを変えたら組み直す。件数がその場で変わるので、何が通るようになるか分かる */
+function replan() {
+  const s = importSrc;
+  if (!s) return;
+  importPlan = s.legacy
+    ? planLegacy(s.H, s.idx, s.body, s.file, s.encoding, s.headRow)
+    : planMaster(s.H, s.idx, s.body, s.file, s.encoding, s.headRow);
+}
+function setImpMap(kind, value, id) {
+  if (id) impMap[kind][value] = id; else delete impMap[kind][value];
+  replan();
   showImportPreview();
 }
 
 const cell = (idx, row, h) => (idx[h] == null || idx[h] >= row.length) ? '' : String(row[idx[h]] == null ? '' : row[idx[h]]).trim();
+/* 列名は運用のなかで揺れる（最低在庫 / 最低在庫数 など）。いくつか候補を見る */
+const cellAny = (idx, row, names) => {
+  for (const h of names) { const v = cell(idx, row, h); if (v !== '') return v; }
+  return '';
+};
 const numOf = (v) => v === '' ? null : Number(String(v).replace(/[,¥\s]/g, ''));
+
+/* 販売情報。モール別の列（Amazon出品状態 / Amazon URL …）と、
+   書き出しの「販売状況」（Amazon:出品中 ｜ 楽天:…）のどちらでも読む */
+function readChannels(idx, row) {
+  const out = [];
+  CHANNELS.forEach(c => {
+    const st = cellAny(idx, row, [c.label + '出品状態', c.label + '状態']);
+    const url = cellAny(idx, row, [c.label + ' URL', c.label + 'URL']);
+    if (!st && !url) return;
+    const e = { channel: c.key, state: LIST_STATES.includes(st) ? st : null };
+    if (/^https?:/i.test(url)) e.url = url;
+    else if (url) e.note = url;
+    if (st && !e.state) e.note = (e.note ? e.note + ' ／ ' : '') + st;
+    out.push(e);
+  });
+  if (out.length) return out;
+  // 「販売状況」1列にまとまっている場合
+  String(cell(idx, row, '販売状況') || '').split('｜').forEach(seg => {
+    const i = seg.indexOf(':');
+    if (i < 0) return;
+    const c = CHANNELS.find(x => x.label === seg.slice(0, i).trim());
+    if (!c) return;
+    const st = seg.slice(i + 1).trim();
+    out.push({ channel: c.key, state: LIST_STATES.includes(st) ? st : null, note: LIST_STATES.includes(st) ? null : st });
+  });
+  return out;
+}
 
 /* --- (1) この画面が書き出した形 --- */
 function planMaster(H, idx, body, file, encoding, headRow) {
@@ -916,32 +977,34 @@ function planMaster(H, idx, body, file, encoding, headRow) {
     const line = headRow + 2 + n;
     const g = h => cell(idx, row, h);
     const name = g('商品名') || g('型番');
-    if (!name) { bad.push({ line, key: g('商品ID'), why: '商品名も型番も空です' }); return; }
+    if (!name) { bad.push({ line, key: g('商品ID'), reason: 'no-name', why: '商品名も型番も空です' }); return; }
     const kind = g('管理方式') === '数量管理' ? 'quantity' : 'individual';
     const key = g('商品ID') || g('型番') || name;
 
     const exists = (g('商品ID') && prod(g('商品ID')))
       || db.masters.find(p => p.kind === kind && (p.model || p.name || '') === (g('型番') || name));
     if (exists) { skip.push({ line, key: exists.code, name: titleOf(exists) }); return; }
-    if (seen[key]) { bad.push({ line, key, why: `${seen[key]}行目と重複しています` }); return; }
+    if (seen[key]) { bad.push({ line, key, reason: 'dup', why: `${seen[key]}行目と重複しています` }); return; }
     seen[key] = line;
 
-    const catId = findCat(g('カテゴリ'), kind);
-    if (!catId) { bad.push({ line, key, why: `カテゴリ「${g('カテゴリ')}」がありません` }); return; }
+    const ca = findCat(g('カテゴリ'), kind);
+    if (!ca.id) { bad.push({ line, key, ...ca }); return; }
     const lo = findLoc(g('保管場所').split(' ほか')[0]);
-    if (!lo.id) { bad.push({ line, key, why: lo.why }); return; }
+    if (!lo.id) { bad.push({ line, key, ...lo }); return; }
 
     add.push({
       line, key,
       master: {
         code: g('商品ID') || null, name: g('商品名') || null, model: g('型番') || null,
-        maker: g('メーカー') || null, category_id: catId, kind, spec: g('スペック') || null,
+        maker: g('メーカー') || null, category_id: ca.id, kind, spec: g('スペック') || null,
         location_id: lo.id, qty: kind === 'quantity' ? (numOf(g('現在庫')) || 0) : 0,
-        min_qty: numOf(g('最低在庫')) || 0, supplier: g('仕入先') || null,
-        unit_price: numOf(g('単価')), note: g('備考') || null, legacy_note: g('旧データ備考') || null
+        min_qty: numOf(cellAny(idx, row, ['最低在庫', '最低在庫数'])) || 0,
+        supplier: g('仕入先') || null, unit_price: numOf(g('単価')),
+        note: g('備考') || null,
+        legacy_note: cellAny(idx, row, ['旧データ備考', '旧データ在庫内訳']) || null
       },
       units: (g('管理番号一覧') || '').split('/').map(x => x.trim()).filter(Boolean).map(id => ({ id })),
-      channels: []
+      channels: readChannels(idx, row)
     });
   });
   return { mode: 'master', add, skip, bad, file, encoding };
@@ -973,7 +1036,6 @@ function parseListing(text) {
     const key = LEGACY_CHANNEL[name];
     if (!key) return;
     const rest = seg.slice(i + 1).trim();
-    // 先頭の状態を代表にする。元の並びはメモに丸ごと残す
     const first = rest.split(/[/,]/).map(x => x.trim()).find(x => LIST_STATES.includes(x)) || null;
     out.push({ channel: key, state: first, note: rest });
   });
@@ -983,21 +1045,19 @@ function parseListing(text) {
 function planLegacy(H, idx, body, file, encoding, headRow) {
   const add = [], skip = [], bad = [];
   const seenModel = {}, seenNo = {};
-  // いま在庫にある管理番号は、二重に作らないよう先に控える
   db.items.forEach(i => { seenNo[i.id] = 'すでに在庫にあります'; });
 
   body.forEach((row, n) => {
     const line = headRow + 2 + n;
     const g = h => cell(idx, row, h);
     const model = g('型番');
-    if (!model) { bad.push({ line, key: '', why: '型番が空です' }); return; }
+    if (!model) { bad.push({ line, key: '', reason: 'no-model', why: '型番が空です' }); return; }
 
     const exists = db.masters.find(p => (p.model || '') === model);
     if (exists) { skip.push({ line, key: exists.code, name: titleOf(exists) }); return; }
-    if (seenModel[model]) { bad.push({ line, key: model, why: `${seenModel[model]}行目と型番が重複しています` }); return; }
+    if (seenModel[model]) { bad.push({ line, key: model, reason: 'dup', why: `${seenModel[model]}行目と型番が重複しています` }); return; }
     seenModel[model] = line;
 
-    // 管理番号を1台ずつに割る。同じ番号は1回だけ取る
     const nos = [], dropped = [];
     (g('管理番号一覧') || '').split('/').map(x => x.trim()).filter(Boolean).forEach(no => {
       if (seenNo[no]) { dropped.push(`${no}（${seenNo[no]}）`); return; }
@@ -1005,8 +1065,6 @@ function planLegacy(H, idx, body, file, encoding, headRow) {
       nos.push(no);
     });
 
-    // 状態の内訳を、台数ぶんの状態の列に広げる。
-    // どの番号がどの状態かは元データに無いので、件数のぶんだけ順に当てる
     const bd = parseBreakdown(g('元データ在庫内訳'));
     const states = [];
     bd.forEach(([st, cnt]) => { for (let k = 0; k < cnt; k++) states.push(st); });
@@ -1020,7 +1078,6 @@ function planLegacy(H, idx, body, file, encoding, headRow) {
       dropped.length ? `取り込まなかった重複管理番号: ${dropped.join(' / ')}` : ''
     ].filter(Boolean).join('\n');
 
-    // URL列は自由記述が混ざっているので、http で始まるものだけURLにする
     const chans = parseListing(g('出品状況'));
     [['Amazon URL', 'amazon'], ['メルカリURL', 'mercari'], ['ヤフオクURL', 'yahuoku'],
      ['ヤフーフリマURL', 'yahoo_free'], ['楽天URL', 'rakuten'], ['Notion URL', 'notion']].forEach(([h, key]) => {
@@ -1047,12 +1104,59 @@ function planLegacy(H, idx, body, file, encoding, headRow) {
   return { mode: 'legacy', add, skip, bad, file, encoding };
 }
 
+/* 取り込めない行は、理由ごとにまとめて件数を出す。
+   「取り込めない 186」だけでは何を直せばいいか分からないため。
+   未登録の値には読み替えの受け皿を付ける。実際の取り込みでは、
+   ほとんどが「柏倉庫」のような1つの名前で落ちるので、
+   ここで既存の場所に読み替えられれば、CSVを直さずに通せる。 */
+const REASON_LABEL = {
+  'loc-missing': '保管場所が未登録',
+  'loc-ambiguous': '保管場所の名前が複数ある',
+  'loc-empty': '保管場所が空',
+  'cat-missing': 'カテゴリが未登録',
+  'cat-kind': 'カテゴリの管理方式が違う',
+  'cat-empty': 'カテゴリが空',
+  'no-name': '商品名も型番も空',
+  'no-model': '型番が空',
+  'dup': 'CSVの中で重複',
+  'other': 'その他'
+};
+const REASON_ORDER = Object.keys(REASON_LABEL);
+
+function badGroups(bad) {
+  const g = {};
+  bad.forEach(b => {
+    const r = REASON_LABEL[b.reason] ? b.reason : 'other';
+    (g[r] = g[r] || { reason: r, n: 0, values: {}, sample: b }).n++;
+    if (b.value) {
+      const v = (g[r].values[b.value] = g[r].values[b.value] || { n: 0, kind: b.kind });
+      v.n++;
+    }
+  });
+  return REASON_ORDER.filter(r => g[r]).map(r => g[r]);
+}
+
+/* 未登録の値に対する読み替えの選択肢 */
+function fixSelect(reason, value, kind) {
+  const isLoc = reason.indexOf('loc') === 0;
+  const cur = isLoc ? impMap.loc[value] : impMap.cat[value];
+  const opts = isLoc
+    ? locsOrdered().map(l => `<option value="${esc(l.id)}"${cur === l.id ? ' selected' : ''}>${'　'.repeat(locDepth(l.id))}${esc(l.name)}</option>`).join('')
+    : db.cats.filter(c => c.kind === (kind || 'individual'))
+        .map(c => `<option value="${esc(c.id)}"${cur === c.id ? ' selected' : ''}>${esc(c.name)}</option>`).join('');
+  return `<select class="input fixsel" onchange="setImpMap('${isLoc ? 'loc' : 'cat'}','${esc(value)}',this.value)">
+    <option value="">読み替えない</option>${opts}</select>`;
+}
+
 function showImportPreview() {
   const p = importPlan;
   const legacy = p.mode === 'legacy';
   const units = p.add.reduce((n, x) => n + x.units.length, 0);
   const dropped = p.add.reduce((n, x) => n + (x.dropped || 0), 0);
   const unknown = p.add.reduce((n, x) => n + x.units.filter(u => u.status === '不明').length, 0);
+  const groups = badGroups(p.bad);
+  const fixable = groups.filter(g => Object.keys(g.values).length);
+  const mapped = Object.keys(impMap.loc).length + Object.keys(impMap.cat).length;
 
   const list = (rows) => `<div class="plist">${rows.slice(0, 200).map(x =>
     `<div class="p"><span class="c">${esc(x.key || '（採番）')}</span>
@@ -1060,6 +1164,19 @@ function showImportPreview() {
       ${x.units && x.units.length ? `<span class="meta">個体 ${x.units.length}台</span>` : ''}
       ${x.why ? `<span class="why">${esc(x.line)}行目：${esc(x.why)}</span>` : `<span class="meta" style="margin-left:auto">${x.line}行目</span>`}</div>`
   ).join('')}</div>${rows.length > 200 ? '<div class="meta" style="margin-bottom:12px">先頭200件だけ表示しています。</div>' : ''}`;
+
+  const reasonHtml = groups.map(g => {
+    const vals = Object.entries(g.values).sort((a, b) => b[1].n - a[1].n);
+    return `<div class="rgroup">
+      <div class="rh"><span class="rn">${g.n}</span>${esc(REASON_LABEL[g.reason])}</div>
+      ${vals.length ? `<div class="rvals">${vals.map(([v, info]) => `
+        <div class="rv">
+          <span class="vv">「${esc(v)}」</span><span class="meta">${info.n}件</span>
+          ${fixSelect(g.reason, v, info.kind)}
+        </div>`).join('')}</div>`
+        : `<div class="meta" style="padding:2px 0 0 26px">${esc(g.sample.why || '')}</div>`}
+    </div>`;
+  }).join('');
 
   openModal('取り込む内容の確認', `
     <div class="card" style="margin-bottom:15px">
@@ -1074,6 +1191,25 @@ function showImportPreview() {
       <div><div class="lbl">すでにある</div><div class="v skip">${p.skip.length}</div></div>
       <div><div class="lbl">取り込めない</div><div class="v err">${p.bad.length}</div></div>
     </div>
+
+    ${groups.length ? `<div class="lbl" style="margin-bottom:6px">取り込めない理由</div>
+      ${fixable.length ? `<p class="meta" style="margin-bottom:8px">
+        右の欄で<strong>登録済みのものに読み替える</strong>と、その場で取り込めるようになります（CSVを直す必要はありません）。</p>` : ''}
+      <div class="reasons">${reasonHtml}</div>
+      ` : ''}
+    ${mapped ? `<div class="lbl" style="margin-bottom:6px">読み替えの設定（${mapped}件）</div>
+      <div class="mapped">${
+        Object.entries(impMap.loc).map(([v, id]) => `<div class="mv">
+          <span class="vv">「${esc(v)}」</span><span class="ar">→</span>
+          <span>${esc(locPath(id))}</span>
+          <button class="btn sm ghost" onclick="setImpMap('loc','${esc(v)}','')">取り消す</button></div>`).join('') +
+        Object.entries(impMap.cat).map(([v, id]) => `<div class="mv">
+          <span class="vv">「${esc(v)}」</span><span class="ar">→</span>
+          <span>${esc(catName(id))}</span>
+          <button class="btn sm ghost" onclick="setImpMap('cat','${esc(v)}','')">取り消す</button></div>`).join('')
+      }</div>
+      <p class="meta" style="margin:-6px 0 14px">読み替えはこの取り込みのあいだだけ有効です。CSVそのものは書き換えません。</p>` : ''}
+
     ${legacy ? `<div class="card" style="margin-bottom:15px">
       <div class="lbl" style="margin-bottom:5px">取り込みかたの確認</div>
       ・カテゴリと保管場所は元データに無いので、下で選んだものを全件に当てます。<br>
@@ -1089,6 +1225,7 @@ function showImportPreview() {
         </select></label>
         <label class="field"><span>保管場所 *</span><select class="input" id="impLoc">${locOptions('', '選択してください')}</select></label>
       </div></div>` : ''}
+
     ${p.add.length ? `<div class="lbl" style="margin-bottom:6px">追加する商品</div>${list(p.add)}` : ''}
     ${p.skip.length ? `<div class="lbl" style="margin-bottom:6px">すでにあるので変更しません</div>${list(p.skip)}` : ''}
     ${p.bad.length ? `<div class="lbl" style="margin-bottom:6px">取り込めない行</div>${list(p.bad)}` : ''}
@@ -1154,7 +1291,8 @@ async function applyInventoryImport() {
     if (txs.length) await ins('inventory_transactions', txs);
   } catch (e) { toast(e.message); return; }
 
-  importPlan = null;
+  importPlan = null; importSrc = null;
+  impMap.loc = {}; impMap.cat = {};
   await loadAll();
   render();
   toast(`${masters.length}商品・${units.length}台を取り込みました`);

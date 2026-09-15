@@ -299,6 +299,26 @@ table.t tr.clk.on:hover td{background:var(--i200)}
 .sum .v.add{color:var(--ink)}
 .sum .v.skip{color:var(--n600)}
 .sum .v.err{color:#B3261E}
+/* 取り込めない理由の内訳と、その場の読み替え */
+.reasons{border:1px solid var(--line);border-radius:var(--r2);margin-bottom:14px}
+.rgroup{padding:11px 13px;border-bottom:1px solid var(--rule)}
+.rgroup:last-child{border-bottom:none}
+.rh{display:flex;align-items:center;gap:9px;font-size:14px;font-weight:500}
+.rh .rn{min-width:34px;text-align:center;background:#FDECEC;color:#B3261E;font-weight:700;
+  border-radius:var(--r2);padding:1px 7px;font-variant-numeric:tabular-nums}
+.rvals{margin:8px 0 0 43px;display:flex;flex-direction:column;gap:7px}
+.rv{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.rv .vv{font-weight:500;font-size:13.5px}
+.rv .fixsel{width:auto;min-width:190px;min-height:36px;padding:6px 9px;font-size:13px;flex:0 1 auto}
+@media(max-width:560px){.rvals{margin-left:0}.rv .fixsel{width:100%}}
+
+.mapped{border:1px solid var(--line);border-radius:var(--r2);margin-bottom:6px}
+.mapped .mv{display:flex;align-items:center;gap:10px;padding:8px 13px;border-bottom:1px solid var(--rule);font-size:13.5px;flex-wrap:wrap}
+.mapped .mv:last-child{border-bottom:none}
+.mapped .mv .vv{font-weight:500}
+.mapped .mv .ar{color:var(--n500)}
+.mapped .mv .btn{margin-left:auto}
+
 .plist{max-height:34vh;overflow:auto;border:1px solid var(--line);border-radius:var(--r2);margin-bottom:12px}
 .plist .p{display:flex;gap:10px;align-items:baseline;padding:7px 11px;border-bottom:1px solid var(--rule);font-size:12.5px}
 .plist .p:last-child{border-bottom:none}
