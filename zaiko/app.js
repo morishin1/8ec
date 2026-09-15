@@ -994,6 +994,22 @@ function showBatch(id, justNow) {
 }
 function clearBatch() { ui.fBatch = null; render(); }
 function batchOf(id) { return db.imports.find(r => r.id === id) || null; }
+
+/* 今回発行したQRだけをまとめて印刷する。棚に貼るのは取り込んだ直後なので、
+   選び直さなくてよいようにここから直接ラベル画面へ渡す */
+function printBatchQr(id) {
+  const b = batchOf(id);
+  const ids = (b && b.item_ids) || [];
+  const live = ids.filter(x => item(x));
+  if (!live.length) { toast('印刷できるQRがありません'); return; }
+  ui.labelSel = {};
+  live.forEach(x => { ui.labelSel[labelKey('item', x)] = true; });
+  go('labels');
+  if (live.length < ids.length) toast(`${ids.length - live.length}件は削除済みのため除きました`);
+}
+const batchQrBtn = (b, cls) => (b && (b.item_ids || []).length)
+  ? `<button class="btn ${cls || 'sm'}" onclick="printBatchQr(${b.id})">
+      <span class="ms">print</span>今回登録したQRを印刷（${(b.item_ids || []).length}枚）</button>` : '';
 function batchBanner() {
   const b = batchOf(ui.fBatch);
   if (!b) return '';
@@ -1007,6 +1023,7 @@ function batchBanner() {
       <div class="meta">個体 ${b.item_count}台　${esc(fmtDT(b.imported_at))}　${esc(b.file_name || '')}${
         alive !== codes.length ? `　（${codes.length - alive}件は削除済み）` : ''}</div>
     </div>
+    ${batchQrBtn(b)}
     <button class="btn sm ghost" onclick="clearBatch()">すべて表示</button>
   </div>`;
 }
@@ -1053,7 +1070,7 @@ async function readInventoryCsv(input) {
   const body = table.slice(head + 1).filter(r => r.some(c => String(c).trim() !== ''));
 
   impMap.loc = {}; impMap.cat = {};
-  planPrice = {};
+  planPrice = {}; planQty = {};
   importSrc = { mode, H, idx, body, file: file.name, encoding, headRow: head };
   replan();
   showImportPreview();
@@ -1249,7 +1266,16 @@ function planLegacy(H, idx, body, file, encoding, headRow) {
    価格は親にしか無いので、落札価格と落札料を子の台数で割って1台ずつに持たせる。
    割り切れないぶんは先頭の1台に寄せる（合計が仕入額とずれないように）。
    「商品名」の列は出品カテゴリ（NTPC / ｻﾌﾟﾗｲ）なので商品名には使わない。 */
-let planPrice = {};   // 出品番号 → 手で直した販売予定価格（仕入1件ぶんの合計）
+let planPrice = {};   // 出品番号 → 手で直した販売予定価格（1台あたり）
+let planQty = {};     // 出品番号 → 手で直した登録数量
+
+/* 採番する管理番号の頭。型番の先頭の英数字を使う（WKBｾｯﾄ → WKB）。
+   取れなければカテゴリの記号に任せる */
+function idPrefixOf(model) {
+  const m = String(model || '').toUpperCase().match(/^[A-Z0-9]+/);
+  const p = m ? m[0].slice(0, 6) : '';
+  return /[A-Z]/.test(p) ? p : '';
+}
 
 /* 「RYZEN7(7735U)-2.7GHZ / 16GB / 512GB / 14型」のように、中身のある列だけ並べる */
 const SPEC_COLS = [['CPU（性能）', ''], ['RAMサイズ', ''], ['ＨＤ容量', ''],
@@ -1281,10 +1307,49 @@ function splitEven(total, n) {
   return out;
 }
 
+/* 登録数量ぶんの個体を組み立てる。数量を変えるたびにここで作り直す。
+     数量と個品IDの数が合っている  → 個品IDをそのまま管理番号にする（現物のバーコードと一致）
+     合っていない（セットなど）    → 管理番号を1台ずつ採番し、元の個品IDは仕入元IDとして残す
+   落札価格と落札料は仕入全体の金額なので、登録数量で割って1台ずつに持たせる。
+   端数は先頭の1台に寄せて、合計が仕入額とずれないようにする。 */
+function buildUnits(x) {
+  const qty = x.lot.qty, s = x.src;
+  const same = qty === s.kids.length;
+  const buy = splitEven(x.lot.buy, qty), fee = splitEven(x.lot.fee, qty);
+  const src = s.kids.map(k => k.id).join(' / ');
+  const out = [];
+  for (let i = 0; i < qty; i++) {
+    const k = same ? s.kids[i] : s.kids[0];
+    out.push({
+      id: same ? k.id : null,              // null なら取り込むときに採番する
+      source_id: same ? null : src,
+      idPrefix: x.idPrefix,
+      status: '在庫',
+      // シリアル番号は1台を指すものなので、数が合わないときは付けない（同じ番号が並ぶのを防ぐ）
+      serial: same ? (k.serial || null) : null,
+      note: k.note || null,
+      purchased_on: s.bought,
+      price: buy[i],
+      purchase_fee: fee[i],
+      plan_price: x.plan                   // 販売予定価格は1台あたり
+    });
+  }
+  return out;
+}
+const costPer = (x) => x.lot.qty ? x.lot.cost / x.lot.qty : 0;
+const gainPer = (x) => x.plan == null ? null : x.plan - costPer(x);
+const gainLot = (x) => x.plan == null ? null : x.plan * x.lot.qty - x.lot.cost;
+
 function planPurchase(H, idx, body, file, encoding, headRow) {
   const add = [], skip = [], bad = [];
   const seenNo = {}, seenLot = {};
-  db.items.forEach(i => { seenNo[i.id] = 'すでに在庫にあります'; });
+  db.items.forEach(i => {
+    seenNo[i.id] = 'すでに在庫にあります';
+    // 採番して入れたものは、元の個品IDでも二重登録を防げるようにする
+    String(i.source_id || '').split('/').forEach(v => {
+      const t = v.trim(); if (t) seenNo[t] = 'すでに在庫にあります';
+    });
+  });
 
   // 出品番号ごとにまとめる。親（落札価格のある行）と子（個品IDのある行）に分ける
   const lots = [], byLot = {};
@@ -1312,13 +1377,12 @@ function planPurchase(H, idx, body, file, encoding, headRow) {
     const model = P('型番') || lot.kids.map(k => cell(idx, k.row, '型番')).find(Boolean) || '';
     if (!model) { bad.push({ line, key, reason: 'no-model', why: '型番が空です' }); return; }
 
-    // 個品ID（バーコード）をそのまま管理番号にする。現物に貼ってある番号と一致する
     const kids = [], dropped = [];
     let already = 0;
     lot.kids.forEach(k => {
       const id = cell(idx, k.row, '個品ID(バーコード)') || cell(idx, k.row, '個品ID');
       if (!id) { dropped.push(`${k.line}行目（個品IDが空）`); return; }
-      if (seenNo[id]) { dropped.push(`${id}（${seenNo[id]}）`); if (item(id)) already++; return; }
+      if (seenNo[id]) { dropped.push(`${id}（${seenNo[id]}）`); already++; return; }
       seenNo[id] = `${k.line}行目`;
       kids.push({ id, row: k.row });
     });
@@ -1332,22 +1396,32 @@ function planPurchase(H, idx, body, file, encoding, headRow) {
     const buy = numOf(P('落札価格')) || 0;
     const fee = numOf(P('落札料')) || 0;
     const cost = buy + fee;
-    const plan = planPrice[key] != null ? planPrice[key] : suggestPlan(cost);
-
-    const n = kids.length;
-    const parts = { buy: splitEven(buy, n), fee: splitEven(fee, n), plan: plan == null ? null : splitEven(plan, n) };
-    const total = numOf(P('総数'));
     const bought = ymd8(P('開催日'));
+
+    // 在庫数の基準は個品IDの数ではなく「総数」。
+    // セット出品は個品IDが1つでも現物は9個ある、という形で来るため。
+    const csvQty = numOf(P('総数')) || kids.length;
+    const qty = planQty[key] != null ? planQty[key] : csvQty;
+    const plan = planPrice[key] != null ? planPrice[key] : suggestPlan(cost / qty);
 
     // 同じ型番を別の出品番号で買うことがある。商品は1つにまとめ、個体だけ足す
     // （値段は個体ごとに持つので、仕入額が違っても1つの商品にぶら下げられる）
     const known = db.masters.find(q => (q.model || '') === model);
     const earlier = add.find(a => a.master.model === model);
 
-    add.push({
+    const x = {
       line, key,
-      lot: { no: key, buy, fee, cost, qty: n, total: total || n, kumi: P('構成') || '' },
+      lot: { no: key, buy, fee, cost, qty, csvQty, kumi: P('構成') || '' },
       plan,
+      idPrefix: idPrefixOf(model),
+      src: {
+        bought,
+        kids: kids.map(k => ({
+          id: k.id,
+          serial: cell(idx, k.row, 'Ｓ／Ｎ') || null,
+          note: purchaseNote(idx, k.row) || null
+        }))
+      },
       sharesWith: known ? known.code : (earlier ? earlier.key : null),
       master: {
         code: known ? known.code : null, name: model, model, maker: maker || null,
@@ -1355,23 +1429,15 @@ function planPurchase(H, idx, body, file, encoding, headRow) {
         spec: purchaseSpec(idx, kids[0].row) || null,
         location_id: null, qty: 0, min_qty: 0,
         note: [`出品番号 ${key}`,
-               P('構成') ? `構成 ${P('構成')}（総数 ${total || n}）` : '',
+               P('構成') ? `構成 ${P('構成')}（総数 ${csvQty}）` : '',
                bought ? `仕入日 ${bought}` : ''].filter(Boolean).join('　'),
         legacy_note: null
       },
-      units: kids.map((k, i) => ({
-        id: k.id,
-        status: '在庫',
-        serial: cell(idx, k.row, 'Ｓ／Ｎ') || null,
-        note: purchaseNote(idx, k.row) || null,
-        purchased_on: bought,
-        price: parts.buy[i],
-        purchase_fee: parts.fee[i],
-        plan_price: parts.plan ? parts.plan[i] : null
-      })),
       channels: [],
       dropped: dropped.length
-    });
+    };
+    x.units = buildUnits(x);
+    add.push(x);
   });
   return { mode: 'purchase', add, skip, bad, file, encoding };
 }
@@ -1385,11 +1451,31 @@ function setPlanPrice(i, v) {
   const n = s === '' ? null : numOf(s);
   if (n == null || isNaN(n)) delete planPrice[x.key]; else planPrice[x.key] = n;
   x.plan = planPrice[x.key] != null ? planPrice[x.key] : null;
-  const parts = x.plan == null ? null : splitEven(x.plan, x.units.length);
-  x.units.forEach((u, k) => { u.plan_price = parts ? parts[k] : null; });
+  x.units.forEach(u => { u.plan_price = x.plan; });
   paintPurchase(i);
 }
-function paintPurchase(i) {
+
+/* 登録数量を直す。個体の数・QRの数・1台あたり原価・想定利益がその場で変わる。
+   値段を手で決めていなければ、1台あたり原価が変わったぶん目安も付け直す。 */
+function setPlanQty(i, v) {
+  const x = (importPlan.add || [])[i];
+  if (!x) return;
+  const n = Math.floor(numOf(String(v == null ? '' : v).trim()));
+  if (!n || isNaN(n) || n < 1 || n > 999) return;    // 入力の途中は触らない
+  x.lot.qty = n;
+  planQty[x.key] = n;
+  if (planPrice[x.key] == null) x.plan = suggestPlan(x.lot.cost / n);
+  x.units = buildUnits(x);
+  paintPurchase(i, true);
+}
+/* 数量の欄から離れたとき、入れかけの値が残らないように戻す */
+function fixPlanQty(i) {
+  const x = (importPlan.add || [])[i];
+  const el = $('pq-' + i);
+  if (x && el) el.value = x.lot.qty;
+}
+
+function paintPurchase(i, qtyChanged) {
   const x = (importPlan.add || [])[i];
   const set = (id, text, minus) => {
     const e = $(id);
@@ -1398,23 +1484,37 @@ function paintPurchase(i) {
     e.classList.toggle('minus', !!minus);
   };
   if (x) {
-    const g = x.plan == null ? null : x.plan - x.lot.cost;
-    set('pg-' + i, g == null ? '—' : yen(g), g != null && g < 0);
+    const g = gainPer(x);
+    set('pc-' + i, yen(Math.round(costPer(x))));
+    set('pg-' + i, g == null ? '—' : yen(Math.round(g)), g != null && g < 0);
+    set('pgl-' + i, gainLot(x) == null ? '' : `合計 ${yen(Math.round(gainLot(x)))}`);
+    const note = $('pqn-' + i);
+    if (note) {
+      note.textContent = x.lot.qty === x.lot.csvQty ? `CSV ${x.lot.csvQty}` : `CSV ${x.lot.csvQty} → ${x.lot.qty}`;
+      note.classList.toggle('chg', x.lot.qty !== x.lot.csvQty);
+    }
+    const pp = $('pp-' + i);
+    if (qtyChanged && pp && planPrice[x.key] == null) pp.value = x.plan == null ? '' : x.plan;
   }
-  // 表の合計と、上のまとめの両方を書き換える（片方だけ古いままにならないように）
+  // 表の合計・上のまとめ・ボタンを、どれも古いまま残さないように一度に書き換える
   const t = purchaseTotals(importPlan.add);
   const minus = t.priced && t.gain < 0;
+  set('ptQty', String(t.units));
   set('ptCost', yen(t.cost));   set('sumCost', yen(t.cost));
   set('ptPlan', t.plan ? yen(t.plan) : '—');
   set('sumPlan', t.plan ? yen(t.plan) : '—');
   set('ptGain', t.priced ? yen(t.gain) : '—', minus);
   set('sumGain', t.priced ? yen(t.gain) : '—', minus);
+  const su = $('sumUnits');
+  if (su) su.innerHTML = `${t.units}<span class="u">台</span>`;
+  const btn = $('btnApply');
+  if (btn) btn.textContent = `一括登録（商品 ${countPlan(importPlan).prods}・個体 ${t.units}）`;
 }
 function purchaseTotals(add) {
   return (add || []).filter(x => x.lot).reduce((a, x) => {
     a.cost += x.lot.cost;
-    a.units += x.units.length;
-    if (x.plan != null) { a.plan += x.plan; a.gain += x.plan - x.lot.cost; a.priced++; }
+    a.units += x.lot.qty;
+    if (x.plan != null) { a.plan += x.plan * x.lot.qty; a.gain += x.plan * x.lot.qty - x.lot.cost; a.priced++; }
     return a;
   }, { cost: 0, plan: 0, gain: 0, units: 0, priced: 0 });
 }
@@ -1473,31 +1573,39 @@ function purchaseTable(add) {
   return `<div class="table-wrap"><table class="t buy">
     <thead><tr>
       <th>商品名</th><th>型番</th><th class="r">数量</th>
-      <th class="r">原価</th><th class="r">販売予定価格</th><th class="r">想定利益</th>
+      <th class="r">1台あたり原価</th><th class="r">販売予定価格</th><th class="r">想定利益</th>
     </tr></thead>
     <tbody>${add.map((x, i) => {
-      const g = x.plan == null ? null : x.plan - x.lot.cost;
+      const g = gainPer(x), gl = gainLot(x);
+      const set = x.lot.csvQty > x.src.kids.length;
       return `<tr>
-        <td>${esc(x.master.name)}${x.lot.qty !== x.lot.total
-              ? `<div class="meta">${esc(x.lot.kumi || 'セット')}　総数 ${x.lot.total}</div>` : ''}</td>
+        <td>${esc(x.master.name)}${set
+              ? `<div class="meta">${esc(x.lot.kumi || 'セット')}　個品ID ${x.src.kids.length}件 → 管理番号は1台ずつ発行</div>` : ''}</td>
         <td class="nowrap">${esc(x.master.model)}</td>
-        <td class="r num">${x.lot.qty}</td>
-        <td class="r num">${yen(x.lot.cost)}
-          <div class="meta">仕入 ${yen(x.lot.buy)}＋手数料 ${yen(x.lot.fee)}</div></td>
-        <td class="r"><input class="input num plan" type="number" min="0" step="100"
+        <td class="r">
+          <input class="input num qty" type="number" min="1" max="999" step="1" id="pq-${i}"
+                 value="${x.lot.qty}" oninput="setPlanQty(${i},this.value)" onchange="fixPlanQty(${i})">
+          <div class="meta qn${x.lot.qty !== x.lot.csvQty ? ' chg' : ''}" id="pqn-${i}">${
+            x.lot.qty === x.lot.csvQty ? `CSV ${x.lot.csvQty}` : `CSV ${x.lot.csvQty} → ${x.lot.qty}`}</div></td>
+        <td class="r num" ><span id="pc-${i}">${yen(Math.round(costPer(x)))}</span>
+          <div class="meta">仕入合計 ${yen(x.lot.cost)}<br>（${yen(x.lot.buy)}＋手数料 ${yen(x.lot.fee)}）</div></td>
+        <td class="r"><input class="input num plan" type="number" min="0" step="100" id="pp-${i}"
               value="${x.plan == null ? '' : esc(x.plan)}" placeholder="—"
               oninput="setPlanPrice(${i},this.value)"></td>
-        <td class="r num${g != null && g < 0 ? ' minus' : ''}" id="pg-${i}">${g == null ? '—' : yen(g)}</td>
+        <td class="r num"><span id="pg-${i}" class="${g != null && g < 0 ? 'minus' : ''}">${
+            g == null ? '—' : yen(Math.round(g))}</span>
+          <div class="meta" id="pgl-${i}">${gl == null ? '' : `合計 ${yen(Math.round(gl))}`}</div></td>
       </tr>`;
     }).join('')}</tbody>
     <tfoot><tr>
       <th colspan="2">合計</th>
-      <th class="r num">${t.units}</th>
+      <th class="r num" id="ptQty">${t.units}</th>
       <th class="r num" id="ptCost">${yen(t.cost)}</th>
       <th class="r num" id="ptPlan">${t.plan ? yen(t.plan) : '—'}</th>
       <th class="r num${t.priced && t.gain < 0 ? ' minus' : ''}" id="ptGain">${t.priced ? yen(t.gain) : '—'}</th>
     </tr></tfoot>
-  </table></div>`;
+  </table></div>
+  <p class="meta" style="margin:6px 0 0">合計の欄は、数量ぶんを足した金額です（1台あたりではありません）。</p>`;
 }
 
 /* 確認画面に出す件数。二重登録を防いでいることが数で分かるようにする。
@@ -1562,7 +1670,7 @@ function showImportPreview() {
   openModal(buy ? '仕入CSV取込の確認' : '取り込む内容の確認', `
     <div class="card" style="margin-bottom:15px">
       ${esc(p.file)}（${p.encoding === 'shift_jis' ? 'Shift_JIS' : 'UTF-8'}として読み込み）<br>
-      ${buy ? '<strong>仕入CSV</strong>として読みました。出品番号ごとに値段をまとめ、個品IDを管理番号にして1台ずつ登録します。'
+      ${buy ? '<strong>仕入CSV</strong>として読みました。<strong>「総数」を在庫の台数として</strong>、1台ずつ管理番号とQRを発行します。'
             : legacy ? '<strong>統合在庫一覧（型番別）</strong>として読みました。型番ごとに商品マスタを作り、管理番号を1台ずつの個体に分けます。'
                      : '<strong>この画面の書き出し形式</strong>として読みました。'}<br>
       <strong>すでにある在庫は書き換えません。</strong>CSVにあって在庫に無いものだけを追加します。
@@ -1570,7 +1678,7 @@ function showImportPreview() {
     ${buy ? `<div class="sum five">
       <div><div class="lbl">新規商品</div><div class="v add">${c.newProd}</div></div>
       <div><div class="lbl">既存商品への追加</div><div class="v add">${c.intoExisting}</div></div>
-      <div><div class="lbl">個体</div><div class="v add">${units}<span class="u">台</span></div></div>
+      <div><div class="lbl">個体・QR</div><div class="v add" id="sumUnits">${units}<span class="u">台</span></div></div>
       <div><div class="lbl">登録済み</div><div class="v skip">${c.done}</div></div>
       <div><div class="lbl">重複・取り込めない</div><div class="v${c.skipped ? ' err' : ''}">${c.skipped}</div></div>
     </div>
@@ -1589,9 +1697,12 @@ function showImportPreview() {
     ${buy && p.add.length ? `<div class="lbl" style="margin-bottom:6px">取り込む商品</div>
       ${purchaseTable(p.add)}
       <p class="meta" style="margin:-4px 0 14px">
-        原価 ＝ 落札価格 ＋ 落札料。販売予定価格は原価の1.3倍を目安に入れてあります。<strong>その場で直せます。</strong>
-        ${p.add.some(x => x.lot.qty > 1) ? '複数台のものは、原価と販売予定価格を台数で割って1台ずつに持たせます。' : ''}
-        ${shared ? `同じ型番の <strong>${shared}件</strong> は、商品を分けずに個体だけ足します（値段は1台ずつ持ちます）。` : ''}</p>` : ''}
+        <strong>数量はその場で直せます。</strong>直すと個体数・QRの発行枚数・1台あたり原価・想定利益がすぐ付いてきます。<br>
+        1台あたり原価 ＝（落札価格 ＋ 落札料）÷ 数量。端数は先頭の1台に寄せるので、合計は仕入額と一致します。
+        販売予定価格は1台あたり原価の1.3倍を目安に入れてあります（手で直したものはそのまま残します）。
+        ${p.add.some(x => x.lot.csvQty > x.src.kids.length)
+          ? '<br>個品IDより総数が多いものは、<strong>管理番号を1台ずつ発行して別々のQRにします</strong>。元の個品IDは仕入元IDとして全台に残します。' : ''}
+        ${shared ? `<br>同じ型番の <strong>${shared}件</strong> は、商品を分けずに個体だけ足します（値段は1台ずつ持ちます）。` : ''}</p>` : ''}
 
     ${buy && p.add.length ? `<div class="card" style="margin-bottom:15px">
       <div class="lbl" style="margin-bottom:5px">カテゴリと保管場所</div>
@@ -1648,7 +1759,7 @@ function showImportPreview() {
   `, [
     ['閉じる', 'closeModal()', 'btn ghost'],
     ...(p.add.length && canAdmin() ? [[buy ? `一括登録（商品 ${c.prods}・個体 ${units}）` : `${p.add.length}商品・${units}台を追加`,
-                                       'applyInventoryImport()', 'btn lime']] : [])
+                                       'applyInventoryImport()', 'btn lime', 'btnApply']] : [])
   ]);
 }
 
@@ -1691,7 +1802,8 @@ async function applyInventoryImport() {
     for (const u of x.units) {
       let id = u.id;
       if (!id) {
-        const pre = (cat(m.category_id) || {}).code_prefix || 'IT';
+        // 型番から取れる記号を頭に使う（WKBｾｯﾄ → WKB-00001）。取れなければカテゴリの記号
+        const pre = u.idPrefix || (cat(m.category_id) || {}).code_prefix || 'IT';
         const { data, error } = await sb.rpc('inv_next_id', { p_prefix: pre, p_digits: 5 });
         if (error) { toast('管理番号を採番できませんでした：' + error.message); return; }
         id = data;
@@ -1702,7 +1814,7 @@ async function applyInventoryImport() {
         status: u.status || '在庫', legacy_note: m.legacy_note
       };
       // 仕入CSVは1台ずつに値段と個体の情報が付く。cost は計算される列なので送らない
-      ['serial', 'note', 'purchased_on', 'price', 'purchase_fee', 'plan_price'].forEach(k => {
+      ['serial', 'note', 'purchased_on', 'price', 'purchase_fee', 'plan_price', 'source_id'].forEach(k => {
         if (u[k] != null && u[k] !== '') row[k] = u[k];
       });
       units.push(row);
@@ -1738,6 +1850,7 @@ async function applyInventoryImport() {
       actor: me.name, file_name: p.file, kind: p.mode,
       product_count: touched.length, item_count: units.length,
       product_codes: touched,
+      item_ids: units.map(u => u.id),      // 今回のQRだけまとめて印刷するのに使う
       summary: wasBuy
         ? `新規 ${cnt.newProd}商品／既存へ追加 ${cnt.intoExisting}件`
           + `／原価 ${yen(t.cost)}／想定利益 ${t.priced ? yen(t.gain) : '—'}`
@@ -1747,7 +1860,7 @@ async function applyInventoryImport() {
   } catch (e) { toast(e.message); return; }
 
   importPlan = null; importSrc = null;
-  impMap.loc = {}; impMap.cat = {}; planPrice = {};
+  impMap.loc = {}; impMap.cat = {}; planPrice = {}; planQty = {};
   await loadAll();
   // 取り込んだら商品管理一覧に戻り、今回の分だけを出す
   if (batchId) showBatch(batchId, true); else { ui.fBatch = null; ui.doneBatch = null; go('list'); }
@@ -1759,8 +1872,8 @@ async function applyInventoryImport() {
 function openModal(title, body, buttons) {
   $('modalTitle').textContent = title;
   $('modalBody').innerHTML = body;
-  $('modalFoot').innerHTML = (buttons || []).map(([t, fn, cls]) =>
-    `<button class="${cls || 'btn'}" onclick="${fn}">${esc(t)}</button>`).join('');
+  $('modalFoot').innerHTML = (buttons || []).map(([t, fn, cls, id]) =>
+    `<button class="${cls || 'btn'}"${id ? ` id="${esc(id)}"` : ''} onclick="${fn}">${esc(t)}</button>`).join('');
   $('modal').classList.add('on');
 }
 function closeModal() { $('modal').classList.remove('on'); }
@@ -1792,6 +1905,7 @@ function viewItem() {
         <div><span class="k">メーカー・型番</span>${esc([(m || it).maker, (m || it).model].filter(Boolean).join(' ') || '—')}</div>
         ${m ? `<div><span class="k">商品</span><a href="#" onclick="go('prod','${esc(m.code)}');return false">${esc(m.code)} を見る</a></div>` : ''}
         <div><span class="k">シリアル番号</span>${esc(it.serial || '—')}</div>
+        ${it.source_id ? `<div><span class="k">仕入元ID</span>${esc(it.source_id)}</div>` : ''}
         <div><span class="k">仕入日</span>${it.purchased_on ? fmtD(it.purchased_on) : '—'}</div>
         <div><span class="k">棚卸確認</span>${it.last_checked_at ? fmtDT(it.last_checked_at) : '未確認'}</div>
       </div>
@@ -1989,6 +2103,7 @@ function tabUnits(p) {
           <div style="margin:3px 0">${statusTag(i.status)}</div>
           <div class="meta">${esc(locPath(i.location_id) || '—')}</div>
           ${i.serial ? `<div class="meta">S/N ${esc(i.serial)}</div>` : ''}
+          ${i.source_id ? `<div class="meta">仕入元 ${esc(i.source_id)}</div>` : ''}
           ${i.user_name ? `<div class="meta">${esc(i.user_name)}</div>` : ''}
           ${unitPriceLine(i)}
         </div>
@@ -2447,6 +2562,7 @@ function regCsvMain() {
         <div class="t">今回登録した商品 ${done.prods}件</div>
         <div class="meta">個体 ${done.items}台　${esc(done.file)}</div>
       </div>
+      ${batchQrBtn(batchOf(done.id))}
       <button class="btn sm ghost" onclick="showBatch(${done.id},true)">一覧で見る</button>
     </div>` : ''}
     ${last ? `<div class="rmlast">最終取込 ${esc(fmtDT(last.imported_at))}　${esc(last.file_name || '')}

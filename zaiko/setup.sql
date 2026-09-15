@@ -1154,6 +1154,14 @@ comment on column public.inventory_items.cost is
 
 create index if not exists inventory_items_plan_idx on public.inventory_items (plan_price);
 
+-- 仕入元ID（仕入CSVの個品ID）。
+-- セット出品のように「個品IDは1つ、総数は9」という仕入があり、そのときは
+-- 管理番号を9個発行する。元の個品IDはここに残して、仕入と現物をたどれるようにする。
+alter table public.inventory_items add column if not exists source_id text;
+comment on column public.inventory_items.source_id is
+  '仕入元ID（仕入CSVの個品ID）。管理番号を採番したときに、元の番号を残すために使う。';
+create index if not exists inventory_items_source_idx on public.inventory_items (source_id);
+
 -- 値段を直す。3つまとめて受け取り、何がどう変わったかを履歴に残す。
 -- 渡さなかった（null の）ものは「空にする」という意味なので、画面からは必ず3つとも送る。
 create or replace function public.inv_item_price(
@@ -1341,6 +1349,9 @@ create table if not exists public.inventory_imports (
   product_codes text[]  default '{}',       -- 今回登録した商品。一覧の絞り込みに使う
   summary       text
 );
+
+-- 今回発行した管理番号。取り込んだ直後に「今回のQRだけ印刷」するのに使う
+alter table public.inventory_imports add column if not exists item_ids text[] default '{}';
 
 create index if not exists inventory_imports_at_idx on public.inventory_imports (imported_at desc);
 
