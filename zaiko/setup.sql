@@ -1355,6 +1355,14 @@ create table if not exists public.inventory_imports (
 -- 今回発行した管理番号。取り込んだ直後に「今回のQRだけ印刷」するのに使う
 alter table public.inventory_imports add column if not exists item_ids text[] default '{}';
 
+-- 飛ばした管理番号。黙って消えたように見えないよう、理由ごと履歴に残す。
+--   [{"id":"PC-00125","why":"すでに在庫にあります","line":12}, …]
+alter table public.inventory_imports add column if not exists skip_count integer default 0;
+alter table public.inventory_imports add column if not exists skips jsonb default '[]'::jsonb;
+
+comment on column public.inventory_imports.skips is
+  '重複などで飛ばした管理番号と、その理由。取込結果と履歴の「詳細を見る」で出す。';
+
 create index if not exists inventory_imports_at_idx on public.inventory_imports (imported_at desc);
 
 comment on table public.inventory_imports is

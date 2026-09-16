@@ -268,6 +268,9 @@ table.t td.mall{white-space:nowrap}
 .diffbar.on{background:var(--n100);border-color:var(--line)}
 .diffbar.on .ms{color:var(--n600)}
 table.t tr.warn td:first-child{box-shadow:inset 3px 0 0 #E8A33D}
+/* 数量管理の行。管理番号を持たないので、個体の行と取り違えないよう地を変える */
+table.t tr.qty td{background:var(--n100)}
+.tag.stk-ok .ms,.tag.stk-few .ms{font-size:14px;margin-right:3px;vertical-align:-2px}
 .warnbox{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin:0 0 12px;
   background:#FFF4E5;border:1px solid #E8A33D;border-radius:var(--r2);padding:11px 14px;font-size:13.5px}
 .warnbox .ms{font-size:20px;color:#B26A00}
@@ -279,8 +282,6 @@ table.t tr.warn td:first-child{box-shadow:inset 3px 0 0 #E8A33D}
   border-radius:var(--r2);padding:11px 13px;font-size:12.5px;color:var(--n700);line-height:1.7}
 .impkinds .ms{font-size:20px;color:var(--n600);flex:0 0 auto}
 .impkinds b{color:var(--ink);font-size:13.5px}
-.imponeline{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin-top:14px;
-  border-top:1px solid var(--rule);padding-top:14px}
 
 /* ---- 個体一覧 ---- */
 .units{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:10px}

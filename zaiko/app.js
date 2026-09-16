@@ -1037,16 +1037,19 @@ function unitsBodyHtml() {
     </tr></thead>
     <tbody>${rows.slice(0, 600).map(r => {
       const { i, m } = r;
-      if (r.kind === 'qty') return `<tr class="clk" onclick="go('prod','${esc(m.code)}')">
-        <td class="num" style="font-weight:600">${esc(m.code)}</td>
-        <td class="nowrap">${esc(m.model || titleOf(m))}</td>
+      // 数量管理は現物1台を指す管理番号を持たない。「—」と出し、
+      // 状態も「在庫 42」と数で出して、個体管理の行と取り違えないようにする
+      if (r.kind === 'qty') return `<tr class="clk qty" onclick="go('prod','${esc(m.code)}')">
+        <td class="meta">—<div class="meta">数量管理</div></td>
+        <td class="nowrap">${esc(m.model || titleOf(m))}
+          <div class="meta num">${esc(m.code)}</div></td>
         <td class="nowrap">${esc(m.maker || '')}</td>
         <td class="meta">—</td>
         <td class="num meta r">${yen(m.unit_price)}</td>
         <td class="num meta r">—</td>
         <td class="mall">${listingChips(liveOnProd(m.code))}</td>
         <td class="meta">${esc(locPath(m.location_id))}</td>
-        <td><span class="tag act">数量 ${m.qty}</span></td>
+        <td>${qtyTag(m)}</td>
         ${canEdit() ? `<td class="nowrap ops2" onclick="event.stopPropagation()">
           <button class="btn sm" onclick="sheetIn('${esc(m.code)}')">入庫</button>
           <button class="btn sm" onclick="sheetOut('${esc(m.code)}')" ${m.qty > 0 ? '' : 'disabled'}>出庫</button>
@@ -1158,6 +1161,14 @@ function prodLiveOn(p) {
 function statusTag(s, big) {
   return `<span class="tag st-${esc(s)}${big ? ' big' : ''}"><span class="ms">${STATUS_ICON[s] || 'inventory_2'}</span>${esc(s)}</span>`;
 }
+/* 数量管理の状態。個体は「在庫」「貸出中」と1台の状態を出すが、
+   こちらは数そのものなので「在庫 42」と数まで出して見分けられるようにする */
+function qtyTag(p) {
+  const n = p.qty || 0;
+  if (n <= 0) return `<span class="tag stk-none">在庫なし</span>`;
+  const few = p.min_qty > 0 && n <= p.min_qty;
+  return `<span class="tag stk-${few ? 'few' : 'ok'}"><span class="ms">inventory_2</span>在庫 ${n}</span>`;
+}
 
 /* ---------------------------------------------------------------- 在庫一覧のCSV
 
@@ -1251,13 +1262,36 @@ function pickImport() { $('csvFile').value = ''; $('csvFile').click(); }
 
 /* ---- 商品取込の入口 ----
    使う人から見れば「商品・在庫を足す」1つの操作なので、入口も1つにする。
+   同じモーダルの中で「CSVから取り込む」と「1件だけ登録」を切り替える
+   （タブを分けるだけで、開くボタンはひとつ）。
    CSVは列の名前を見て自動で見分けるから、どれを持ってきたのかを選ばせない。
      自社落札CSV … 毎週の仕入。ここから商品と個体が増えていく（こちらが基準）
      既存在庫CSV … これまでの在庫表。販売状況や保管場所を補う（初期移行・照合用）
-   CSVに載らないものは、下の「1件だけ登録」から手で入れる。 */
+   CSVに載らないものは、同じモーダルの「1件だけ登録」タブで手で入れる。 */
+let importTab = 'csv';
 function openImport() {
   if (!canAdmin()) { toast('取り込みは管理者だけができます'); return; }
+  importTab = 'csv';
+  paintImportModal();
+}
+function setImportTab(t) { importTab = t === 'one' ? 'one' : 'csv'; paintImportModal(); }
+function paintImportModal() {
+  const csv = importTab !== 'one';
   openModal('商品取込', `
+    <div class="seg" style="margin-bottom:16px">
+      <button class="${csv ? 'on' : ''}" onclick="setImportTab('csv')">CSVから取り込む</button>
+      <button class="${csv ? '' : 'on'}" onclick="setImportTab('one')">1件だけ登録</button>
+    </div>
+    ${csv ? importCsvBody() : importOneBody()}
+  `, csv
+    ? [['閉じる', 'closeModal()', 'btn ghost'],
+       ...(db.imports.length ? [['取込履歴', 'closeModal();openImportHist()', 'btn ghost']] : [])]
+    : [['閉じる', 'closeModal()', 'btn ghost'],
+       ['登録してQR発行', 'doQuickRegister()', canAdmin() ? 'btn pri' : 'btn pri disabled']]);
+  if (!csv) setTimeout(previewId, 0);
+}
+function importCsvBody() {
+  return `
     <div class="drop" id="drop"
          ondragover="dropOver(event,true)" ondragleave="dropOver(event,false)" ondrop="dropFile(event)">
       <span class="ms">upload_file</span>
@@ -1277,18 +1311,31 @@ function openImport() {
           これまでの在庫表。出品状態・保管場所などを補います。
           <strong>管理番号・S/N・仕入価格・原価は書き換えません。</strong></div></div>
     </div>
-    <div class="imponeline">
-      <div style="flex:1;min-width:180px">
-        <b>1件だけ登録</b>
-        <div class="meta">CSVに載らないものを手で入れます。</div>
-      </div>
-      <button class="btn sm ghost" onclick="closeModal();go('reg')">手で入力する →</button>
-    </div>
     ${db.imports.length ? `<div class="lbl" style="margin:16px 0 6px">前回の取込</div>
       <div class="meta">${esc(fmtDT(db.imports[0].imported_at))}　${esc(db.imports[0].file_name || '')}
         商品 ${db.imports[0].product_count}／個体 ${db.imports[0].item_count}　${esc(db.imports[0].actor || '')}</div>` : ''}
-  `, [['閉じる', 'closeModal()', 'btn ghost'],
-      ...(db.imports.length ? [['取込履歴', 'closeModal();openImportHist()', 'btn ghost']] : [])]);
+  `;
+}
+/* CSVに無いものを、この場で1件だけ登録する。項目は商品登録画面の1件ずつフォームと同じ
+   （regFieldsBody を共用）。個体管理／数量管理の切り替えはこのタブだけを描き直す */
+function importOneBody() {
+  const ind = ui.regKind === 'ind';
+  const cats = db.cats.filter(c => c.kind === (ind ? 'individual' : 'quantity'));
+  return `
+    <p class="meta" style="margin-bottom:2px">CSVに無いものを、この場で1件だけ登録します。</p>
+    ${regFieldsBody(ind, cats, 'setQuickKind')}
+    <p class="meta" style="margin-top:4px">発行予定の${ind ? '管理番号' : '商品コード'}: <b id="idPreview" class="num">—</b></p>
+    ${canAdmin() ? '' : '<div class="card" style="margin-top:10px">商品の登録は管理者だけができます。</div>'}
+  `;
+}
+function setQuickKind(k) { ui.regKind = k === 'qty' ? 'qty' : 'ind'; paintImportModal(); }
+/* doRegister() は商品登録画面と同じ関数をそのまま使う。
+   成功すると ui.made が立つので、それを見てモーダルだけ閉じる
+   （doRegister 自身は一覧の再描画とトーストまでやってくれる） */
+async function doQuickRegister() {
+  ui.made = null;
+  await doRegister();
+  if (ui.made) { closeModal(); ui.made = null; }
 }
 function dropOver(e, on) { e.preventDefault(); const d = $('drop'); if (d) d.classList.toggle('on', on); }
 function dropFile(e) {
@@ -1313,12 +1360,16 @@ function importHistLine() {
 function openImportHist() {
   openModal('CSV取込履歴', db.imports.length ? `
     <div class="table-wrap"><table class="t">
-      <thead><tr><th>取込日</th><th>ファイル名</th><th class="r">商品</th><th class="r">個体</th><th>登録者</th><th></th></tr></thead>
+      <thead><tr><th>取込日</th><th>ファイル名</th><th class="r">商品</th><th class="r">個体</th>
+        <th class="r">重複スキップ</th><th>登録者</th><th></th></tr></thead>
       <tbody>${db.imports.map(r => `<tr>
         <td class="nowrap num">${esc(fmtDT(r.imported_at))}</td>
         <td>${esc(r.file_name || '—')}${r.summary ? `<div class="meta">${esc(r.summary)}</div>` : ''}</td>
         <td class="r num">${r.product_count}</td>
         <td class="r num">${r.item_count}</td>
+        <td class="r num">${(r.skips || []).length
+          ? `<button class="btn sm ghost" onclick="showSkips(${r.id})">${r.skip_count || (r.skips || []).length}件</button>`
+          : `<span class="meta">${r.skip_count || 0}</span>`}</td>
         <td class="nowrap">${esc(r.actor || '—')}</td>
         <td class="nowrap">${(r.product_codes || []).length
           ? `<button class="btn sm ghost" onclick="closeModal();showBatch(${r.id})">この分だけ見る</button>` : ''}</td>
@@ -1368,6 +1419,8 @@ function batchBanner() {
       <div class="bt">${now ? `今回登録した商品 ${alive}件` : `この取込で登録した商品 ${alive}件`}</div>
       <div class="meta">個体 ${b.item_count}台　${esc(fmtDT(b.imported_at))}　${esc(b.file_name || '')}${
         alive !== codes.length ? `　（${codes.length - alive}件は削除済み）` : ''}</div>
+      ${(b.skips || []).length ? `<div class="meta">重複スキップ ${b.skip_count || b.skips.length}件
+        <a href="#" onclick="showSkips(${b.id});return false">詳細を見る</a></div>` : ''}
     </div>
     ${batchQrBtn(b)}
     <button class="btn sm ghost" onclick="clearBatch()">すべて表示</button>
@@ -1509,7 +1562,7 @@ function readChannels(idx, row) {
 
 /* --- (1) この画面が書き出した形 --- */
 function planMaster(H, idx, body, file, encoding, headRow) {
-  const add = [], skip = [], bad = [];
+  const add = [], skip = [], bad = [], dups = [];
   const seen = {}, seenNo = {};
   db.items.forEach(i => { seenNo[i.id] = 'すでに在庫にあります'; });
   body.forEach((row, n) => {
@@ -1537,11 +1590,12 @@ function planMaster(H, idx, body, file, encoding, headRow) {
     const lo = findLoc(g('保管場所').split(' ほか')[0]);
     if (!lo.id) { bad.push({ line, key, ...lo }); return; }
 
-    // 同じ管理番号がCSVの2行に出てくることがある。1台は1回しか入れない
+    // 同じ管理番号がCSVの2行に出てくることがある。1台は1回しか入れない。
+    // 黙って消さず、飛ばしたものは理由つきで控えておく
     const nos = [];
     (g('管理番号一覧') || '').split('/').map(x => x.trim()).filter(Boolean).forEach(no => {
-      if (seenNo[no]) return;
-      seenNo[no] = `${line}行目`;
+      if (seenNo[no]) { dups.push({ id: no, why: seenNo[no], line }); return; }
+      seenNo[no] = `${line}行目にすでにあります`;
       nos.push(no);
     });
     // 商品はあっても管理番号が入っていないことがある。足りない個体だけ足す。
@@ -1576,7 +1630,7 @@ function planMaster(H, idx, body, file, encoding, headRow) {
     if (!twin) seen[dupKey] = entry;
     add.push(entry);
   });
-  return { mode: 'master', add, skip, bad, file, encoding };
+  return { mode: 'master', add, skip, bad, dups, file, encoding };
 }
 
 /* --- (2) 統合在庫一覧（型番別）--- */
@@ -1612,7 +1666,7 @@ function parseListing(text) {
 }
 
 function planLegacy(H, idx, body, file, encoding, headRow) {
-  const add = [], skip = [], bad = [];
+  const add = [], skip = [], bad = [], dups = [];
   const seenModel = {}, seenNo = {};
   db.items.forEach(i => { seenNo[i.id] = 'すでに在庫にあります'; });
 
@@ -1633,8 +1687,12 @@ function planLegacy(H, idx, body, file, encoding, headRow) {
 
     const nos = [], dropped = [];
     (g('管理番号一覧') || '').split('/').map(x => x.trim()).filter(Boolean).forEach(no => {
-      if (seenNo[no]) { dropped.push(`${no}（${seenNo[no]}）`); return; }
-      seenNo[no] = `${line}行目`;
+      if (seenNo[no]) {
+        dropped.push(`${no}（${seenNo[no]}）`);
+        dups.push({ id: no, why: seenNo[no], line });
+        return;
+      }
+      seenNo[no] = `${line}行目にすでにあります`;
       nos.push(no);
     });
 
@@ -1690,7 +1748,7 @@ function planLegacy(H, idx, body, file, encoding, headRow) {
     if (!twin) seenModel[mk] = entry;
     add.push(entry);
   });
-  return { mode: 'legacy', add, skip, bad, file, encoding };
+  return { mode: 'legacy', add, skip, bad, dups, file, encoding };
 }
 
 /* --- (3) 仕入CSV（落札のたびに出る形）---
@@ -1777,7 +1835,7 @@ const gainPer = (x) => x.plan == null ? null : x.plan - costPer(x);
 const gainLot = (x) => x.plan == null ? null : x.plan * x.lot.qty - x.lot.cost;
 
 function planPurchase(H, idx, body, file, encoding, headRow) {
-  const add = [], skip = [], bad = [];
+  const add = [], skip = [], bad = [], dups = [];
   const seenNo = {}, seenLot = {}, seenSn = {};
   db.items.forEach(i => {
     seenNo[i.id] = 'すでに在庫にあります';
@@ -1828,11 +1886,20 @@ function planPurchase(H, idx, body, file, encoding, headRow) {
     lot.kids.forEach(k => {
       const id = cell(idx, k.row, '個品ID(バーコード)') || cell(idx, k.row, '個品ID');
       if (!id) return;
-      if (seenNo[id]) { dropped.push(`${id}（${seenNo[id]}）`); already++; return; }
+      if (seenNo[id]) {
+        dropped.push(`${id}（${seenNo[id]}）`);
+        dups.push({ id, why: seenNo[id], line: k.line });
+        already++; return;
+      }
       // 個品IDが新しくても、S/Nが一致すれば同じ実物。二重に登録しない
       const sn = cell(idx, k.row, 'Ｓ／Ｎ').trim().toUpperCase();
-      if (sn && seenSn[sn]) { dropped.push(`${id}（S/N ${sn} が ${seenSn[sn]} にあります）`); already++; return; }
-      seenNo[id] = `${k.line}行目`;
+      if (sn && seenSn[sn]) {
+        const why = `S/N ${sn} が ${seenSn[sn]} と同じです`;
+        dropped.push(`${id}（${why}）`);
+        dups.push({ id, why, line: k.line });
+        already++; return;
+      }
+      seenNo[id] = `${k.line}行目にすでにあります`;
       if (sn) seenSn[sn] = `${k.line}行目`;
       kids.push({ id, row: k.row });
     });
@@ -1890,7 +1957,7 @@ function planPurchase(H, idx, body, file, encoding, headRow) {
     x.units = buildUnits(x);
     add.push(x);
   });
-  return { mode: 'purchase', add, skip, bad, file, encoding };
+  return { mode: 'purchase', add, skip, bad, dups, file, encoding };
 }
 
 /* 取り込み確認画面で販売予定価格を直す。想定利益と合計がその場で変わる。
@@ -2326,6 +2393,11 @@ async function applyInventoryImport() {
     txs = txs.filter(x => x.ref_kind !== 'item' || keep.has(x.ref_id));
   }
 
+  // 飛ばした管理番号は、黙って消えたように見せない。
+  // CSVの中で重複していたぶんと、DBにすでにあったぶんをまとめて控える
+  const skips = (p.dups || []).map(d => ({ id: d.id, why: d.why, line: d.line || null }))
+    .concat(dupIds.map(id => ({ id, why: 'すでに在庫にあります', line: null })));
+
   // 追記するだけの取り込みなので、万一かち合っても上書きせず黙って飛ばす。
   // 途中まで入って止まる、という中途半端な結果にしないため
   const ins = async (table, rows, key) => {
@@ -2356,10 +2428,13 @@ async function applyInventoryImport() {
       product_count: touched.length, item_count: units.length,
       product_codes: touched,
       item_ids: units.map(u => u.id),      // 今回のQRだけまとめて印刷するのに使う
-      summary: wasBuy
+      skip_count: skips.length,
+      skips: skips.slice(0, 2000),         // 履歴からも中身を見られるようにする
+      summary: (wasBuy
         ? `新規 ${madeProds}商品／既存へ追加 ${touched.length - madeProds}商品`
           + `／原価 ${yen(t.cost)}／想定利益 ${t.priced ? yen(t.gain) : '—'}`
-        : `新規 ${madeProds}商品`
+        : `新規 ${madeProds}商品`)
+        + (skips.length ? `／重複スキップ ${skips.length}件` : '')
     }).select();
     if (!error && data && data[0]) batchId = data[0].id;
   } catch (e) { toast(e.message); return; }
@@ -2367,12 +2442,35 @@ async function applyInventoryImport() {
   importPlan = null; importSrc = null;
   impMap.loc = {}; impMap.cat = {}; planPrice = {}; planQty = {};
   await loadAll();
-  // 取り込んだら商品管理一覧に戻り、今回の分だけを出す
+  // 取り込んだら商品管理一覧に戻り、今回の分だけを出す。
+  // 「今回登録した商品 ○件」の帯（batchBanner）に重複スキップの件数と詳細リンクも出るので、
+  // ここでさらにモーダルは開かない（操作を増やしすぎない）
   if (batchId) showBatch(batchId, true); else { ui.fBatch = null; ui.doneBatch = null; go('list'); }
-  const skipped = dupIds.length ? `／すでにあった ${dupIds.length}台は飛ばしました` : '';
   const listed = chanAdded ? `／出品情報 ${chanAdded}件` : '';
+  const skipped = skips.length ? `／重複スキップ ${skips.length}件` : '';
   toast(wasBuy ? `商品 ${touched.length}件・個体 ${units.length}台を登録しました（原価 ${yen(t.cost)}／想定利益 ${t.priced ? yen(t.gain) : '—'}）${skipped}`
                : `${madeProds}商品・${units.length}台を取り込みました${listed}${skipped}`);
+}
+
+/* 飛ばした管理番号の一覧。取込直後からも、取込履歴からも同じものを開く */
+function showSkips(id) {
+  const b = batchOf(id);
+  const rows = (b && b.skips) || [];
+  openModal(`重複スキップ ${rows.length}件`, rows.length ? `
+    <p class="meta" style="margin-bottom:12px">${b ? esc(fmtDT(b.imported_at)) + '　' + esc(b.file_name || '') : ''}</p>
+    <div class="table-wrap" style="max-height:52vh;overflow:auto"><table class="t">
+      <thead><tr><th>管理番号</th><th>スキップ理由</th><th>CSVの行</th></tr></thead>
+      <tbody>${rows.map(s => `<tr>
+        <td class="num" style="font-weight:600">${esc(s.id)}</td>
+        <td>${esc(s.why || '重複')}</td>
+        <td class="meta num">${s.line ? s.line + '行目' : '—'}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+    <p class="meta" style="margin-top:10px">同じ現物を二重に登録しないために飛ばしています。
+      在庫は増えていません。</p>`
+    : '<div class="empty">飛ばした管理番号はありません。</div>',
+    [['閉じる', 'closeModal()', 'btn ghost'],
+     ...(b ? [['取込履歴', 'closeModal();openImportHist()', 'btn ghost']] : [])]);
 }
 
 /* ---------------------------------------------------------------- モーダル */
@@ -3255,7 +3353,8 @@ function regCsvMain() {
       <span class="ms">check_circle</span>
       <div style="flex:1;min-width:0">
         <div class="t">今回登録した商品 ${done.prods}件</div>
-        <div class="meta">個体 ${done.items}台　${esc(done.file)}</div>
+        <div class="meta">個体 ${done.items}台　${esc(done.file)}${
+          done.skips ? `　／　重複スキップ ${done.skips}件 <a href="#" onclick="showSkips(${done.id});return false">詳細を見る</a>` : ''}</div>
       </div>
       ${batchQrBtn(batchOf(done.id))}
       <button class="btn sm ghost" onclick="showBatch(${done.id},true)">一覧で見る</button>
@@ -3269,7 +3368,8 @@ function regCsvMain() {
 function lastImportDone() {
   const b = batchOf(ui.doneBatch);
   if (!b) return null;
-  return { id: b.id, prods: (b.product_codes || []).length, items: b.item_count, file: b.file_name || '' };
+  return { id: b.id, prods: (b.product_codes || []).length, items: b.item_count, file: b.file_name || '',
+           skips: (b.skips || []).length || b.skip_count || 0 };
 }
 
 function viewReg() {
@@ -3292,10 +3392,6 @@ function viewReg() {
   }
   const ind = ui.regKind === 'ind';
   const cats = db.cats.filter(c => c.kind === (ind ? 'individual' : 'quantity'));
-  const f = (id, label, type, extra) =>
-    `<label class="field"><span>${esc(label)}</span><input class="input" id="r-${id}" ${type ? `type="${type}"` : ''} ${extra || ''}></label>`;
-  const ta = (id, label) =>
-    `<label class="field" style="grid-column:1/-1"><span>${esc(label)}</span><textarea class="input" id="r-${id}" rows="2"></textarea></label>`;
 
   return `<h1>商品登録</h1>
     ${canAdmin() ? '' : '<div class="card" style="margin:15px 0">商品の登録は管理者だけができます。</div>'}
@@ -3303,31 +3399,43 @@ function viewReg() {
     ${regCsvMain()}
 
     <div class="sec regsub">1件ずつ商品登録</div>
-    <p class="meta" style="margin:-8px 0 0">CSVに載らないものを手で足すときに使います。</p>
+    <p class="meta" style="margin:-8px 0 0">CSVに載らないものを手で足すときに使います。
+      商品取込の画面からも同じ内容を入れられます。</p>
+    ${regFieldsBody(ind, cats, 'setRegKind')}
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:18px">
+      <button class="btn pri" onclick="doRegister()" ${canAdmin() ? '' : 'disabled'}>
+        <span class="ms">add</span>登録してQR発行</button>
+      <span class="meta">発行予定の${ind ? '管理番号' : '商品コード'}: <b id="idPreview" class="num">—</b></span>
+    </div>`;
+}
 
+/* 1件ずつの登録フォーム。商品登録画面と、商品取込モーダルの「1件だけ登録」タブの
+   両方から使う（項目がずれないよう1か所にまとめる）。kindFn は個体管理／数量管理の
+   切り替えボタンが呼ぶ関数名（呼び出し側で描き直しかたが違うため） */
+const regField = (id, label, type, extra) =>
+  `<label class="field"><span>${esc(label)}</span><input class="input" id="r-${id}" ${type ? `type="${type}"` : ''} ${extra || ''}></label>`;
+const regTextarea = (id, label) =>
+  `<label class="field" style="grid-column:1/-1"><span>${esc(label)}</span><textarea class="input" id="r-${id}" rows="2"></textarea></label>`;
+function regFieldsBody(ind, cats, kindFn) {
+  return `
     <div class="seg" style="margin:15px 0">
-      <button class="${ind ? 'on' : ''}" onclick="setRegKind('ind')">個体管理</button>
-      <button class="${!ind ? 'on' : ''}" onclick="setRegKind('qty')">数量管理</button>
+      <button class="${ind ? 'on' : ''}" onclick="${kindFn}('ind')">個体管理</button>
+      <button class="${!ind ? 'on' : ''}" onclick="${kindFn}('qty')">数量管理</button>
     </div>
     <p class="meta" style="margin-bottom:12px">${ind
       ? '1台＝1レコードで登録します。同じ型番がすでにあれば、その商品にぶら下がる個体として足します。'
       : '数が増減する消耗品などです。1品目＝1レコードで、在庫数を持ちます。'}</p>
     <div class="fields">
-      ${f('name', '商品名 *')}
+      ${regField('name', '商品名 *')}
       <label class="field"><span>カテゴリ *</span><select class="input" id="r-cat" onchange="previewId()">
         ${cats.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select></label>
       <label class="field"><span>保管場所 *</span><select class="input" id="r-loc">${locOptions('', '選択してください')}</select></label>
-      ${f('maker', 'メーカー')}
-      ${f('model', '型番')}
-      ${ta('spec', 'スペック')}
-      ${ind ? f('serial', 'シリアル番号') + f('buy', '購入日', 'date') + f('price', '購入価格', 'number')
-            : f('qty', '初期在庫数 *', 'number') + f('min', '最低在庫数 *', 'number') + f('unit', '購入単価', 'number')}
-      ${ta('note', '備考')}
-    </div>
-    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:18px">
-      <button class="btn pri" onclick="doRegister()" ${canAdmin() ? '' : 'disabled'}>
-        <span class="ms">add</span>登録してQR発行</button>
-      <span class="meta">発行予定の${ind ? '管理番号' : '商品コード'}: <b id="idPreview" class="num">—</b></span>
+      ${regField('maker', 'メーカー')}
+      ${regField('model', '型番')}
+      ${regTextarea('spec', 'スペック')}
+      ${ind ? regField('serial', 'シリアル番号') + regField('buy', '購入日', 'date') + regField('price', '購入価格', 'number')
+            : regField('qty', '初期在庫数 *', 'number') + regField('min', '最低在庫数 *', 'number') + regField('unit', '購入単価', 'number')}
+      ${regTextarea('note', '備考')}
     </div>`;
 }
 
