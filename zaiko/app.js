@@ -35,16 +35,25 @@ const STATUS_ICON = {
   '在庫': 'inventory_2', '出品中': 'sell', '社内使用': 'person', '貸出中': 'assignment_ind',
   '修理中': 'build', '故障': 'error', '紛失': 'help', '売却済': 'paid', '廃棄': 'delete', '不明': 'help'
 };
-/* 販売チャネル。左から画面に並ぶ */
+/* 販売サイト。一覧のタブもバッジも、この並び順のまま出る。
+   tab が付いているものだけ、在庫一覧の上にタブとして並べる */
 const CHANNELS = [
-  { key: 'amazon', label: 'Amazon', short: 'Am' },
-  { key: 'rakuten', label: '楽天', short: '楽' },
-  { key: 'mercari', label: 'メルカリ', short: 'メ' },
-  { key: 'yahuoku', label: 'ヤフオク', short: 'ヤ' },
-  { key: 'yahoo_free', label: 'ヤフーフリマ', short: 'フ' },
+  { key: 'rakuten', label: '楽天', short: '楽', tab: true },
+  { key: 'amazon', label: 'Amazon', short: 'Am', tab: true },
+  { key: 'mercari', label: 'メルカリ', short: 'メ', tab: true },
+  { key: 'yahuoku', label: 'ヤフオク', short: 'ヤ', tab: true },
+  { key: 'yahoo_free', label: 'ヤフーフリマ', short: 'フ', tab: true },
+  { key: 'other', label: 'その他', short: '他' },
   { key: 'notion', label: 'Notion', short: 'No' }
 ];
-const LIST_STATES = ['出品中', '出品停止', '保留', '売り切れ', '出品中止', '販売済み'];
+const TAB_CHANNELS = CHANNELS.filter(c => c.tab);
+const isChanKey = (k) => CHANNELS.some(c => c.key === k);
+const chanLabel = (k) => (CHANNELS.find(c => c.key === k) || { label: k }).label;
+/* 出品状態。「未出品」は状態ではなく、行が無いこと自体で表す */
+const LISTED = '出品中';
+const LIST_STATES = ['出品中', '出品停止', '売り切れ', '販売済み', '保留'];
+/* 昔のデータで使っていた言い方も読めるようにする（書くのは LIST_STATES だけ） */
+const LIST_STATES_IN = LIST_STATES.concat(['出品中止']);
 const MENU = [
   ['dash', 'space_dashboard', 'ダッシュボード', ''],
   ['list', 'list_alt', '在庫一覧', '/list'],
@@ -66,10 +75,11 @@ const db = {
 };
 const ui = {
   screen: 'dash', itemId: null, prodId: null, locId: null,
-  q: '', fCat: '', fMaker: '', fLoc: '', fStock: '', fList: '',
+  q: '', fCat: '', fMaker: '', fLoc: '', fStock: '',
   fAction: '', hq: '', regKind: 'ind', made: null, tab: 'info',
   drafts: {}, labelSel: {}, stScope: '', loaded: false, sel: {}, fBatch: null, doneBatch: null,
-  listMode: 'unit', fSt: ''
+  // 一覧のタブ。individual / model のほかに、販売サイトのキーと 'none'（未出品）を取る
+  listMode: 'unit', fSt: '', fDiff: false
 };
 
 /* 仕入の置き場所はたいてい柏の倉庫なので、取込の初期値にする。
@@ -132,7 +142,44 @@ const catName = (id) => (cat(id) || {}).name || '';
 /* 商品マスタまわり。商品名が空の型番が多いので、名前は型番で代用する */
 const titleOf = (p) => (p && (p.name || p.model)) || '';
 const itemsOf = (code) => db.items.filter(i => i.product_code === code);
-const channelsOf = (code) => db.channels.filter(c => c.product_code === code);
+
+/* ---- 出品情報 ----
+   出品は実物1台ごとに持つ（item_id あり）。
+   item_id が無い行は「商品まるごとの出品情報」で、移行前のデータと数量管理がこれにあたる。
+   1台ずつの出品情報が無いときは、商品まるごとの行をその台にも当てる。
+   台数が多いので、読み込みのたびに索引を作っておく（一覧は600行×サイト数を引く） */
+function reindexChannels() {
+  db.chByItem = {}; db.chByProd = {};
+  db.channels.forEach(c => {
+    const to = c.item_id ? (db.chByItem[c.item_id] = db.chByItem[c.item_id] || [])
+                         : (db.chByProd[c.product_code] = db.chByProd[c.product_code] || []);
+    to.push(c);
+  });
+}
+const listingsOf = (itemId) => (db.chByItem || {})[itemId] || [];
+const channelsOf = (code) => (db.chByProd || {})[code] || [];
+
+/* その1台の、あるサイトでの出品情報。1台ぶんが無ければ商品まるごとの行を使う */
+function listingOf(it, key) {
+  if (!it) return null;
+  const mine = listingsOf(it.id).find(x => x.channel === key);
+  if (mine) return mine;
+  const up = channelsOf(it.product_code).find(x => x.channel === key);
+  return up ? Object.assign({}, up, { fromProduct: true }) : null;
+}
+/* いま出品しているサイトのキー。一覧のバッジとタブはこれだけを見る */
+function liveOn(it) {
+  if (!it) return [];
+  return CHANNELS.filter(c => {
+    const x = listingOf(it, c.key);
+    return x && x.state === LISTED;
+  }).map(c => c.key);
+}
+/* 数量管理の品目は個体を持たないので、商品まるごとの行で見る */
+function liveOnProd(code) {
+  return CHANNELS.filter(c => channelsOf(code).some(x => x.channel === c.key && x.state === LISTED))
+                 .map(c => c.key);
+}
 
 /* 個体管理の在庫数は手入力させず、各個体の状態から数える。
    数量管理は qty をそのまま使う                                   */
@@ -371,6 +418,7 @@ async function loadAll() {
   db.items = (i.data || []).sort((a, b) => a.id.localeCompare(b.id, 'ja'));
   db.masters = (p.data || []).sort((a, b) => titleOf(a).localeCompare(titleOf(b), 'ja'));
   db.channels = ch.data || [];
+  reindexChannels();
   db.tx = t.data || [];
   const sts = s.data || [];
   db.stocktake = sts.find(x => x.status === 'open') || null;
@@ -407,7 +455,26 @@ function parsePath() {
   if (seg[0] === 'products' && seg[1]) return { screen: 'prod', prodId: decodeURIComponent(seg[1]) };
   if (seg[0] === 'locations' && seg[1]) return { screen: 'loc', locId: decodeURIComponent(seg[1]) };
   const byPath = { list: 'list', in: 'in', out: 'out', loan: 'loan', stock: 'stock', locations: 'locs', history: 'hist', register: 'reg', labels: 'labels' };
-  return { screen: byPath[seg[0]] || 'dash' };
+  const screen = byPath[seg[0]] || 'dash';
+  return screen === 'list' ? { screen, listMode: modeFromQuery() } : { screen };
+}
+
+/* 在庫一覧のタブはURLに持たせる。読み込み直しても同じタブが開くようにする。
+     ?view=individual / ?view=model / ?channel=rakuten … / ?channel=none（未出品） */
+function modeFromQuery() {
+  const q = new URLSearchParams(location.search || '');
+  const ch = q.get('channel'), v = q.get('view');
+  if (ch === 'none') return 'none';
+  if (ch && isChanKey(ch)) return ch;
+  if (v === 'model') return 'model';
+  if (v === 'individual' || v === 'unit') return 'unit';
+  return null;                       // 指定が無ければ、いま開いているタブのまま
+}
+function listQuery() {
+  if (ui.listMode === 'model') return '?view=model';
+  if (ui.listMode === 'none') return '?channel=none';
+  if (isChanKey(ui.listMode)) return '?channel=' + ui.listMode;
+  return '?view=individual';
 }
 
 function pathFor(screen, id) {
@@ -415,12 +482,12 @@ function pathFor(screen, id) {
   if (screen === 'prod') return BASE + '/products/' + encodeURIComponent(id);
   if (screen === 'loc') return BASE + '/locations/' + encodeURIComponent(id);
   const m = MENU.find(x => x[0] === screen);
-  return BASE + (m ? m[3] : '');
+  return BASE + (m ? m[3] : '') + (screen === 'list' ? listQuery() : '');
 }
 
 function go(screen, id) {
   const path = pathFor(screen, id);
-  if (path !== location.pathname) history.pushState(null, '', path);
+  if (path !== location.pathname + location.search) history.pushState(null, '', path);
   closeSheet();
   applyRoute({ screen, itemId: screen === 'item' ? id : null, prodId: screen === 'prod' ? id : null, locId: screen === 'loc' ? id : null });
   window.scrollTo(0, 0);
@@ -432,6 +499,7 @@ function applyRoute(r) {
   ui.itemId = r.itemId || null;
   ui.prodId = r.prodId || null;
   ui.locId = r.locId || null;
+  if (r.listMode) ui.listMode = r.listMode;
   renderMenu();
   render();
 }
@@ -463,10 +531,18 @@ async function loadOne(r) {
 
   if (r.screen === 'item') {
     db.items = [res.data];
-    // 個体の画面は商品名などをマスタから出すので、その1件も取る
+    // 個体の画面は商品名などをマスタから出すので、その1件も取る。
+    // 出品情報は1台ぶんと商品まるごとの両方（1台ぶんが無ければ商品の行を当てるため）
     if (res.data.product_code) {
-      const m = await sb.from('inventory_products').select('*').eq('code', res.data.product_code).maybeSingle();
+      const [m, chs] = await Promise.all([
+        sb.from('inventory_products').select('*').eq('code', res.data.product_code).maybeSingle(),
+        sb.from('inventory_channels').select('*').eq('product_code', res.data.product_code)
+      ]);
       if (m.data) db.masters = [m.data];
+      db.channels = chs.data || [];
+    } else {
+      const chs = await sb.from('inventory_channels').select('*').eq('item_id', res.data.id);
+      db.channels = chs.data || [];
     }
   } else {
     db.masters = [res.data];
@@ -478,6 +554,7 @@ async function loadOne(r) {
     db.items = its.data || [];
     db.channels = chs.data || [];
   }
+  reindexChannels();
   return true;
 }
 
@@ -579,8 +656,8 @@ function onFilter() {
   ui.fLoc = ($('f-loc') || {}).value || '';
   ui.fStock = ($('f-stock') || {}).value || '';
   ui.fSt = ($('f-st') || {}).value || '';
-  ui.fList = ($('f-list') || {}).value || '';
   renderListBody();
+  paintTabCounts();
 }
 function locOptions(sel, allLabel) {
   return `<option value="">${esc(allLabel)}</option>` + locsOrdered().map(l =>
@@ -597,7 +674,6 @@ function listFiltered() {
     if (ui.fCat && p.category_id !== ui.fCat) return false;
     if (ui.fMaker && (p.maker || '') !== ui.fMaker) return false;
     if (ui.fStock && stockLabel(p) !== ui.fStock) return false;
-    if (ui.fList && !channelsOf(p.code).some(c => c.state === ui.fList)) return false;
     if (inScope) {
       const here = p.kind === 'individual'
         ? itemsOf(p.code).some(i => inScope.includes(i.location_id))
@@ -615,36 +691,69 @@ function listFiltered() {
   });
 }
 
-function setListMode(m) { ui.listMode = m; ui.sel = {}; render(); }
+function setListMode(m) { ui.listMode = m; ui.sel = {}; ui.fDiff = false; go('list'); }
+
+/* いま選んでいるタブが販売サイト（または未出品）なら、そのキーを返す */
+const chanTab = () => (isChanKey(ui.listMode) || ui.listMode === 'none') ? ui.listMode : '';
+
+/* タブの件数。いま掛けている絞り込みのなかで数える。
+   タブ自身の絞り込みは外して数えるので、切り替えても数は動かない */
+function tabCounts() {
+  const n = { none: 0 };
+  TAB_CHANNELS.forEach(c => { n[c.key] = 0; });
+  unitsFiltered(true).forEach(r => {
+    const on = r.kind === 'item' ? liveOn(r.i) : liveOnProd(r.m.code);
+    if (!on.length) { n.none++; return; }
+    on.forEach(k => { if (n[k] != null) n[k]++; });
+  });
+  return n;
+}
+
+function listTabs() {
+  const n = tabCounts();
+  const b = (key, label, count) => `<button class="${ui.listMode === key ? 'on' : ''}"
+      onclick="setListMode('${key}')">${esc(label)}${
+      count == null ? '' : `<span class="n" id="tc-${key}">${count}</span>`}</button>`;
+  return `<div class="chtabs">
+    ${b('unit', '個体別')}${b('model', '型番別')}
+    <span class="sep"></span>
+    ${TAB_CHANNELS.map(c => b(c.key, c.label, n[c.key])).join('')}
+    ${b('none', '未出品', n.none)}
+  </div>`;
+}
+/* 絞り込みを変えたときは本体だけ描き直すので、タブの件数はここで入れ替える */
+function paintTabCounts() {
+  const n = tabCounts();
+  Object.keys(n).forEach(k => { const el = $('tc-' + k); if (el) el.textContent = n[k]; });
+}
 
 function viewList() {
   const makers = [...new Set(db.masters.map(p => p.maker).filter(Boolean))].sort();
   const unit = ui.listMode !== 'model';
+  const tab = chanTab();
+  const lead = tab === 'none'
+    ? 'どの販売サイトにも出していない在庫です。<strong>ここから出品先を決めていきます。</strong>'
+    : tab ? `<strong>${esc(chanLabel(tab))}に出品中</strong>の在庫だけを出しています。ほかのサイトにも出していれば、出品先の欄に並びます。`
+    : unit ? '<strong>実物1台＝1行</strong>で並べています。行をクリックすると、その1台の詳細と履歴が見られます。'
+           : '<strong>型番でまとめて</strong>数だけ見ています。行をクリックすると、個体の一覧や販売情報まで見られます。';
   return `
     <h1>在庫一覧</h1>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:15px 0 4px">
-      <p class="meta" style="flex:1 1 260px">
-        ${unit ? '<strong>実物1台＝1行</strong>で並べています。行をクリックすると、その1台の詳細と履歴が見られます。'
-               : '<strong>型番でまとめて</strong>数だけ見ています。行をクリックすると、個体の一覧や販売情報まで見られます。'}</p>
+      <p class="meta" style="flex:1 1 260px">${lead}</p>
       <div class="listtools">
         <button class="btn sm ghost" onclick="exportInventoryCsv()">
           <span class="ms">download</span>CSVダウンロード</button>
-        <button class="btn sm ghost" onclick="openImport('stock')" ${canAdmin() ? '' : 'disabled'}
-          title="${canAdmin() ? '既存の在庫一覧CSV。販売状況や保管場所を補うのに使います' : '追加できる権限がありません'}">
-          <span class="ms">upload_file</span>既存在庫CSV取込</button>
-        <button class="btn sm" onclick="openImport('purchase')" ${canAdmin() ? '' : 'disabled'}
-          title="${canAdmin() ? '毎週の自社落札CSV。ここから商品と個体が増えていきます' : '追加できる権限がありません'}">
-          <span class="ms">upload_file</span>自社落札CSV取込</button>
-        <button class="btn sm lime" onclick="go('reg')" ${canAdmin() ? '' : 'disabled'}>
-          <span class="ms">add</span>商品登録</button>
+        <button class="btn sm lime" onclick="openImport()" ${canAdmin() ? '' : 'disabled'}
+          title="${canAdmin() ? 'CSVでまとめて／1件ずつ、どちらもここから' : '追加できる権限がありません'}">
+          <span class="ms">upload_file</span>商品取込</button>
+        <button class="btn sm ghost" onclick="openImportHist()">
+          <span class="ms">history</span>CSV取込履歴</button>
       </div>
     </div>
     ${importHistLine()}
     ${batchBanner()}
-    <div class="seg" style="margin:10px 0 4px">
-      <button class="${unit ? 'on' : ''}" onclick="setListMode('unit')">個体別</button>
-      <button class="${unit ? '' : 'on'}" onclick="setListMode('model')">型番別</button>
-    </div>
+    ${diffBar()}
+    ${listTabs()}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:4px">
       <input class="input" id="f-q" value="${esc(ui.q)}" oninput="onFilter()"
              placeholder="${unit ? '管理番号・型番・S/N…' : '型番・商品名・管理番号…'}">
@@ -666,10 +775,6 @@ function viewList() {
             <option value="">全在庫状態</option>
             ${STOCK_LABELS.map(s => `<option${ui.fStock === s ? ' selected' : ''}>${esc(s)}</option>`).join('')}
           </select>`}
-      <select class="input" id="f-list" onchange="onFilter()">
-        <option value="">全出品状態</option>
-        ${LIST_STATES.map(s => `<option${ui.fList === s ? ' selected' : ''}>${esc(s)}</option>`).join('')}
-      </select>
     </div>
     <div id="listBody">${listBodyHtml()}</div>
     ${canAdmin() ? `<div class="dangerzone">
@@ -847,18 +952,18 @@ function unitNos(p) {
    詰め込みすぎないよう、出すのは 管理番号・型番・メーカー・仕入日・原価・
    販売予定価格・保管場所・状態 だけ。S/Nやスペックは行をクリックした先で見る。
    数量管理の品目は個体を持たないので、1品目1行として数だけ出す。 */
-function unitsFiltered() {
+function unitsFiltered(ignoreTab) {
   const q = ui.q.trim().toLowerCase();
   const inScope = ui.fLoc ? locTree(ui.fLoc) : null;
   const batch = batchOf(ui.fBatch);
   const only = batch ? (batch.product_codes || []) : null;
+  const tab = ignoreTab ? '' : chanTab();
   const hit = (i, m) => {
     if (only && only.indexOf(i.product_code) < 0) return false;
     if (ui.fCat && i.category_id !== ui.fCat) return false;
     if (ui.fMaker && ((m && m.maker) || i.maker || '') !== ui.fMaker) return false;
     if (ui.fSt && i.status !== ui.fSt) return false;
     if (inScope && !inScope.includes(i.location_id)) return false;
-    if (ui.fList && !channelsOf(i.product_code).some(c => c.state === ui.fList)) return false;
     if (q) {
       const hay = [i.id, i.serial, i.source_id, (m && m.model) || i.model, (m && m.name) || i.name, i.note]
         .filter(Boolean).join(' ').toLowerCase();
@@ -866,16 +971,55 @@ function unitsFiltered() {
     }
     return true;
   };
-  const out = db.items.filter(i => hit(i, prod(i.product_code)))
-    .map(i => ({ kind: 'item', i, m: prod(i.product_code) }));
+  // 販売サイトのタブ。ほかのサイトにも出していれば、行にはそれも並べる（絞るのはここだけ）
+  const onTab = (on) => !tab || (tab === 'none' ? !on.length : on.indexOf(tab) >= 0);
+  const out = db.items.filter(i => {
+    if (ui.fDiff && !isMismatch(i)) return false;
+    return hit(i, prod(i.product_code)) && onTab(liveOn(i));
+  }).map(i => ({ kind: 'item', i, m: prod(i.product_code) }));
   // 数量管理は個体を持たない。見えなくならないよう1品目1行で混ぜる
   db.masters.filter(p => p.kind !== 'individual').forEach(p => {
     const fake = { id: p.code, product_code: p.code, category_id: p.category_id, maker: p.maker,
                    model: p.model, name: p.name, location_id: p.location_id, status: '' };
-    if (ui.fSt) return;
-    if (hit(fake, p)) out.push({ kind: 'qty', i: fake, m: p });
+    if (ui.fSt || ui.fDiff) return;
+    if (hit(fake, p) && onTab(liveOnProd(p.code))) out.push({ kind: 'qty', i: fake, m: p });
   });
   return out;
+}
+
+/* 在庫差異。手元に無いのに、まだどこかに出品中のまま残っている1台。
+   自社在庫DBが正なので、出品のほうを直してもらう */
+function isMismatch(i) { return GONE.includes(i.status) && liveOn(i).length > 0; }
+const mismatchAll = () => db.items.filter(isMismatch);
+
+function diffBar() {
+  const n = mismatchAll().length;
+  if (!n && !ui.fDiff) return '';
+  if (ui.fDiff) return `<div class="diffbar on">
+    <span class="ms">filter_alt</span>
+    <div style="flex:1;min-width:0"><div class="bt">在庫差異 ${n}台</div>
+      <div class="meta">売却済・廃棄なのに、販売サイトでは出品中のままです。</div></div>
+    <button class="btn sm ghost" onclick="showDiff(false)">すべて表示</button>
+  </div>`;
+  return `<div class="diffbar">
+    <span class="ms">warning_amber</span>
+    <div style="flex:1;min-width:0"><div class="bt">在庫差異 ${n}台</div>
+      <div class="meta">手元に無いのに、販売サイトでは出品中のままです。出品停止を確認してください。</div></div>
+    <button class="btn sm" onclick="showDiff(true)">確認する</button>
+  </div>`;
+}
+function showDiff(on) {
+  ui.fDiff = !!on;
+  if (on) { ui.listMode = 'unit'; ui.fSt = ''; }
+  go('list');
+}
+
+/* 出品先。出しているサイトだけ小さく並べる。長い名前は出さない */
+function listingChips(on, title) {
+  if (!on.length) return '<span class="meta">—</span>';
+  return '<span class="malls">' + CHANNELS.filter(c => on.indexOf(c.key) >= 0).map(c =>
+    `<span class="tag ch on" title="${esc(c.label)}${title ? '：' + esc(title) : '：出品中'}">${esc(c.short)}</span>`
+  ).join('') + '</span>';
 }
 
 function unitsBodyHtml() {
@@ -889,7 +1033,7 @@ function unitsBodyHtml() {
     <thead><tr>
       <th>管理番号</th><th>型番</th><th>メーカー</th><th>仕入日</th>
       <th style="text-align:right">原価</th><th style="text-align:right">販売予定価格</th>
-      <th>保管場所</th><th>状態</th>${canEdit() ? '<th></th>' : ''}
+      <th>出品先</th><th>保管場所</th><th>状態</th>${canEdit() ? '<th></th>' : ''}
     </tr></thead>
     <tbody>${rows.slice(0, 600).map(r => {
       const { i, m } = r;
@@ -900,6 +1044,7 @@ function unitsBodyHtml() {
         <td class="meta">—</td>
         <td class="num meta r">${yen(m.unit_price)}</td>
         <td class="num meta r">—</td>
+        <td class="mall">${listingChips(liveOnProd(m.code))}</td>
         <td class="meta">${esc(locPath(m.location_id))}</td>
         <td><span class="tag act">数量 ${m.qty}</span></td>
         ${canEdit() ? `<td class="nowrap ops2" onclick="event.stopPropagation()">
@@ -908,7 +1053,7 @@ function unitsBodyHtml() {
           <button class="btn sm ghost" onclick="sheetCount('${esc(m.code)}')">数を直す</button></td>` : ''}
       </tr>`;
       const cost = costOf(i), plan = planOf(i);
-      return `<tr class="clk" onclick="go('item','${esc(i.id)}')">
+      return `<tr class="clk${isMismatch(i) ? ' warn' : ''}" onclick="go('item','${esc(i.id)}')">
         <td class="num" style="font-weight:600">${esc(i.id)}
           ${i.source_id ? `<div class="meta">仕入元 ${esc(i.source_id)}</div>` : ''}</td>
         <td class="nowrap">${esc((m && m.model) || i.model || '')}</td>
@@ -916,6 +1061,7 @@ function unitsBodyHtml() {
         <td class="meta nowrap">${i.purchased_on ? fmtD(i.purchased_on) : '—'}</td>
         <td class="num r">${cost ? yen(cost) : '<span class="meta">—</span>'}</td>
         <td class="num r">${plan == null ? '<span class="meta">—</span>' : yen(plan)}</td>
+        <td class="mall">${listingChips(liveOn(i))}</td>
         <td class="meta">${esc(locPath(i.location_id))}</td>
         <td>${statusTag(i.status)}</td>
         ${canEdit() ? `<td class="nowrap ops2" onclick="event.stopPropagation()">
@@ -937,7 +1083,7 @@ function listBodyHtml() {
         ${allSelected(rows) ? 'checked' : ''} title="表示中をすべて選ぶ"></th>` : ''}
       <th>型番</th><th>管理番号</th><th>メーカー</th><th>カテゴリ</th>
       <th style="text-align:right">現在庫</th><th style="text-align:right">登録数</th>
-      <th>保管場所</th><th>在庫状態</th><th>販売状況</th><th>最終更新</th>
+      <th>出品先</th><th>保管場所</th><th>在庫状態</th><th>最終更新</th>
       ${canEdit() ? '<th>在庫を動かす</th>' : ''}
     </tr></thead>
     <tbody>${rows.map(p => {
@@ -954,9 +1100,9 @@ function listBodyHtml() {
         <td class="nowrap">${esc(catName(p.category_id))}</td>
         <td class="num" style="font-size:18px;font-weight:600;${s.inStock <= 0 ? 'color:#B3261E' : ''}">${s.inStock}</td>
         <td class="num meta">${s.registered}</td>
+        <td class="mall">${listingChips(prodLiveOn(p))}</td>
         <td class="meta">${esc(placeOf(p))}</td>
         <td>${stockTag(lbl)}</td>
-        <td>${channelChips(p.code)}</td>
         <td class="meta nowrap">${touchedAt(p) ? fmtD(touchedAt(p)) : '—'}</td>
         ${canEdit() ? `<td class="nowrap ops2" onclick="event.stopPropagation()">${
           p.kind === 'individual'
@@ -1001,15 +1147,12 @@ function stockTag(lbl) {
   const cls = { '在庫あり': 'ok', '残りわずか': 'few', '在庫なし': 'none', '要発注': 'few' }[lbl] || 'none';
   return `<span class="tag stk-${cls}">${esc(lbl)}</span>`;
 }
-/* 販売状況は一覧では小さく。出しているモールだけ色を付ける */
-function channelChips(code) {
-  const list = channelsOf(code);
-  if (!list.length) return '<span class="meta">—</span>';
-  return '<span class="malls">' + CHANNELS.filter(c => list.some(x => x.channel === c.key)).map(c => {
-    const x = list.find(v => v.channel === c.key);
-    const on = x.state === '出品中';
-    return `<span class="tag ch ${on ? 'on' : ''}" title="${esc(c.label)}：${esc(x.state || '—')}">${esc(c.short)}</span>`;
-  }).join('') + '</span>';
+/* 型番別の行の出品先。ぶら下がる個体のどれか1台でも出ていれば、そのサイトを出す */
+function prodLiveOn(p) {
+  const set = {};
+  liveOnProd(p.code).forEach(k => { set[k] = true; });
+  itemsOf(p.code).forEach(i => { if (!GONE.includes(i.status)) liveOn(i).forEach(k => { set[k] = true; }); });
+  return CHANNELS.filter(c => set[c.key]).map(c => c.key);
 }
 
 function statusTag(s, big) {
@@ -1042,10 +1185,12 @@ const CSV_MASTER = [
   ['最低在庫', p => p.kind === 'individual' ? '' : p.min_qty],
   ['保管場所', p => placeOf(p)],
   ['在庫状態', p => stockLabel(p)],
-  ['販売状況', p => channelsOf(p.code).map(c => {
-    const m = CHANNELS.find(x => x.key === c.channel) || { label: c.channel };
-    return `${m.label}:${c.state || '未設定'}`;
-  }).join(' ｜ ')],
+  ['販売状況', p => CHANNELS.map(c => {
+    const x = channelsOf(p.code).find(v => v.channel === c.key);
+    const live = itemsOf(p.code).some(i => !GONE.includes(i.status) && (listingOf(i, c.key) || {}).state === LISTED);
+    const st = live ? LISTED : (x ? (x.state || '未設定') : null);
+    return st ? `${c.label}:${st}` : '';
+  }).filter(Boolean).join(' ｜ ')],
   ['管理番号一覧', p => itemsOf(p.code).map(i => i.id).join(' / ')],
   ['仕入先', p => p.supplier],
   ['単価', p => p.unit_price],
@@ -1104,19 +1249,15 @@ function findLoc(text) {
 
 function pickImport() { $('csvFile').value = ''; $('csvFile').click(); }
 
-/* ---- 仕入CSV取込の入口 ----
-   毎週の作業なので、一覧 → 取込 → 内容確認 → 一括登録 の4手で終わるようにする。
-   ここはファイルを渡すだけの画面。落とすか選ぶかのどちらでもよい。 */
-/* 取込の入口は2つ。どちらもファイルを見て自動で判別するが、
-   何のためのCSVかで説明を変える。
-     purchase … 毎週の自社落札CSV。ここから商品と個体が増えていく（こちらが主）
-     stock    … 既存の在庫一覧CSV。販売状況や保管場所を補う（初期移行・照合用） */
-let importIntent = 'purchase';
-function openImport(intent) {
+/* ---- 商品取込の入口 ----
+   使う人から見れば「商品・在庫を足す」1つの操作なので、入口も1つにする。
+   CSVは列の名前を見て自動で見分けるから、どれを持ってきたのかを選ばせない。
+     自社落札CSV … 毎週の仕入。ここから商品と個体が増えていく（こちらが基準）
+     既存在庫CSV … これまでの在庫表。販売状況や保管場所を補う（初期移行・照合用）
+   CSVに載らないものは、下の「1件だけ登録」から手で入れる。 */
+function openImport() {
   if (!canAdmin()) { toast('取り込みは管理者だけができます'); return; }
-  importIntent = intent === 'stock' ? 'stock' : 'purchase';
-  const buy = importIntent === 'purchase';
-  openModal(buy ? '自社落札CSV取込' : '既存在庫CSV取込', `
+  openModal('商品取込', `
     <div class="drop" id="drop"
          ondragover="dropOver(event,true)" ondragleave="dropOver(event,false)" ondrop="dropFile(event)">
       <span class="ms">upload_file</span>
@@ -1124,15 +1265,25 @@ function openImport(intent) {
       <button class="btn lime" onclick="pickImport()">ファイルを選ぶ</button>
     </div>
     <p class="meta" style="margin-top:12px">
-      ${buy
-        ? `毎週の<strong>自社落札CSV</strong>（<code>出品番号</code>と<code>落札価格</code>の列がある形）を読みます。
-           <strong>ここで登録した商品と個体が、そのまま在庫一覧になります。</strong>
-           管理番号とQRは1台ずつ発行します。`
-        : `<strong>既存の在庫一覧CSV</strong>を読みます。現在庫・保管場所・販売状況などを補うための入口です。
-           <strong>管理番号・S/N・仕入価格・原価といった仕入の情報は書き換えません。</strong>
-           足りない個体を足すだけです。`}<br>
-      ファイルの中身を見て自動で判別するので、どちらの入口からでも読めます。
-      次の画面で確認してから登録します。<strong>すでに登録した個体は二重に入りません。</strong></p>
+      <strong>列の名前を見て、どのCSVかは自動で判別します。</strong>選ぶ必要はありません。
+      次の画面で中身を確認してから登録します。<strong>すでに登録した個体は二重に入りません。</strong></p>
+    <div class="impkinds">
+      <div><span class="ms">shopping_cart</span>
+        <div><b>自社落札CSV</b>（<code>開催日</code>・<code>出品番号</code>・<code>個品ID</code>・<code>落札価格</code>）<br>
+          毎週の仕入。<strong>ここで登録した商品と個体が、そのまま在庫一覧になります。</strong>
+          管理番号とQRは1台ずつ発行します。</div></div>
+      <div><span class="ms">inventory</span>
+        <div><b>既存在庫CSV</b>（<code>商品ID</code>・<code>型番</code>・<code>管理番号一覧</code>・<code>現在庫</code>）<br>
+          これまでの在庫表。出品状態・保管場所などを補います。
+          <strong>管理番号・S/N・仕入価格・原価は書き換えません。</strong></div></div>
+    </div>
+    <div class="imponeline">
+      <div style="flex:1;min-width:180px">
+        <b>1件だけ登録</b>
+        <div class="meta">CSVに載らないものを手で入れます。</div>
+      </div>
+      <button class="btn sm ghost" onclick="closeModal();go('reg')">手で入力する →</button>
+    </div>
     ${db.imports.length ? `<div class="lbl" style="margin:16px 0 6px">前回の取込</div>
       <div class="meta">${esc(fmtDT(db.imports[0].imported_at))}　${esc(db.imports[0].file_name || '')}
         商品 ${db.imports[0].product_count}／個体 ${db.imports[0].item_count}　${esc(db.imports[0].actor || '')}</div>` : ''}
@@ -1155,9 +1306,8 @@ function importHistLine() {
   const last = db.imports[0];
   return `<div class="histline">
     <span class="ms">history</span>
-    <span class="meta">最後の取込　${esc(fmtDT(last.imported_at))}　${esc(last.file_name || '')}
-      商品 ${last.product_count}／個体 ${last.item_count}</span>
-    <button class="btn sm ghost" onclick="openImportHist()">CSV取込履歴</button>
+    <span class="meta">最終取込　${esc(fmtDT(last.imported_at))}　${esc(last.file_name || '')}
+      商品 ${last.product_count}／個体 ${last.item_count}　${esc(last.actor || '')}</span>
   </div>`;
 }
 function openImportHist() {
@@ -1182,8 +1332,10 @@ function showBatch(id, justNow) {
   ui.fBatch = id;
   // 「今回」と言えるのは取り込んだ直後だけ。履歴から過去の回を選んだ時点で終わり
   ui.doneBatch = justNow ? id : null;
-  ui.q = ''; ui.fCat = ''; ui.fMaker = ''; ui.fLoc = ''; ui.fStock = ''; ui.fList = '';
-  ui.sel = {};
+  ui.q = ''; ui.fCat = ''; ui.fMaker = ''; ui.fLoc = ''; ui.fStock = ''; ui.fSt = '';
+  ui.fDiff = false; ui.sel = {};
+  // 取り込んだ直後は、いま入れたものが見えないと意味がない。サイト別のタブからは戻す
+  if (ui.listMode !== 'model') ui.listMode = 'unit';
   go('list');
 }
 function clearBatch() { ui.fBatch = null; render(); }
@@ -1291,18 +1443,54 @@ const cellAny = (idx, row, names) => {
 };
 const numOf = (v) => v === '' ? null : Number(String(v).replace(/[,¥\s]/g, ''));
 
-/* 販売情報。モール別の列（Amazon出品状態 / Amazon URL …）と、
+/* 出品状態のことば。読めない書き方（「なし」「-」など）は状態にしない。
+   「未出品」は行そのものを作らないことで表すので、状態としては持たせない */
+const listState = (s) => {
+  const t = String(s == null ? '' : s).trim();
+  return LIST_STATES_IN.indexOf(t) >= 0 ? t : null;
+};
+
+/* 備考に「楽天コード: R-123」「AmazonSKU B0XXXXXX」のように書かれている販売用コードを、
+   販売サイトの情報として切り出す。元の文は消さず、備考にはそのまま残す */
+const SKU_WORDS = 'SKU|ＳＫＵ|コード|管理番号|商品管理番号|販売コード|販売用コード';
+function skusFromNote(text) {
+  const out = [];
+  const s = String(text == null ? '' : text);
+  if (!s) return out;
+  CHANNELS.forEach(c => {
+    const m = s.match(new RegExp(c.label + '\\s*(?:' + SKU_WORDS + ')\\s*[:：=＝]?\\s*([A-Za-z0-9][\\w.\\-]{2,})'));
+    if (m) out.push({ channel: c.key, sku: m[1] });
+  });
+  return out;
+}
+/* 切り出した販売用コードを、出品情報に足す（すでにSKUが入っていればそのまま） */
+function mergeSkus(chans, text) {
+  skusFromNote(text).forEach(({ channel, sku }) => {
+    const c = chans.find(x => x.channel === channel);
+    if (!c) chans.push({ channel, state: null, sku });
+    else if (!c.sku) c.sku = sku;
+  });
+  return chans;
+}
+
+/* 販売情報。サイト別の列（Amazon出品状態 / Amazon URL / AmazonSKU / Amazon価格 …）と、
    書き出しの「販売状況」（Amazon:出品中 ｜ 楽天:…）のどちらでも読む */
 function readChannels(idx, row) {
   const out = [];
   CHANNELS.forEach(c => {
-    const st = cellAny(idx, row, [c.label + '出品状態', c.label + '状態']);
+    const st = cellAny(idx, row, [c.label + '出品状態', c.label + '状態', c.label + '出品']);
     const url = cellAny(idx, row, [c.label + ' URL', c.label + 'URL']);
-    if (!st && !url) return;
-    const e = { channel: c.key, state: LIST_STATES.includes(st) ? st : null };
+    const sku = cellAny(idx, row, [c.label + 'SKU', c.label + ' SKU', c.label + 'コード', c.label + '商品管理番号']);
+    const pr = numOf(cellAny(idx, row, [c.label + '価格', c.label + '販売価格']));
+    if (!st && !url && !sku && pr == null) return;
+    const e = { channel: c.key, state: listState(st) };
+    if (sku) e.sku = sku;
+    if (pr != null && !isNaN(pr)) e.price = pr;
     if (/^https?:/i.test(url)) e.url = url;
     else if (url) e.note = url;
-    if (st && !e.state) e.note = (e.note ? e.note + ' ／ ' : '') + st;
+    if (st && !e.state && st !== '未出品') e.note = (e.note ? e.note + ' ／ ' : '') + st;
+    // 「未出品」しか書かれていない列は、何も持たせない
+    if (!e.state && !e.sku && !e.url && !e.note && e.price == null) return;
     out.push(e);
   });
   if (out.length) return out;
@@ -1313,7 +1501,8 @@ function readChannels(idx, row) {
     const c = CHANNELS.find(x => x.label === seg.slice(0, i).trim());
     if (!c) return;
     const st = seg.slice(i + 1).trim();
-    out.push({ channel: c.key, state: LIST_STATES.includes(st) ? st : null, note: LIST_STATES.includes(st) ? null : st });
+    if (st === '未出品' || st === '未設定') return;
+    out.push({ channel: c.key, state: listState(st), note: listState(st) ? null : st });
   });
   return out;
 }
@@ -1355,8 +1544,13 @@ function planMaster(H, idx, body, file, encoding, headRow) {
       seenNo[no] = `${line}行目`;
       nos.push(no);
     });
-    // 商品はあっても管理番号が入っていないことがある。足りない個体だけ足す
-    if (exists && !nos.length) { skip.push({ line, key: exists.code, name: titleOf(exists) }); return; }
+    // 商品はあっても管理番号が入っていないことがある。足りない個体だけ足す。
+    // 商品は作らないが、出品状態だけは拾って足す（在庫一覧CSVを補完に使う目的そのもの）
+    if (exists && !nos.length) {
+      skip.push({ line, key: exists.code, name: titleOf(exists), code: exists.code,
+                  channels: mergeSkus(readChannels(idx, row), g('備考')) });
+      return;
+    }
     const unitNote = [sp.note || '', sp.note ? `元の型番表記: ${g('型番')}` : ''].filter(Boolean).join('\n') || null;
 
     const entry = {
@@ -1375,7 +1569,9 @@ function planMaster(H, idx, body, file, encoding, headRow) {
         legacy_note: cellAny(idx, row, ['旧データ備考', '旧データ在庫内訳']) || null
       },
       units: nos.map(id => ({ id, note: unitNote })),
-      channels: exists ? [] : readChannels(idx, row)
+      // 出品状態は、すでにある商品にも足す（入っている値は上書きしない決まりなので安全）。
+      // 備考に紛れている販売用コードも、ここで販売サイトの情報に分ける
+      channels: mergeSkus(readChannels(idx, row), g('備考'))
     };
     if (!twin) seen[dupKey] = entry;
     add.push(entry);
@@ -1409,7 +1605,7 @@ function parseListing(text) {
     const key = LEGACY_CHANNEL[name];
     if (!key) return;
     const rest = seg.slice(i + 1).trim();
-    const first = rest.split(/[/,]/).map(x => x.trim()).find(x => LIST_STATES.includes(x)) || null;
+    const first = rest.split(/[/,]/).map(x => x.trim()).find(x => LIST_STATES_IN.indexOf(x) >= 0) || null;
     out.push({ channel: key, state: first, note: rest });
   });
   return out;
@@ -1469,7 +1665,8 @@ function planLegacy(H, idx, body, file, encoding, headRow) {
     // 商品はあっても管理番号が入っていないことがある（取込が途中で止まった等）。
     // そのときは商品を作らず、足りない個体だけ足す＝再取込がそのまま個体補完になる
     if (exists && !nos.length) {
-      skip.push({ line, key: exists.code, name: titleOf(exists) });
+      skip.push({ line, key: exists.code, name: titleOf(exists), code: exists.code,
+                  channels: mergeSkus(chans, g('備考')) });
       return;
     }
 
@@ -1486,7 +1683,7 @@ function planLegacy(H, idx, body, file, encoding, headRow) {
         location_id: null, qty: 0, min_qty: 0, note: null, legacy_note: legacyNote
       },
       units: nos.map((id, k) => ({ id, status: states[k] || '不明', note: unitNote })),
-      channels: exists ? [] : chans,
+      channels: mergeSkus(chans, g('備考')),
       dropped: dropped.length,
       repair: !!exists
     };
@@ -2105,6 +2302,11 @@ async function applyInventoryImport() {
     }
     (x.channels || []).forEach(c => chans.push(Object.assign({ product_code: m.code }, c)));
   }
+  // 商品は作らずに飛ばした行でも、出品状態だけは足す。
+  // 既存在庫CSVを「補完に使う」のはまさにこの形（商品は自社落札CSVで作られている）
+  (p.skip || []).forEach(s => {
+    (s.channels || []).forEach(c => chans.push(Object.assign({ product_code: s.code }, c)));
+  });
 
   // 手元のキャッシュは読み込み上限（LOAD_LIMIT）で頭打ちになるし、
   // 別の人が入れたものにも気づけない。入れる直前にDBへ問い合わせて、
@@ -2138,9 +2340,15 @@ async function applyInventoryImport() {
   const wasBuy = p.mode === 'purchase';
   const t = purchaseTotals(p.add);
   let batchId = null;
+  let chanAdded = 0;
   try {
     if (units.length) await ins('inventory_items', units, 'id');
-    if (chans.length) await ins('inventory_channels', chans, 'product_code,channel');
+    // 出品情報はDBの関数に任せる。すでに入っている値は上書きせず、空いている欄だけ埋める
+    for (let i = 0; i < chans.length; i += 200) {
+      const { data, error } = await sb.rpc('inv_listings_import', { p_rows: chans.slice(i, i + 200) });
+      if (error) throw new Error('出品情報を入れられませんでした：' + error.message);
+      chanAdded += (data && data.added) || 0;
+    }
     if (txs.length) await ins('inventory_transactions', txs);
     // 履歴は最後に入れる。ここまで通ってはじめて「取り込めた」と言えるため
     const { data, error } = await sb.from('inventory_imports').insert({
@@ -2162,8 +2370,9 @@ async function applyInventoryImport() {
   // 取り込んだら商品管理一覧に戻り、今回の分だけを出す
   if (batchId) showBatch(batchId, true); else { ui.fBatch = null; ui.doneBatch = null; go('list'); }
   const skipped = dupIds.length ? `／すでにあった ${dupIds.length}台は飛ばしました` : '';
+  const listed = chanAdded ? `／出品情報 ${chanAdded}件` : '';
   toast(wasBuy ? `商品 ${touched.length}件・個体 ${units.length}台を登録しました（原価 ${yen(t.cost)}／想定利益 ${t.priced ? yen(t.gain) : '—'}）${skipped}`
-               : `${madeProds}商品・${units.length}台を取り込みました${skipped}`);
+               : `${madeProds}商品・${units.length}台を取り込みました${listed}${skipped}`);
 }
 
 /* ---------------------------------------------------------------- モーダル */
@@ -2224,11 +2433,123 @@ function viewItem() {
       <div class="u">${esc(url)}</div>
     </div>
   </div>
+  ${itemListings(it)}
   ${m && m.spec ? `<div class="sec">スペック</div><div class="pre">${esc(m.spec)}</div>` : ''}
   ${it.note ? `<div class="sec">備考</div><div class="pre">${esc(it.note)}</div>` : ''}
   ${it.legacy_note ? `<div class="sec">旧データ備考</div><div class="pre legacy">${esc(it.legacy_note)}</div>` : ''}
   <div class="sec">この機器の履歴</div>
   ${hist.length ? hist.map(txRow).join('') : '<div class="empty">まだ記録はありません。</div>'}`;
+}
+
+/* ---- その1台の出品 ----
+   在庫一覧には「出しているサイト」だけを出し、細かい中身はここで持つ。
+   1台ぶんの設定が無いサイトは、商品まるごとの出品情報をそのまま当てて見せる
+   （移行前のデータは型番単位でしか無いので、それを個体の画面でも読めるようにする）。 */
+function itemListings(it) {
+  const rows = CHANNELS.map(c => ({ c, x: listingOf(it, c.key) || {} }));
+  const live = rows.filter(r => r.x.state === LISTED);
+  const own = listingsOf(it.id).filter(x => x.state === LISTED);
+  return `<div class="sec">出品先<span class="secn">${
+      live.length ? `出品中 ${live.length}サイト` : '未出品'}</span></div>
+    ${GONE.includes(it.status) && own.length ? `<div class="warnbox">
+      <span class="ms">warning_amber</span>
+      <div style="flex:1;min-width:160px">この1台は<strong>${esc(it.status)}</strong>ですが、
+        ${esc(own.map(x => chanLabel(x.channel)).join('・'))}に出品中のままです。出品停止を確認してください。</div>
+      <button class="btn sm" onclick="stopListings('${esc(it.id)}')" ${dis()}>出品を止める</button>
+    </div>` : ''}
+    <div class="table-wrap"><table class="t">
+      <thead><tr><th>販売サイト</th><th>出品状態</th><th class="r">販売価格</th>
+        <th>SKU・商品管理番号</th><th>商品URL</th>${canEdit() ? '<th></th>' : ''}</tr></thead>
+      <tbody>${rows.map(({ c, x }) => `<tr>
+        <td class="nowrap"><span class="tag ch ${x.state === LISTED ? 'on' : ''}">${esc(c.short)}</span> ${esc(c.label)}</td>
+        <td class="nowrap">${x.state
+            ? `<span class="tag ${x.state === LISTED ? 'ch on' : 'act'}">${esc(x.state)}</span>`
+            : '<span class="meta">未出品</span>'}${
+            x.fromProduct ? '<div class="meta">型番まとめての設定</div>' : ''}</td>
+        <td class="num r">${x.price == null ? '<span class="meta">—</span>' : yen(x.price)}</td>
+        <td class="num">${esc(x.sku || '') || '<span class="meta">—</span>'}</td>
+        <td>${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener" class="meta">開く</a>`
+                    : '<span class="meta">—</span>'}</td>
+        ${canEdit() ? `<td class="nowrap"><button class="btn sm ghost"
+          onclick="sheetListing('${esc(it.id)}','${c.key}')">編集</button></td>` : ''}
+      </tr>`).join('')}</tbody>
+    </table></div>`;
+}
+
+function sheetListing(id, ch) {
+  const it = item(id); if (!it) return;
+  const c = CHANNELS.find(x => x.key === ch) || { label: ch, short: ch };
+  const own = listingsOf(id).find(x => x.channel === ch);
+  const up = channelsOf(it.product_code).find(x => x.channel === ch);
+  const x = own || {};
+  const n = (v) => (v == null || v === '') ? '' : String(v);
+  openSheet({
+    title: c.label + 'の出品', subject: id, cta: '保存',
+    hint: `<strong>この1台ぶん</strong>の出品情報です。「未出品」にすると、この1台の設定は消えます。${
+      !own && up ? `<br>いまは型番まとめての設定（${esc(up.state || '未設定')}）が当たっています。` : ''}`,
+    body: `<label class="field" style="margin-bottom:10px"><span>出品状態</span>
+        <select class="input" id="sheetVal"><option value="">未出品</option>
+        ${LIST_STATES.map(s => `<option${x.state === s ? ' selected' : ''}>${s}</option>`).join('')}</select></label>
+      <label class="field" style="margin-bottom:10px"><span>販売価格</span>
+        <input class="input num" type="number" min="0" step="100" id="lsPrice"
+               value="${esc(n(x.price))}" placeholder="このサイトでの売値"></label>
+      <div class="prow"><span>原価</span><b class="num">${costOf(it) ? yen(costOf(it)) : '—'}</b></div>
+      <div class="prow"><span>自社の販売予定価格</span><b class="num">${
+        planOf(it) == null ? '—' : yen(planOf(it))}</b></div>
+      <label class="field" style="margin:10px 0"><span>SKU・商品管理番号</span>
+        <input class="input" id="lsSku" value="${esc(x.sku || '')}" placeholder="そのサイトでの商品コード"></label>
+      <label class="field" style="margin-bottom:10px"><span>商品URL</span>
+        <input class="input" id="lsUrl" value="${esc(x.url || '')}" placeholder="https://…"></label>
+      <label class="field"><span>メモ（任意）</span>
+        <input class="input" id="lsNote" value="${esc(x.note || '')}"></label>`,
+    run: (state) => saveListing(id, null, ch, state, {
+      price: numField('lsPrice'), sku: ($('lsSku') || {}).value,
+      url: ($('lsUrl') || {}).value, note: ($('lsNote') || {}).value
+    })
+  });
+}
+
+/* 出品情報の保存はDBの関数を通す。状態が変わったときだけ履歴に残る */
+async function saveListing(itemId, code, ch, state, more) {
+  const { data, error } = await sb.rpc('inv_listing_set', {
+    p_item_id: itemId || null, p_code: code || null, p_channel: ch,
+    p_state: state || null, p_sku: (more || {}).sku || null,
+    p_price: (more || {}).price == null ? null : (more || {}).price,
+    p_url: (more || {}).url || null, p_note: (more || {}).note || null
+  });
+  if (error) { toast('保存できませんでした：' + error.message); return; }
+  // 未出品にしたときは行を消している。中身が空の返りは「消えた」とみなす
+  const row = (data && data.id != null) ? data : null;
+  const same = (v) => itemId ? v.item_id === itemId && v.channel === ch
+                             : !v.item_id && v.product_code === code && v.channel === ch;
+  const i = db.channels.findIndex(same);
+  if (!row) { if (i >= 0) db.channels.splice(i, 1); }
+  else if (i >= 0) db.channels[i] = row;
+  else db.channels.push(row);
+  reindexChannels();
+  await refreshTx();
+  render();
+  toast(row ? `${chanLabel(ch)}の出品情報を保存しました` : `${chanLabel(ch)}を未出品にしました`);
+}
+
+/* 売れた・捨てたのに出たままになっている出品を、まとめて出品停止にする */
+async function stopListings(id) {
+  const on = listingsOf(id).filter(x => x.state === LISTED);
+  if (!on.length) return;
+  toast('出品を止めています…');
+  for (const x of on) {
+    const { error } = await sb.rpc('inv_listing_set', {
+      p_item_id: id, p_code: null, p_channel: x.channel, p_state: '出品停止',
+      p_sku: x.sku || null, p_price: x.price == null ? null : x.price,
+      p_url: x.url || null, p_note: x.note || null
+    });
+    if (error) { toast('止められませんでした：' + error.message); return; }
+    x.state = '出品停止';
+  }
+  reindexChannels();
+  await refreshTx();
+  render();
+  toast(`${on.length}サイトを出品停止にしました`);
 }
 
 /* 値段は4つだけ出す。原価・販売予定価格・実際の販売価格・利益。
@@ -2341,7 +2662,7 @@ function viewProd() {
   <div class="tabs2">${TABS.map(([k, ic, lb]) =>
     `<button class="${ui.tab === k ? 'on' : ''}" onclick="setTab('${k}')"><span class="ms">${ic}</span>${lb}${
       k === 'units' && ind ? `<span class="n">${s.total}</span>` : ''}${
-      k === 'sales' ? `<span class="n">${channelsOf(p.code).length}</span>` : ''}</button>`).join('')}</div>
+      k === 'sales' ? `<span class="n">${prodLiveOn(p).length}</span>` : ''}</button>`).join('')}</div>
   <div id="tabBody">${body(p)}</div>`;
 }
 
@@ -2457,58 +2778,70 @@ function unitMenu(id) {
     </div>`, [['閉じる', 'closeModal()', 'btn ghost']]);
 }
 
-/* --- 販売情報 --- */
+/* --- 販売情報 ---
+   出品は実物1台ごとに持つ。ここではサイトごとの数と、1台ずつの出品先を見る。
+   「型番まとめての設定」は、1台ぶんの設定が無い個体すべてに当たる控えの設定。
+   移行前のデータは型番単位でしか無いので、その受け皿でもある。 */
 function tabSales(p) {
-  const list = channelsOf(p.code);
+  const ind = p.kind === 'individual';
+  const units = ind ? itemsOf(p.code).filter(i => !GONE.includes(i.status)) : [];
   return `${guardNote()}
-    <p class="meta" style="margin-bottom:12px">モールごとの出品情報です。在庫一覧には出さず、ここでまとめて見ます。</p>
+    <p class="meta" style="margin-bottom:12px">${ind
+      ? '出品は<strong>実物1台ごと</strong>に持ちます。1台ずつの中身は、下の管理番号をクリックしてください。'
+      : '数量管理の品目なので、出品情報は品目まるごとで持ちます。'}</p>
     <div class="table-wrap"><table class="t">
-      <thead><tr><th>販売チャネル</th><th>SKU</th><th>商品URL</th><th>出品状態</th><th>メモ</th><th></th></tr></thead>
+      <thead><tr><th>販売サイト</th>${ind ? '<th class="r">出品中</th>' : ''}
+        <th>型番まとめての設定</th><th>SKU</th><th class="r">販売価格</th><th>商品URL</th>
+        ${canEdit() ? '<th></th>' : ''}</tr></thead>
       <tbody>${CHANNELS.map(c => {
-        const x = list.find(v => v.channel === c.key) || {};
+        const x = channelsOf(p.code).find(v => v.channel === c.key) || {};
+        const n = units.filter(i => (listingOf(i, c.key) || {}).state === LISTED).length;
         return `<tr>
-          <td class="nowrap"><span class="tag ch ${x.state === '出品中' ? 'on' : ''}">${esc(c.short)}</span> ${esc(c.label)}</td>
-          <td class="nowrap">${esc(x.sku || '—')}</td>
+          <td class="nowrap"><span class="tag ch ${n || x.state === LISTED ? 'on' : ''}">${esc(c.short)}</span> ${esc(c.label)}</td>
+          ${ind ? `<td class="num r${n ? '' : ' meta'}">${n || '—'}</td>` : ''}
+          <td class="nowrap">${x.state ? `<span class="tag ${x.state === LISTED ? 'ch on' : 'act'}">${esc(x.state)}</span>` : '<span class="meta">—</span>'}</td>
+          <td class="num">${esc(x.sku || '') || '<span class="meta">—</span>'}</td>
+          <td class="num r">${x.price == null ? '<span class="meta">—</span>' : yen(x.price)}</td>
           <td>${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener" class="meta" style="word-break:break-all">開く</a>` : '<span class="meta">—</span>'}</td>
-          <td class="nowrap">${x.state ? `<span class="tag ${x.state === '出品中' ? 'ch on' : 'act'}">${esc(x.state)}</span>` : '<span class="meta">—</span>'}</td>
-          <td class="meta" style="max-width:260px">${esc((x.note || '').slice(0, 80))}</td>
-          <td class="nowrap"><button class="btn sm ghost" onclick="sheetChannel('${esc(p.code)}','${c.key}')" ${dis()}>編集</button></td>
+          ${canEdit() ? `<td class="nowrap"><button class="btn sm ghost" onclick="sheetChannel('${esc(p.code)}','${c.key}')">編集</button></td>` : ''}
         </tr>`;
-      }).join('')}</tbody></table></div>`;
+      }).join('')}</tbody></table></div>
+    ${ind ? (units.length ? `<div class="sec">1台ずつの出品先</div>
+      <div class="table-wrap"><table class="t">
+        <thead><tr><th>管理番号</th><th>状態</th><th>出品先</th><th></th></tr></thead>
+        <tbody>${units.map(i => `<tr class="clk" onclick="go('item','${esc(i.id)}')">
+          <td class="num" style="font-weight:600">${esc(i.id)}</td>
+          <td>${statusTag(i.status)}</td>
+          <td class="mall">${listingChips(liveOn(i))}</td>
+          <td class="nowrap"><button class="btn sm ghost"
+            onclick="event.stopPropagation();go('item','${esc(i.id)}')">開く</button></td>
+        </tr>`).join('')}</tbody></table></div>`
+      : '<div class="empty" style="margin-top:14px">個体がまだ登録されていません。</div>') : ''}`;
 }
 
+/* 型番まとめての出品設定。1台ぶんの設定が無い個体に当たる */
 function sheetChannel(code, ch) {
   const c = CHANNELS.find(x => x.key === ch) || { label: ch };
-  const x = db.channels.find(v => v.product_code === code && v.channel === ch) || {};
+  const x = channelsOf(code).find(v => v.channel === ch) || {};
+  const n = (v) => (v == null || v === '') ? '' : String(v);
   openSheet({
-    title: c.label, subject: code, cta: '保存',
-    hint: 'このモールでの出品情報を入れます。空にすると「未設定」になります。',
-    body: `<label class="field" style="margin-bottom:10px"><span>SKU</span>
-        <input class="input" id="chSku" value="${esc(x.sku || '')}" placeholder="モールでの商品コード"></label>
-      <label class="field" style="margin-bottom:10px"><span>商品URL</span>
-        <input class="input" id="chUrl" value="${esc(x.url || '')}" placeholder="https://…"></label>
-      <label class="field" style="margin-bottom:10px"><span>出品状態</span>
-        <select class="input" id="sheetVal"><option value="">未設定</option>
+    title: c.label + '（型番まとめて）', subject: code, cta: '保存',
+    hint: 'この型番に共通の出品情報です。<strong>1台ぶんの設定があるものは、そちらが優先されます。</strong>空にすると未出品になります。',
+    body: `<label class="field" style="margin-bottom:10px"><span>出品状態</span>
+        <select class="input" id="sheetVal"><option value="">未出品</option>
         ${LIST_STATES.map(s => `<option${x.state === s ? ' selected' : ''}>${s}</option>`).join('')}</select></label>
+      <label class="field" style="margin-bottom:10px"><span>販売価格</span>
+        <input class="input num" type="number" min="0" step="100" id="lsPrice" value="${esc(n(x.price))}"></label>
+      <label class="field" style="margin-bottom:10px"><span>SKU・商品管理番号</span>
+        <input class="input" id="lsSku" value="${esc(x.sku || '')}" placeholder="そのサイトでの商品コード"></label>
+      <label class="field" style="margin-bottom:10px"><span>商品URL</span>
+        <input class="input" id="lsUrl" value="${esc(x.url || '')}" placeholder="https://…"></label>
       <label class="field"><span>メモ</span>
-        <input class="input" id="chNote" value="${esc(x.note || '')}"></label>`,
-    run: async (state) => {
-      const row = {
-        product_code: code, channel: ch,
-        sku: ($('chSku') || {}).value || null,
-        url: ($('chUrl') || {}).value || null,
-        state: state || null,
-        note: ($('chNote') || {}).value || null
-      };
-      const { data, error } = await sb.from('inventory_channels')
-        .upsert(row, { onConflict: 'product_code,channel' }).select();
-      if (error) { toast('保存できませんでした：' + error.message); return; }
-      const got = (data && data[0]) || row;
-      const i = db.channels.findIndex(v => v.product_code === code && v.channel === ch);
-      if (i >= 0) db.channels[i] = got; else db.channels.push(got);
-      render();
-      toast(c.label + 'の販売情報を保存しました');
-    }
+        <input class="input" id="lsNote" value="${esc(x.note || '')}"></label>`,
+    run: (state) => saveListing(null, code, ch, state, {
+      price: numField('lsPrice'), sku: ($('lsSku') || {}).value,
+      url: ($('lsUrl') || {}).value, note: ($('lsNote') || {}).value
+    })
   });
 }
 
@@ -2569,17 +2902,20 @@ function sheetSellQty(code) {
       const n = Math.max(1, Math.min(avail.length, parseInt(numField('sqQty') || 1, 10)));
       const v = String(price || '').trim();
       let ok = 0;
+      const sold = [];
       for (const it of avail.slice(0, n)) {
         const { data, error } = await sb.rpc('inv_item_op',
           { p_item_id: it.id, p_action: '売却', p_value: v || null, p_note: '一覧から売却' });
         if (error) { toast(error.message || '記録できませんでした'); break; }
         const i = db.items.findIndex(x => x.id === it.id);
         if (i >= 0 && data) db.items[i] = data;
+        sold.push(it.id);
         ok++;
       }
       await refreshTx();
       render();
       toast(`${ok}台を売却しました（残り ${avail.length - ok}台）`);
+      warnStillListed(sold, '売却済');
     }
   });
   paintSellQty(code);
@@ -3383,6 +3719,31 @@ async function itemOp(id, action, value, note) {
   await refreshTx();
   render();
   toast(action + 'を記録しました');
+  if (GONE.includes((data || {}).status)) warnStillListed([id], data.status);
+}
+
+/* 手元から出た1台が、まだどこかに出品中のまま残っていたら知らせる。
+   自社在庫が正なので、販売サイト側を止めてもらう */
+function warnStillListed(ids, action) {
+  const live = ids.filter(id => listingsOf(id).some(x => x.state === LISTED));
+  if (!live.length) return;
+  const rows = live.map(id => {
+    const on = listingsOf(id).filter(x => x.state === LISTED).map(x => chanLabel(x.channel));
+    return `<div class="p"><span class="c">${esc(id)}</span>
+      <span class="meta">${esc(on.join('・'))}に出品中</span></div>`;
+  }).join('');
+  openModal('出品したままです', `
+    <div class="card" style="background:#FFF4E5;margin-bottom:14px">
+      ${live.length}台が<strong>${esc(action || '在庫から外れた状態')}</strong>ですが、
+      販売サイトではまだ<strong>出品中</strong>のままです。<br>
+      <span class="meta">在庫の数は自社のデータが正です。販売サイト側の出品停止を確認してください。</span>
+    </div>
+    <div class="plist">${rows}</div>`,
+    [['あとで', 'closeModal()', 'btn ghost'],
+     ['出品を止めたことにする', `closeModal();stopListingsAll(${JSON.stringify(live).replace(/"/g, '&quot;')})`, 'btn lime']]);
+}
+async function stopListingsAll(ids) {
+  for (const id of ids) await stopListings(id);
 }
 async function productMove(code, delta) {
   const { data, error } = await sb.rpc('inv_product_move', { p_code: code, p_delta: delta, p_note: null });

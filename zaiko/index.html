@@ -244,6 +244,43 @@ table.t tr.clk:hover td{background:var(--n100)}
 .tag.stk-none{background:var(--n300);color:var(--n800)}
 .tag.ch{background:var(--n200);color:var(--n700);font-weight:700;font-size:11px;padding:2px 7px}
 .tag.ch.on{background:var(--ink);color:#fff}
+/* 出品先。サイト名は長いので、一覧では小さなバッジだけを並べる */
+.malls{display:inline-flex;gap:3px;flex-wrap:wrap}
+table.t td.mall{white-space:nowrap}
+
+/* ---- 在庫一覧の上のタブ（個体別・型番別・販売サイト別） ---- */
+.chtabs{display:flex;gap:3px;align-items:center;border-bottom:1px solid var(--line);
+  margin:12px 0 12px;overflow-x:auto;padding-bottom:1px}
+.chtabs button{border:none;background:transparent;padding:10px 13px;font-size:13.5px;font-weight:500;
+  color:var(--n600);cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;
+  display:inline-flex;align-items:center;gap:6px;min-height:42px}
+.chtabs button .n{font-size:11px;background:var(--n200);color:var(--n700);padding:1px 7px;border-radius:10px}
+.chtabs button:hover{color:var(--ink)}
+.chtabs button.on{color:var(--ink);border-bottom-color:var(--ink);font-weight:700;background:var(--l100)}
+.chtabs button.on .n{background:var(--ink);color:#fff}
+.chtabs .sep{flex:0 0 auto;width:1px;height:20px;background:var(--line);margin:0 6px}
+
+/* ---- 在庫差異（手元に無いのに出品中のまま） ---- */
+.diffbar{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin:0 0 12px;
+  background:#FFF4E5;border:1px solid #E8A33D;border-radius:var(--r2);padding:11px 14px}
+.diffbar .ms{font-size:20px;color:#B26A00}
+.diffbar .bt{font-weight:700}
+.diffbar.on{background:var(--n100);border-color:var(--line)}
+.diffbar.on .ms{color:var(--n600)}
+table.t tr.warn td:first-child{box-shadow:inset 3px 0 0 #E8A33D}
+.warnbox{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin:0 0 12px;
+  background:#FFF4E5;border:1px solid #E8A33D;border-radius:var(--r2);padding:11px 14px;font-size:13.5px}
+.warnbox .ms{font-size:20px;color:#B26A00}
+.sec .secn{font-size:12.5px;font-weight:500;color:var(--n600);margin-left:12px;letter-spacing:0}
+
+/* ---- 商品取込（入口は1つ。どのCSVかは中身で見分ける） ---- */
+.impkinds{display:grid;gap:8px;margin-top:14px}
+.impkinds > div{display:flex;gap:10px;align-items:flex-start;background:var(--n100);
+  border-radius:var(--r2);padding:11px 13px;font-size:12.5px;color:var(--n700);line-height:1.7}
+.impkinds .ms{font-size:20px;color:var(--n600);flex:0 0 auto}
+.impkinds b{color:var(--ink);font-size:13.5px}
+.imponeline{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin-top:14px;
+  border-top:1px solid var(--rule);padding-top:14px}
 
 /* ---- 個体一覧 ---- */
 .units{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:10px}
@@ -385,7 +422,6 @@ table.t.buy td .meta{font-size:11.5px;margin-top:2px}
 @media(max-width:560px){.regmain .rmbtn{width:100%}}
 .histline{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:0 0 10px}
 .histline .ms{font-size:17px;color:var(--n500)}
-.histline .btn{margin-left:auto}
 .batchbar{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin:0 0 12px;
   background:var(--l100);border:1px solid var(--l500);border-radius:var(--r2);padding:11px 14px}
 .batchbar .ms{font-size:20px}
