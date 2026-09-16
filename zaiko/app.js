@@ -904,7 +904,8 @@ function unitsBodyHtml() {
         <td><span class="tag act">数量 ${m.qty}</span></td>
         ${canEdit() ? `<td class="nowrap ops2" onclick="event.stopPropagation()">
           <button class="btn sm" onclick="sheetIn('${esc(m.code)}')">入庫</button>
-          <button class="btn sm" onclick="sheetOut('${esc(m.code)}')" ${m.qty > 0 ? '' : 'disabled'}>出庫</button></td>` : ''}
+          <button class="btn sm" onclick="sheetOut('${esc(m.code)}')" ${m.qty > 0 ? '' : 'disabled'}>出庫</button>
+          <button class="btn sm ghost" onclick="sheetCount('${esc(m.code)}')">数を直す</button></td>` : ''}
       </tr>`;
       const cost = costOf(i), plan = planOf(i);
       return `<tr class="clk" onclick="go('item','${esc(i.id)}')">
@@ -960,9 +961,12 @@ function listBodyHtml() {
         ${canEdit() ? `<td class="nowrap ops2" onclick="event.stopPropagation()">${
           p.kind === 'individual'
             ? `<button class="btn sm" onclick="sheetSellQty('${esc(p.code)}')" ${s.inStock ? '' : 'disabled'}
-                 title="売れたぶんを在庫から引きます">売れた</button>`
+                 title="売れたぶんを在庫から引きます">売れた</button>
+               <button class="btn sm ghost" onclick="sheetStockSet('${esc(p.code)}')"
+                 title="数えた実数を入れると、個体をその数にそろえます">数を直す</button>`
             : `<button class="btn sm" onclick="sheetIn('${esc(p.code)}')">入庫</button>
-               <button class="btn sm" onclick="sheetOut('${esc(p.code)}')" ${p.qty > 0 ? '' : 'disabled'}>出庫</button>`
+               <button class="btn sm" onclick="sheetOut('${esc(p.code)}')" ${p.qty > 0 ? '' : 'disabled'}>出庫</button>
+               <button class="btn sm ghost" onclick="sheetCount('${esc(p.code)}')">数を直す</button>`
         }</td>` : ''}
       </tr>`;
     }).join('')}</tbody></table></div>`;
@@ -2339,11 +2343,17 @@ function tabInfo(p) {
     ${p.legacy_note ? `<div class="sec">旧データ備考</div>
       <div class="pre legacy">${esc(p.legacy_note)}</div>
       <p class="meta">移行前のデータです。消さずに残しています。</p>` : ''}
-    ${!ind ? `${guardNote()}<div class="ops" style="max-width:520px;margin-top:18px">
-      <button class="btn pri" onclick="sheetIn('${esc(p.code)}')" ${dis()}><span class="ms">login</span><span class="t">入庫</span></button>
-      <button class="btn" onclick="sheetOut('${esc(p.code)}')" ${dis()}><span class="ms">logout</span><span class="t">出庫</span></button>
-      <button class="btn" onclick="sheetCount('${esc(p.code)}')" ${dis()}><span class="ms">fact_check</span><span class="t">棚卸</span></button>
-    </div>` : ''}`;
+    ${guardNote()}<div class="ops" style="max-width:520px;margin-top:18px">
+      ${!ind ? `
+        <button class="btn pri" onclick="sheetIn('${esc(p.code)}')" ${dis()}><span class="ms">login</span><span class="t">入庫</span></button>
+        <button class="btn" onclick="sheetOut('${esc(p.code)}')" ${dis()}><span class="ms">logout</span><span class="t">出庫</span></button>
+        <button class="btn" onclick="sheetCount('${esc(p.code)}')" ${dis()}><span class="ms">fact_check</span><span class="t">棚卸</span></button>`
+      : `
+        <button class="btn pri" onclick="sheetStockSet('${esc(p.code)}')" ${dis()}>
+          <span class="ms">edit</span><span class="t">在庫数を直す</span></button>
+        <button class="btn" onclick="sheetSellQty('${esc(p.code)}')" ${dis()}>
+          <span class="ms">paid</span><span class="t">売れた</span></button>`}
+    </div>`;
 }
 
 /* 商品ぜんぶの値段。まだ売っていないものは販売予定価格で見込む。廃棄は数えない */
@@ -3219,6 +3229,110 @@ function qtySheet(code, action, useDraft, after) {
     }
   });
 }
+/* 在庫数を直接入れる（個体管理）。
+   個体管理は数そのものを持たず、各個体の状態から数えている。
+   なので「18台」と入れられたら、個体をその数にそろえる。
+       減らす → 在庫・出品中のものから、選んだ状態（既定は不明）にする
+       増やす → 管理番号を採番して足す
+   何が起きるかは確定前に全部見せる。数だけ静かに変わる、という形にはしない。 */
+function sheetStockSet(code) {
+  const p = prod(code); if (!p) return;
+  if (p.kind !== 'individual') { sheetCount(code); return; }
+  const now = stockOf(p).inStock;
+  openSheet({
+    title: '在庫数を直す', subject: code, cta: 'この数にする',
+    hint: `${esc(titleOf(p))}　いまの現在庫 <strong>${now}台</strong>。
+      個体管理は各個体の状態から数えているので、入れた数に<strong>個体をそろえます</strong>。`,
+    body: `<label class="field" style="margin-bottom:10px"><span>実際の在庫数</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button type="button" class="btn" style="min-width:52px" onclick="bumpStock('${esc(code)}',-1)">−</button>
+          <input class="input num" type="number" min="0" max="999" id="sheetVal" value="${now}"
+                 oninput="paintStockSet('${esc(code)}')" style="text-align:center">
+          <button type="button" class="btn" style="min-width:52px" onclick="bumpStock('${esc(code)}',1)">＋</button>
+        </div></label>
+      <label class="field" id="ssWhyBox" hidden><span>減らすぶんの状態</span>
+        <select class="input" id="ssWhy" onchange="paintStockSet('${esc(code)}')">
+          <option value="不明">不明（棚卸で見つからない）</option>
+          <option value="紛失">紛失</option>
+          <option value="社内使用">社内使用にする</option>
+          <option value="廃棄">廃棄</option>
+        </select></label>
+      <div class="prow"><span>差</span><b class="num" id="ssDiff">±0</b></div>
+      <div class="pre" id="ssPlan" style="margin-top:10px">変わりません。</div>`,
+    run: async (v) => {
+      const want = parseInt(String(v || '').trim(), 10);
+      if (isNaN(want) || want < 0) { toast('実際の在庫数を入れてください'); return; }
+      const avail = itemsOf(code).filter(i => IN_STOCK.includes(i.status));
+      const diff = want - avail.length;
+      if (!diff) { toast('変わりませんでした'); return; }
+
+      if (diff < 0) {
+        const why = (($('ssWhy') || {}).value) || '不明';
+        let ok = 0;
+        for (const it of avail.slice(0, -diff)) {
+          const { data, error } = await sb.rpc('inv_item_op',
+            { p_item_id: it.id, p_action: why === '廃棄' ? '廃棄' : (why === '社内使用' ? '社内使用' : '状態変更'),
+              p_value: why === '廃棄' || why === '社内使用' ? null : why, p_note: '在庫数を直す' });
+          if (error) { toast(error.message || '記録できませんでした'); break; }
+          const k = db.items.findIndex(x => x.id === it.id);
+          if (k >= 0 && data) db.items[k] = data;
+          ok++;
+        }
+        await refreshTx(); render();
+        toast(`${ok}台を${why}にしました（現在庫 ${stockOf(prod(code)).inStock}）`);
+        return;
+      }
+
+      if (!canAdmin()) { toast('個体を増やせるのは管理者だけです'); return; }
+      const made = [];
+      for (let k = 0; k < diff; k++) {
+        const pre = idPrefixOf(p.model) || (cat(p.category_id) || {}).code_prefix || 'IT';
+        const { data: id, error } = await sb.rpc('inv_next_id', { p_prefix: pre, p_digits: 5 });
+        if (error) { toast('管理番号を採番できませんでした：' + error.message); break; }
+        const row = { id, product_code: code, name: p.name, category_id: p.category_id,
+                      maker: p.maker, model: p.model, location_id: p.location_id, status: '在庫' };
+        const { error: e2 } = await sb.from('inventory_items').insert(row);
+        if (e2) { toast('足せませんでした：' + e2.message); break; }
+        db.items.push(row);
+        made.push(id);
+        await sb.from('inventory_transactions').insert({
+          actor: me.name, ref_kind: 'item', ref_id: id, label: p.name, action: '登録',
+          before_value: '—', after_value: `在庫（${locPath(p.location_id)}）／在庫数を直す` });
+      }
+      await refreshTx(); render();
+      toast(made.length ? `${made.length}台を足しました（${made.join('、')}）` : '足せませんでした');
+    }
+  });
+  paintStockSet(code);
+}
+function bumpStock(code, d) {
+  const el = $('sheetVal'); if (!el) return;
+  el.value = Math.max(0, (parseInt(el.value, 10) || 0) + d);
+  paintStockSet(code);
+}
+function paintStockSet(code) {
+  const p = prod(code); if (!p) return;
+  const avail = itemsOf(code).filter(i => IN_STOCK.includes(i.status));
+  const want = parseInt((($('sheetVal') || {}).value || '').trim(), 10);
+  const diff = isNaN(want) ? 0 : want - avail.length;
+  const why = (($('ssWhy') || {}).value) || '不明';
+  const d = $('ssDiff');
+  if (d) { d.textContent = diff > 0 ? `＋${diff}台` : diff < 0 ? `−${-diff}台` : '±0'; d.classList.toggle('minus', diff < 0); }
+  const box = $('ssWhyBox'); if (box) box.hidden = diff >= 0;
+  const el = $('ssPlan'); if (!el) return;
+  if (isNaN(want)) { el.textContent = '実際の在庫数を入れてください。'; return; }
+  if (!diff) { el.textContent = '変わりません。'; return; }
+  if (diff < 0) {
+    const picked = avail.slice(0, -diff).map(i => i.id);
+    el.textContent = `次の ${picked.length}台を「${why}」にします。\n${picked.join('、')}`;
+  } else {
+    const pre = idPrefixOf(p.model) || (cat(p.category_id) || {}).code_prefix || 'IT';
+    el.textContent = canAdmin()
+      ? `管理番号を ${diff}個 発行して足します（${pre}-… の続き番号）。\n置き場所は ${locPath(p.location_id) || '未設定'} です。`
+      : '個体を増やせるのは管理者だけです。';
+  }
+}
+
 function sheetCount(code) {
   const p = prod(code); if (!p) return;
   openSheet({
