@@ -278,6 +278,28 @@ function normModel(s) {
     .replace(/\s+/g, '')
     .toUpperCase();
 }
+
+/* S/N（シリアル番号）も同じ要領でそろえる。突き合わせにだけ使い、
+   個体に保存する値そのものは書き換えない（元の表記のまま残す）。 */
+function normSn(s) {
+  return String(s == null ? '' : s)
+    .normalize('NFKC')
+    .replace(/[‐‑‒–—―−]/g, '-')
+    .replace(/\s+/g, '')
+    .toUpperCase();
+}
+/* 「未記入の代わり」に入っているだけの値は、同じ実物を指す証拠にしない。
+   これで一致させると、無関係な2台が「同じS/N」として片方だけ登録される事故になる。 */
+const SN_DUMMY = new Set([
+  '不明', 'フメイ', 'N/A', 'NA', 'NONE', '-', 'ナシ', 'なし', '無', '無し',
+  '未確認', '未定', '未記入', 'UNKNOWN', 'NULL', 'ナシ・不明'
+]);
+function isDummySn(normed) {
+  if (!normed) return true;                       // 空欄
+  if (SN_DUMMY.has(normed)) return true;
+  if (normed.length > 1 && /^(.)\1+$/.test(normed)) return true;   // "0000000000" "----------" など
+  return false;
+}
 /* 型番の欄に状態や不具合まで書かれていることがある。
    （例「CF-QV9TFLVS ちゃんと閉められない」→ 型番と、状態の説明に分ける）
    日本語が始まるところで切る。英数字だけの続き（Western Digital など）は型番の一部として残す。 */
@@ -1843,9 +1865,10 @@ function planPurchase(H, idx, body, file, encoding, headRow) {
     String(i.source_id || '').split('/').forEach(v => {
       const t = v.trim(); if (t) seenNo[t] = 'すでに在庫にあります';
     });
-    // 照合は 管理番号・個品ID → S/N → 型番 の順。S/Nは実物1台を指す
-    const sn = String(i.serial || '').trim().toUpperCase();
-    if (sn) seenSn[sn] = i.id;
+    // 照合は 管理番号・個品ID → S/N → 型番 の順。S/Nは実物1台を指す。
+    // 「不明」「-」「N/A」のような未記入の代わりの値は、一致判定に使わない
+    const sn = normSn(i.serial);
+    if (!isDummySn(sn)) seenSn[sn] = i.id;
   });
 
   // 出品番号ごとにまとめる。
@@ -1891,16 +1914,19 @@ function planPurchase(H, idx, body, file, encoding, headRow) {
         dups.push({ id, why: seenNo[id], line: k.line });
         already++; return;
       }
-      // 個品IDが新しくても、S/Nが一致すれば同じ実物。二重に登録しない
-      const sn = cell(idx, k.row, 'Ｓ／Ｎ').trim().toUpperCase();
-      if (sn && seenSn[sn]) {
+      // 個品IDが新しくても、S/Nが一致すれば同じ実物。二重に登録しない。
+      // ただし「不明」「-」「N/A」のような未記入の代わりの値は判定に使わない
+      // （無関係などうしを同じS/Nとして片方だけ登録してしまう事故になるため）
+      const sn = normSn(cell(idx, k.row, 'Ｓ／Ｎ'));
+      const snUsable = !isDummySn(sn);
+      if (snUsable && seenSn[sn]) {
         const why = `S/N ${sn} が ${seenSn[sn]} と同じです`;
         dropped.push(`${id}（${why}）`);
         dups.push({ id, why, line: k.line });
         already++; return;
       }
       seenNo[id] = `${k.line}行目にすでにあります`;
-      if (sn) seenSn[sn] = `${k.line}行目`;
+      if (snUsable) seenSn[sn] = `${k.line}行目`;
       kids.push({ id, row: k.row });
     });
     // 同じCSVをもう一度入れたとき。「取り込めない」ではなく「すでにある」として出す
@@ -1915,9 +1941,12 @@ function planPurchase(H, idx, body, file, encoding, headRow) {
     // 在庫数の基準は個品IDの数ではなく「総数」。
     // セット出品は個品IDが1つでも現物は9個ある、という形で来るため。
     // 総数0は「在庫なし」。商品は作るが個体は作らない（1台に化かさない）。
-    // 総数の欄そのものが無いときだけ、個品IDの数で代用する
+    // 総数の欄そのものが無いときだけ、個品IDの数で代用する。
+    // ロットの中の一部だけ重複（個品IDやS/Nがすでに登録済み）だったときは、
+    // その分だけ総数から差し引く。既存の1台を二重に数えないため
+    // （全部が重複のときは already && !kids.length で早く抜けるので、ここには来ない）
     const tt = numOf(P('総数'));
-    const csvQty = tt == null || isNaN(tt) ? (kids.length || 1) : Math.max(0, tt);
+    const csvQty = tt == null || isNaN(tt) ? (kids.length || 1) : Math.max(0, tt - already);
     const qty = planQty[key] != null ? planQty[key] : csvQty;
     const plan = planPrice[key] != null ? planPrice[key] : suggestPlan(cost / qty);
 
