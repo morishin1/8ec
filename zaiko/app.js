@@ -1538,6 +1538,7 @@ const ymd8 = (v) => /^\d{8}$/.test(v) ? `${v.slice(0, 4)}-${v.slice(4, 6)}-${v.s
 
 /* 合計を変えずに n 等分する。端数は先頭に寄せる */
 function splitEven(total, n) {
+  if (!n) return [];
   const base = Math.floor(total / n);
   const out = new Array(n).fill(base);
   out[0] += total - base * n;
@@ -1551,15 +1552,16 @@ function splitEven(total, n) {
    端数は先頭の1台に寄せて、合計が仕入額とずれないようにする。 */
 function buildUnits(x) {
   const qty = x.lot.qty, s = x.src;
-  const same = qty === s.kids.length;
+  const withId = s.kids.filter(k => k.id);
+  const same = qty === withId.length && withId.length === s.kids.length;
   const buy = splitEven(x.lot.buy, qty), fee = splitEven(x.lot.fee, qty);
-  const src = s.kids.map(k => k.id).join(' / ');
+  const src = withId.map(k => k.id).join(' / ') || null;
   const out = [];
   for (let i = 0; i < qty; i++) {
     const k = same ? s.kids[i] : s.kids[0];
     out.push({
       id: same ? k.id : null,              // null なら取り込むときに採番する
-      source_id: same ? null : src,
+      source_id: same ? null : src,        // 個品IDが無いCSVでは null（残すものが無い）
       idPrefix: x.idPrefix,
       status: '在庫',
       // シリアル番号は1台を指すものなので、数が合わないときは付けない（同じ番号が並ぶのを防ぐ）
@@ -1573,7 +1575,7 @@ function buildUnits(x) {
   }
   return out;
 }
-const costPer = (x) => x.lot.qty ? x.lot.cost / x.lot.qty : 0;
+const costPer = (x) => x.lot.qty ? x.lot.cost / x.lot.qty : 0;   // 0台なら0
 const gainPer = (x) => x.plan == null ? null : x.plan - costPer(x);
 const gainLot = (x) => x.plan == null ? null : x.plan * x.lot.qty - x.lot.cost;
 
@@ -1591,7 +1593,11 @@ function planPurchase(H, idx, body, file, encoding, headRow) {
     if (sn) seenSn[sn] = i.id;
   });
 
-  // 出品番号ごとにまとめる。親（落札価格のある行）と子（個品IDのある行）に分ける
+  // 出品番号ごとにまとめる。
+  //   親  … 総数・構成・落札価格を持つ行
+  //   子  … 個品IDや仕様を持つ行
+  // 落札価格も個品IDも入っていないCSVがある（在庫側から出した、列だけ同じ形のもの）。
+  // 型番と総数さえあれば登録できるので、価格と個品IDは「あれば使う」扱いにする。
   const lots = [], byLot = {};
   body.forEach((row, n) => {
     const line = headRow + 2 + n;
@@ -1599,29 +1605,32 @@ function planPurchase(H, idx, body, file, encoding, headRow) {
     const no = g('出品番号');
     if (!no) return;
     let lot = byLot[no];
-    if (!lot) { lot = byLot[no] = { no, line, parent: null, kids: [] }; lots.push(lot); }
-    if (g('落札価格') && !lot.parent) lot.parent = { line, row };
+    if (!lot) { lot = byLot[no] = { no, line, parent: null, detail: null, kids: [], rows: [] }; lots.push(lot); }
+    lot.rows.push({ line, row });
+    if (!lot.parent && (g('総数') || g('構成') || g('落札価格'))) lot.parent = { line, row };
+    else if (!lot.detail) lot.detail = { line, row };
     if (g('個品ID') || g('個品ID(バーコード)')) lot.kids.push({ line, row });
   });
 
   lots.forEach(lot => {
     const key = lot.no;
-    const line = lot.parent ? lot.parent.line : lot.line;
-    const P = lot.parent ? (h => cell(idx, lot.parent.row, h)) : (() => '');
+    if (!lot.parent) lot.parent = lot.rows[0];
+    if (!lot.detail) lot.detail = lot.kids[0] || lot.parent;
+    const line = lot.parent.line;
+    const P = h => cell(idx, lot.parent.row, h);
+    const D = h => cell(idx, lot.detail.row, h);
 
-    if (!lot.parent) { bad.push({ line, key, reason: 'no-price', why: `出品番号 ${key} に落札価格の行がありません` }); return; }
-    if (!lot.kids.length) { bad.push({ line, key, reason: 'no-unit', why: `出品番号 ${key} に個品IDの行がありません` }); return; }
     if (seenLot[key]) { bad.push({ line, key, reason: 'dup', why: `${seenLot[key]}行目と出品番号が重複しています` }); return; }
     seenLot[key] = line;
 
-    const model = P('型番') || lot.kids.map(k => cell(idx, k.row, '型番')).find(Boolean) || '';
+    const model = P('型番') || D('型番') || lot.rows.map(r => cell(idx, r.row, '型番')).find(Boolean) || '';
     if (!model) { bad.push({ line, key, reason: 'no-model', why: '型番が空です' }); return; }
 
     const kids = [], dropped = [];
     let already = 0;
     lot.kids.forEach(k => {
       const id = cell(idx, k.row, '個品ID(バーコード)') || cell(idx, k.row, '個品ID');
-      if (!id) { dropped.push(`${k.line}行目（個品IDが空）`); return; }
+      if (!id) return;
       if (seenNo[id]) { dropped.push(`${id}（${seenNo[id]}）`); already++; return; }
       // 個品IDが新しくても、S/Nが一致すれば同じ実物。二重に登録しない
       const sn = cell(idx, k.row, 'Ｓ／Ｎ').trim().toUpperCase();
@@ -1630,13 +1639,10 @@ function planPurchase(H, idx, body, file, encoding, headRow) {
       if (sn) seenSn[sn] = `${k.line}行目`;
       kids.push({ id, row: k.row });
     });
-    // 同じ仕入CSVをもう一度入れたとき。「取り込めない」ではなく「すでにある」として出す
-    if (!kids.length && already === lot.kids.length) {
-      skip.push({ line, key, name: model, units: [] }); return;
-    }
-    if (!kids.length) { bad.push({ line, key, reason: 'dup', why: '個品IDがすべて空か重複でした' }); return; }
+    // 同じCSVをもう一度入れたとき。「取り込めない」ではなく「すでにある」として出す
+    if (already && !kids.length) { skip.push({ line, key, name: model, units: [] }); return; }
 
-    const maker = P('メーカー') || cell(idx, kids[0].row, 'メーカー') || '';
+    const maker = P('メーカー') || D('メーカー') || '';
     const buy = numOf(P('落札価格')) || 0;
     const fee = numOf(P('落札料')) || 0;
     const cost = buy + fee;
@@ -1644,7 +1650,10 @@ function planPurchase(H, idx, body, file, encoding, headRow) {
 
     // 在庫数の基準は個品IDの数ではなく「総数」。
     // セット出品は個品IDが1つでも現物は9個ある、という形で来るため。
-    const csvQty = numOf(P('総数')) || kids.length;
+    // 総数0は「在庫なし」。商品は作るが個体は作らない（1台に化かさない）。
+    // 総数の欄そのものが無いときだけ、個品IDの数で代用する
+    const tt = numOf(P('総数'));
+    const csvQty = tt == null || isNaN(tt) ? (kids.length || 1) : Math.max(0, tt);
     const qty = planQty[key] != null ? planQty[key] : csvQty;
     const plan = planPrice[key] != null ? planPrice[key] : suggestPlan(cost / qty);
 
@@ -1660,17 +1669,18 @@ function planPurchase(H, idx, body, file, encoding, headRow) {
       idPrefix: idPrefixOf(model),
       src: {
         bought,
-        kids: kids.map(k => ({
+        // 個品IDが1つも無いCSVもある。そのときは明細の行から仕様や状態だけもらう
+        kids: kids.length ? kids.map(k => ({
           id: k.id,
           serial: cell(idx, k.row, 'Ｓ／Ｎ') || null,
           note: purchaseNote(idx, k.row) || null
-        }))
+        })) : [{ id: null, serial: null, note: purchaseNote(idx, lot.detail.row) || null }]
       },
       sharesWith: known ? known.code : (earlier ? earlier.key : null),
       master: {
         code: known ? known.code : null, name: model, model, maker: maker || null,
         category_id: null, kind: 'individual',
-        spec: purchaseSpec(idx, kids[0].row) || null,
+        spec: purchaseSpec(idx, lot.detail.row) || null,
         location_id: null, qty: 0, min_qty: 0,
         note: [`出品番号 ${key}`,
                P('構成') ? `構成 ${P('構成')}（総数 ${csvQty}）` : '',
@@ -1705,7 +1715,7 @@ function setPlanQty(i, v) {
   const x = (importPlan.add || [])[i];
   if (!x) return;
   const n = Math.floor(numOf(String(v == null ? '' : v).trim()));
-  if (!n || isNaN(n) || n < 1 || n > 999) return;    // 入力の途中は触らない
+  if (isNaN(n) || n < 0 || n > 999) return;          // 入力の途中は触らない
   x.lot.qty = n;
   planQty[x.key] = n;
   if (planPrice[x.key] == null) x.plan = suggestPlan(x.lot.cost / n);
@@ -1827,7 +1837,7 @@ function purchaseTable(add) {
               ? `<div class="meta">${esc(x.lot.kumi || 'セット')}　個品ID ${x.src.kids.length}件 → 管理番号は1台ずつ発行</div>` : ''}</td>
         <td class="nowrap">${esc(x.master.model)}</td>
         <td class="r">
-          <input class="input num qty" type="number" min="1" max="999" step="1" id="pq-${i}"
+          <input class="input num qty" type="number" min="0" max="999" step="1" id="pq-${i}"
                  value="${x.lot.qty}" oninput="setPlanQty(${i},this.value)" onchange="fixPlanQty(${i})">
           <div class="meta qn${x.lot.qty !== x.lot.csvQty ? ' chg' : ''}" id="pqn-${i}">${
             x.lot.qty === x.lot.csvQty ? `CSV ${x.lot.csvQty}` : `CSV ${x.lot.csvQty} → ${x.lot.qty}`}</div></td>
@@ -1913,6 +1923,8 @@ function showImportPreview() {
   const c = countPlan(p);
   const repair = p.add.filter(x => x.repair);
   const repairUnits = repair.reduce((n, x) => n + x.units.length, 0);
+  const zeroQty = p.add.filter(x => x.lot && x.lot.qty === 0).length;
+  const noPrice = buy && p.add.length && p.add.every(x => !x.lot.cost);
 
   openModal(buy ? '仕入CSV取込の確認' : '取り込む内容の確認', `
     <div class="card" style="margin-bottom:15px">
@@ -1963,6 +1975,16 @@ function showImportPreview() {
           <select class="input" id="impLoc">${locOptions(defaultImportLoc(), '選択してください')}</select></label>
       </div>
       ${dropped ? `<p class="meta" style="margin:10px 0 0">個品IDが空か重複していた <strong>${dropped}行</strong> は取り込みません。</p>` : ''}
+    </div>` : ''}
+
+    ${buy && (zeroQty || noPrice) ? `<div class="card" style="margin-bottom:15px">
+      <div class="lbl" style="margin-bottom:5px">このCSVで分かること・分からないこと</div>
+      ${noPrice ? `<strong>落札価格が入っていないので、原価は空のまま登録します。</strong>
+        値段はあとから個体詳細の「値段を直す」で入れられます。<br>` : ''}
+      ${zeroQty ? `総数が0の <strong>${zeroQty}件</strong> は<strong>商品だけ作り、個体は作りません</strong>（在庫なしとして正しい形です）。
+        次に仕入れたぶんが、この商品にぶら下がります。<br>` : ''}
+      ${p.add.some(x => x.lot.qty > 0 && !x.src.kids.some(k => k.id))
+        ? '個品IDが入っていない出品番号は、<strong>総数ぶんの管理番号を発行</strong>します。' : ''}
     </div>` : ''}
 
     ${repair.length ? `<div class="card" style="margin-bottom:15px">
