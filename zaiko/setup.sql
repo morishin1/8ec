@@ -14,6 +14,7 @@
 --     inventory_locations       保管場所（拠点 → 部屋 → 棚 の階層）
 --     inventory_items           個体管理（1行＝現物1台。管理番号がQRのキー）
 --     inventory_products        数量管理（1行＝1品目。数が増減する）
+--     inventory_channels        出品（販売サイトごと。実物1台に付く）
 --     inventory_transactions    履歴（追記のみ。更新も削除もしない）
 --     inventory_loans           貸出
 --     inventory_stocktakes      棚卸セッション
@@ -22,6 +23,7 @@
 --
 --   操作用の関数（画面から直接UPDATEせず、必ずこれを通す）
 --     inv_item_op()        貸出／返却／移動／状態変更／廃棄／棚卸確認
+--     inv_listing_set()    販売サイトごとの出品情報を入れ直す
 --     inv_product_move()   入庫／出庫
 --     inv_product_adjust() 棚卸調整（実数に合わせる）
 --     inv_next_id()        管理番号・商品コードの採番
@@ -1353,6 +1355,14 @@ create table if not exists public.inventory_imports (
 -- 今回発行した管理番号。取り込んだ直後に「今回のQRだけ印刷」するのに使う
 alter table public.inventory_imports add column if not exists item_ids text[] default '{}';
 
+-- 飛ばした管理番号。黙って消えたように見えないよう、理由ごと履歴に残す。
+--   [{"id":"PC-00125","why":"すでに在庫にあります","line":12}, …]
+alter table public.inventory_imports add column if not exists skip_count integer default 0;
+alter table public.inventory_imports add column if not exists skips jsonb default '[]'::jsonb;
+
+comment on column public.inventory_imports.skips is
+  '重複などで飛ばした管理番号と、その理由。取込結果と履歴の「詳細を見る」で出す。';
+
 create index if not exists inventory_imports_at_idx on public.inventory_imports (imported_at desc);
 
 comment on table public.inventory_imports is
@@ -1540,7 +1550,190 @@ comment on function public.inv_upsert_product is
 
 
 -- ============================================================
--- 27) 追加分の権限
+-- 27) 出品（実物1台ごとに、販売サイト別）
+--     自社在庫DBが正。楽天・Amazonなどは「そこに出している」という情報でしかない。
+--     売れた台数を販売サイトから持ってきて在庫に上書きすることはしない。
+--     inventory_channels を個体まで下ろす。item_id が
+--       null     … 商品まるごとの出品情報（数量管理の品目・移行前のデータ）
+--       入っている … その1台の出品情報
+-- ============================================================
+
+alter table public.inventory_channels
+  add column if not exists item_id text references public.inventory_items(id) on delete cascade;
+alter table public.inventory_channels
+  add column if not exists price numeric;      -- そのサイトでの販売価格
+
+comment on column public.inventory_channels.item_id is
+  '出品している実物1台。null は商品まるごとの出品情報（数量管理など）。';
+comment on column public.inventory_channels.price is
+  'そのサイトでの販売価格。自社の販売予定価格（inventory_items.plan_price）とは別。';
+
+-- 商品単位の行と個体単位の行を両立させる。もとの (product_code, channel) の
+-- 一意制約は、商品単位の行だけに絞って残す
+drop index if exists public.inventory_channels_pc_idx;
+create unique index if not exists inventory_channels_prod_idx
+  on public.inventory_channels (product_code, channel) where item_id is null;
+create unique index if not exists inventory_channels_item_idx
+  on public.inventory_channels (item_id, channel) where item_id is not null;
+create index if not exists inventory_channels_item_state_idx
+  on public.inventory_channels (item_id, state);
+
+-- 出品情報を1件入れ直す。p_item_id を渡せばその1台、null なら商品まるごと。
+-- 中身をすべて空にしたら「未出品」＝行を消す。
+-- 出品状態が変わったときだけ履歴に残す（SKUの打ち直しで履歴が埋まらないように）
+create or replace function public.inv_listing_set(
+  p_item_id text,
+  p_code    text,
+  p_channel text,
+  p_state   text,
+  p_sku     text default null,
+  p_price   numeric default null,
+  p_url     text default null,
+  p_note    text default null
+) returns public.inventory_channels
+language plpgsql security definer set search_path = public as $$
+declare
+  v_code   text := p_code;
+  v_before text;
+  v_row    public.inventory_channels;
+  v_empty  boolean;
+  v_st     text := nullif(trim(coalesce(p_state, '')), '');
+  v_sku    text := nullif(trim(coalesce(p_sku, '')), '');
+  v_url    text := nullif(trim(coalesce(p_url, '')), '');
+  v_note   text := nullif(trim(coalesce(p_note, '')), '');
+begin
+  if not public.inv_can_edit() then
+    raise exception '出品情報を変えられる権限がありません';
+  end if;
+  if v_st = '未出品' then v_st := null; end if;
+
+  if p_item_id is not null then
+    select product_code into v_code from public.inventory_items where id = p_item_id;
+    if not found then
+      raise exception '個体 % が見つかりません', p_item_id;
+    end if;
+    select state into v_before from public.inventory_channels
+     where item_id = p_item_id and channel = p_channel;
+  else
+    if v_code is null then
+      raise exception '商品が指定されていません';
+    end if;
+    select state into v_before from public.inventory_channels
+     where product_code = v_code and channel = p_channel and item_id is null;
+  end if;
+
+  v_empty := v_st is null and v_sku is null and v_url is null
+         and v_note is null and p_price is null;
+
+  if v_empty then
+    if p_item_id is not null then
+      delete from public.inventory_channels
+       where item_id = p_item_id and channel = p_channel;
+    else
+      delete from public.inventory_channels
+       where product_code = v_code and channel = p_channel and item_id is null;
+    end if;
+  elsif p_item_id is not null then
+    insert into public.inventory_channels
+      (product_code, item_id, channel, state, sku, price, url, note, updated_at)
+    values (v_code, p_item_id, p_channel, v_st, v_sku, p_price, v_url, v_note, now())
+    on conflict (item_id, channel) where item_id is not null
+    do update set state = excluded.state, sku = excluded.sku, price = excluded.price,
+                  url = excluded.url, note = excluded.note, updated_at = now()
+    returning * into v_row;
+  else
+    insert into public.inventory_channels
+      (product_code, item_id, channel, state, sku, price, url, note, updated_at)
+    values (v_code, null, p_channel, v_st, v_sku, p_price, v_url, v_note, now())
+    on conflict (product_code, channel) where item_id is null
+    do update set state = excluded.state, sku = excluded.sku, price = excluded.price,
+                  url = excluded.url, note = excluded.note, updated_at = now()
+    returning * into v_row;
+  end if;
+
+  if coalesce(v_before, '未出品') is distinct from coalesce(v_row.state, '未出品') then
+    insert into public.inventory_transactions
+      (actor, ref_kind, ref_id, label, action, before_value, after_value)
+    values
+      (public.inv_actor(),
+       case when p_item_id is not null then 'item' else 'product' end,
+       coalesce(p_item_id, v_code), p_channel, '出品',
+       coalesce(v_before, '未出品'), coalesce(v_row.state, '未出品'));
+  end if;
+
+  return v_row;
+end $$;
+
+comment on function public.inv_listing_set is
+  '販売サイトごとの出品情報を入れ直す。個体1台にも商品まるごとにも付けられる。空にすると未出品。';
+
+-- 既存在庫CSVからの移行用。すでに入っている出品情報は上書きしない
+-- （自社落札CSVで作った仕入の情報を、あとから来た表計算で消さないため）。
+-- p_rows は [{item_id?, product_code?, channel, state, sku, price, url, note}, …]
+create or replace function public.inv_listings_import(p_rows jsonb)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  r       jsonb;
+  v_item  text;
+  v_code  text;
+  v_added integer := 0;
+  v_kept  integer := 0;
+begin
+  if not public.inv_is_admin() then
+    raise exception '取り込みは管理者だけができます';
+  end if;
+
+  for r in select * from jsonb_array_elements(coalesce(p_rows, '[]'::jsonb)) loop
+    v_item := nullif(r->>'item_id', '');
+    if v_item is not null then
+      select product_code into v_code from public.inventory_items where id = v_item;
+      if not found then continue; end if;
+    else
+      v_code := nullif(r->>'product_code', '');
+      if v_code is null
+         or not exists (select 1 from public.inventory_products where code = v_code) then
+        continue;
+      end if;
+    end if;
+
+    if exists (select 1 from public.inventory_channels
+                where channel = r->>'channel'
+                  and (case when v_item is null
+                            then product_code = v_code and item_id is null
+                            else item_id = v_item end)) then
+      -- 空いている欄だけ埋める。入っている値はそのまま
+      update public.inventory_channels set
+        state = coalesce(state, nullif(r->>'state', '')),
+        sku   = coalesce(sku,   nullif(r->>'sku', '')),
+        price = coalesce(price, (nullif(r->>'price', ''))::numeric),
+        url   = coalesce(url,   nullif(r->>'url', '')),
+        note  = coalesce(note,  nullif(r->>'note', ''))
+       where channel = r->>'channel'
+         and (case when v_item is null
+                   then product_code = v_code and item_id is null
+                   else item_id = v_item end);
+      v_kept := v_kept + 1;
+    else
+      insert into public.inventory_channels
+        (product_code, item_id, channel, state, sku, price, url, note)
+      values
+        (v_code, v_item, r->>'channel', nullif(r->>'state', ''),
+         nullif(r->>'sku', ''), (nullif(r->>'price', ''))::numeric,
+         nullif(r->>'url', ''), nullif(r->>'note', ''));
+      v_added := v_added + 1;
+    end if;
+  end loop;
+
+  return jsonb_build_object('added', v_added, 'kept', v_kept);
+end $$;
+
+comment on function public.inv_listings_import is
+  '既存在庫CSVの出品状態を移す。すでにある出品情報は上書きしない。';
+
+
+-- ============================================================
+-- 28) 追加分の権限
 -- ============================================================
 
 grant select, insert, update, delete on public.inventory_channels to authenticated;
@@ -1552,6 +1745,8 @@ grant execute on function public.inv_bulk_update_products(text[],text,text,text,
 grant execute on function public.inv_delete_products(text[]) to authenticated;
 grant execute on function public.inv_norm_model(text) to authenticated;
 grant execute on function public.inv_upsert_product(jsonb) to authenticated;
+grant execute on function public.inv_listing_set(text,text,text,text,text,numeric,text,text) to authenticated;
+grant execute on function public.inv_listings_import(jsonb) to authenticated;
 
 alter table public.inventory_channels enable row level security;
 
