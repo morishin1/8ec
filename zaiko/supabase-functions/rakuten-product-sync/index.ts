@@ -115,7 +115,7 @@ async function fetchRakutenPage(
   console.log(JSON.stringify({
     referer_sent: true,
     referer_host: new URL(RAKUTEN_REFERER).host,
-    rakuten_response_status: res.status,
+    rakuten_http_status: res.status,
   }));
   const ok = res.ok && !!data && !data.error;
   return { ok, status: res.status, authMode: "query:accessKey", data };
