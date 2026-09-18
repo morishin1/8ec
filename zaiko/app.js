@@ -1317,6 +1317,9 @@ function openRakutenSync() {
   openModal('楽天商品を同期', `
     <p class="meta" style="margin-bottom:14px">楽天に登録済みの自社商品を取得し、商品名・画像・スペック等の
       不足情報を商品マスターへ補います。すでに人が入力した値は上書きしません。実在庫は増えません。</p>
+    <label class="field" style="margin-bottom:14px"><span>特定の商品だけテストする（任意）</span>
+      <input class="input" type="text" id="rkTargetUrl" placeholder="https://item.rakuten.co.jp/店舗ID/商品番号/ など、既存の掲載URL">
+      <span class="meta">指定すると、その商品1件だけ楽天APIに接続してテストします（まず1件の接続確認に）。空欄なら下の件数ぶん一覧を取得します。</span></label>
     <label class="field" style="max-width:220px"><span>取得件数（まずは少数でお試しください）</span>
       <input class="input num" type="number" id="rkLimit" value="5" min="1" max="30"></label>
     <div id="rkResult" style="margin-top:16px"></div>`,
@@ -1329,11 +1332,12 @@ async function runRakutenSync() {
   host.innerHTML = '<div class="status" style="padding:10px 0"><span class="ms">progress_activity</span> 楽天から取得しています…</div>';
   try {
     const limit = Math.max(1, Math.min(30, parseInt(numField('rkLimit') || 5, 10) || 5));
+    const targetUrl = (($('rkTargetUrl') || {}).value || '').trim();
     const { data: { session } } = await sb.auth.getSession();
     const res = await fetch(SUPA_URL + '/functions/v1/rakuten-product-sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', apikey: SUPA_KEY, Authorization: 'Bearer ' + (session ? session.access_token : '') },
-      body: JSON.stringify({ limit })
+      body: JSON.stringify(targetUrl ? { item_url: targetUrl, limit } : { limit })
     });
     let out = {};
     try { out = await res.json(); } catch (_) { out = {}; }

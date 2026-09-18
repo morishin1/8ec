@@ -58,9 +58,21 @@ function json(body: unknown, status = 200) {
 const RAKUTEN_ENDPOINT = "https://app.rakuten.co.jp/services/api/IchibaItem/Search/20220601";
 
 /**
+ * 楽天の商品URL（https://item.rakuten.co.jp/{shopCode}/{itemNumber}/…）から
+ * itemCode（"shopCode:itemNumber" 形式）を取り出す。パスの形が違えば null。
+ */
+function extractItemCodeFromUrl(url: string): string | null {
+  const m = /item\.rakuten\.co\.jp\/([^\/]+)\/([^\/?]+)/i.exec(url || "");
+  return m ? `${m[1]}:${m[2]}` : null;
+}
+
+/**
  * accessKeyの渡し方は複数の可能性がある（クエリパラメータ／ヘッダ）ため、
  * 最初にクエリパラメータ方式を試し、認証エラー（400/401/403）ならヘッダ方式で
  * 再試行する。どちらで成功したかをログ的に返す。
+ *
+ * itemCode を渡すと、その1件だけに絞った接続テストになる（shopCodeも
+ * 一緒に渡すので、自社店舗の商品であることの確認も兼ねる）。
  */
 async function fetchRakutenPage(
   applicationId: string,
@@ -68,6 +80,7 @@ async function fetchRakutenPage(
   shopCode: string,
   page: number,
   hits: number,
+  itemCode?: string | null,
 ): Promise<{ ok: boolean; status: number; authMode: string; data: any }> {
   const baseParams = new URLSearchParams({
     format: "json",
@@ -77,6 +90,7 @@ async function fetchRakutenPage(
     hits: String(Math.min(hits, 30)),
     availability: "0", // 在庫の有無に関わらず自社の全商品を対象にする
   });
+  if (itemCode) baseParams.set("itemCode", itemCode);
 
   // 方式1: accessKey もクエリパラメータで渡す（楽天の歴史的な標準形）
   {
@@ -256,13 +270,24 @@ Deno.serve(async (req: Request) => {
       return json({ error: "この操作の権限がありません。" }, 403);
     }
 
-    // ── 2. リクエスト内容（接続テスト用に件数を絞れるようにする） ──
+    // ── 2. リクエスト内容 ──────────────────────────────────────
+    // item_url または item_code を渡すと、その1件だけの接続テストになる
+    // （既存の inventory_channel_listings に登録済みのURLを使う想定）。
+    // どちらも無ければ、これまで通り自社shopCodeの一覧をhits件数ぶん取得する。
     const body = await req.json().catch(() => ({}));
     const limit = Math.max(1, Math.min(Number(body?.limit) || 30, 30));
     const page = Math.max(1, Number(body?.page) || 1);
+    const targetItemCode: string | null = body?.item_code
+      ? String(body.item_code)
+      : body?.item_url
+      ? extractItemCodeFromUrl(String(body.item_url))
+      : null;
+    if ((body?.item_url || body?.item_code) && !targetItemCode) {
+      return json({ error: "item_url からitemCodeを読み取れませんでした（https://item.rakuten.co.jp/店舗ID/商品番号/ の形式をご確認ください）。" }, 400);
+    }
 
     // ── 3. 楽天APIを呼ぶ（自社shopCodeだけを対象） ──────────────
-    const rk = await fetchRakutenPage(APP_ID, ACCESS_KEY, SHOP_CODE, page, limit);
+    const rk = await fetchRakutenPage(APP_ID, ACCESS_KEY, SHOP_CODE, page, limit, targetItemCode);
     if (!rk.ok) {
       return json({
         error: "楽天APIの呼び出しに失敗しました（認証情報または仕様をご確認ください）。",
@@ -273,6 +298,13 @@ Deno.serve(async (req: Request) => {
     }
 
     const items: any[] = Array.isArray(rk.data?.Items) ? rk.data.Items.slice(0, limit) : [];
+    if (targetItemCode && items.length === 0) {
+      return json({
+        error: `指定した商品（${targetItemCode}）が見つかりませんでした。自社店舗（${SHOP_CODE}）の商品か、URLをご確認ください。`,
+        auth_mode: rk.authMode,
+        rakuten_response: rk.data,
+      }, 404);
+    }
     const normalized = items.map(normalizeItem);
 
     // ── 4. 正規化した商品データを、既存の商品マスターと照合・補完するSQL関数へ渡す ──
