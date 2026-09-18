@@ -5,6 +5,18 @@
   "outputDirectory": null,
   "cleanUrls": false,
   "trailingSlash": false,
+  "redirects": [
+    {
+      "source": "/rental",
+      "destination": "/",
+      "permanent": true
+    },
+    {
+      "source": "/rental/(.*)",
+      "destination": "/",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     {
       "source": "/zaiko",
