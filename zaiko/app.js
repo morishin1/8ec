@@ -441,9 +441,10 @@ async function loadAll() {
     sb.from('inventory_stocktakes').select('*').order('started_at', { ascending: false }).limit(20),
     sb.from('inventory_channels').select('*').limit(LOAD_LIMIT),
     sb.from('inventory_imports').select('*').order('imported_at', { ascending: false }).limit(100),
-    sb.from('inventory_rental_requests').select('*').order('created_at', { ascending: false }).limit(500)
+    sb.from('inventory_rental_requests').select('*').order('created_at', { ascending: false }).limit(500),
+    sb.from('inventory_channel_listings').select('*').limit(LOAD_LIMIT)
   ];
-  const [c, l, i, p, t, s, ch, im, rr] = await Promise.all(q);
+  const [c, l, i, p, t, s, ch, im, rr, cl] = await Promise.all(q);
   const bad = [c, l, i, p, t, s, ch, im].find(r => r.error);
   if (bad) { showSetup(bad.error); return false; }
   db.imports = im.data || [];
@@ -453,7 +454,10 @@ async function loadAll() {
   db.locs = l.data || [];
   db.items = (i.data || []).sort((a, b) => a.id.localeCompare(b.id, 'ja'));
   db.masters = (p.data || []).sort((a, b) => titleOf(a).localeCompare(titleOf(b), 'ja'));
-  db.channels = ch.data || [];
+  // 商品まるごとの出品情報（inventory_channel_listings）を、既存の個体別
+  // 出品情報（inventory_channels）と同じ配列にまとめる。移行前（未実行）でも
+  // 静かに空扱いにし、他の画面が動かなくならないようにする
+  db.channels = (ch.data || []).concat(cl.error ? [] : (cl.data || []));
   reindexChannels();
   db.tx = t.data || [];
   const sts = s.data || [];
@@ -570,12 +574,13 @@ async function loadOne(r) {
     // 個体の画面は商品名などをマスタから出すので、その1件も取る。
     // 出品情報は1台ぶんと商品まるごとの両方（1台ぶんが無ければ商品の行を当てるため）
     if (res.data.product_code) {
-      const [m, chs] = await Promise.all([
+      const [m, chs, cls] = await Promise.all([
         sb.from('inventory_products').select('*').eq('code', res.data.product_code).maybeSingle(),
-        sb.from('inventory_channels').select('*').eq('product_code', res.data.product_code)
+        sb.from('inventory_channels').select('*').eq('product_code', res.data.product_code),
+        sb.from('inventory_channel_listings').select('*').eq('product_code', res.data.product_code)
       ]);
       if (m.data) db.masters = [m.data];
-      db.channels = chs.data || [];
+      db.channels = (chs.data || []).concat(cls.error ? [] : (cls.data || []));
     } else {
       const chs = await sb.from('inventory_channels').select('*').eq('item_id', res.data.id);
       db.channels = chs.data || [];
@@ -583,12 +588,13 @@ async function loadOne(r) {
   } else {
     db.masters = [res.data];
     // 商品の画面はぶら下がる個体と販売情報まで見せる
-    const [its, chs] = await Promise.all([
+    const [its, chs, cls] = await Promise.all([
       sb.from('inventory_items').select('*').eq('product_code', res.data.code).limit(LOAD_LIMIT),
-      sb.from('inventory_channels').select('*').eq('product_code', res.data.code)
+      sb.from('inventory_channels').select('*').eq('product_code', res.data.code),
+      sb.from('inventory_channel_listings').select('*').eq('product_code', res.data.code)
     ]);
     db.items = its.data || [];
-    db.channels = chs.data || [];
+    db.channels = (chs.data || []).concat(cls.error ? [] : (cls.data || []));
   }
   reindexChannels();
   return true;
