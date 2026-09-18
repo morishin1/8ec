@@ -28,12 +28,15 @@ const LOAD_LIMIT = 3000;
 
 /* 個体の状態。「現在庫」に数えるのは在庫と出品中（どちらもまだ手元にある）。
    売却済・廃棄は持っていないので「登録数」からも外す。
-   「予約中」は8RENTの申込が入って発送待ちの状態（レンタル可能数からは外れる） */
-const STATUSES = ['在庫', '出品中', '予約中', '社内使用', '貸出中', '修理中', '故障', '紛失', '売却済', '廃棄', '不明'];
+   「予約中」は8RENTの申込が入って発送待ちの状態（レンタル可能数からは外れる）。
+   「販売予約」は楽天など販売チャネルで受注が入って発送待ちの状態
+   （レンタル可能数からも、他チャネルの販売可能数からも外れる） */
+const STATUSES = ['在庫', '出品中', '予約中', '販売予約', '社内使用', '貸出中', '修理中', '故障', '紛失', '売却済', '廃棄', '不明'];
 const IN_STOCK = ['在庫', '出品中'];
 const GONE = ['売却済', '廃棄'];
 const STATUS_ICON = {
-  '在庫': 'inventory_2', '出品中': 'sell', '予約中': 'event_available', '社内使用': 'person', '貸出中': 'assignment_ind',
+  '在庫': 'inventory_2', '出品中': 'sell', '予約中': 'event_available', '販売予約': 'local_mall',
+  '社内使用': 'person', '貸出中': 'assignment_ind',
   '修理中': 'build', '故障': 'error', '紛失': 'help', '売却済': 'paid', '廃棄': 'delete', '不明': 'help'
 };
 /* 販売サイト。一覧のタブもバッジも、この並び順のまま出る。
@@ -2563,6 +2566,7 @@ function viewItem() {
         ${op('move_down', '移動', `sheetMove('${esc(it.id)}')`)}
         ${op('build', '修理・故障', `sheetStatus('${esc(it.id)}')`)}
         ${op('paid', '売却', `sheetSell('${esc(it.id)}')`, false, !GONE.includes(it.status))}
+        ${op('undo', '予約解除', `sheetUnreserve('${esc(it.id)}')`, false, it.status === '販売予約')}
         ${op('fact_check', '棚卸確認', `checkItem('${esc(it.id)}')`)}
         ${canAdmin() ? op('delete', '廃棄', `sheetScrap('${esc(it.id)}')`) : ''}
       </div>
@@ -2835,7 +2839,9 @@ function tabInfo(p) {
         <button class="btn pri" onclick="sheetStockSet('${esc(p.code)}')" ${dis()}>
           <span class="ms">edit</span><span class="t">在庫数を直す</span></button>
         <button class="btn" onclick="sheetSellQty('${esc(p.code)}')" ${dis()}>
-          <span class="ms">paid</span><span class="t">売れた</span></button>`}
+          <span class="ms">paid</span><span class="t">売れた</span></button>
+        <button class="btn" onclick="sheetSaleReserve('${esc(p.code)}')" ${dis()}>
+          <span class="ms">local_mall</span><span class="t">楽天等で受注</span></button>`}
     </div>`;
 }
 
@@ -2875,6 +2881,35 @@ function rentalBox(p) {
       p.office_supported ? 'Office対応' : '', p.trial_eligible ? 'お試し対象' : '',
       tags.length ? 'タグ：' + tags.join('・') : ''
     ].filter(Boolean).join('　')}</p>` : ''}`;
+}
+
+/* 楽天など販売チャネルで受注が入ったときに、在庫を1台「販売予約」で確保する。
+   8RENTの申込と同じ在庫を取り合うため、確保処理自体はサーバー側の
+   inv_sale_reserve（inv_reserve_available_item を共有）に任せる。
+   RMS WEB SERVICE等のAPI連携が無い間は、受注はスタッフがここで手動記録する。 */
+function sheetSaleReserve(code) {
+  const p = prod(code); if (!p) return;
+  const avail = rentalAvailable(code);
+  openSheet({
+    title: '受注を記録', subject: code, cta: '在庫を1台確保',
+    hint: `${esc(titleOf(p))}　いま確保できる在庫 ${avail}台。販売サイトで受注が入ったら、発送前にここで在庫を1台「販売予約」にします（8RENTのレンタル予約とも在庫を取り合います）。`,
+    body: `<label class="field"><span>販売サイト</span>
+        <select class="input" id="srChannel">${TAB_CHANNELS.map(c => `<option value="${esc(c.key)}">${esc(c.label)}</option>`).join('')}</select></label>
+      <label class="field" style="margin-top:10px"><span>注文番号（任意）</span>
+        <input class="input" id="srRef" placeholder="例：楽天の注文番号"></label>
+      <label class="field" style="margin-top:10px"><span>メモ（任意）</span>
+        <input class="input" id="srNote"></label>`,
+    run: async () => {
+      const channel = ($('srChannel') || {}).value || 'rakuten';
+      const ref = (($('srRef') || {}).value || '').trim() || null;
+      const note = (($('srNote') || {}).value || '').trim() || null;
+      const { data, error } = await sb.rpc('inv_sale_reserve', { p_code: code, p_channel: channel, p_ref: ref, p_note: note });
+      if (error) { toast(error.message || '確保できませんでした'); return; }
+      await loadAll();
+      render();
+      toast(`${esc((data || {}).id || '')} を販売予約にしました`);
+    }
+  });
 }
 
 function sheetRentalSet(code) {
@@ -3734,6 +3769,14 @@ function sheetReturn(id) {
     title: '返却', subject: id, cta: '返却を記録',
     hint: `${esc(it.name)}（${esc(it.user_name || '')}）を返却し、${esc(locPath(it.location_id))} に戻します。`,
     run: () => itemOp(id, '返却', null)
+  });
+}
+function sheetUnreserve(id) {
+  const it = item(id); if (!it) return;
+  openSheet({
+    title: '予約解除', subject: id, cta: '予約を解除',
+    hint: `${esc(it.name)}の販売予約を取り消し、在庫に戻します（発送前のキャンセル用。発送済みは「売却」で記録してください）。`,
+    run: () => itemOp(id, '予約解除', null)
   });
 }
 function sheetMove(id) {

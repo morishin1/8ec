@@ -5,8 +5,11 @@
 --   貼り付けて Run してください。何度実行しても安全です。
 --
 --   これは「社内のPC・IT機器・備品・消耗品」を管理する仕組みです。
---   販売用の在庫（/admin/ の ec_items、/admin/ec/ の ec_products）とは
---   別物で、互いに影響しません。
+--   併せて、実在庫（個体）を基準に「販売（楽天など）」と「レンタル（8RENT）」
+--   を同じ在庫で連動させる基盤でもあります（在庫確保の共通処理は下記
+--   inv_reserve_available_item() を参照）。
+--   /admin/ の ec_items、/admin/ec/ の ec_products（新品SKUのモール出品用の
+--   独自在庫）はまだ別スキーマのままで、このファイルからは触れません。
 --
 --   作られるもの
 --     inventory_members         使う人と権限（管理者／一般／閲覧）
@@ -23,10 +26,12 @@
 --     inventory_counters        採番カウンタ
 --
 --   操作用の関数（画面から直接UPDATEせず、必ずこれを通す）
---     inv_item_op()        貸出／返却／移動／状態変更／廃棄／棚卸確認
+--     inv_item_op()        貸出／返却／移動／状態変更／廃棄／予約解除／棚卸確認
 --     inv_listing_set()    販売サイトごとの出品情報を入れ直す
+--     inv_reserve_available_item() 在庫の個体を1台確保する共通処理（下の2つが使う）
 --     inv_rental_request()    8RENTからのレンタル申込（在庫を1台その場で予約中にする）
 --     inv_rental_set_status() レンタル申込の状態を進める（個体の状態も連動）
+--     inv_sale_reserve()      楽天など販売チャネルの受注で在庫を1台販売予約にする
 --     inv_product_move()   入庫／出庫
 --     inv_product_adjust() 棚卸調整（実数に合わせる）
 --     inv_next_id()        管理番号・商品コードの採番
@@ -1298,6 +1303,16 @@ begin
        set status='売却済', sold_price=coalesce(v_sold, it.sold_price), user_name=null, loaned_at=null
      where id=p_item_id returning * into it;
 
+  elsif p_action = '予約解除' then
+    -- 楽天など販売チャネルの受注確保（inv_sale_reserve）を、発送前に取り消す。
+    -- 8RENTの予約中はここでは扱わない（inv_rental_set_status の「キャンセル」を使う）
+    if it.status <> '販売予約' then
+      raise exception '販売予約中のものだけ予約解除できます（いまは %）', it.status;
+    end if;
+    v_before := it.status;
+    v_after  := '在庫';
+    update public.inventory_items set status='在庫' where id=p_item_id returning * into it;
+
   elsif p_action in ('状態変更','廃棄') then
     if p_action = '廃棄' and not public.inv_is_admin() then
       raise exception '廃棄は管理者だけができます';
@@ -1859,6 +1874,47 @@ create trigger inventory_rental_requests_touch before update on public.inventory
   for each row execute function public.inv_touch();
 
 -- ------------------------------------------------------------
+-- 29-2b) 在庫確保の共通処理（8RENTのレンタル予約と、楽天などの販売予約が共用する）
+--
+--     楽天で売れたら8RENTで借りられなくなり、8RENTで借りられたら楽天で売れなくなる、
+--     を保証するための唯一の入口。「status='在庫' の個体を1台、行ロックして
+--     指定の状態にする」だけを行い、呼び出し元固有の記録（申込テーブルへのinsert・
+--     出品情報の更新など）は行わない。同じ商品コードに対して2つの経路
+--     （inv_rental_request と inv_sale_reserve）が同時に呼ばれても、
+--     for update skip locked により在庫1台につきどちらか一方しか成功しない。
+--
+--     権限チェックはしない（anon から呼ばれる inv_rental_request 経由の
+--     利用があるため）。呼び出し元の関数が権限確認を行うこと。
+--     直接RPCとしては公開しない（grantしない）。
+-- ------------------------------------------------------------
+create or replace function public.inv_reserve_available_item(
+  p_code       text,
+  p_new_status text
+) returns text
+language plpgsql security definer set search_path = public as $$
+declare
+  v_item_id text;
+begin
+  select id into v_item_id
+    from public.inventory_items
+   where product_code = p_code and status = '在庫'
+   order by id
+   limit 1
+   for update skip locked;
+
+  if v_item_id is not null then
+    update public.inventory_items set status = p_new_status where id = v_item_id;
+  end if;
+
+  return v_item_id;
+end $$;
+
+comment on function public.inv_reserve_available_item is
+  '在庫（status=''在庫''）の個体を1台、行ロックして指定の状態にする。無ければNULL。
+   8RENTの申込（予約中にする）と楽天等の販売予約（販売予約にする）が、
+   同じ実在庫を安全に取り合うための共通処理。';
+
+-- ------------------------------------------------------------
 -- 29-3) 申込を受け付ける（公開ページから anon が呼ぶ）
 --       在庫の個体を1台、申込と同じトランザクションで「予約中」にする。
 --       これをしないと、ほぼ同時の2件の申込で同じ1台が二重に割り当たる。
@@ -1885,19 +1941,13 @@ begin
     raise exception 'この商品は現在レンタルを受け付けていません';
   end if;
 
-  -- 在庫の個体を1台、行ロックして予約中にする（管理番号の若いものから）
-  select id into v_item_id
-    from public.inventory_items
-   where product_code = p_code and status = '在庫'
-   order by id
-   limit 1
-   for update skip locked;
+  -- 在庫の個体を1台、行ロックして予約中にする（楽天の販売予約と共通の処理を使う。
+  -- 管理番号の若いものから）
+  v_item_id := public.inv_reserve_available_item(p_code, '予約中');
 
   if v_item_id is null then
     raise exception 'あいにく、この商品はいまレンタルできる台数がありません';
   end if;
-
-  update public.inventory_items set status = '予約中' where id = v_item_id;
 
   insert into public.inventory_transactions (actor, ref_kind, ref_id, label, action, before_value, after_value)
   values ('8RENT', 'item', v_item_id,
@@ -1996,6 +2046,66 @@ comment on function public.inv_rental_set_status is
   'レンタル申込の状態を進める。紐づく個体の状態（予約中・貸出中・在庫）も同じトランザクションで連動させる。';
 
 -- ------------------------------------------------------------
+-- 29-4b) 楽天など販売チャネルの受注で在庫を確保する（社内・/zaiko側の操作）
+--
+--     楽天RMSにはまだAPI連携がなく、受注はスタッフが楽天の管理画面を見て
+--     手動でこの関数を呼ぶ運用になる（自動化にはRMS WEB SERVICEのAPI利用が必要）。
+--     在庫の確保自体は inv_reserve_available_item() で8RENTと共通処理にするため、
+--     同じ商品の最後の1台に楽天注文と8RENT申込がほぼ同時に来ても、
+--     どちらか一方しか成功しない。
+--
+--     状態の流れ：在庫 → 販売予約 →（発送）→ 売却済（既存の inv_item_op の
+--     '売却' をそのまま使う。'売却' はどの状態からでも実行できるため変更不要）
+--                              →（発送前キャンセル）→ 在庫（inv_item_op の '予約解除'）
+-- ------------------------------------------------------------
+create or replace function public.inv_sale_reserve(
+  p_code    text,
+  p_channel text,
+  p_ref     text default null,
+  p_note    text default null
+) returns public.inventory_items
+language plpgsql security definer set search_path = public as $$
+declare
+  v_item_id text;
+  it        public.inventory_items;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  if coalesce(btrim(p_channel), '') = '' then
+    raise exception '販売サイトを指定してください';
+  end if;
+
+  v_item_id := public.inv_reserve_available_item(p_code, '販売予約');
+  if v_item_id is null then
+    raise exception 'あいにく、この商品はいま販売できる在庫がありません';
+  end if;
+
+  select * into it from public.inventory_items where id = v_item_id;
+
+  insert into public.inventory_transactions (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'item', v_item_id, it.name, '販売予約', '在庫',
+          p_channel || coalesce('（注文番号: ' || nullif(btrim(p_ref), '') || '）', ''));
+
+  -- 出品先（チャネル）にも受注状況を残す。同じ個体・チャネルの行が既にあれば更新
+  insert into public.inventory_channels (product_code, item_id, channel, state, sku, note, updated_at)
+  values (p_code, v_item_id, p_channel, '受注確定', nullif(btrim(coalesce(p_ref,'')),''),
+          nullif(btrim(coalesce(p_note,'')),''), now())
+  on conflict (item_id, channel) where item_id is not null
+  do update set state = excluded.state,
+                sku   = coalesce(excluded.sku, public.inventory_channels.sku),
+                note  = coalesce(excluded.note, public.inventory_channels.note),
+                updated_at = now();
+
+  return it;
+end $$;
+
+comment on function public.inv_sale_reserve is
+  '楽天などモールで受注が入ったとき、在庫の個体を1台その場で「販売予約」にする。
+   inv_reserve_available_item() を使うため、8RENTの予約と同じ実在庫を取り合っても
+   二重に確保されない。RMS WEB SERVICE等のAPI連携が無い間は、スタッフが手動で呼ぶ。';
+
+-- ------------------------------------------------------------
 -- 29-5) 公開カタログ（8RENT / anon が読む）
 --       仕入価格・原価など内部情報は一切含めない。rental_enabled=true だけを出す。
 -- ------------------------------------------------------------
@@ -2053,6 +2163,7 @@ grant execute on function public.inv_listing_set(text,text,text,text,text,numeri
 grant execute on function public.inv_listings_import(jsonb) to authenticated;
 grant execute on function public.inv_rental_set_status(bigint,text) to authenticated;
 grant execute on function public.inv_product_rental_set(text,boolean,numeric,integer,boolean,boolean,text[],text,text) to authenticated;
+grant execute on function public.inv_sale_reserve(text,text,text,text) to authenticated;
 -- anon（8RENTの一般訪問者）にはこの関数の実行だけを許可。テーブルへの直接書き込み権限は与えない
 grant execute on function public.inv_rental_request(text,text,text,text,text,date,integer,text) to anon;
 grant usage on schema public to anon;
