@@ -18,7 +18,13 @@
 //   処理の流れ:
 //     1. 呼び出し元が /zaiko の編集権限を持つか（inventory_members）をJWTで確認
 //     2. Rakuten Developers の商品検索APIを、自社 shopCode を指定して呼ぶ
-//        （他店舗の商品は取得しない）
+//        （他店舗の商品は取得しない）。1件だけ指定するときの探し方は2通り：
+//          - item_code（正式なitemCode。2回目以降・紐付け済みの商品向け）→
+//            itemCodeで直接検索
+//          - item_url（掲載URL。初回・itemCodeがまだ分からない商品向け）→
+//            itemCodeをURLから推測することはせず、shopCode一覧をhits=30で
+//            ページングしながらAPIが返すitemUrlと正規化して比較し、一致した
+//            1件の「APIレスポンスに入っている正式なitemCode」をそのまま使う
 //     3. 商品名・商品説明からスペック（CPU/メモリ/ストレージ/OS等）を抽出
 //     4. 正規化したデータを inv_rakuten_sync_apply（SQL関数）へ渡し、
 //        既存の inventory_products と照合・不足情報の補完を行わせる
@@ -67,13 +73,17 @@ const RAKUTEN_ENDPOINT = "https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/
 const RAKUTEN_REFERER = "https://www.8ec.jp/";
 const RAKUTEN_ORIGIN = "https://www.8ec.jp";
 
+// 自社商品は150件前後（hits=30で5ページ程度）なので、余裕を持たせつつ
+// 無限ループにはしない上限（URL一致検索でページングする最大ページ数）。
+const MAX_URL_SEARCH_PAGES = 10;
+
 /**
- * 楽天の商品URL（https://item.rakuten.co.jp/{shopCode}/{itemNumber}/…）から
- * itemCode（"shopCode:itemNumber" 形式）を取り出す。パスの形が違えば null。
+ * URL比較用に正規化する。http/https・末尾スラッシュ・クエリ文字列の差を
+ * 無視する（手入力URLとAPIが返すitemUrlの表記ゆれを吸収する。SQL側
+ * ―inv_rakuten_sync_apply―の照合と同じ規則）。
  */
-function extractItemCodeFromUrl(url: string): string | null {
-  const m = /item\.rakuten\.co\.jp\/([^\/]+)\/([^\/?]+)/i.exec(url || "");
-  return m ? `${m[1]}:${m[2]}` : null;
+function normalizeUrlForMatch(url: string): string {
+  return String(url || "").split("?")[0].replace(/\/+$/, "").replace(/^https?:\/\//i, "");
 }
 
 /**
@@ -119,6 +129,52 @@ async function fetchRakutenPage(
   }));
   const ok = res.ok && !!data && !data.error;
   return { ok, status: res.status, authMode: "query:accessKey", data };
+}
+
+/**
+ * 楽天URLを指定した初回同期用。itemCodeをURLから推測することはせず、
+ * shopCode一覧をhits=30でページングしながら、APIが返すitemUrlと正規化して
+ * 比較する。一致した1件をそのまま返す（その商品のitemCodeは、推測ではなく
+ * APIレスポンスに入っている正式な値）。
+ */
+async function findRakutenItemByUrl(
+  applicationId: string,
+  accessKey: string,
+  shopCode: string,
+  targetUrl: string,
+): Promise<{ ok: boolean; status: number; item: any | null; data: any }> {
+  const targetNorm = normalizeUrlForMatch(targetUrl);
+  let lastData: any = null;
+  let lastStatus = 0;
+
+  for (let page = 1; page <= MAX_URL_SEARCH_PAGES; page++) {
+    const res = await fetchRakutenPage(applicationId, accessKey, shopCode, page, 30);
+    lastData = res.data;
+    lastStatus = res.status;
+    if (!res.ok) {
+      console.log(JSON.stringify({
+        search_mode: "shop_url_match", page, returned_count: 0,
+        url_match_found: false, rakuten_http_status: res.status,
+      }));
+      return { ok: false, status: res.status, item: null, data: res.data };
+    }
+
+    const items: any[] = Array.isArray(res.data?.Items) ? res.data.Items : [];
+    const found = items.find((raw) => {
+      const it = raw?.Item || raw;
+      return normalizeUrlForMatch(it.itemUrl || "") === targetNorm;
+    }) || null;
+
+    console.log(JSON.stringify({
+      search_mode: "shop_url_match", page, returned_count: items.length,
+      url_match_found: !!found, rakuten_http_status: res.status,
+    }));
+
+    if (found) return { ok: true, status: res.status, item: found, data: res.data };
+    if (items.length < 30) break; // 最終ページまで見た（これ以上は無い）
+  }
+
+  return { ok: true, status: lastStatus, item: null, data: lastData };
 }
 
 // ---- スペック抽出（商品名・商品説明から）。Node.jsで動作確認したロジックをそのまま使う ----
@@ -289,39 +345,70 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── 2. リクエスト内容 ──────────────────────────────────────
-    // item_url または item_code を渡すと、その1件だけの接続テストになる
-    // （既存の inventory_channel_listings に登録済みのURLを使う想定）。
-    // どちらも無ければ、これまで通り自社shopCodeの一覧をhits件数ぶん取得する。
+    // item_code（正式なitemCode）を渡すと、その1件だけを直接検索する
+    // （紐付け済み＝2回目以降向け）。item_url を渡すと、itemCodeをURLから
+    // 推測せず、shopCode一覧をページングしながらitemUrlが一致する1件を探す
+    // （初回・itemCodeがまだ分からない商品向け）。どちらも無ければ、
+    // これまで通り自社shopCodeの一覧をhits件数ぶん取得する。
     const body = await req.json().catch(() => ({}));
     const limit = Math.max(1, Math.min(Number(body?.limit) || 30, 30));
     const page = Math.max(1, Number(body?.page) || 1);
-    const targetItemCode: string | null = body?.item_code
-      ? String(body.item_code)
-      : body?.item_url
-      ? extractItemCodeFromUrl(String(body.item_url))
-      : null;
-    if ((body?.item_url || body?.item_code) && !targetItemCode) {
-      return json({ error: "item_url からitemCodeを読み取れませんでした（https://item.rakuten.co.jp/店舗ID/商品番号/ の形式をご確認ください）。" }, 400);
-    }
+    const targetItemCode: string | null = body?.item_code ? String(body.item_code).trim() : null;
+    const targetUrl: string | null = !targetItemCode && body?.item_url ? String(body.item_url).trim() : null;
 
     // ── 3. 楽天APIを呼ぶ（自社shopCodeだけを対象） ──────────────
-    const rk = await fetchRakutenPage(APP_ID, ACCESS_KEY, SHOP_CODE, page, limit, targetItemCode);
-    if (!rk.ok) {
-      return json({
-        error: "楽天APIの呼び出しに失敗しました（認証情報または仕様をご確認ください）。",
-        status: rk.status,
-        auth_mode_tried: rk.authMode,
-        rakuten_response: rk.data,
-      }, 502);
-    }
+    let items: any[];
+    let rkData: any;
+    let rkAuthMode = "query:accessKey";
 
-    const items: any[] = Array.isArray(rk.data?.Items) ? rk.data.Items.slice(0, limit) : [];
-    if (targetItemCode && items.length === 0) {
-      return json({
-        error: `指定した商品（${targetItemCode}）が見つかりませんでした。自社店舗（${SHOP_CODE}）の商品か、URLをご確認ください。`,
-        auth_mode: rk.authMode,
-        rakuten_response: rk.data,
-      }, 404);
+    if (targetItemCode) {
+      console.log(JSON.stringify({ search_mode: "itemCode" }));
+      const rk = await fetchRakutenPage(APP_ID, ACCESS_KEY, SHOP_CODE, page, limit, targetItemCode);
+      rkData = rk.data;
+      rkAuthMode = rk.authMode;
+      if (!rk.ok) {
+        return json({
+          error: "楽天APIの呼び出しに失敗しました（認証情報または仕様をご確認ください）。",
+          status: rk.status,
+          rakuten_response: rk.data,
+        }, 502);
+      }
+      items = Array.isArray(rk.data?.Items) ? rk.data.Items.slice(0, limit) : [];
+      if (items.length === 0) {
+        return json({
+          error: `指定した商品（${targetItemCode}）が見つかりませんでした。自社店舗（${SHOP_CODE}）の商品かご確認ください。`,
+          rakuten_response: rk.data,
+        }, 404);
+      }
+    } else if (targetUrl) {
+      const found = await findRakutenItemByUrl(APP_ID, ACCESS_KEY, SHOP_CODE, targetUrl);
+      rkData = found.data;
+      if (!found.ok) {
+        return json({
+          error: "楽天APIの呼び出しに失敗しました（認証情報または仕様をご確認ください）。",
+          status: found.status,
+          rakuten_response: found.data,
+        }, 502);
+      }
+      if (!found.item) {
+        return json({
+          error: `指定したURL（${targetUrl}）に一致する商品が見つかりませんでした。自社店舗（${SHOP_CODE}）の商品か、URLをご確認ください。`,
+          rakuten_response: found.data,
+        }, 404);
+      }
+      items = [found.item];
+    } else {
+      const rk = await fetchRakutenPage(APP_ID, ACCESS_KEY, SHOP_CODE, page, limit);
+      rkData = rk.data;
+      rkAuthMode = rk.authMode;
+      if (!rk.ok) {
+        return json({
+          error: "楽天APIの呼び出しに失敗しました（認証情報または仕様をご確認ください）。",
+          status: rk.status,
+          rakuten_response: rk.data,
+        }, 502);
+      }
+      items = Array.isArray(rk.data?.Items) ? rk.data.Items.slice(0, limit) : [];
     }
     const normalized = items.map(normalizeItem);
 
@@ -341,11 +428,13 @@ Deno.serve(async (req: Request) => {
     }
 
     return json({
-      auth_mode: rk.authMode,
+      auth_mode: rkAuthMode,
       fetched_count: items.length,
-      total_available: rk.data?.count ?? null,
-      // 実機確認用：各商品でどの項目が取れた／取れなかったかを見えるようにする
-      fetched_fields_sample: normalized.slice(0, 5).map((n: any) => ({
+      total_available: rkData?.count ?? null,
+      // 実機確認用：各商品でどの項目が取れた／取れなかったかを見えるようにする。
+      // genreId/attributeIds等、まだ加工していない項目はraw（APIの生データ）で確認する
+      // （フィールド名を推測で決め打ちしない。itemCodeの推測をやめたのと同じ理由）
+      fetched_fields_sample: normalized.slice(0, 5).map((n: any, i: number) => ({
         item_code: n.item_code,
         name: n.name,
         has_caption: !!n.caption,
@@ -353,6 +442,7 @@ Deno.serve(async (req: Request) => {
         image_count: (n.images || []).length,
         model_explicit: n.model,
         extracted: n.extracted,
+        raw: items[i]?.Item || items[i],
       })),
       ...rpcData,
     });
