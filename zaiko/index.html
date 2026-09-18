@@ -117,6 +117,9 @@ header.bar{position:sticky;top:0;z-index:30;background:var(--bg);border-bottom:1
 .tag.st-紛失{background:var(--n300);color:#111}
 .tag.st-廃棄{background:var(--n800);color:#fff}
 .tag.act{background:var(--n200);color:var(--n800)}
+/* 8RENT（レンタル対象）。状態とは別の軸なので、状態タグと見分けがつく色にする */
+.tag.rent{background:var(--n100);color:var(--n600);border:1px solid var(--line)}
+.tag.rent.on{background:var(--l300);color:#111;border-color:var(--l400);font-weight:500}
 
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--r2);overflow:hidden;background:#fff}
 .seg button{border:none;background:transparent;padding:9px 16px;font-size:13.5px;cursor:pointer;min-height:40px}
@@ -297,10 +300,29 @@ table.t td.ck input,table.t th.ck input{width:17px;height:17px;accent-color:var(
 table.t tr.clk.on td{background:var(--i100)}
 table.t tr.clk.on:hover td{background:var(--i200)}
 
-#selbar{position:fixed;left:0;right:0;bottom:0;z-index:35;background:var(--bg);border-top:1px solid var(--line);
+/* 選んだものをまとめて動かすバー。スクロールしても消えないよう画面下に固定する。
+   PCは1行（左:件数／中央:操作／右:選択解除）、スマホは折り返して2段になる */
+#selbar{position:fixed;left:0;right:0;bottom:0;z-index:35;background:#fff;border-top:1px solid var(--line);
   box-shadow:0 -4px 18px rgba(17,17,17,.10);padding:11px 20px;display:none;align-items:center;gap:10px;flex-wrap:wrap}
 #selbar.on{display:flex}
-#selbar .n{font-weight:500;margin-right:auto;font-size:14px}
+#selbar .n{font-weight:500;font-size:14px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+#selbar .n .ms{font-size:18px}
+#selbar .sp{flex:1}
+/* .ops（個体の操作メニュー）とは別物。こちらは横に並ぶ小さなボタン */
+#selbar .selops{display:flex;gap:8px;flex-wrap:wrap;flex:1;justify-content:center}
+#selbar .selops .btn{white-space:nowrap;min-height:38px;padding:7px 12px;font-size:13px;flex-direction:row}
+#selbar .selops .btn .ms{font-size:17px}
+/* バーが出ている間は、最後の行がバーに隠れないように下を空ける */
+body.selbar-on{padding-bottom:104px}
+/* スマホは「件数＋選択解除」で1段、操作ボタンで2段程度に折り返す */
+@media(max-width:760px){
+  #selbar{padding:9px 12px;gap:8px}
+  #selbar .n{order:0;flex:1 1 auto}
+  #selbar > .btn.ghost{order:1}
+  #selbar .selops{order:2;flex:1 1 100%;justify-content:flex-start;gap:6px}
+  #selbar .selops .btn{padding:6px 9px;font-size:12.5px;min-height:36px}
+  body.selbar-on{padding-bottom:136px}
+}
 
 .bulkrow{border-bottom:1px solid var(--rule);padding:12px 0}
 .bulkrow:last-child{border-bottom:none}
@@ -551,12 +573,8 @@ table.t.buy td .meta{font-size:11.5px;margin-top:2px}
   </div>
 </div>
 
-<div id="selbar" data-noprint>
-  <span class="n" id="selN"></span>
-  <button class="btn sm ghost" onclick="clearSel()">選択を解除</button>
-  <button class="btn sm" onclick="openBulkEdit()"><span class="ms">edit</span>まとめて直す</button>
-  <button class="btn sm danger" id="selDel" onclick="openBulkDelete()"><span class="ms">delete</span>削除</button>
-</div>
+<!-- 中身は app.js の refreshSelBar() が入れる（個体別と型番別で操作が変わるため） -->
+<div id="selbar" data-noprint></div>
 
 <div id="toast" data-noprint><span class="ms">check_circle</span><span id="toastMsg"></span></div>
 
