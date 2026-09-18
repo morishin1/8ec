@@ -77,6 +77,18 @@ const RAKUTEN_ORIGIN = "https://www.8ec.jp";
 // 無限ループにはしない上限（URL一致検索でページングする最大ページ数）。
 const MAX_URL_SEARCH_PAGES = 10;
 
+// このRakuten Developersアプリの予想QPS登録が「1リクエスト/秒」のため、
+// ページング時は次のリクエストまで必ずこれだけ空ける（1秒に余裕を持たせて1.2秒）。
+const PAGE_INTERVAL_MS = 1200;
+
+// 429（レート制限）時の既定バックオフ。Retry-Afterヘッダーがあればそちらを優先する。
+const RATE_LIMIT_BACKOFF_MS = [1200, 2000, 4000];
+const MAX_RATE_LIMIT_RETRIES = RATE_LIMIT_BACKOFF_MS.length;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
  * URL比較用に正規化する。http/https・末尾スラッシュ・クエリ文字列の差を
  * 無視する（手入力URLとAPIが返すitemUrlの表記ゆれを吸収する。SQL側
@@ -93,6 +105,11 @@ function normalizeUrlForMatch(url: string): string {
  *
  * itemCode を渡すと、その1件だけに絞った接続テストになる（shopCodeも
  * 一緒に渡すので、自社店舗の商品であることの確認も兼ねる）。
+ *
+ * 429（レート制限）が返った場合は、Retry-Afterヘッダー（あれば優先）または
+ * 既定のバックオフ（1.2秒→2秒→4秒）で最大 MAX_RATE_LIMIT_RETRIES 回まで
+ * 自動で再試行する。戻り値の httpCalls は、この1ページ分で実際に行った
+ * HTTPリクエスト数（再試行を含む）。
  */
 async function fetchRakutenPage(
   applicationId: string,
@@ -101,7 +118,7 @@ async function fetchRakutenPage(
   page: number,
   hits: number,
   itemCode?: string | null,
-): Promise<{ ok: boolean; status: number; authMode: string; data: any }> {
+): Promise<{ ok: boolean; status: number; authMode: string; data: any; httpCalls: number }> {
   const params = new URLSearchParams({
     format: "json",
     applicationId,
@@ -116,39 +133,65 @@ async function fetchRakutenPage(
   // 値は一切出さず、キー名だけ（applicationId/accessKeyの綴り間違いが無いかの確認用）
   console.log(JSON.stringify({ rakuten_request_param_keys: Array.from(params.keys()) }));
 
-  // 楽天Developers側の「許可Webサイト」チェック対策。Referer/Originが無いと
-  // 403 REQUEST_CONTEXT_BODY_HTTP_REFERRER_MISSING になる
-  const res = await fetch(`${RAKUTEN_ENDPOINT}?${params.toString()}`, {
-    headers: { Referer: RAKUTEN_REFERER, Origin: RAKUTEN_ORIGIN },
-  });
-  const data = await res.json().catch(() => null);
+  let res: Response;
+  let data: any;
+  let attempt = 0;
+  for (;;) {
+    attempt++;
+    // 楽天Developers側の「許可Webサイト」チェック対策。Referer/Originが無いと
+    // 403 REQUEST_CONTEXT_BODY_HTTP_REFERRER_MISSING になる
+    res = await fetch(`${RAKUTEN_ENDPOINT}?${params.toString()}`, {
+      headers: { Referer: RAKUTEN_REFERER, Origin: RAKUTEN_ORIGIN },
+    });
+    data = await res.json().catch(() => null);
+
+    if (res.status === 429 && attempt <= MAX_RATE_LIMIT_RETRIES) {
+      const retryAfterSec = Number(res.headers.get("Retry-After"));
+      const waitMs = Number.isFinite(retryAfterSec) && retryAfterSec > 0
+        ? retryAfterSec * 1000
+        : RATE_LIMIT_BACKOFF_MS[attempt - 1];
+      console.log(JSON.stringify({ page, attempt, rakuten_http_status: res.status, rate_limit_retry_ms: waitMs }));
+      await sleep(waitMs);
+      continue;
+    }
+    break;
+  }
+
   console.log(JSON.stringify({
     referer_sent: true,
     referer_host: new URL(RAKUTEN_REFERER).host,
-    rakuten_http_status: res.status,
+    page, attempt, rakuten_http_status: res.status,
   }));
   const ok = res.ok && !!data && !data.error;
-  return { ok, status: res.status, authMode: "query:accessKey", data };
+  return { ok, status: res.status, authMode: "query:accessKey", data, httpCalls: attempt };
 }
 
 /**
  * 楽天URLを指定した初回同期用。itemCodeをURLから推測することはせず、
  * shopCode一覧をhits=30でページングしながら、APIが返すitemUrlと正規化して
  * 比較する。一致した1件をそのまま返す（その商品のitemCodeは、推測ではなく
- * APIレスポンスに入っている正式な値）。
+ * APIレスポンスに入っている正式な値）。URLが見つかった時点で即ループを
+ * 終了し、それ以上のページは取得しない（無駄なAPI呼び出しをしない）。
+ *
+ * 予想QPS「1リクエスト/秒」の登録に合わせ、次のページへ進む前に必ず
+ * PAGE_INTERVAL_MSだけ空ける。429の再試行はfetchRakutenPage側が行う。
  */
 async function findRakutenItemByUrl(
   applicationId: string,
   accessKey: string,
   shopCode: string,
   targetUrl: string,
-): Promise<{ ok: boolean; status: number; item: any | null; data: any }> {
+): Promise<{ ok: boolean; status: number; item: any | null; data: any; httpCalls: number }> {
   const targetNorm = normalizeUrlForMatch(targetUrl);
   let lastData: any = null;
   let lastStatus = 0;
+  let httpCalls = 0;
 
   for (let page = 1; page <= MAX_URL_SEARCH_PAGES; page++) {
+    if (page > 1) await sleep(PAGE_INTERVAL_MS);
+
     const res = await fetchRakutenPage(applicationId, accessKey, shopCode, page, 30);
+    httpCalls += res.httpCalls;
     lastData = res.data;
     lastStatus = res.status;
     if (!res.ok) {
@@ -156,7 +199,7 @@ async function findRakutenItemByUrl(
         search_mode: "shop_url_match", page, returned_count: 0,
         url_match_found: false, rakuten_http_status: res.status,
       }));
-      return { ok: false, status: res.status, item: null, data: res.data };
+      return { ok: false, status: res.status, item: null, data: res.data, httpCalls };
     }
 
     const items: any[] = Array.isArray(res.data?.Items) ? res.data.Items : [];
@@ -170,11 +213,11 @@ async function findRakutenItemByUrl(
       url_match_found: !!found, rakuten_http_status: res.status,
     }));
 
-    if (found) return { ok: true, status: res.status, item: found, data: res.data };
+    if (found) return { ok: true, status: res.status, item: found, data: res.data, httpCalls };
     if (items.length < 30) break; // 最終ページまで見た（これ以上は無い）
   }
 
-  return { ok: true, status: lastStatus, item: null, data: lastData };
+  return { ok: true, status: lastStatus, item: null, data: lastData, httpCalls };
 }
 
 // ---- スペック抽出（商品名・商品説明から）。Node.jsで動作確認したロジックをそのまま使う ----
@@ -360,12 +403,15 @@ Deno.serve(async (req: Request) => {
     let items: any[];
     let rkData: any;
     let rkAuthMode = "query:accessKey";
+    let totalApiRequests = 0;
 
     if (targetItemCode) {
       console.log(JSON.stringify({ search_mode: "itemCode" }));
       const rk = await fetchRakutenPage(APP_ID, ACCESS_KEY, SHOP_CODE, page, limit, targetItemCode);
       rkData = rk.data;
       rkAuthMode = rk.authMode;
+      totalApiRequests = rk.httpCalls;
+      console.log(JSON.stringify({ total_api_requests: totalApiRequests }));
       if (!rk.ok) {
         return json({
           error: "楽天APIの呼び出しに失敗しました（認証情報または仕様をご確認ください）。",
@@ -383,6 +429,8 @@ Deno.serve(async (req: Request) => {
     } else if (targetUrl) {
       const found = await findRakutenItemByUrl(APP_ID, ACCESS_KEY, SHOP_CODE, targetUrl);
       rkData = found.data;
+      totalApiRequests = found.httpCalls;
+      console.log(JSON.stringify({ total_api_requests: totalApiRequests }));
       if (!found.ok) {
         return json({
           error: "楽天APIの呼び出しに失敗しました（認証情報または仕様をご確認ください）。",
@@ -401,6 +449,8 @@ Deno.serve(async (req: Request) => {
       const rk = await fetchRakutenPage(APP_ID, ACCESS_KEY, SHOP_CODE, page, limit);
       rkData = rk.data;
       rkAuthMode = rk.authMode;
+      totalApiRequests = rk.httpCalls;
+      console.log(JSON.stringify({ total_api_requests: totalApiRequests }));
       if (!rk.ok) {
         return json({
           error: "楽天APIの呼び出しに失敗しました（認証情報または仕様をご確認ください）。",
