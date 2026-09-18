@@ -35,9 +35,14 @@
 //     公式のAPI Test Formで実際に疎通確認済みの形に合わせている：
 //       - エンドポイント: 下記 RAKUTEN_ENDPOINT（20260701版）
 //       - accessKeyはクエリパラメータで渡す（ヘッダ等のフォールバックは無し）
+//       - Referer/Originに RAKUTEN_REFERER / RAKUTEN_ORIGIN を付ける。
+//         楽天Developers側の「許可Webサイト」に 8ec.jp / www.8ec.jp を登録
+//         していないと 403 REQUEST_CONTEXT_BODY_HTTP_REFERRER_MISSING になる
+//         （2026-09-18確認）。
 //     それでも失敗する場合は、まずログの rakuten_secrets_check /
-//     rakuten_request_param_keys で「値ではなくキー名・長さ」だけを確認し、
-//     Secretsの設定漏れ・コピペ時の余分な空白などから切り分けてください
+//     rakuten_request_param_keys / referer_sent 等で「値ではなくキー名・長さ・
+//     送信有無」だけを確認し、Secretsの設定漏れ・コピペ時の余分な空白・
+//     許可Webサイト未登録などから切り分けてください
 //     （秘密の値そのものはログに一切出さない）。
 // ============================================================
 
@@ -56,6 +61,11 @@ function json(body: unknown, status = 200) {
 
 // 楽天市場商品検索API。公式API Test Formで実際に疎通確認済みのエンドポイント（2026-09-18確認）。
 const RAKUTEN_ENDPOINT = "https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701";
+
+// 楽天Developersの「許可Webサイト」に登録したドメイン。無いと商品検索APIが
+// 403 REQUEST_CONTEXT_BODY_HTTP_REFERRER_MISSING を返す（2026-09-18確認）。
+const RAKUTEN_REFERER = "https://www.8ec.jp/";
+const RAKUTEN_ORIGIN = "https://www.8ec.jp";
 
 /**
  * 楽天の商品URL（https://item.rakuten.co.jp/{shopCode}/{itemNumber}/…）から
@@ -96,8 +106,17 @@ async function fetchRakutenPage(
   // 値は一切出さず、キー名だけ（applicationId/accessKeyの綴り間違いが無いかの確認用）
   console.log(JSON.stringify({ rakuten_request_param_keys: Array.from(params.keys()) }));
 
-  const res = await fetch(`${RAKUTEN_ENDPOINT}?${params.toString()}`);
+  // 楽天Developers側の「許可Webサイト」チェック対策。Referer/Originが無いと
+  // 403 REQUEST_CONTEXT_BODY_HTTP_REFERRER_MISSING になる
+  const res = await fetch(`${RAKUTEN_ENDPOINT}?${params.toString()}`, {
+    headers: { Referer: RAKUTEN_REFERER, Origin: RAKUTEN_ORIGIN },
+  });
   const data = await res.json().catch(() => null);
+  console.log(JSON.stringify({
+    referer_sent: true,
+    referer_host: new URL(RAKUTEN_REFERER).host,
+    rakuten_response_status: res.status,
+  }));
   const ok = res.ok && !!data && !data.error;
   return { ok, status: res.status, authMode: "query:accessKey", data };
 }
