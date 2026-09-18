@@ -2935,6 +2935,7 @@ function tabInfo(p) {
     </div>
     ${ind ? prodPrices(p) : ''}
     ${ind ? rentalBox(p) : ''}
+    ${ind ? imagesBox(p) : ''}
     ${p.spec ? `<div class="sec">スペック</div><div class="pre">${esc(p.spec)}</div>` : ''}
     ${p.note ? `<div class="sec">備考</div><div class="pre">${esc(p.note)}</div>` : ''}
     ${p.legacy_note ? `<div class="sec">旧データ備考</div>
@@ -2991,6 +2992,50 @@ function rentalBox(p) {
       p.office_supported ? 'Office対応' : '', p.trial_eligible ? 'お試し対象' : '',
       tags.length ? 'タグ：' + tags.join('・') : ''
     ].filter(Boolean).join('　')}</p>` : ''}`;
+}
+
+/* 商品画像。8ECトップ・8RENTの公開ページは、ここで登録した
+   メイン画像（image_url）→ 画像一覧（images）の順に写真を出す（公開側は次の読み込みで反映、再デプロイ不要）。
+   楽天同期は空欄だけ埋めるので、ここで指定したメイン画像は同期で上書きされない。 */
+function imagesBox(p) {
+  const main = (p.image_url || '').trim();
+  const list = Array.isArray(p.images) ? p.images.filter(u => typeof u === 'string' && u.trim()) : [];
+  const shown = [main].concat(list.filter(u => u !== main)).filter(Boolean).slice(0, 6);
+  return `<div class="sec" style="margin-top:16px">商品画像（公開ページ用）</div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px" id="prodImages">
+    ${shown.length ? shown.map((u, i) => `<a href="${esc(u)}" target="_blank" rel="noopener" title="${esc(u)}"
+        style="display:block;width:96px;height:72px;border:1px solid ${i === 0 && main ? '#1B1D1A' : 'rgba(27,29,26,.13)'};border-radius:8px;overflow:hidden;background:#fff">
+        <img src="${esc(u)}" alt="" loading="lazy" style="width:100%;height:100%;object-fit:contain" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'読めません',style:'display:grid;place-items:center;height:100%;font-size:11px;color:#B3261E'}))"></a>`).join('')
+      : '<span class="meta">まだ画像がありません。公開ページでは「画像準備中」と出ます。</span>'}
+  </div>
+  <p class="meta" style="margin-bottom:8px">${main ? 'メイン画像：登録済み' : 'メイン画像：未設定（一覧の1枚目を使います）'}　画像一覧：${list.length}枚</p>
+  <button class="btn sm ghost" onclick="sheetProductImages('${esc(p.code)}')" ${dis()}>商品画像を登録・変更</button>`;
+}
+function sheetProductImages(code) {
+  const p = prod(code); if (!p) return;
+  const list = Array.isArray(p.images) ? p.images.filter(u => typeof u === 'string' && u.trim()) : [];
+  openSheet({
+    title: '商品画像', subject: code, cta: '保存',
+    hint: '公開ページ（8ECトップ・8RENT）に出す写真です。メイン画像が空なら一覧の1枚目を使います。楽天同期で取り込んだ画像は一覧に入っています。URLは https:// から始まる配信URLを入れてください。',
+    body: `<label class="field" style="margin-bottom:10px"><span>メイン画像URL</span>
+        <input class="input" id="piMain" value="${esc(p.image_url || '')}" placeholder="https://…/main.jpg"></label>
+      <label class="field"><span>画像一覧（1行に1つ・上から順に表示）</span>
+        <textarea class="input" id="piList" rows="5" placeholder="https://…/1.jpg&#10;https://…/2.jpg">${esc(list.join('\n'))}</textarea></label>`,
+    run: () => saveProductImages(code)
+  });
+}
+async function saveProductImages(code) {
+  const main = (($('piMain') || {}).value || '').trim() || null;
+  const list = (($('piList') || {}).value || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  const bad = [main].concat(list).filter(u => u && !/^https?:\/\//i.test(u));
+  if (bad.length) { toast('画像URLは https:// から始めてください：' + bad[0]); return; }
+  const { data, error } = await sb.rpc('inv_product_images_set', { p_code: code, p_image_url: main, p_images: list });
+  if (error) { toast('保存できませんでした：' + error.message); return; }
+  const i = db.masters.findIndex(x => x.code === code);
+  if (i >= 0 && data) db.masters[i] = data;
+  await refreshTx();
+  render();
+  toast('商品画像を保存しました（公開ページは次の読み込みから反映）');
 }
 
 /* 楽天など販売チャネルで受注が入ったときに、在庫を1台「販売予約」で確保する。

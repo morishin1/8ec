@@ -11,7 +11,7 @@
 
 ```
 .
-├── index.html          トップページ
+├── index.html          8EC総合トップ（自社在庫の商品を「購入」でも「8RENTでレンタル」でも）
 ├── pc.html             レンタルパソコン
 ├── cloud.html          クラウド情シス
 ├── ai-dev.html         AI・業務システム開発
@@ -38,8 +38,9 @@
 │   ├── app.js          画面のロジック
 │   └── setup.sql       Supabase設定（※サイトには配信しない）
 ├── shop/               公開ショップ（Stripe決済）
-├── rental/             機材レンタル
+├── rental/             8RENT（自社在庫のレンタル公開ページ）
 ├── assets/             画像・ロゴ・favicon・在庫データ・商品イラスト・コラム目次
+│   ├── catalog.js      公開カタログの共通部品（/ と /rental/ が読む。取得・写真・在庫・購入/レンタル判定）
 │   └── csv.js          CSVの読み書き（管理画面で共通。Shift_JIS判別つき）
 ├── column/             IT調達コラム（記事は生成物／詳細は column/README.md）
 ├── tools/              在庫取り込み・コラム生成のスクリプト
@@ -55,7 +56,12 @@
 
 ---
 
-## 在庫データの更新
+## 在庫データの更新（仕入先カタログ／旧トップの静的データ）
+
+> トップページ（`/`）の商品表示は、2026-09 のリニューアルで `/zaiko` の実在庫
+> （Supabase の公開ビュー `inv_public_catalog`）に切り替えました。下記の
+> `assets/inventory-data.js` はトップからは読み込まなくなり、`/admin/catalog/` の
+> 仕入先カタログ管理だけが使っています。
 
 仕入先から届いた在庫Excelは、取り込みスクリプトで `assets/inventory-data.js` に反映します。
 仕入先ごとに列の並びが違うので、読み取りルールは `tools/import-stock.py` に集約しています。
@@ -86,7 +92,11 @@ python3 tools/export-csv.py /path/out.csv   # 出力先を指定する
 
 ## ヒーロー画像
 
-トップページのヒーロー背景は `assets/hero-devices.svg` です。
+トップ（`/`）のメインビジュアルは `assets/8ec-hero.webp`、8RENT（`/rental/`）は
+`assets/8rent-hero.webp` です（デザインZIP同梱の静的素材。商品写真とは用途を分けており、
+商品カード・商品詳細の写真は必ず `/zaiko` の商品マスターに登録された画像を使います）。
+
+旧トップのヒーロー背景 `assets/hero-devices.svg` は次の手順で作っていました（現在は未使用）。
 商品一覧で使っている `assets/product-art.js` の機器イラストをそのまま並べて組み立てているので、
 ヒーローと商品カードの画風が揃います。写真素材を使わないため権利の問題も起きません。
 
@@ -924,12 +934,53 @@ WKBｾｯﾄ　総数 9　個品ID 00039586573　落札 36,000＋3,600
 
 ---
 
+## 8EC総合トップ（/）— 購入とレンタルの共通公開カタログ
+
+トップは `/zaiko` が管理する商品マスター・画像・実在庫・出品情報を、**共通の公開ビュー
+`inv_public_catalog`** から読んで表示します。トップ専用の商品マスターや、販売用・レンタル用の
+別在庫は持ちません。取得・写真の選び方・在庫の判定・ボタンの出し分けは `assets/catalog.js`
+（`window.EightCatalog`）に1か所にまとめ、`/` と `/rental/` の両方が同じ部品を使います。
+
+```
+楽天同期（rakuten-product-sync）／ /zaiko での登録・編集・在庫操作
+                      ↓
+  inventory_products（商品・画像・rental_*）＋ inventory_items（個体）＋ inventory_channel_listings（出品）
+                      ↓  inv_public_catalog（公開してよい列だけ・anon が select）
+                      ↓  assets/catalog.js（EightCatalog）
+        8ECトップ（/）              8RENT（/rental/・rental_enabled の商品だけ）
+```
+
+| 表示項目 | 取得元 |
+|---|---|
+| 商品名・型番・メーカー・カテゴリ・スペック（CPU/メモリ/ストレージ…） | `inventory_products`（＋`inventory_categories.name`） |
+| 代表画像 | `image_url`（人が指定したメイン画像）→ `images[0]`（楽天同期・手入力）→ 無ければ「画像準備中」 |
+| 8RENT用の写真 | `rental_image_url` / `rental_images` → 無ければ上の一般画像 |
+| いま提供できる台数 `available` | `inventory_items` の `status = '在庫'` の個体数（予約中・販売予約・貸出中・修理中・故障などは含めない） |
+| 購入できるか・購入先・価格 | `inventory_channel_listings`（`channel='rakuten'`・`state='出品中'`・登録済み `url` あり）。ボタンは「楽天市場で購入」で、URLは商品コードから推測しない |
+| レンタルできるか・月額・最低期間・Office・お試し | `inventory_products` の `rental_enabled` / `rental_price_month` / `rental_min_months` / `office_supported` / `trial_eligible` |
+| カテゴリー件数 | 公開商品から集計（「N 機種」＝商品数、「在庫 N 台」＝提供可能数の合計。実在するカテゴリーだけ） |
+| 購入／レンタルのボタン | 販売のみ→「楽天市場で購入」、レンタルのみ→「レンタルする」（`/rental/?code=商品コード`）、両方→両方、どちらも無し／台数不足→ボタン無し＋相談導線 |
+
+公開条件は `kind='individual'` かつ（`rental_enabled` または 楽天に出品中でURLあり）。
+シリアル・仕入価格・販売予定価格・利用者・備考・保管場所はビューに含めません。
+トップが閲覧されるたびに楽天APIを呼ぶことはなく、保存済みの商品データだけを読みます。
+画像URLが壊れていれば次の候補に切り替え、最後は「画像準備中」の枠にします（無限再読込はしない）。
+
+商品画像は `/zaiko` の商品詳細「商品画像を登録・変更」（`inv_product_images_set`）で
+メイン画像と画像一覧を入れます。公開ページは次の読み込みから反映され、再デプロイは要りません。
+楽天同期は空欄だけを埋めるので、人が指定したメイン画像を上書きしません。
+
+PACK・Supported Plan などの固定料金は承認済みのサービス料金として HTML に書いており、
+商品ごとの販売価格・月額（すべて DB 由来）とは分けています。
+
+---
+
 ## 8RENT（/rental/）— 自社在庫のレンタル公開
 
-**8RENTは「販売」とは統合しません。** `/zaiko` の自社在庫のうち `rental_enabled = true` の
-商品だけを、レンタル専用で公開します。8RENTの商品詳細から購入したい人には
-「購入について相談する」（`/index.html#contact` への軽いリンク）を出すだけで、
-それ以上は8ECの購入・見積もり導線に立ち入りません。
+`/zaiko` の自社在庫のうち `rental_enabled = true` の商品だけを、レンタル専用で公開します
+（トップと同じ `inv_public_catalog` をレンタルで絞って読む）。8RENTの商品詳細では、
+その商品が楽天に出品中なら「楽天市場で購入」（登録済みURL）を、そうでなければ
+「購入について相談する」（`/#contact`）を出すだけで、購入手続きには立ち入りません。
 
 ```
 /zaiko で仕入れる → rental_enabled をオンにする → 8RENTに公開 → 申込 → 発送 → 返却
@@ -990,7 +1041,7 @@ anon（8RENTの一般訪問者）には以下だけを許可し、テーブル�
 
 | 経路 | 中身 |
 |---|---|
-| `inv_rental_catalog`（ビュー・select） | 公開用の列だけ。仕入価格・原価などの内部情報は含まない |
+| `inv_public_catalog`（ビュー・select） | 公開用の列だけ。仕入価格・原価などの内部情報は含まない（`inv_rental_catalog` も残しているが、公開ページは共通の `inv_public_catalog` を読む） |
 | `inv_rental_request()`（RPC） | レンタル申込。実行だけを許可し、テーブルへの直接書き込みは許可しない |
 
 ### 旧レンタル機能は削除済み
