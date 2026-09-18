@@ -5,9 +5,20 @@
 --   貼り付けて Run してください。何度実行しても安全です。
 --
 --   これは「社内のPC・IT機器・備品・消耗品」を管理する仕組みです。
---   併せて、実在庫（個体）を基準に「販売（楽天など）」と「レンタル（8RENT）」
---   を同じ在庫で連動させる基盤でもあります（在庫確保の共通処理は下記
+--   併せて、実在庫（個体）を基準に「販売」と「レンタル」を同じ在庫で
+--   連動させる基盤でもあります（在庫確保の共通処理は下記
 --   inv_reserve_available_item() を参照）。
+--
+--   チャネルの役割
+--     楽天 … 販売チャネル（購入は楽天市場の商品ページで完結する）
+--     8EC  … レンタルチャネル（8ECトップ・8RENT がレンタルの入口）
+--   同じ商品・同じ実在庫を両方のチャネルに出すが、販売とレンタルは別々に
+--   判定する。守るのは次の2つ：
+--     1) 同じ実在庫を二重に確保しない（inv_reserve_available_item() が唯一の入口）
+--     2) 8ECでレンタル対象にしても、楽天の掲載（listing）は解除しない。
+--        消すのは掲載ではなく数量で、発送できない個体（予約中・貸出中・
+--        販売予約・修理中）は楽天へ送る販売可能数量に含めない
+--        （inv_channel_stock_feed を参照）。
 --   /admin/ の ec_items、/admin/ec/ の ec_products（新品SKUのモール出品用の
 --   独自在庫）はまだ別スキーマのままで、このファイルからは触れません。
 --
@@ -26,6 +37,11 @@
 --     inventory_stocktakes      棚卸セッション
 --     inventory_stocktake_items 棚卸の確認状況
 --     inventory_counters        採番カウンタ
+--
+--   公開・連携用のビュー
+--     inv_public_catalog        8ECトップ／8RENTが読む公開カタログ
+--                               （rental_enabled=true の商品だけ）
+--     inv_channel_stock_feed    楽天など販売チャネルへ送る販売可能数量（社内用）
 --
 --   操作用の関数（画面から直接UPDATEせず、必ずこれを通す）
 --     inv_item_op()        貸出／返却／移動／状態変更／廃棄／予約解除／棚卸確認
@@ -1911,8 +1927,16 @@ comment on function public.inv_listings_import is
 -- ============================================================
 -- 28) 8RENT（自社在庫のレンタル公開）
 --
---     8RENTは「販売」とは統合しない。/zaiko の自社在庫のうち
---     rental_enabled=true の商品だけを、レンタル専用で公開する。
+--     /zaiko の自社在庫のうち rental_enabled=true の商品だけを、8EC
+--     （8ECトップ・8RENT）にレンタル商品として公開する。楽天に出品中か
+--     どうかはレンタル公開の条件にしない（8ECはレンタルサイト、楽天は
+--     販売サイト、という別チャネルの扱い）。逆に、8ECでレンタル対象に
+--     しても楽天の掲載は解除しない。
+--
+--     レンタルを受け付けられるのは
+--       rental_enabled = true かつ status='在庫' の個体が1台以上あるとき。
+--     最後の1台が楽天で売れて '販売予約' になれば、8ECは自動的に
+--     「在庫切れ」になる（レンタル可能数が0になるため）。
 --
 --     個体の状態がそのままレンタル可否になる。新しい状態は「予約中」の1つだけ：
 --       在庫    … レンタル可能（現在庫にも数える）
@@ -2032,10 +2056,10 @@ create trigger inventory_rental_requests_touch before update on public.inventory
   for each row execute function public.inv_touch();
 
 -- ------------------------------------------------------------
--- 29-2b) 在庫確保の共通処理（8RENTのレンタル予約と、楽天などの販売予約が共用する）
+-- 29-2b) 在庫確保の共通処理（8ECのレンタル予約と、楽天などの販売予約が共用する）
 --
---     楽天で売れたら8RENTで借りられなくなり、8RENTで借りられたら楽天で売れなくなる、
---     を保証するための唯一の入口。「status='在庫' の個体を1台、行ロックして
+--     楽天で売れたら8ECで借りられなくなり、8ECで借りられたら楽天の販売可能数量から
+--     外れる、を保証するための唯一の入口（掲載そのものはどちらでも解除しない）。「status='在庫' の個体を1台、行ロックして
 --     指定の状態にする」だけを行い、呼び出し元固有の記録（申込テーブルへのinsert・
 --     出品情報の更新など）は行わない。同じ商品コードに対して2つの経路
 --     （inv_rental_request と inv_sale_reserve）が同時に呼ばれても、
@@ -2069,8 +2093,9 @@ end $$;
 
 comment on function public.inv_reserve_available_item is
   '在庫（status=''在庫''）の個体を1台、行ロックして指定の状態にする。無ければNULL。
-   8RENTの申込（予約中にする）と楽天等の販売予約（販売予約にする）が、
-   同じ実在庫を安全に取り合うための共通処理。';
+   8ECのレンタル申込（予約中にする）と楽天等の販売予約（販売予約にする）が、
+   同じ実在庫を安全に取り合うための共通処理。ここで確保された個体は、
+   レンタル可能数からも楽天へ送る販売可能数量からも同時に外れる。';
 
 -- ------------------------------------------------------------
 -- 29-3) 申込を受け付ける（公開ページから anon が呼ぶ）
@@ -2124,7 +2149,9 @@ begin
 end $$;
 
 comment on function public.inv_rental_request is
-  '8RENT公開ページからのレンタル申込。在庫の個体を1台その場で予約中にし、申込を記録する。anonが実行する唯一の書き込み経路。';
+  '8EC（8RENT）公開ページからのレンタル申込。在庫の個体を1台その場で予約中にし、申込を記録する。
+   anonが実行する唯一の書き込み経路。楽天の掲載は解除せず、確保した個体が
+   楽天へ送る販売可能数量から外れるだけ。';
 
 -- ------------------------------------------------------------
 -- 29-4) 申込の状態を進める（社内・/zaiko側の操作）
@@ -2212,9 +2239,15 @@ comment on function public.inv_rental_set_status is
 --     同じ商品の最後の1台に楽天注文と8RENT申込がほぼ同時に来ても、
 --     どちらか一方しか成功しない。
 --
---     状態の流れ：在庫 → 販売予約 →（発送）→ 売却済（既存の inv_item_op の
---     '売却' をそのまま使う。'売却' はどの状態からでも実行できるため変更不要）
+--     状態の流れ：在庫 → 販売予約 →（発送）→ 売却済（＝販売済み。既存の
+--     inv_item_op の '売却' をそのまま使う。'売却' はどの状態からでも
+--     実行できるため変更不要）
 --                              →（発送前キャンセル）→ 在庫（inv_item_op の '予約解除'）
+--
+--     '販売予約' にした時点で、その個体は8ECのレンタル可能数からも、楽天へ送る
+--     販売可能数量（inv_channel_stock_feed.sale_qty）からも外れる。
+--     楽天の商品ページ（inventory_channel_listings）はここでは触らない
+--     ＝受注が入っても掲載は維持する（在庫数だけが減る）。
 -- ------------------------------------------------------------
 create or replace function public.inv_sale_reserve(
   p_code    text,
@@ -2260,8 +2293,10 @@ end $$;
 
 comment on function public.inv_sale_reserve is
   '楽天などモールで受注が入ったとき、在庫の個体を1台その場で「販売予約」にする。
-   inv_reserve_available_item() を使うため、8RENTの予約と同じ実在庫を取り合っても
-   二重に確保されない。RMS WEB SERVICE等のAPI連携が無い間は、スタッフが手動で呼ぶ。';
+   inv_reserve_available_item() を使うため、8ECのレンタル予約と同じ実在庫を取り合っても
+   二重に確保されない。確保された個体は8ECのレンタル可能台数から即座に外れる。
+   商品の掲載（inventory_channel_listings）は変更しない。
+   RMS WEB SERVICE等のAPI連携が無い間は、スタッフが手動で呼ぶ。';
 
 -- ------------------------------------------------------------
 -- 29-5) 公開カタログ（8RENT / anon が読む）
@@ -2639,20 +2674,38 @@ comment on view public.inv_rental_catalog is
 -- ------------------------------------------------------------
 -- 30-5) inv_public_catalog：8ECトップ／8RENT 共通の公開ビュー
 --
+--     チャネルの役割
+--       楽天 … 販売チャネル（購入は楽天市場の商品ページで完結する）
+--       8EC  … レンタルチャネル（8ECトップ・8RENT がレンタルの入口）
+--     同じ商品・同じ実在庫を両方のチャネルに出す。ただし「販売できるか」と
+--     「レンタルできるか」は別々に判定する。8ECでレンタル対象にしても
+--     楽天の掲載（listing）は解除しない。
+--
+--     公開条件：kind='individual' かつ rental_enabled = true
+--       8ECはレンタルサイトなので、楽天に出品中かどうかは公開条件にしない。
+--       楽天だけで売る商品（rental_enabled=false）はこのビューに出さない。
+--
+--     「掲載しているか」と「いま提供できる数量」を分けて持つ
+--       available / rental_available … status='在庫' の個体数。予約中・貸出中・
+--             販売予約・修理中などは含めない。レンタルを受け付けられるのは
+--             rental_enabled=true かつ この数が1以上のときだけ。
+--       sale_listed / sale_enabled … 楽天に掲載中か（state='出品中' かつURLあり）。
+--             貸出中の個体があっても掲載は維持するので、在庫数では変わらない。
+--       sale_available … 楽天でいま購入できる数量。掲載中なら status='在庫' の
+--             個体数、未掲載なら0。発送できない個体（予約中・貸出中・販売予約・
+--             修理中）は含めないので、最後の1台が貸出中なら 掲載あり・数量0 になる。
+--       購入ボタンを出してよいか＝ sale_listed、押せるか＝ sale_available > 0。
+--
 --     表示項目 → 取得元：
 --       商品名・型番・メーカー・カテゴリ・スペック・説明 … inventory_products
 --       代表画像 image_url … image_url（人が指定したメイン画像。楽天同期は空欄だけ埋める）
 --                            → 無ければ images の1枚目
 --       画像一覧 images     … inventory_products.images（楽天同期・手入力）
 --       8RENT用画像         … rental_image_url / rental_images（空なら一般画像）
---       提供可能数 available … inventory_items.status = '在庫' の個体数
---                            （予約中・販売予約・貸出中・修理中・故障などは含めない。
---                             8RENTのレンタル可能数と楽天の販売可能数は同じこの数）
 --       レンタル可否・月額   … rental_enabled / rental_price_month / rental_min_months
---       販売可否・購入先・価格 … inventory_channel_listings（channel='rakuten'、
+--       販売の掲載・購入先・価格 … inventory_channel_listings（channel='rakuten'、
 --                            state='出品中'、url あり）。URLは登録済みのものだけ使い、
 --                            商品コードから推測生成しない
---     公開条件：kind='individual' かつ（rental_enabled または 楽天に出品中でURLあり）。
 --     含めない：シリアル・仕入価格・原価・販売予定価格・利用者・備考・保管場所
 -- ------------------------------------------------------------
 drop view if exists public.inv_public_catalog;
@@ -2684,12 +2737,19 @@ select
   p.cpu, p.cpu_gen, p.memory_size, p.storage_type, p.storage_capacity,
   p.screen_size, p.os, p.webcam, p.wifi, p.bluetooth, p.numpad, p.accessories,
   p.office_supported,
+  -- 実在庫（両チャネル共通。ここから二重に確保されることはない）
   coalesce(a.available, 0)::integer                                 as available,
   coalesce(a.total_owned, 0)::integer                               as total_owned,
+  -- レンタル（8EC）
   coalesce(p.rental_enabled, false)                                 as rental_enabled,
+  coalesce(a.available, 0)::integer                                 as rental_available,
   p.rental_price_month, p.rental_min_months, p.trial_eligible, p.rental_tags,
   coalesce(nullif(p.rental_description,''), p.description)          as rental_description,
-  (rk.state = '出品中' and nullif(rk.url,'') is not null)           as sale_enabled,
+  -- 販売（楽天）。掲載状態と購入できる数量を分けて出す
+  coalesce(rk.state = '出品中' and nullif(rk.url,'') is not null, false) as sale_listed,
+  coalesce(rk.state = '出品中' and nullif(rk.url,'') is not null, false) as sale_enabled,
+  case when rk.state = '出品中' and nullif(rk.url,'') is not null
+       then coalesce(a.available, 0)::integer else 0 end            as sale_available,
   case when rk.state = '出品中' and nullif(rk.url,'') is not null then 'rakuten' end as sale_channel,
   case when rk.state = '出品中' and nullif(rk.url,'') is not null then rk.url   end as sale_url,
   case when rk.state = '出品中' and nullif(rk.url,'') is not null then rk.price end as sale_price,
@@ -2699,12 +2759,13 @@ left join public.inventory_categories c on c.id = p.category_id
 left join avail a on a.product_code = p.code
 left join rk on rk.product_code = p.code
 where p.kind = 'individual'
-  and (coalesce(p.rental_enabled, false)
-       or (rk.state = '出品中' and nullif(rk.url,'') is not null));
+  and coalesce(p.rental_enabled, false) = true;
 
 comment on view public.inv_public_catalog is
-  '8ECトップと8RENTが共通で読む公開カタログ。販売（楽天に出品中でURLあり）またはレンタル（rental_enabled）で
-   提供している商品だけ。提供可能数は status=在庫 の個体数。シリアル・仕入価格・利用者・備考は含めない。';
+  '8ECトップと8RENTが共通で読む公開カタログ。8ECはレンタルサイトなので rental_enabled=true の商品だけを出す
+   （楽天に出品中かどうかは公開条件にしない）。available/rental_available は status=在庫 の個体数。
+   楽天の掲載（sale_listed）と、楽天でいま購入できる数量（sale_available）は別の列で持つ。
+   シリアル・仕入価格・利用者・備考は含めない。';
 
 -- ------------------------------------------------------------
 -- 30-6) 商品画像の登録（/zaiko の商品詳細から）
@@ -2753,6 +2814,59 @@ end $$;
 comment on function public.inv_product_images_set is
   '商品のメイン画像URLと画像一覧を入れ直す（/zaiko）。公開ページは再デプロイなしで次の読み込みから反映される。';
 
+-- ------------------------------------------------------------
+-- 30-7) inv_channel_stock_feed：販売チャネルへ送る「購入できる数量」
+--
+--     楽天など販売チャネルの商品ページ（listing）は、8ECでレンタル中でも
+--     消さない。消すのは在庫数のほうで、物理的に発送できない個体
+--     （予約中・貸出中・販売予約・修理中・故障・紛失）は数量に含めない。
+--     最後の1台が貸出中なら「掲載は残す・購入できる数量は0」になる。
+--
+--       sale_qty … そのチャネルへ送る販売可能数量＝ status='在庫' の個体数。
+--                  未掲載（state が '出品中' 以外）なら0。
+--       listed   … 掲載中か。8ECのレンタルでは変えない（人が出品状態を
+--                  変えたときだけ変わる）。
+--
+--     RMS WEB SERVICE 等のAPI連携が入るまでは、スタッフがこのビューを見て
+--     楽天の在庫数を更新する。社内用なので anon には出さない。
+-- ------------------------------------------------------------
+drop view if exists public.inv_channel_stock_feed;
+create view public.inv_channel_stock_feed as
+with cnt as (
+  select product_code,
+         count(*) filter (where status = '在庫')                 as in_stock,
+         count(*) filter (where status = '予約中')               as rental_reserved,
+         count(*) filter (where status = '貸出中')               as on_rent,
+         count(*) filter (where status = '販売予約')             as sale_reserved,
+         count(*) filter (where status in ('修理中','故障','紛失')) as unusable,
+         count(*) filter (where status not in ('売却済','廃棄')) as total_owned
+    from public.inventory_items
+   group by product_code
+)
+select
+  l.product_code,
+  p.name, p.model,
+  l.channel,
+  l.state,
+  (l.state = '出品中')                                           as listed,
+  l.external_item_code, l.sku, l.url, l.price,
+  case when l.state = '出品中' then coalesce(n.in_stock, 0) else 0 end::integer as sale_qty,
+  coalesce(n.in_stock, 0)::integer        as in_stock,
+  coalesce(n.rental_reserved, 0)::integer as rental_reserved,
+  coalesce(n.on_rent, 0)::integer         as on_rent,
+  coalesce(n.sale_reserved, 0)::integer   as sale_reserved,
+  coalesce(n.unusable, 0)::integer        as unusable,
+  coalesce(n.total_owned, 0)::integer     as total_owned,
+  coalesce(p.rental_enabled, false)       as rental_enabled,
+  l.updated_at
+from public.inventory_channel_listings l
+join public.inventory_products p on p.code = l.product_code
+left join cnt n on n.product_code = l.product_code;
+
+comment on view public.inv_channel_stock_feed is
+  '楽天など販売チャネルへ送る販売可能数量（sale_qty＝status=在庫 の個体数）。掲載（listed）とは別に持つ。
+   8ECでレンタル中・予約中・販売予約・修理中の個体は発送できないので数量に含めない。社内用（authenticatedのみ）。';
+
 -- ============================================================
 -- 29) 追加分の権限
 -- ============================================================
@@ -2780,6 +2894,8 @@ grant execute on function public.inv_rental_request(text,text,text,text,text,dat
 grant usage on schema public to anon;
 grant select on public.inv_rental_catalog to anon, authenticated;
 grant select on public.inv_public_catalog to anon, authenticated;
+-- 販売チャネルへ送る数量は社内用（anonには出さない）
+grant select on public.inv_channel_stock_feed to authenticated;
 grant select, update on public.inventory_rental_requests to authenticated;
 
 alter table public.inventory_channels enable row level security;

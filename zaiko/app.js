@@ -2971,12 +2971,28 @@ function prodPrices(p) {
   <p class="meta" style="margin-top:6px">売れたものは実際の販売価格、売れていないものは販売予定価格で見込んでいます。</p>`;
 }
 
-/* 8RENTでのレンタル可能数。在庫の個体数がそのままレンタル可能数になる
-   （貸出中・予約中・修理中などは status = '在庫' ではないので自然に外れる） */
+/* 8EC（レンタル）と楽天（販売）は同じ実在庫を共有する。どちらも「いま出せる数」は
+   status='在庫' の個体数で、貸出中・予約中・販売予約・修理中などは自然に外れる。
+   先に確保したほうにその1台が割り当たる（サーバー側の inv_reserve_available_item）。 */
 const rentalAvailable = (code) => itemsOf(code).filter(i => i.status === '在庫').length;
+/* 販売サイトへ出してよい数量。掲載（出品状態）とは別に持つ。
+   掲載していなければ0。掲載していれば在庫の台数（＝発送できる台数）。
+   8ECで貸し出しても掲載は解除せず、この数量だけが減る。 */
+const saleListed = (code, ch) =>
+  (channelsOf(code).find(v => v.channel === ch) || {}).state === LISTED ||
+  itemsOf(code).some(i => (listingOf(i, ch) || {}).state === LISTED);
+const saleAvailable = (code, ch) => saleListed(code, ch) ? rentalAvailable(code) : 0;
+/* 在庫にまだ入っていない理由の内訳（販売可能数量に含めない個体） */
+const heldCounts = (code) => {
+  const c = { 予約中: 0, 貸出中: 0, 販売予約: 0, 修理中: 0 };
+  itemsOf(code).forEach(i => { if (c[i.status] != null) c[i.status] += 1; });
+  return c;
+};
 
 /* 商品詳細に出す8RENT設定。/zaikoが基準（source of truth）で、
-   ここでrental_enabledをオンにした商品だけが8RENTに公開される。 */
+   ここでrental_enabledをオンにした商品だけが8EC（トップ・8RENT）に公開される。
+   楽天は販売チャネルなので、レンタル公開にしても楽天の掲載は解除しない
+   （貸し出された1台が、楽天へ出す販売可能数量から外れるだけ）。 */
 function rentalBox(p) {
   const on = !!p.rental_enabled;
   const avail = rentalAvailable(p.code);
@@ -2991,7 +3007,7 @@ function rentalBox(p) {
   ${on ? `<p class="meta" style="margin-top:6px">${[
       p.office_supported ? 'Office対応' : '', p.trial_eligible ? 'お試し対象' : '',
       tags.length ? 'タグ：' + tags.join('・') : ''
-    ].filter(Boolean).join('　')}</p>` : ''}`;
+    ].filter(Boolean).concat(['在庫（status=在庫）の台数がそのままレンタル可能数です。貸し出しても楽天の掲載は解除せず、販売サイトへ出す数量だけが減ります。']).join('　')}</p>` : ''}`;
 }
 
 /* 商品画像。8ECトップ・8RENTの公開ページは、ここで登録した
@@ -3047,7 +3063,7 @@ function sheetSaleReserve(code) {
   const avail = rentalAvailable(code);
   openSheet({
     title: '受注を記録', subject: code, cta: '在庫を1台確保',
-    hint: `${esc(titleOf(p))}　いま確保できる在庫 ${avail}台。販売サイトで受注が入ったら、発送前にここで在庫を1台「販売予約」にします（8RENTのレンタル予約とも在庫を取り合います）。`,
+    hint: `${esc(titleOf(p))}　いま確保できる在庫 ${avail}台。販売サイトで受注が入ったら、発送前にここで在庫を1台「販売予約」にします。確保した1台は8ECのレンタル可能数からすぐ外れます（商品の掲載は解除しません）。発送したら個体の操作から「売却」で販売済みにしてください。`,
     body: `<label class="field"><span>販売サイト</span>
         <select class="input" id="srChannel">${TAB_CHANNELS.map(c => `<option value="${esc(c.key)}">${esc(c.label)}</option>`).join('')}</select></label>
       <label class="field" style="margin-top:10px"><span>注文番号（任意）</span>
@@ -3187,16 +3203,19 @@ function tabSales(p) {
     <p class="meta" style="margin-bottom:12px">${ind
       ? '出品は<strong>実物1台ごと</strong>に持ちます。1台ずつの中身は、下の管理番号をクリックしてください。'
       : '数量管理の品目なので、出品情報は品目まるごとで持ちます。'}</p>
+    ${ind ? saleQtyNote(p) : ''}
     <div class="table-wrap"><table class="t">
-      <thead><tr><th>販売サイト</th>${ind ? '<th class="r">出品中</th>' : ''}
+      <thead><tr><th>販売サイト</th>${ind ? '<th class="r">出品中</th><th class="r">販売できる数量</th>' : ''}
         <th>型番まとめての設定</th><th>SKU</th><th class="r">販売価格</th><th>商品URL</th>
         ${canEdit() ? '<th></th>' : ''}</tr></thead>
       <tbody>${CHANNELS.map(c => {
         const x = channelsOf(p.code).find(v => v.channel === c.key) || {};
         const n = units.filter(i => (listingOf(i, c.key) || {}).state === LISTED).length;
+        const q = saleAvailable(p.code, c.key);
         return `<tr>
           <td class="nowrap"><span class="tag ch ${n || x.state === LISTED ? 'on' : ''}">${esc(c.short)}</span> ${esc(c.label)}</td>
-          ${ind ? `<td class="num r${n ? '' : ' meta'}">${n || '—'}</td>` : ''}
+          ${ind ? `<td class="num r${n ? '' : ' meta'}">${n || '—'}</td>
+          <td class="num r${saleListed(p.code, c.key) ? (q ? '' : ' minus') : ' meta'}">${saleListed(p.code, c.key) ? q + '台' : '—'}</td>` : ''}
           <td class="nowrap">${x.state ? `<span class="tag ${x.state === LISTED ? 'ch on' : 'act'}">${esc(x.state)}</span>` : '<span class="meta">—</span>'}</td>
           <td class="num">${esc(x.sku || '') || '<span class="meta">—</span>'}</td>
           <td class="num r">${x.price == null ? '<span class="meta">—</span>' : yen(x.price)}</td>
@@ -3215,6 +3234,20 @@ function tabSales(p) {
             onclick="event.stopPropagation();go('item','${esc(i.id)}')">開く</button></td>
         </tr>`).join('')}</tbody></table></div>`
       : '<div class="empty" style="margin-top:14px">個体がまだ登録されていません。</div>') : ''}`;
+}
+
+/* 販売サイトへ出す数量の説明。「掲載しているか」と「いま売れる数量」は別物、
+   という運用をこの画面で明示する（8ECでレンタル中でも掲載は消さない）。 */
+function saleQtyNote(p) {
+  const avail = rentalAvailable(p.code);
+  const h = heldCounts(p.code);
+  const held = Object.keys(h).filter(k => h[k] > 0).map(k => `${k} ${h[k]}台`);
+  return `<div class="card" style="margin-bottom:12px">
+    <div>販売サイトへ出す数量：<strong>${avail}台</strong>（在庫の台数）
+      ${held.length ? `<span class="meta">　除外：${esc(held.join('・'))}</span>` : ''}</div>
+    <div class="meta" style="margin-top:4px">発送できない個体（予約中・貸出中・販売予約・修理中）は数量に含めません。
+      ${p.rental_enabled ? '8ECでレンタル中でも' : ''}販売サイトの商品ページ（掲載）はそのまま残し、在庫数だけを0にしてください。</div>
+  </div>`;
 }
 
 /* 型番まとめての出品設定。1台ぶんの設定が無い個体に当たる */
@@ -4339,7 +4372,7 @@ function handleCode(raw) {
 }
 
 /* ===== 13. 8RENT申込 =====
-   8RENT（/rental/）から入ったレンタル申込を扱う。個体の割り当ては申込時に
+   8RENT（サイトトップ /）から入ったレンタル申込を扱う。個体の割り当ては申込時に
    inv_rental_request() が自動でやっている（在庫の個体を1台「予約中」にする）ので、
    ここでの操作は状態を進めるだけ：発送する（予約中→貸出中）／返却済みにする（貸出中→在庫）／
    キャンセル（予約中→在庫）。個体の状態と申込の状態は常に連動する。 */

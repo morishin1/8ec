@@ -1,9 +1,17 @@
 /* ===================================================================
    8EC / 8RENT 共通：公開カタログの取得・画像選択・提供可能数の表示
 
+   チャネルの役割
+     楽天 … 販売チャネル（購入は楽天市場の商品ページで完結する）
+     8EC  … レンタルチャネル（このサイトはレンタルの入口）
+   同じ商品・同じ実在庫を両方に出すが、公開条件は別。8ECに載せる条件は
+   rental_enabled=true だけで、楽天に出品中かどうかは条件にしない。
+   逆に、8ECでレンタル中でも楽天の商品ページ（掲載）は消さない。
+
    取得元は Supabase の公開ビュー inv_public_catalog（zaiko/setup.sql・
-   zaiko/migrations/2026-09-19-public-catalog.sql）。/zaiko が管理する
+   zaiko/migrations/2026-09-19-rental-sale-channels.sql）。/zaiko が管理する
    商品マスター・画像・実在庫・出品情報から、公開してよい列だけを返す。
+   ビュー自体が rental_enabled=true の商品だけを返す。
 
      表示項目            → 取得元
      商品名/型番/メーカー → inventory_products
@@ -13,11 +21,17 @@
      提供可能数 available → inventory_items.status = '在庫' の個体数
                             （予約中・販売予約・貸出中・修理中などは含めない）
      レンタル可否・月額   → rental_enabled / rental_price_month
-     販売可否・購入先     → inventory_channel_listings（楽天に出品中で
+                            レンタルを受け付けられるのは rental_available > 0 のときだけ
+     購入先（掲載）      → inventory_channel_listings（楽天に出品中で
                             登録済みURLがあるもの）。URLは推測生成しない
+     購入できる数量      → sale_available（掲載中でも、発送できない個体は含めない）
 
-   このファイルは / と /rental/ の両方が読み込む。取得・画像・在庫の判定を
+   「掲載しているか（sale_listed）」と「いま買える数量（sale_available）」は
+   別物として扱う。最後の1台が貸出中なら、掲載は残るが数量は0になる。
+
+   このファイルはサイトのトップ（/ ＝ 8RENT）が読み込む。取得・画像・在庫の判定を
    画面ごとに書き分けない（ずれた表示を作らない）ための共通部品。
+   /rental/ は / へ転送している（vercel.json の redirects）。
    =================================================================== */
 window.EightCatalog = (function () {
   'use strict';
@@ -51,7 +65,8 @@ window.EightCatalog = (function () {
     return sb;
   }
 
-  /* 公開カタログを読む。opts.rental=true なら rental_enabled の商品だけ。
+  /* 公開カタログを読む。ビューが rental_enabled=true の商品だけを返すので、
+     opts.rental=true は念のための絞り込み（本番ビューが古い場合の保険）。
      通信エラーは items=[] ではなく error で返す（「在庫0」と混同しない） */
   async function load(opts) {
     const c = client();
@@ -119,15 +134,28 @@ window.EightCatalog = (function () {
     return `<span class="c-avail none">在庫切れ</span>`;
   }
 
-  /* 購入できるか（楽天に出品中で登録済みURLがある）。価格は出品先の販売価格 */
+  /* 楽天に掲載中か（出品中で登録済みURLがある）。価格は出品先の販売価格。
+     掲載＝購入できる、ではない。いま買える台数は available（sale_available）で見る */
   function sale(it) {
-    if (!it.sale_enabled || !validUrl(it.sale_url)) return null;
-    return { label: SALE_LABEL[it.sale_channel] || '購入する', url: it.sale_url, price: it.sale_price, channel: it.sale_channel };
+    if (!(it.sale_listed != null ? it.sale_listed : it.sale_enabled) || !validUrl(it.sale_url)) return null;
+    return { label: SALE_LABEL[it.sale_channel] || '購入する', url: it.sale_url, price: it.sale_price,
+             channel: it.sale_channel, available: saleAvailable(it) };
   }
   /* レンタルできるか（公開設定ON）。申込できるかは提供可能数で別に判定する */
   function rental(it) {
     if (!it.rental_enabled) return null;
-    return { price: it.rental_price_month, minMonths: it.rental_min_months || 1 };
+    return { price: it.rental_price_month, minMonths: it.rental_min_months || 1, available: rentalAvailable(it) };
+  }
+  /* いま楽天で買える台数／いまレンタルできる台数。どちらも元は同じ実在庫
+     （status='在庫' の個体数）で、二重には確保されない */
+  function saleAvailable(it) {
+    if (it.sale_available != null) return Number(it.sale_available) || 0;
+    const listed = (it.sale_listed != null ? it.sale_listed : it.sale_enabled) && validUrl(it.sale_url);
+    return listed ? (Number(it.available) || 0) : 0;
+  }
+  function rentalAvailable(it) {
+    const n = it.rental_available != null ? it.rental_available : it.available;
+    return Number(n) || 0;
   }
 
   function specLine(it) {
@@ -155,8 +183,10 @@ window.EightCatalog = (function () {
     const tags = (it.rental_tags || []).map(t => `<span>${esc(TAG_LABEL[t] || t)}</span>`).join('');
     const need = Math.max(1, Number(opts.qty || 1));
     const avail = Number(it.available || 0);
-    const enough = avail >= need;
     const s = sale(it), r = rental(it);
+    // 台数はチャネルごとに見る（掲載が残っていても、発送できない台数は買えない）
+    const buyEnough = !!s && s.available >= need;
+    const rentEnough = !!r && r.available >= need;
     const badges = [
       it.office_supported ? `<span><span class="ms">description</span>Office対応</span>` : '',
       it.trial_eligible && r ? `<span><span class="ms">verified</span>お試し対象</span>` : ''
@@ -178,15 +208,15 @@ window.EightCatalog = (function () {
     let actions = '';
     const detail = opts.onDetail ? `<button type="button" class="btn sm" onclick="event.stopPropagation();${opts.onDetail}('${esc(it.code)}')">詳細を見る</button>` : '';
     if (mode === 'rental') {
-      actions = detail + (enough && r
+      actions = detail + (rentEnough
         ? `<button type="button" class="btn sm lime" onclick="event.stopPropagation();${opts.onDetail}('${esc(it.code)}')">申し込む</button>`
         : '');
     } else {
-      const buy = s && enough
-        ? `<a class="btn sm lime" href="${esc(s.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(s.label)}</a>` : '';
-      const rent = r && enough && opts.rentalHref
-        ? `<a class="btn sm ${buy ? '' : 'lime'}" href="${esc(opts.rentalHref(it.code))}" onclick="event.stopPropagation()">レンタルする</a>` : '';
-      actions = detail + buy + rent;
+      const rent = rentEnough && opts.rentalHref
+        ? `<a class="btn sm lime" href="${esc(opts.rentalHref(it.code))}" onclick="event.stopPropagation()">レンタルする</a>` : '';
+      const buy = buyEnough
+        ? `<a class="btn sm ${rent ? '' : 'lime'}" href="${esc(s.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(s.label)}</a>` : '';
+      actions = detail + rent + buy;
     }
 
     return `<article class="card" data-code="${esc(it.code)}" ${opts.onDetail ? `onclick="${opts.onDetail}('${esc(it.code)}')"` : ''}>
@@ -225,6 +255,7 @@ window.EightCatalog = (function () {
     return /^[A-Z]+-\d+$/i.test(h) ? h : null;
   }
 
-  return { load, images, mediaHtml, imgError, availTag, sale, rental, specLine, categoryCounts, cardHtml,
+  return { load, images, mediaHtml, imgError, availTag, sale, rental, saleAvailable, rentalAvailable,
+           specLine, categoryCounts, cardHtml,
            galleryHtml, showShot, codeFromUrl, catLabel, catIcon, title, esc, yen, CAT_META, TAG_LABEL, SUPA_URL, SUPA_KEY, client };
 })();
