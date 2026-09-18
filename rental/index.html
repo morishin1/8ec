@@ -3,16 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>8RENT｜自社在庫のIT機器レンタル（株式会社エイト）</title>
-<meta name="description" content="8RENTは、株式会社エイトが自社で持つIT機器在庫をそのままレンタルするサービスです。ノートPC・デスクトップ・タブレット・モニター・周辺機器を、月単位で必要な期間だけ。1台からご相談いただけます。">
+<title>8RENT｜エイトが保有するPCを必要な期間だけレンタル</title>
+<meta name="description" content="8RENTは、株式会社エイトが保有するPCを、必要な期間だけレンタルできるサービスです。新入社員の受け入れ・研修・プロジェクトの増員・イベント・故障PCの代替など、法人の一時的なPC不足に。1台から、月単位でご利用いただけます。">
 <meta name="theme-color" content="#1B1D1A">
 <meta name="robots" content="index,follow,max-image-preview:large">
 <link rel="canonical" href="https://8ec.jp/rental/">
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="株式会社エイト">
-<meta property="og:title" content="8RENT｜自社在庫のIT機器レンタル">
-<meta property="og:description" content="自社在庫のIT機器を、月単位でレンタル。1台から、必要な期間だけご利用いただけます。">
+<meta property="og:title" content="8RENT｜エイトが保有するPCを必要な期間だけレンタル">
+<meta property="og:description" content="法人の一時的なPC不足に。エイトが保有するPCを、1台から必要な期間だけレンタルできます。">
 <meta property="og:url" content="https://8ec.jp/rental/">
 <meta property="og:locale" content="ja_JP">
 <meta name="twitter:card" content="summary_large_image">
@@ -176,6 +176,11 @@ h1, h2, h3 { font-weight: 900; letter-spacing: -.03em; line-height: 1.2; margin:
 .dt-price b { font-size: 28px; font-weight: 900; }
 .dt-buyline { display: flex; align-items: center; gap: 10px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line);
   font-size: 13px; color: var(--n600); }
+.terms-box { margin-bottom: 18px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r-md); background: #fff; }
+.terms-box .tt { font-size: 13px; font-weight: 800; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+.terms-box dl { display: grid; grid-template-columns: 88px 1fr; gap: 8px 12px; font-size: 13px; margin: 0; }
+.terms-box dt { color: var(--n500); font-weight: 700; }
+.terms-box dd { margin: 0; color: var(--n600); }
 
 @media (max-width: 680px) {
   .field-2 { grid-template-columns: 1fr; }
@@ -202,10 +207,10 @@ h1, h2, h3 { font-weight: 900; letter-spacing: -.03em; line-height: 1.2; margin:
   <section class="hero">
     <div class="wrap">
       <span class="eyebrow">8RENT — 自社在庫のレンタル</span>
-      <h1>自社在庫だから、<span class="hl">すぐに借りられる。</span></h1>
-      <p class="lead">8RENTは、株式会社エイトが自社で持つIT機器の在庫を、そのままレンタルできるサービスです。ノートPC・デスクトップ・タブレット・モニター・周辺機器を、必要な台数・必要な期間だけ。表示している「レンタル可能数」は在庫の実数と常に連動しています。</p>
+      <h1>エイトが保有するPCを、<span class="hl">必要な期間だけ。</span></h1>
+      <p class="lead">8RENTは、株式会社エイトが保有するPCを、そのままレンタルできるサービスです。新入社員の受け入れ・研修・プロジェクトの増員・イベント・故障PCの代替など、法人の一時的なPC不足にご利用いただけます。表示している「レンタル可能数」は自社在庫の実数と常に連動しています。</p>
       <div class="actions">
-        <a class="btn lime lg" href="#catalog">機材を探す <span class="ms">arrow_downward</span></a>
+        <a class="btn lime lg" href="#catalog">PCを探す <span class="ms">arrow_downward</span></a>
         <a class="btn lg" href="/index.html#contact">まとめて相談する</a>
       </div>
       <div class="stats">
@@ -395,6 +400,14 @@ function openDlg(code) {
         it.office_supported ? 'Office対応' : '', it.trial_eligible ? 'お試し対象' : ''
       ].filter(Boolean).join('　')}</p>` : ''}
     ${it.rental_description ? `<p style="font-size:14px;color:var(--n600);margin-bottom:18px">${esc(it.rental_description)}</p>` : ''}
+    <div class="terms-box">
+      <div class="tt"><span class="ms" style="font-size:16px">fact_check</span>ご利用条件</div>
+      <dl>
+        <dt>送料</dt><dd>往復送料は月額料金に含まれます（沖縄・離島を除く）。</dd>
+        <dt>返却方法</dt><dd>ご契約終了時に回収キットをお送りします。引取日をご指定いただけます。返却後はデータを消去します。</dd>
+        <dt>故障時</dt><dd>通常のご利用範囲内の故障は交換費用なしで対応します（交換時の送料のみお客様のご負担となります）。</dd>
+      </dl>
+    </div>
     <div id="applyHost"></div>
     <div class="dt-buyline">
       <span class="ms">storefront</span>

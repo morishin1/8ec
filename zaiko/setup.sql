@@ -1937,13 +1937,19 @@ begin
   if not public.inv_can_edit() then
     raise exception '操作する権限がありません（閲覧のみ）';
   end if;
-  if p_status not in ('申込','貸出中','返却済み','キャンセル') then
+  -- 「申込」へ戻す操作は無い（最初の1回だけ inv_rental_request() がその状態で作る）。
+  -- ここで受け付けるのは、そこから先へ進む3つの操作だけ
+  if p_status not in ('貸出中','返却済み','キャンセル') then
     raise exception '知らない状態です（%）', p_status;
   end if;
 
   select * into r from public.inventory_rental_requests where id = p_request_id for update;
   if not found then
     raise exception '申込が見つかりません（%）', p_request_id;
+  end if;
+  -- 返却済み・キャンセルは終端の状態。そこからは何もできない
+  if r.status in ('返却済み','キャンセル') then
+    raise exception 'この申込はすでに「%」で終わっています', r.status;
   end if;
 
   if r.item_id is not null then
@@ -1967,9 +1973,12 @@ begin
      where id = it.id;
 
   elsif p_status = 'キャンセル' then
-    if it.id is not null and it.status = '予約中' then
-      update public.inventory_items set status = '在庫' where id = it.id;
+    -- キャンセルは「発送前」だけ。発送済み（貸出中）はキャンセルではなく返却済みで扱う
+    if it.id is null or it.status <> '予約中' then
+      raise exception '予約中の個体だけキャンセルできます（発送済みは「返却済みにする」を使ってください。いまは %）',
+        coalesce(it.status, '個体なし');
     end if;
+    update public.inventory_items set status = '在庫' where id = it.id;
   end if;
 
   if it.id is not null then
@@ -2006,6 +2015,25 @@ group by p.code;
 
 comment on view public.inv_rental_catalog is
   '8RENT公開ページ用。rental_enabled=true の商品だけを、レンタル可能数つきで出す。仕入価格・原価は含めない。';
+
+
+-- ============================================================
+-- 29-6) 旧レンタル機能の退役
+--
+--     rental_items / rental_orders（/admin/rental/ で管理していた、
+--     /zaiko と独立した在庫）は、上の8RENTの仕組みに完全に置き換わった。
+--     在庫を二重に持たないための削除なので、このデータの移行はしない
+--     （8RENTは inventory_products／個体／inventory_rental_requests だけを基準にする）。
+--
+--     このブロックを含む setup.sql を実行すると、rental_items・rental_orders と
+--     そこに入っていたデータは元に戻せません。zimu_is_admin() は /admin/ の
+--     ほかの画面（棚卸・決算資料・商品画像など）でも使っている共有の関数なので、
+--     これは消さない。
+-- ============================================================
+
+drop function if exists public.rental_public_inquiry(uuid,text,text,text,text,date,date,text);
+drop table if exists public.rental_orders cascade;
+drop table if exists public.rental_items cascade;
 
 
 -- ============================================================

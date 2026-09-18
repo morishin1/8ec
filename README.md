@@ -993,12 +993,19 @@ anon（8RENTの一般訪問者）には以下だけを許可し、テーブル�
 | `inv_rental_catalog`（ビュー・select） | 公開用の列だけ。仕入価格・原価などの内部情報は含まない |
 | `inv_rental_request()`（RPC） | レンタル申込。実行だけを許可し、テーブルへの直接書き込みは許可しない |
 
-### 既存の /rental・/admin/rental は置き換え
+### 旧レンタル機能は削除済み
 
-これまで独自に持っていた `rental_items` / `rental_orders`（`/admin/rental/` で管理）は、
-**この仕組みに置き換わります。** 在庫を二重に持たないための変更なので、
-本番データがある場合は移行してから `/admin/rental/` を退役してください
-（このリニューアルでは既存テーブル・画面をまだ削除していません）。
+以前 `/admin/rental/` で独自に管理していた `rental_items` / `rental_orders`
+（/zaiko とは別の在庫を持つ仕組みだった）は、**この8RENTに完全に置き換えて削除しました。**
+`/admin/rental/index.html` と `rental/supabase-setup.sql` はリポジトリから削除し、
+`zaiko/setup.sql` の実行時に `rental_items` / `rental_orders` テーブルと
+`rental_public_inquiry()` 関数も削除されます（**元に戻せません**）。
+
+`zimu_is_admin()` は棚卸・決算資料・商品画像など `/admin/` の他の画面でも使う
+共有の関数なので、これは削除していません。
+
+在庫は `inventory_products` ＋ 個体（`inventory_items`）＋
+`inventory_rental_requests`（8RENTの申込）の3つだけを基準にしています。
 
 ---
 
