@@ -354,7 +354,7 @@ function renderCatalog() {
 function availTag(n) {
   if (n > 3) return `<span class="c-avail ok">レンタル可能</span>`;
   if (n > 0) return `<span class="c-avail few">残り${n}台</span>`;
-  return `<span class="c-avail none">満室</span>`;
+  return `<span class="c-avail none">在庫切れ</span>`;
 }
 function cardHtml(it) {
   const name = esc(it.name || it.model || '');
@@ -392,7 +392,7 @@ function openDlg(code) {
       <dt>型番</dt><dd>${esc(it.model || '—')}</dd>
       <dt>メーカー</dt><dd>${esc(it.maker || '—')}</dd>
       ${it.spec ? `<dt>スペック</dt><dd>${esc(it.spec)}</dd>` : ''}
-      <dt>レンタル可能数</dt><dd>${avail > 0 ? avail + '台' : '只今満室です'}</dd>
+      <dt>レンタル可能数</dt><dd>${avail > 0 ? avail + '台' : '現在レンタル可能な在庫がありません'}</dd>
       <dt>最低利用期間</dt><dd>${it.rental_min_months || 1}ヶ月〜</dd>
     </dl>
     ${it.rental_price_month ? `<div class="dt-price"><b class="num">¥${yen(it.rental_price_month)}</b><span>/月（税別）</span></div>` : ''}
@@ -475,7 +475,7 @@ async function onApplySubmit(e) {
     });
     if (error) {
       let t = '送信に失敗しました。時間をおいて再度お試しください。';
-      if (/レンタルできる台数がありません/.test(error.message)) t = 'あいにく、ちょうどこのタイミングで満室になりました。恐れ入りますが再読み込みのうえお問い合わせください。';
+      if (/レンタルできる台数がありません/.test(error.message)) t = 'あいにく、ちょうどこのタイミングで在庫がなくなりました。恐れ入りますが再読み込みのうえお問い合わせください。';
       else if (/受け付けていません/.test(error.message)) t = 'この機材は現在レンタルを受け付けていません。ページを再読み込みしてください。';
       msg.className = 'msg err'; msg.textContent = t; btn.disabled = false; return;
     }
