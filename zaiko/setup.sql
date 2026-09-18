@@ -2636,6 +2636,122 @@ comment on view public.inv_rental_catalog is
   '8RENT公開ページ用。rental_enabled=true の商品だけを、レンタル可能数つきで出す。仕入価格・原価は含めない。
    説明・画像は8RENT向けの上書きが無ければ、楽天等から補完した一般情報を使う。';
 
+-- ------------------------------------------------------------
+-- 30-5) inv_public_catalog：8ECトップ／8RENT 共通の公開ビュー
+--
+--     表示項目 → 取得元：
+--       商品名・型番・メーカー・カテゴリ・スペック・説明 … inventory_products
+--       代表画像 image_url … image_url（人が指定したメイン画像。楽天同期は空欄だけ埋める）
+--                            → 無ければ images の1枚目
+--       画像一覧 images     … inventory_products.images（楽天同期・手入力）
+--       8RENT用画像         … rental_image_url / rental_images（空なら一般画像）
+--       提供可能数 available … inventory_items.status = '在庫' の個体数
+--                            （予約中・販売予約・貸出中・修理中・故障などは含めない。
+--                             8RENTのレンタル可能数と楽天の販売可能数は同じこの数）
+--       レンタル可否・月額   … rental_enabled / rental_price_month / rental_min_months
+--       販売可否・購入先・価格 … inventory_channel_listings（channel='rakuten'、
+--                            state='出品中'、url あり）。URLは登録済みのものだけ使い、
+--                            商品コードから推測生成しない
+--     公開条件：kind='individual' かつ（rental_enabled または 楽天に出品中でURLあり）。
+--     含めない：シリアル・仕入価格・原価・販売予定価格・利用者・備考・保管場所
+-- ------------------------------------------------------------
+drop view if exists public.inv_public_catalog;
+create view public.inv_public_catalog as
+with avail as (
+  select product_code,
+         count(*) filter (where status = '在庫')                 as available,
+         count(*) filter (where status not in ('売却済','廃棄')) as total_owned
+    from public.inventory_items
+   group by product_code
+),
+rk as (
+  select product_code, url, state, price
+    from public.inventory_channel_listings
+   where channel = 'rakuten'
+)
+select
+  p.code, p.name, p.model, p.maker, p.category_id, c.name as category_name,
+  p.spec, p.description,
+  coalesce(nullif(p.image_url,''),
+           (select x from jsonb_array_elements_text(coalesce(p.images,'[]'::jsonb)) x
+             where btrim(x) <> '' limit 1))                        as image_url,
+  coalesce(p.images,'[]'::jsonb)                                    as images,
+  coalesce(nullif(p.rental_image_url,''), nullif(p.image_url,''),
+           (select x from jsonb_array_elements_text(coalesce(p.images,'[]'::jsonb)) x
+             where btrim(x) <> '' limit 1))                        as rental_image_url,
+  case when jsonb_array_length(coalesce(p.rental_images,'[]'::jsonb)) > 0
+       then p.rental_images else coalesce(p.images,'[]'::jsonb) end as rental_images,
+  p.cpu, p.cpu_gen, p.memory_size, p.storage_type, p.storage_capacity,
+  p.screen_size, p.os, p.webcam, p.wifi, p.bluetooth, p.numpad, p.accessories,
+  p.office_supported,
+  coalesce(a.available, 0)::integer                                 as available,
+  coalesce(a.total_owned, 0)::integer                               as total_owned,
+  coalesce(p.rental_enabled, false)                                 as rental_enabled,
+  p.rental_price_month, p.rental_min_months, p.trial_eligible, p.rental_tags,
+  coalesce(nullif(p.rental_description,''), p.description)          as rental_description,
+  (rk.state = '出品中' and nullif(rk.url,'') is not null)           as sale_enabled,
+  case when rk.state = '出品中' and nullif(rk.url,'') is not null then 'rakuten' end as sale_channel,
+  case when rk.state = '出品中' and nullif(rk.url,'') is not null then rk.url   end as sale_url,
+  case when rk.state = '出品中' and nullif(rk.url,'') is not null then rk.price end as sale_price,
+  p.updated_at
+from public.inventory_products p
+left join public.inventory_categories c on c.id = p.category_id
+left join avail a on a.product_code = p.code
+left join rk on rk.product_code = p.code
+where p.kind = 'individual'
+  and (coalesce(p.rental_enabled, false)
+       or (rk.state = '出品中' and nullif(rk.url,'') is not null));
+
+comment on view public.inv_public_catalog is
+  '8ECトップと8RENTが共通で読む公開カタログ。販売（楽天に出品中でURLあり）またはレンタル（rental_enabled）で
+   提供している商品だけ。提供可能数は status=在庫 の個体数。シリアル・仕入価格・利用者・備考は含めない。';
+
+-- ------------------------------------------------------------
+-- 30-6) 商品画像の登録（/zaiko の商品詳細から）
+--     image_url（メイン）と images（一覧）を入れ直す。人が指定した値なので、
+--     楽天同期（空欄だけ埋める）はこれを上書きしない。
+-- ------------------------------------------------------------
+create or replace function public.inv_product_images_set(
+  p_code      text,
+  p_image_url text default null,
+  p_images    jsonb default '[]'::jsonb
+) returns public.inventory_products
+language plpgsql security invoker set search_path = public as $$
+declare
+  pr     public.inventory_products;
+  v_imgs jsonb;
+  v_main text := nullif(btrim(coalesce(p_image_url,'')), '');
+  v_before integer;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  select * into pr from public.inventory_products where code = p_code for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_code;
+  end if;
+  v_before := jsonb_array_length(coalesce(pr.images,'[]'::jsonb)) + case when nullif(pr.image_url,'') is null then 0 else 1 end;
+
+  -- 文字列だけ・空白を除き・順番を保つ
+  select coalesce(jsonb_agg(btrim(x) order by ord), '[]'::jsonb) into v_imgs
+    from jsonb_array_elements_text(case when jsonb_typeof(p_images) = 'array' then p_images else '[]'::jsonb end)
+         with ordinality t(x, ord)
+   where btrim(x) <> '';
+
+  update public.inventory_products
+     set image_url = v_main,
+         images    = v_imgs
+   where code = p_code
+  returning * into pr;
+
+  insert into public.inventory_transactions (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'product', p_code, coalesce(pr.name, pr.model), '商品画像',
+          v_before || '枚', (jsonb_array_length(v_imgs) + case when v_main is null then 0 else 1 end) || '枚');
+  return pr;
+end $$;
+
+comment on function public.inv_product_images_set is
+  '商品のメイン画像URLと画像一覧を入れ直す（/zaiko）。公開ページは再デプロイなしで次の読み込みから反映される。';
 
 -- ============================================================
 -- 29) 追加分の権限
@@ -2658,10 +2774,12 @@ grant execute on function public.inv_sale_reserve(text,text,text,text) to authen
 grant execute on function public.inv_rakuten_apply_one(text,jsonb) to authenticated;
 grant execute on function public.inv_rakuten_sync_apply(jsonb) to authenticated;
 grant execute on function public.inv_rakuten_link_confirm(text,jsonb) to authenticated;
--- anon（8RENTの一般訪問者）にはこの関数の実行だけを許可。テーブルへの直接書き込み権限は与えない
+grant execute on function public.inv_product_images_set(text,text,jsonb) to authenticated;
+-- anon（8RENT・8ECトップの一般訪問者）にはこの関数の実行だけを許可。テーブルへの直接書き込み権限は与えない
 grant execute on function public.inv_rental_request(text,text,text,text,text,date,integer,text) to anon;
 grant usage on schema public to anon;
-grant select on public.inv_rental_catalog to anon;
+grant select on public.inv_rental_catalog to anon, authenticated;
+grant select on public.inv_public_catalog to anon, authenticated;
 grant select, update on public.inventory_rental_requests to authenticated;
 
 alter table public.inventory_channels enable row level security;
