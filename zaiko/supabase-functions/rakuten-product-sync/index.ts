@@ -31,13 +31,14 @@
 //     在庫数量の更新には、別途 RMS WEB SERVICE の利用申請が必要です
 //     （このEdge Functionはそちらにはまだ対応していません）。
 //
-//   【要確認・実機テストで最初に見るべき点】
-//     楽天のAPI仕様は変更されることがあります。認証やエンドポイントで
-//     エラーが出た場合は、公式ドキュメント
-//     https://webservice.rakuten.co.jp/documentation/ichiba-item-search
-//     の最新仕様と、下の RAKUTEN_ENDPOINT / buildAuthVariants() を照らし合わせて
-//     ください。accessKeyの渡し方（クエリパラメータかヘッダか）は複数パターンを
-//     自動で試すようにしていますが、それでも失敗する場合はここを更新してください。
+//   【エンドポイント・認証方式について】
+//     公式のAPI Test Formで実際に疎通確認済みの形に合わせている：
+//       - エンドポイント: 下記 RAKUTEN_ENDPOINT（20260701版）
+//       - accessKeyはクエリパラメータで渡す（ヘッダ等のフォールバックは無し）
+//     それでも失敗する場合は、まずログの rakuten_secrets_check /
+//     rakuten_request_param_keys で「値ではなくキー名・長さ」だけを確認し、
+//     Secretsの設定漏れ・コピペ時の余分な空白などから切り分けてください
+//     （秘密の値そのものはログに一切出さない）。
 // ============================================================
 
 const CORS = {
@@ -53,9 +54,8 @@ function json(body: unknown, status = 200) {
   });
 }
 
-// 楽天市場商品検索API。日付付きバージョンは仕様変更で変わることがある。
-// 2026-07-01版が最新として案内されているものを既定にしている（要確認）。
-const RAKUTEN_ENDPOINT = "https://app.rakuten.co.jp/services/api/IchibaItem/Search/20220601";
+// 楽天市場商品検索API。公式API Test Formで実際に疎通確認済みのエンドポイント（2026-09-18確認）。
+const RAKUTEN_ENDPOINT = "https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701";
 
 /**
  * 楽天の商品URL（https://item.rakuten.co.jp/{shopCode}/{itemNumber}/…）から
@@ -67,9 +67,9 @@ function extractItemCodeFromUrl(url: string): string | null {
 }
 
 /**
- * accessKeyの渡し方は複数の可能性がある（クエリパラメータ／ヘッダ）ため、
- * 最初にクエリパラメータ方式を試し、認証エラー（400/401/403）ならヘッダ方式で
- * 再試行する。どちらで成功したかをログ的に返す。
+ * 楽天公式のAPI Test Formと同じ形（accessKeyもクエリパラメータで渡す）で呼ぶ。
+ * ヘッダ等のフォールバックは持たない（公式仕様にない方式のため）。
+ * 秘密の値そのものはログに出さず、送るクエリのキー名一覧だけをログに出す。
  *
  * itemCode を渡すと、その1件だけに絞った接続テストになる（shopCodeも
  * 一緒に渡すので、自社店舗の商品であることの確認も兼ねる）。
@@ -82,41 +82,24 @@ async function fetchRakutenPage(
   hits: number,
   itemCode?: string | null,
 ): Promise<{ ok: boolean; status: number; authMode: string; data: any }> {
-  const baseParams = new URLSearchParams({
+  const params = new URLSearchParams({
     format: "json",
     applicationId,
+    accessKey,
     shopCode,
     page: String(page),
     hits: String(Math.min(hits, 30)),
     availability: "0", // 在庫の有無に関わらず自社の全商品を対象にする
   });
-  if (itemCode) baseParams.set("itemCode", itemCode);
+  if (itemCode) params.set("itemCode", itemCode);
 
-  // 方式1: accessKey もクエリパラメータで渡す（楽天の歴史的な標準形）
-  {
-    const params = new URLSearchParams(baseParams);
-    params.set("accessKey", accessKey);
-    const res = await fetch(`${RAKUTEN_ENDPOINT}?${params.toString()}`);
-    const data = await res.json().catch(() => null);
-    if (res.ok && data && !data.error) {
-      return { ok: true, status: res.status, authMode: "query:accessKey", data };
-    }
-    if (res.status !== 400 && res.status !== 401 && res.status !== 403) {
-      return { ok: false, status: res.status, authMode: "query:accessKey", data };
-    }
-  }
+  // 値は一切出さず、キー名だけ（applicationId/accessKeyの綴り間違いが無いかの確認用）
+  console.log(JSON.stringify({ rakuten_request_param_keys: Array.from(params.keys()) }));
 
-  // 方式2: accessKey を Authorization ヘッダで渡す（新しい鍵の位置づけを踏まえた代替案）
-  {
-    const res = await fetch(`${RAKUTEN_ENDPOINT}?${baseParams.toString()}`, {
-      headers: { Authorization: `ESA ${accessKey}` },
-    });
-    const data = await res.json().catch(() => null);
-    if (res.ok && data && !data.error) {
-      return { ok: true, status: res.status, authMode: "header:Authorization=ESA", data };
-    }
-    return { ok: false, status: res.status, authMode: "header:Authorization=ESA", data };
-  }
+  const res = await fetch(`${RAKUTEN_ENDPOINT}?${params.toString()}`);
+  const data = await res.json().catch(() => null);
+  const ok = res.ok && !!data && !data.error;
+  return { ok, status: res.status, authMode: "query:accessKey", data };
 }
 
 // ---- スペック抽出（商品名・商品説明から）。Node.jsで動作確認したロジックをそのまま使う ----
@@ -237,9 +220,25 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
   try {
-    const APP_ID = Deno.env.get("RAKUTEN_APPLICATION_ID");
-    const ACCESS_KEY = Deno.env.get("RAKUTEN_ACCESS_KEY");
-    const SHOP_CODE = Deno.env.get("RAKUTEN_SHOP_CODE");
+    const APP_ID_RAW = Deno.env.get("RAKUTEN_APPLICATION_ID");
+    const ACCESS_KEY_RAW = Deno.env.get("RAKUTEN_ACCESS_KEY");
+    const SHOP_CODE_RAW = Deno.env.get("RAKUTEN_SHOP_CODE");
+    // 秘密の値そのものはログに出さない。存在確認と長さ（trim前後）だけを出す。
+    // 「公式Test Formでは通るのにここで失敗する」場合、Secrets未設定やコピペ時の
+    // 余分な空白・改行が無いかをここで切り分けられる。
+    console.log(JSON.stringify({
+      rakuten_secrets_check: {
+        applicationId_exists: APP_ID_RAW != null,
+        applicationId_length: APP_ID_RAW ? APP_ID_RAW.length : 0,
+        applicationId_trimmed_length: APP_ID_RAW ? APP_ID_RAW.trim().length : 0,
+        accessKey_exists: ACCESS_KEY_RAW != null,
+        accessKey_length: ACCESS_KEY_RAW ? ACCESS_KEY_RAW.length : 0,
+        shopCode: SHOP_CODE_RAW ? SHOP_CODE_RAW.trim() : null,
+      },
+    }));
+    const APP_ID = APP_ID_RAW?.trim();
+    const ACCESS_KEY = ACCESS_KEY_RAW?.trim();
+    const SHOP_CODE = SHOP_CODE_RAW?.trim();
     if (!APP_ID || !ACCESS_KEY || !SHOP_CODE) {
       return json({
         error: "RAKUTEN_APPLICATION_ID / RAKUTEN_ACCESS_KEY / RAKUTEN_SHOP_CODE が未設定です。" +
