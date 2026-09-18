@@ -2147,6 +2147,321 @@ drop table if exists public.rental_items cascade;
 
 
 -- ============================================================
+-- 30) 楽天商品API連携 — inventory_products への商品マスター補完
+--
+--     楽天＝販売、8RENT＝レンタル、/zaiko＝商品・実在庫の共通基盤という方針のもと、
+--     楽天に登録済みの商品情報（商品名・説明・画像・スペック等）を取得して
+--     inventory_products の不足情報を埋める。実在庫（inventory_items）は
+--     ここでは一切作らない（商品マスターと実在庫は別）。
+--
+--     楽天への実際の問い合わせ（Rakuten Developers API）は Edge Function
+--     （zaiko/supabase-functions/rakuten-product-sync/）が行い、正規化した
+--     商品データをここへ渡す。Application ID・Access KeyはEdge Function側の
+--     環境変数だけに置き、SQLにも画面のJSにも一切持たせない。
+--
+--     人が確定した値は上書きしない：どの列も「すでに入っていれば」楽天から
+--     来た値があっても入れ直さない（coalesceで空欄だけ埋める）。
+-- ============================================================
+
+alter table public.inventory_products add column if not exists description       text;       -- 一般の商品説明（8RENTでも使う。rental_descriptionは8RENT向けの上書き）
+alter table public.inventory_products add column if not exists image_url         text;       -- 一般のメイン画像（rental_image_urlは8RENT向けの上書き）
+alter table public.inventory_products add column if not exists images            jsonb default '[]'::jsonb;
+alter table public.inventory_products add column if not exists cpu               text;
+alter table public.inventory_products add column if not exists cpu_gen           text;       -- CPU世代
+alter table public.inventory_products add column if not exists memory_size       text;       -- 例: '8GB'
+alter table public.inventory_products add column if not exists storage_type      text;       -- SSD / HDD
+alter table public.inventory_products add column if not exists storage_capacity  text;       -- 例: '256GB'
+alter table public.inventory_products add column if not exists screen_size       text;       -- 例: '13.3型'
+alter table public.inventory_products add column if not exists os                text;
+alter table public.inventory_products add column if not exists webcam            boolean;
+alter table public.inventory_products add column if not exists wifi             boolean;
+alter table public.inventory_products add column if not exists bluetooth        boolean;
+alter table public.inventory_products add column if not exists numpad           boolean;     -- テンキー
+alter table public.inventory_products add column if not exists accessories      text;        -- 付属品
+alter table public.inventory_products add column if not exists rakuten_synced_at timestamptz; -- 最後に楽天から補完した時刻
+
+comment on column public.inventory_products.description is
+  '一般の商品説明。楽天から取得した説明、または人が入力したもの。8RENTはrental_descriptionが空ならこちらを使う。';
+comment on column public.inventory_products.rakuten_synced_at is
+  '楽天商品APIとの照合・補完が最後に行われた時刻。nullは未連携。';
+
+create index if not exists inventory_channels_sku_idx on public.inventory_channels (channel, sku);
+
+-- ------------------------------------------------------------
+-- 30-1) 商品コードが決まったあとの共通処理：不足情報を埋め、楽天の出品先に紐付ける
+--
+--     p_item の形（Edge Functionが正規化して渡す）:
+--       { item_code, item_url, shop_code, name, caption, price, image_url, images,
+--         maker, model,
+--         extracted: { cpu, cpu_gen, memory, storage_type, storage_capacity,
+--                       screen_size, os, office_supported, webcam, wifi,
+--                       bluetooth, numpad, accessories } }
+--
+--     呼び出し元（30-2・30-3）がすでに inv_can_edit() を確認しているが、
+--     直接叩かれても困らないよう、ここでも念のため確認する。
+-- ------------------------------------------------------------
+create or replace function public.inv_rakuten_apply_one(
+  p_code text,
+  p_item jsonb
+) returns jsonb
+language plpgsql security invoker set search_path = public as $$
+declare
+  ex           jsonb := coalesce(p_item->'extracted', '{}'::jsonb);
+  v_item_code  text  := nullif(btrim(coalesce(p_item->>'item_code','')), '');
+  v_url        text  := nullif(btrim(coalesce(p_item->>'item_url','')), '');
+  v_price      numeric;
+  before_row   public.inventory_products;
+  after_row    public.inventory_products;
+  before_snap  jsonb;
+  after_snap   jsonb;
+  v_chan_new   boolean := false;
+  v_changed    boolean;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+
+  select * into before_row from public.inventory_products where code = p_code for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_code;
+  end if;
+  before_snap := to_jsonb(before_row) - 'updated_at' - 'rakuten_synced_at';
+
+  v_price := nullif(p_item->>'price', '')::numeric;
+
+  update public.inventory_products set
+    maker             = coalesce(nullif(maker,''), nullif(p_item->>'maker','')),
+    model             = coalesce(nullif(model,''), nullif(p_item->>'model','')),
+    description       = coalesce(nullif(description,''), nullif(p_item->>'caption','')),
+    image_url         = coalesce(nullif(image_url,''), nullif(p_item->>'image_url','')),
+    images            = case when jsonb_array_length(coalesce(images,'[]'::jsonb)) = 0
+                              and jsonb_typeof(p_item->'images') = 'array'
+                         then p_item->'images' else images end,
+    cpu               = coalesce(nullif(cpu,''), nullif(ex->>'cpu','')),
+    cpu_gen           = coalesce(nullif(cpu_gen,''), nullif(ex->>'cpu_gen','')),
+    memory_size       = coalesce(nullif(memory_size,''), nullif(ex->>'memory','')),
+    storage_type      = coalesce(nullif(storage_type,''), nullif(ex->>'storage_type','')),
+    storage_capacity  = coalesce(nullif(storage_capacity,''), nullif(ex->>'storage_capacity','')),
+    screen_size       = coalesce(nullif(screen_size,''), nullif(ex->>'screen_size','')),
+    os                = coalesce(nullif(os,''), nullif(ex->>'os','')),
+    office_supported  = coalesce(office_supported, (nullif(ex->>'office_supported',''))::boolean, false),
+    webcam            = coalesce(webcam, (nullif(ex->>'webcam',''))::boolean),
+    wifi              = coalesce(wifi, (nullif(ex->>'wifi',''))::boolean),
+    bluetooth         = coalesce(bluetooth, (nullif(ex->>'bluetooth',''))::boolean),
+    numpad            = coalesce(numpad, (nullif(ex->>'numpad',''))::boolean),
+    accessories       = coalesce(nullif(accessories,''), nullif(ex->>'accessories','')),
+    rakuten_synced_at = now()
+  where code = p_code
+  returning * into after_row;
+
+  after_snap := to_jsonb(after_row) - 'updated_at' - 'rakuten_synced_at';
+  v_changed := before_snap is distinct from after_snap;
+
+  -- 出品先（楽天）への紐付け。初回だけ作る。すでにあれば sku/url が空のときだけ埋める
+  -- （出品状態・価格など、スタッフが手で入れた値は変えない）
+  if v_item_code is not null then
+    if not exists (select 1 from public.inventory_channels
+                    where product_code = p_code and channel = 'rakuten' and item_id is null) then
+      insert into public.inventory_channels (product_code, item_id, channel, state, sku, url, price, updated_at)
+      values (p_code, null, 'rakuten', '出品中', v_item_code, v_url, v_price, now());
+      v_chan_new := true;
+    else
+      update public.inventory_channels set
+        sku = coalesce(sku, v_item_code),
+        url = coalesce(url, v_url),
+        updated_at = case when sku is null or url is null then now() else updated_at end
+      where product_code = p_code and channel = 'rakuten' and item_id is null;
+    end if;
+  end if;
+
+  if v_changed or v_chan_new then
+    insert into public.inventory_transactions (actor, ref_kind, ref_id, label, action, before_value, after_value)
+    values ('楽天連携', 'product', p_code, coalesce(after_row.name, after_row.model), '楽天連携で補完',
+            null, coalesce(v_item_code, ''));
+  end if;
+
+  return jsonb_build_object('product', to_jsonb(after_row), 'changed', (v_changed or v_chan_new));
+end $$;
+
+comment on function public.inv_rakuten_apply_one is
+  '楽天から取得した1商品ぶんのデータで、指定した商品コードの不足情報だけを埋める。
+   すでに値が入っている列は上書きしない。実在庫（inventory_items）は作らない。';
+
+-- ------------------------------------------------------------
+-- 30-2) 楽天の商品一覧をまとめて照合・補完する（「楽天商品を同期」ボタンの本体）
+--
+--     商品の照合順序：
+--       1. すでに紐付いている（inventory_channels に同じ楽天商品コードがある）
+--       2. 型番の完全一致
+--       3. メーカー＋型番
+--       4. 商品名＋型番
+--     候補が2件以上あるときは自動で選ばず needs_review に積む（人に選んでもらう）。
+--     候補が0件のときだけ、新しい商品マスターを作る（実在庫は作らない）。
+-- ------------------------------------------------------------
+create or replace function public.inv_rakuten_sync_apply(p_items jsonb)
+returns jsonb
+language plpgsql security invoker set search_path = public as $$
+declare
+  it           jsonb;
+  v_item_code  text;
+  v_model      text;
+  v_maker      text;
+  v_name       text;
+  v_norm_model text;
+  v_code       text;
+  v_candidates text[];
+  v_result     jsonb;
+  created      jsonb := '[]'::jsonb;
+  updated      jsonb := '[]'::jsonb;
+  unchanged    jsonb := '[]'::jsonb;
+  needs_review jsonb := '[]'::jsonb;
+  errs         jsonb := '[]'::jsonb;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+
+  for it in select * from jsonb_array_elements(coalesce(p_items, '[]'::jsonb))
+  loop
+    v_candidates := null;
+    begin
+      v_item_code := nullif(btrim(coalesce(it->>'item_code','')), '');
+      if v_item_code is null then
+        errs := errs || jsonb_build_object('item_code', it->>'item_code', 'message', '楽天商品コードがありません');
+        continue;
+      end if;
+      v_model := nullif(btrim(coalesce(it->>'model','')), '');
+      v_maker := nullif(btrim(coalesce(it->>'maker','')), '');
+      v_name  := nullif(btrim(coalesce(it->>'name','')), '');
+      v_norm_model := case when v_model is not null then public.inv_norm_model(v_model) end;
+      v_code := null;
+
+      -- 1) すでに紐付いている楽天商品は再検索しない
+      select product_code into v_code
+        from public.inventory_channels
+       where channel = 'rakuten' and sku = v_item_code and product_code is not null
+       limit 1;
+
+      -- 2) 型番の完全一致
+      if v_code is null and v_norm_model is not null then
+        select array_agg(code) into v_candidates
+          from public.inventory_products
+         where public.inv_norm_model(coalesce(nullif(model,''), name)) = v_norm_model;
+      end if;
+
+      -- 3) メーカー＋型番（部分一致。型番の表記ゆれを吸収する）
+      if v_code is null and (v_candidates is null or array_length(v_candidates,1) is null)
+         and v_maker is not null and v_norm_model is not null then
+        select array_agg(code) into v_candidates
+          from public.inventory_products
+         where lower(coalesce(maker,'')) = lower(v_maker)
+           and public.inv_norm_model(coalesce(nullif(model,''), name)) like '%'||v_norm_model||'%';
+      end if;
+
+      -- 4) 商品名＋型番
+      if v_code is null and (v_candidates is null or array_length(v_candidates,1) is null)
+         and v_name is not null and v_norm_model is not null then
+        select array_agg(code) into v_candidates
+          from public.inventory_products
+         where name = v_name
+           and public.inv_norm_model(coalesce(nullif(model,''), name)) like '%'||v_norm_model||'%';
+      end if;
+
+      if v_code is not null then
+        v_result := public.inv_rakuten_apply_one(v_code, it);
+        if (v_result->>'changed')::boolean then
+          updated := updated || to_jsonb(v_code);
+        else
+          unchanged := unchanged || to_jsonb(v_code);
+        end if;
+      elsif v_candidates is not null and array_length(v_candidates,1) = 1 then
+        v_result := public.inv_rakuten_apply_one(v_candidates[1], it);
+        if (v_result->>'changed')::boolean then
+          updated := updated || to_jsonb(v_candidates[1]);
+        else
+          unchanged := unchanged || to_jsonb(v_candidates[1]);
+        end if;
+      elsif v_candidates is not null and array_length(v_candidates,1) > 1 then
+        needs_review := needs_review || jsonb_build_object(
+          'item_code', v_item_code, 'name', v_name, 'model', v_model,
+          'candidates', to_jsonb(v_candidates), 'item', it);
+      else
+        -- 5) 一致なし → 新しい商品マスターを作る（実在庫は作らない）
+        v_code := public.inv_next_id('P', 5);
+        insert into public.inventory_products (code, name, kind, maker, model)
+        values (v_code, coalesce(v_name, v_model, '(名称未設定)'), 'individual', v_maker, v_model);
+        perform public.inv_rakuten_apply_one(v_code, it);
+        created := created || to_jsonb(v_code);
+      end if;
+    exception when others then
+      errs := errs || jsonb_build_object('item_code', v_item_code, 'message', sqlerrm);
+    end;
+  end loop;
+
+  return jsonb_build_object(
+    'created', created, 'updated', updated, 'unchanged', unchanged,
+    'needs_review', needs_review, 'errors', errs,
+    'created_count', jsonb_array_length(created), 'updated_count', jsonb_array_length(updated),
+    'unchanged_count', jsonb_array_length(unchanged),
+    'needs_review_count', jsonb_array_length(needs_review), 'error_count', jsonb_array_length(errs)
+  );
+end $$;
+
+comment on function public.inv_rakuten_sync_apply is
+  '楽天から取得した商品配列を、既存の商品マスターと照合して不足情報を補完する。
+   候補が複数あるものは needs_review に積み、自動では選ばない。実在庫は作らない。';
+
+-- ------------------------------------------------------------
+-- 30-3) 候補が複数あったとき、人が選んだ商品に紐付ける
+-- ------------------------------------------------------------
+create or replace function public.inv_rakuten_link_confirm(
+  p_code text,
+  p_item jsonb
+) returns jsonb
+language plpgsql security invoker set search_path = public as $$
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  return public.inv_rakuten_apply_one(p_code, p_item);
+end $$;
+
+comment on function public.inv_rakuten_link_confirm is
+  '「楽天商品候補を選択」で、人が選んだ商品コードに楽天商品を紐付ける。';
+
+-- ------------------------------------------------------------
+-- 30-4) inv_rental_catalog を、楽天から補完した一般情報にも対応させる
+--
+--     8RENT向けの上書き（rental_description / rental_image_url）があれば
+--     それを優先し、無ければ楽天等から補完した一般の説明・画像を使う。
+--     8RENT側で写真・説明を再入力しなくてよいようにするため。
+-- ------------------------------------------------------------
+drop view if exists public.inv_rental_catalog;
+create view public.inv_rental_catalog as
+select
+  p.code, p.name, p.model, p.maker, p.category_id, p.spec,
+  p.rental_price_month, p.rental_min_months, p.office_supported, p.trial_eligible,
+  p.rental_tags,
+  coalesce(nullif(p.rental_description,''), p.description) as rental_description,
+  coalesce(nullif(p.rental_image_url,''), p.image_url)      as rental_image_url,
+  case when jsonb_array_length(coalesce(p.rental_images,'[]'::jsonb)) > 0
+       then p.rental_images else coalesce(p.images,'[]'::jsonb) end as rental_images,
+  p.cpu, p.cpu_gen, p.memory_size, p.storage_type, p.storage_capacity,
+  p.screen_size, p.os, p.webcam, p.wifi, p.bluetooth, p.numpad, p.accessories,
+  count(i.id) filter (where i.status = '在庫')                    as rental_available,
+  count(i.id) filter (where i.status not in ('売却済','廃棄'))     as total_owned,
+  p.updated_at
+from public.inventory_products p
+left join public.inventory_items i on i.product_code = p.code
+where p.rental_enabled = true
+group by p.code;
+
+comment on view public.inv_rental_catalog is
+  '8RENT公開ページ用。rental_enabled=true の商品だけを、レンタル可能数つきで出す。仕入価格・原価は含めない。
+   説明・画像は8RENT向けの上書きが無ければ、楽天等から補完した一般情報を使う。';
+
+
+-- ============================================================
 -- 29) 追加分の権限
 -- ============================================================
 
@@ -2164,6 +2479,9 @@ grant execute on function public.inv_listings_import(jsonb) to authenticated;
 grant execute on function public.inv_rental_set_status(bigint,text) to authenticated;
 grant execute on function public.inv_product_rental_set(text,boolean,numeric,integer,boolean,boolean,text[],text,text) to authenticated;
 grant execute on function public.inv_sale_reserve(text,text,text,text) to authenticated;
+grant execute on function public.inv_rakuten_apply_one(text,jsonb) to authenticated;
+grant execute on function public.inv_rakuten_sync_apply(jsonb) to authenticated;
+grant execute on function public.inv_rakuten_link_confirm(text,jsonb) to authenticated;
 -- anon（8RENTの一般訪問者）にはこの関数の実行だけを許可。テーブルへの直接書き込み権限は与えない
 grant execute on function public.inv_rental_request(text,text,text,text,text,date,integer,text) to anon;
 grant usage on schema public to anon;

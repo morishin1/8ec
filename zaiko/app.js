@@ -785,6 +785,9 @@ function viewList() {
           <span class="ms">upload_file</span>商品取込</button>
         <button class="btn sm ghost" onclick="openImportHist()">
           <span class="ms">history</span>CSV取込履歴</button>
+        <button class="btn sm ghost" onclick="openRakutenSync()" ${canAdmin() ? '' : 'disabled'}
+          title="${canAdmin() ? '楽天に登録済みの自社商品を取得し、商品マスターの不足情報を補う' : '同期できる権限がありません'}">
+          <span class="ms">sync</span>楽天商品を同期</button>
       </div>
     </div>
     ${importHistLine()}
@@ -1296,6 +1299,103 @@ function findLoc(text) {
 }
 
 function pickImport() { $('csvFile').value = ''; $('csvFile').click(); }
+
+/* ---- 楽天商品を同期 ----
+   Rakuten Developers APIで自社楽天店舗の商品を取得し、Edge Function
+   （zaiko/supabase-functions/rakuten-product-sync/）経由で inventory_products の
+   不足情報を補う。実在庫（inventory_items）はここでは作らない。
+   候補が複数あって自動で選べないものは「要確認」に出し、人に選んでもらう。 */
+let rakutenLastResult = null;
+function openRakutenSync() {
+  if (!canAdmin()) { toast('同期は管理者だけができます'); return; }
+  openModal('楽天商品を同期', `
+    <p class="meta" style="margin-bottom:14px">楽天に登録済みの自社商品を取得し、商品名・画像・スペック等の
+      不足情報を商品マスターへ補います。すでに人が入力した値は上書きしません。実在庫は増えません。</p>
+    <label class="field" style="max-width:220px"><span>取得件数（まずは少数でお試しください）</span>
+      <input class="input num" type="number" id="rkLimit" value="5" min="1" max="30"></label>
+    <div id="rkResult" style="margin-top:16px"></div>`,
+    [['閉じる', 'closeModal()', 'btn ghost'],
+     ['同期する', 'runRakutenSync()', 'btn lime', 'rkGoBtn']]);
+}
+async function runRakutenSync() {
+  const btn = $('rkGoBtn'); if (btn) btn.disabled = true;
+  const host = $('rkResult');
+  host.innerHTML = '<div class="status" style="padding:10px 0"><span class="ms">progress_activity</span> 楽天から取得しています…</div>';
+  try {
+    const limit = Math.max(1, Math.min(30, parseInt(numField('rkLimit') || 5, 10) || 5));
+    const { data: { session } } = await sb.auth.getSession();
+    const res = await fetch(SUPA_URL + '/functions/v1/rakuten-product-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: SUPA_KEY, Authorization: 'Bearer ' + (session ? session.access_token : '') },
+      body: JSON.stringify({ limit })
+    });
+    let out = {};
+    try { out = await res.json(); } catch (_) { out = {}; }
+    if (!res.ok || out.error) {
+      host.innerHTML = `<div class="warnbox"><span class="ms">error</span>
+        <div>${esc(out.error || ('HTTP ' + res.status))}${out.rakuten_response
+          ? '<div class="meta" style="margin-top:6px">楽天からの応答：<code>' + esc(JSON.stringify(out.rakuten_response).slice(0, 300)) + '</code></div>' : ''}
+        <div class="meta" style="margin-top:6px">Edge Function「rakuten-product-sync」のデプロイと、RAKUTEN_APPLICATION_ID /
+          RAKUTEN_ACCESS_KEY / RAKUTEN_SHOP_CODE の設定をご確認ください。</div></div></div>`;
+      return;
+    }
+    rakutenLastResult = out;
+    await loadAll();
+    render();
+    host.innerHTML = rakutenSyncResultHtml(out);
+  } catch (e) {
+    host.innerHTML = `<div class="warnbox"><span class="ms">error</span><div>${esc(e && e.message ? e.message : String(e))}</div></div>`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+function rakutenSyncResultHtml(out) {
+  const nums = [
+    ['新規登録', out.created_count, 'plus'], ['更新', out.updated_count, 'plus'],
+    ['変更なし', out.unchanged_count, ''], ['要確認', out.needs_review_count, out.needs_review_count ? 'minus' : ''],
+    ['エラー', out.error_count, out.error_count ? 'minus' : '']
+  ];
+  return `
+    <div class="prices">
+      ${nums.map(([l, v, c]) => `<div><div class="lbl">${esc(l)}</div><div class="v ${c}">${v ?? 0}件</div></div>`).join('')}
+    </div>
+    <p class="meta" style="margin:10px 0">取得 ${out.fetched_count ?? 0}件（自社店舗の全${out.total_available ?? '—'}件中）</p>
+    ${(out.needs_review || []).length ? `
+      <div class="sec">要確認（候補が複数あり、自動で選べませんでした）</div>
+      ${out.needs_review.map((r, i) => `
+        <div class="card" style="margin-bottom:8px">
+          <div style="font-weight:700">${esc(r.name || r.item_code)}</div>
+          <div class="meta">型番候補: ${esc(r.model || '—')}　楽天商品コード: ${esc(r.item_code)}</div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+            <select class="input" id="rkPick-${i}" style="max-width:220px">
+              ${(r.candidates || []).map(c => `<option value="${esc(c)}">${esc(c)}　${esc(titleOf(prod(c) || { code: c }))}</option>`).join('')}
+            </select>
+            <button class="btn sm" onclick="confirmRakutenLink(${i})">この商品に紐付ける</button>
+          </div>
+        </div>`).join('')}
+    ` : ''}
+    ${(out.errors || []).length ? `
+      <div class="sec">エラー</div>
+      ${out.errors.map(e => `<div class="meta">${esc(e.item_code || '—')}：${esc(e.message)}</div>`).join('')}
+    ` : ''}
+    ${(out.fetched_fields_sample || []).length ? `
+      <div class="sec">取得できた項目（先頭${out.fetched_fields_sample.length}件のサンプル）</div>
+      <pre class="pre" style="font-size:12px;max-height:220px;overflow:auto">${esc(JSON.stringify(out.fetched_fields_sample, null, 2))}</pre>
+    ` : ''}`;
+}
+async function confirmRakutenLink(i) {
+  const r = (rakutenLastResult && rakutenLastResult.needs_review || [])[i];
+  const sel = $('rkPick-' + i);
+  if (!r || !sel || !sel.value) return;
+  const { error } = await sb.rpc('inv_rakuten_link_confirm', { p_code: sel.value, p_item: r.item });
+  if (error) { toast(error.message || '紐付けられませんでした'); return; }
+  await loadAll();
+  render();
+  toast(sel.value + ' に紐付けました');
+  rakutenLastResult.needs_review = rakutenLastResult.needs_review.filter((_, idx) => idx !== i);
+  const host = $('rkResult');
+  if (host) host.innerHTML = rakutenSyncResultHtml(rakutenLastResult);
+}
 
 /* ---- 商品取込の入口 ----
    使う人から見れば「商品・在庫を足す」1つの操作なので、入口も1つにする。
