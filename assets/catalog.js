@@ -182,11 +182,14 @@ window.EightCatalog = (function () {
     const name = esc(title(it));
     const tags = (it.rental_tags || []).map(t => `<span>${esc(TAG_LABEL[t] || t)}</span>`).join('');
     const need = Math.max(1, Number(opts.qty || 1));
-    const avail = Number(it.available || 0);
     const s = sale(it), r = rental(it);
-    // 台数はチャネルごとに見る（掲載が残っていても、発送できない台数は買えない）
+    // 台数はチャネルごとに見る（掲載・公開設定が残っていても、発送できない台数は出せない）
+    //   レンタル … rental_enabled で一覧に載せ、rental_available > 0 のときだけ申し込める
+    //   購入     … sale_listed で掲載を保ち、sale_available > 0 のときだけ購入ボタンを出す
     const buyEnough = !!s && s.available >= need;
     const rentEnough = !!r && r.available >= need;
+    // 在庫バッジは、その画面で提供するチャネルの台数（8ECはレンタル）
+    const avail = mode === 'rental' ? rentalAvailable(it) : Number(it.available || 0);
     const badges = [
       it.office_supported ? `<span><span class="ms">description</span>Office対応</span>` : '',
       it.trial_eligible && r ? `<span><span class="ms">verified</span>お試し対象</span>` : ''

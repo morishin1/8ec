@@ -1128,7 +1128,8 @@ function renderNavDropdown() {
 /* ===== 条件を入れると、借りられる台数まで分かります（在庫連動） =====
    利用目的はOffice要否のヒント・結果文言に使い、実際の絞り込みは
    必要台数・Office要否・利用期間で inv_public_catalog（レンタル対象）の実データに対して行う。
-   数値はすべて live（inv_public_catalog.available）で、固定値は書かない。 */
+   台数はすべて rentalAvailable()＝inv_public_catalog.rental_available（status='在庫' の個体数）で、
+   固定値は書かない。楽天で販売予約された個体はこの数から即座に外れる。 */
 function runFinder() {
   const host = $('finderResult');
   if (!host || !items.length) return;
@@ -1137,7 +1138,7 @@ function runFinder() {
   const officeNeed = $('fOffice').value;
   const months = Number($('fMonths').value || 1);
 
-  let pool = items.filter(it => (it.available || 0) >= qty && (it.rental_min_months || 1) <= months);
+  let pool = items.filter(it => C.rentalAvailable(it) >= qty && (it.rental_min_months || 1) <= months);
   if (officeNeed === 'yes') pool = pool.filter(it => it.category_id === 'pc' && it.office_supported);
   pool.sort((a, b) => (a.rental_price_month || 1e9) - (b.rental_price_month || 1e9));
 
@@ -1153,7 +1154,7 @@ function runFinder() {
         <div class="nm">${esc(it.name || it.model || '')}</div>
         <div class="md">${esc([it.maker, it.model].filter(Boolean).join(' '))}</div>
         <div class="pr">${it.rental_price_month ? `<span class="num">${yen(it.rental_price_month)}</span>円／月〜` : 'お問い合わせ'}</div>
-        <div class="av">${it.available}台 即納可能</div>
+        <div class="av">${C.rentalAvailable(it)}台 即納可能</div>
       </div>`).join('')}</div>`;
 }
 
@@ -1166,15 +1167,15 @@ function renderCatChips() {
 function setCat(k) { activeCat = k; renderCatChips(); renderCatTiles(); renderCatalog(); }
 function onFilter() { q = ($('q') || {}).value.trim().toLowerCase(); renderCatalog(); }
 
-/* ===== おすすめ商品（3タブ、すべて在庫があるものだけ） ===== */
+/* ===== おすすめ商品（3タブ、いまレンタルできる台数があるものだけ） ===== */
 function renderRecommend() {
   let list;
   if (recTab === 'pc') {
-    list = items.filter(it => it.category_id === 'pc' && (it.rental_tags || []).includes('recommend') && it.available > 0);
+    list = items.filter(it => it.category_id === 'pc' && (it.rental_tags || []).includes('recommend') && C.rentalAvailable(it) > 0);
   } else if (recTab === 'other') {
-    list = items.filter(it => it.category_id !== 'pc' && (it.rental_tags || []).includes('recommend') && it.available > 0);
+    list = items.filter(it => it.category_id !== 'pc' && (it.rental_tags || []).includes('recommend') && C.rentalAvailable(it) > 0);
   } else {
-    list = items.filter(it => it.available > 0).slice().sort((a, b) => (b.available || 0) - (a.available || 0)).slice(0, 8);
+    list = items.filter(it => C.rentalAvailable(it) > 0).slice().sort((a, b) => C.rentalAvailable(b) - C.rentalAvailable(a)).slice(0, 8);
   }
   const host = $('recommendGrid');
   if (!list.length) { host.innerHTML = '<div class="status" style="grid-column:1/-1;padding:30px 0">該当する在庫がいまはありません。</div>'; return; }
@@ -1210,7 +1211,9 @@ function openDlg(code) {
   if (!it) return;
   currentCode = code;
   $('dlgTitle').textContent = C.title(it);
-  const avail = it.available || 0;
+  // レンタルできるかは rental_available（status='在庫' の個体数）だけで決める。
+  // 楽天で最後の1台が販売予約されるとこの数が0になり、申込フォームは出なくなる
+  const avail = C.rentalAvailable(it);
   const s = C.sale(it);
   $('dlgBody').innerHTML = `
     ${C.galleryHtml(it, 'rental')}
@@ -1248,8 +1251,10 @@ function closeDlg() { $('dlgOv').classList.remove('open'); currentCode = null; }
 $('dlgOv').addEventListener('click', (e) => { if (e.target.id === 'dlgOv') closeDlg(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDlg(); });
 
+/* 申込フォームは「いまレンタルできる台数（rental_available）が1台以上」のときだけ出す。
+   rental_enabled がオンでも、貸出中・予約中・楽天の販売予約で在庫が無ければ申し込めない。 */
 function renderApply(it) {
-  const avail = it.available || 0;
+  const avail = C.rentalAvailable(it);
   if (avail <= 0) {
     $('applyHost').innerHTML = `<div class="status" style="padding:20px 0">
       <p>あいにく、いまこの機材はレンタルできる台数がありません。</p>
