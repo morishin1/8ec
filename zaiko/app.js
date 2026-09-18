@@ -27,12 +27,13 @@ const DUP_SCAN_MS = 1800;              // 同じQRの読み直しを無視する
 const LOAD_LIMIT = 3000;
 
 /* 個体の状態。「現在庫」に数えるのは在庫と出品中（どちらもまだ手元にある）。
-   売却済・廃棄は持っていないので「登録数」からも外す */
-const STATUSES = ['在庫', '出品中', '社内使用', '貸出中', '修理中', '故障', '紛失', '売却済', '廃棄', '不明'];
+   売却済・廃棄は持っていないので「登録数」からも外す。
+   「予約中」は8RENTの申込が入って発送待ちの状態（レンタル可能数からは外れる） */
+const STATUSES = ['在庫', '出品中', '予約中', '社内使用', '貸出中', '修理中', '故障', '紛失', '売却済', '廃棄', '不明'];
 const IN_STOCK = ['在庫', '出品中'];
 const GONE = ['売却済', '廃棄'];
 const STATUS_ICON = {
-  '在庫': 'inventory_2', '出品中': 'sell', '社内使用': 'person', '貸出中': 'assignment_ind',
+  '在庫': 'inventory_2', '出品中': 'sell', '予約中': 'event_available', '社内使用': 'person', '貸出中': 'assignment_ind',
   '修理中': 'build', '故障': 'error', '紛失': 'help', '売却済': 'paid', '廃棄': 'delete', '不明': 'help'
 };
 /* 販売サイト。一覧のタブもバッジも、この並び順のまま出る。
@@ -47,6 +48,13 @@ const CHANNELS = [
   { key: 'notion', label: 'Notion', short: 'No' }
 ];
 const TAB_CHANNELS = CHANNELS.filter(c => c.tab);
+/* 8RENTの「おすすめ商品」で使う印 */
+const RENTAL_TAGS = [
+  { key: 'recommend', label: 'おすすめ' },
+  { key: 'popular', label: '人気' },
+  { key: 'new', label: '新着' }
+];
+const RENTAL_TAG_LABEL = Object.fromEntries(RENTAL_TAGS.map(t => [t.key, t.label]));
 const isChanKey = (k) => CHANNELS.some(c => c.key === k);
 const chanLabel = (k) => (CHANNELS.find(c => c.key === k) || { label: k }).label;
 /* 出品状態。「未出品」は状態ではなく、行が無いこと自体で表す */
@@ -64,14 +72,15 @@ const MENU = [
   ['locs', 'warehouse', '保管場所', '/locations'],
   ['hist', 'history', '履歴', '/history'],
   ['reg', 'add_box', '商品登録', '/register'],
-  ['labels', 'qr_code_2', 'QRラベル', '/labels']
+  ['labels', 'qr_code_2', 'QRラベル', '/labels'],
+  ['rental', 'car_rental', '8RENT申込', '/rental-requests']
 ];
 
 let sb = null;
 let me = { email: '', name: '', role: 'viewer' };
 const db = {
   cats: [], locs: [], masters: [], items: [], channels: [],
-  tx: [], stocktake: null, stChecked: [], stPast: [], members: [], imports: []
+  tx: [], stocktake: null, stChecked: [], stPast: [], members: [], imports: [], rentalReqs: []
 };
 const ui = {
   screen: 'dash', itemId: null, prodId: null, locId: null,
@@ -79,7 +88,7 @@ const ui = {
   fAction: '', hq: '', regKind: 'ind', made: null, tab: 'info',
   drafts: {}, labelSel: {}, stScope: '', loaded: false, sel: {}, fBatch: null, doneBatch: null,
   // 一覧のタブ。individual / model のほかに、販売サイトのキーと 'none'（未出品）を取る
-  listMode: 'unit', fSt: '', fDiff: false
+  listMode: 'unit', fSt: '', fDiff: false, fRental: ''
 };
 
 /* 仕入の置き場所はたいてい柏の倉庫なので、取込の初期値にする。
@@ -428,12 +437,14 @@ async function loadAll() {
     sb.from('inventory_transactions').select('*').order('occurred_at', { ascending: false }).limit(300),
     sb.from('inventory_stocktakes').select('*').order('started_at', { ascending: false }).limit(20),
     sb.from('inventory_channels').select('*').limit(LOAD_LIMIT),
-    sb.from('inventory_imports').select('*').order('imported_at', { ascending: false }).limit(100)
+    sb.from('inventory_imports').select('*').order('imported_at', { ascending: false }).limit(100),
+    sb.from('inventory_rental_requests').select('*').order('created_at', { ascending: false }).limit(500)
   ];
-  const [c, l, i, p, t, s, ch, im] = await Promise.all(q);
+  const [c, l, i, p, t, s, ch, im, rr] = await Promise.all(q);
   const bad = [c, l, i, p, t, s, ch, im].find(r => r.error);
   if (bad) { showSetup(bad.error); return false; }
   db.imports = im.data || [];
+  db.rentalReqs = rr.error ? [] : (rr.data || []);   // 未実行(setup.sql未更新)でも他が動くよう静かに空にする
 
   db.cats = c.data || [];
   db.locs = l.data || [];
@@ -476,7 +487,7 @@ function parsePath() {
   if (seg[0] === 'items' && seg[1]) return { screen: 'item', itemId: decodeURIComponent(seg[1]) };
   if (seg[0] === 'products' && seg[1]) return { screen: 'prod', prodId: decodeURIComponent(seg[1]) };
   if (seg[0] === 'locations' && seg[1]) return { screen: 'loc', locId: decodeURIComponent(seg[1]) };
-  const byPath = { list: 'list', in: 'in', out: 'out', loan: 'loan', stock: 'stock', locations: 'locs', history: 'hist', register: 'reg', labels: 'labels' };
+  const byPath = { list: 'list', in: 'in', out: 'out', loan: 'loan', stock: 'stock', locations: 'locs', history: 'hist', register: 'reg', labels: 'labels', 'rental-requests': 'rental' };
   const screen = byPath[seg[0]] || 'dash';
   return screen === 'list' ? { screen, listMode: modeFromQuery() } : { screen };
 }
@@ -594,7 +605,8 @@ function render() {
   const v = $('view');
   const fn = {
     dash: viewDash, list: viewList, item: viewItem, prod: viewProd, in: viewIn, out: viewOut,
-    loan: viewLoan, stock: viewStock, locs: viewLocs, loc: viewLoc, hist: viewHist, reg: viewReg, labels: viewLabels
+    loan: viewLoan, stock: viewStock, locs: viewLocs, loc: viewLoc, hist: viewHist, reg: viewReg, labels: viewLabels,
+    rental: viewRentalRequests
   }[ui.screen] || viewDash;
   v.innerHTML = fn();
   if (ui.screen === 'labels') bindLabelPicks();
@@ -2808,6 +2820,7 @@ function tabInfo(p) {
                 <div><span class="k">単価</span>${yen(p.unit_price)}</div>` : ''}
     </div>
     ${ind ? prodPrices(p) : ''}
+    ${ind ? rentalBox(p) : ''}
     ${p.spec ? `<div class="sec">スペック</div><div class="pre">${esc(p.spec)}</div>` : ''}
     ${p.note ? `<div class="sec">備考</div><div class="pre">${esc(p.note)}</div>` : ''}
     ${p.legacy_note ? `<div class="sec">旧データ備考</div>
@@ -2839,6 +2852,74 @@ function prodPrices(p) {
       <div class="v ${t.cost ? (gain < 0 ? 'minus' : 'plus') : ''}">${t.cost ? yen(gain) : '—'}</div></div>
   </div>
   <p class="meta" style="margin-top:6px">売れたものは実際の販売価格、売れていないものは販売予定価格で見込んでいます。</p>`;
+}
+
+/* 8RENTでのレンタル可能数。在庫の個体数がそのままレンタル可能数になる
+   （貸出中・予約中・修理中などは status = '在庫' ではないので自然に外れる） */
+const rentalAvailable = (code) => itemsOf(code).filter(i => i.status === '在庫').length;
+
+/* 商品詳細に出す8RENT設定。/zaikoが基準（source of truth）で、
+   ここでrental_enabledをオンにした商品だけが8RENTに公開される。 */
+function rentalBox(p) {
+  const on = !!p.rental_enabled;
+  const avail = rentalAvailable(p.code);
+  const tags = (p.rental_tags || []).map(t => RENTAL_TAG_LABEL[t] || t);
+  return `<div class="prices" style="margin-top:16px">
+    <div><div class="lbl">8RENT</div><div class="v ${on ? 'plus' : ''}">${on ? '公開中' : '非公開'}</div></div>
+    <div><div class="lbl">月額料金</div><div class="v">${p.rental_price_month ? yen(p.rental_price_month) : '—'}</div></div>
+    <div><div class="lbl">レンタル可能数</div><div class="v">${on ? avail : '—'}</div></div>
+    <div><div class="lbl">最低利用期間</div><div class="v">${p.rental_min_months || 1}ヶ月〜</div></div>
+    <button class="btn sm ghost" onclick="sheetRentalSet('${esc(p.code)}')" ${dis()}>8RENT設定を変える</button>
+  </div>
+  ${on ? `<p class="meta" style="margin-top:6px">${[
+      p.office_supported ? 'Office対応' : '', p.trial_eligible ? 'お試し対象' : '',
+      tags.length ? 'タグ：' + tags.join('・') : ''
+    ].filter(Boolean).join('　')}</p>` : ''}`;
+}
+
+function sheetRentalSet(code) {
+  const p = prod(code); if (!p) return;
+  const n = (v) => (v == null || v === '') ? '' : String(v);
+  const tags = p.rental_tags || [];
+  openSheet({
+    title: '8RENT設定', subject: code, cta: '保存',
+    hint: '「公開する」にすると、この商品が8RENT（自社在庫のレンタルサイト）に載ります。/zaikoが基準なので、ここで変えるとすぐ反映されます。',
+    body: `<label class="field" style="margin-bottom:10px"><span>8RENTへの公開</span>
+        <select class="input" id="sheetVal">
+          <option value="false"${!p.rental_enabled ? ' selected' : ''}>非公開</option>
+          <option value="true"${p.rental_enabled ? ' selected' : ''}>公開する</option>
+        </select></label>
+      <label class="field" style="margin-bottom:10px"><span>月額料金</span>
+        <input class="input num" type="number" min="0" step="100" id="rtPrice" value="${esc(n(p.rental_price_month))}" placeholder="例 4980"></label>
+      <label class="field" style="margin-bottom:10px"><span>最低利用期間（ヶ月）</span>
+        <input class="input num" type="number" min="1" id="rtMonths" value="${esc(n(p.rental_min_months) || '1')}"></label>
+      <label class="bchk" style="margin-bottom:8px"><input type="checkbox" id="rtOffice" ${p.office_supported ? 'checked' : ''}> Office対応</label>
+      <label class="bchk" style="margin-bottom:10px"><input type="checkbox" id="rtTrial" ${p.trial_eligible ? 'checked' : ''}> お試し対象</label>
+      <label class="field" style="margin-bottom:10px"><span>おすすめタグ</span>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:6px">${RENTAL_TAGS.map(t => `
+          <label class="bchk"><input type="checkbox" class="rtTag" value="${t.key}" ${tags.includes(t.key) ? 'checked' : ''}> ${esc(t.label)}</label>`).join('')}
+        </div></label>
+      <label class="field" style="margin-bottom:10px"><span>説明文（8RENT公開用）</span>
+        <textarea class="input" id="rtDesc" rows="3" placeholder="この機器がおすすめの用途など">${esc(p.rental_description || '')}</textarea></label>
+      <label class="field"><span>画像URL</span>
+        <input class="input" id="rtImg" value="${esc(p.rental_image_url || '')}" placeholder="https://…"></label>`,
+    run: (val) => saveRentalSet(code, val === 'true')
+  });
+}
+async function saveRentalSet(code, enabled) {
+  const tags = [...document.querySelectorAll('.rtTag:checked')].map(el => el.value);
+  const { data, error } = await sb.rpc('inv_product_rental_set', {
+    p_code: code, p_enabled: enabled,
+    p_price_month: numField('rtPrice'), p_min_months: numField('rtMonths') || 1,
+    p_office: !!($('rtOffice') || {}).checked, p_trial: !!($('rtTrial') || {}).checked,
+    p_tags: tags, p_description: ($('rtDesc') || {}).value || null, p_image_url: ($('rtImg') || {}).value || null
+  });
+  if (error) { toast('保存できませんでした：' + error.message); return; }
+  const i = db.masters.findIndex(x => x.code === code);
+  if (i >= 0 && data) db.masters[i] = data;
+  await refreshTx();
+  render();
+  toast(enabled ? '8RENTに公開しました' : '8RENT設定を保存しました');
 }
 
 /* --- 個体一覧。QRを出し、クリックで操作できる --- */
@@ -4057,6 +4138,108 @@ function handleCode(raw) {
     return;
   }
   toast('該当する商品が見つかりません：' + key);
+}
+
+/* ===== 13. 8RENT申込 =====
+   8RENT（/rental/）から入ったレンタル申込を扱う。個体の割り当ては申込時に
+   inv_rental_request() が自動でやっている（在庫の個体を1台「予約中」にする）ので、
+   ここでの操作は状態を進めるだけ：発送する（予約中→貸出中）／返却済みにする（貸出中→在庫）／
+   キャンセル（予約中→在庫）。個体の状態と申込の状態は常に連動する。 */
+const RENTAL_STATES = ['申込', '貸出中', '返却済み', 'キャンセル'];
+function onRentalFilter() {
+  ui.fRental = ($('rf-status') || {}).value || '';
+  renderRentalBody();
+}
+function renderRentalBody() {
+  const el = $('rentalBody');
+  if (el) el.innerHTML = rentalBodyHtml();
+}
+function viewRentalRequests() {
+  const open = db.rentalReqs.filter(r => r.status === '申込').length;
+  return `<h1>8RENT申込</h1>
+    <p class="sub" style="margin:8px 0 15px">8RENTから入ったレンタル申込です。個体は申込の時点で自動的に「予約中」になっています。
+      発送したら「発送する」、戻ってきたら「返却済みにする」を押してください。</p>
+    ${open ? `<div class="card" style="background:#FFF4E5;margin-bottom:15px;display:flex;align-items:center;gap:10px">
+      <span class="ms" style="font-size:20px;color:#B26A00">notifications_active</span>
+      <div>対応待ちの申込が <b>${open}件</b> あります。</div>
+    </div>` : ''}
+    <div style="max-width:260px;margin-bottom:12px">
+      <select class="input" id="rf-status" onchange="onRentalFilter()">
+        <option value="">すべての状態</option>
+        ${RENTAL_STATES.map(s => `<option${ui.fRental === s ? ' selected' : ''}>${esc(s)}</option>`).join('')}
+      </select>
+    </div>
+    <div id="rentalBody">${rentalBodyHtml()}</div>`;
+}
+const rentalStatusTag = (s) => {
+  const cls = { '申込': 'few', '貸出中': 'ok', '返却済み': 'none', 'キャンセル': 'none' }[s] || 'none';
+  return `<span class="tag stk-${cls}">${esc(s)}</span>`;
+};
+function rentalBodyHtml() {
+  const rows = db.rentalReqs.filter(r => !ui.fRental || r.status === ui.fRental);
+  if (!rows.length) return '<div class="empty" style="margin-top:15px">該当する申込はありません。</div>';
+  return `<div class="table-wrap"><table class="t">
+    <thead><tr>
+      <th>申込日</th><th>お客様</th><th>商品</th><th>個体</th>
+      <th>希望開始日</th><th class="r">利用月数</th><th>状態</th>${canEdit() ? '<th></th>' : ''}
+    </tr></thead>
+    <tbody>${rows.map(r => {
+      const p = prod(r.product_code);
+      return `<tr class="clk" onclick="showRentalDetail(${r.id})">
+        <td class="meta nowrap num">${esc(fmtDT(r.created_at))}</td>
+        <td>${esc(r.customer_name)}${r.company ? `<div class="meta">${esc(r.company)}</div>` : ''}</td>
+        <td class="nowrap">${esc(p ? titleOf(p) : r.product_code)}</td>
+        <td class="num">${esc(r.item_id || '—')}</td>
+        <td class="meta nowrap">${r.start_date ? fmtD(r.start_date) : '—'}</td>
+        <td class="num r">${r.months || '—'}</td>
+        <td>${rentalStatusTag(r.status)}</td>
+        ${canEdit() ? `<td class="nowrap ops2" onclick="event.stopPropagation()">${rentalActionBtns(r)}</td>` : ''}
+      </tr>`;
+    }).join('')}</tbody></table></div>`;
+}
+function rentalActionBtns(r) {
+  if (r.status === '申込') return `
+    <button class="btn sm" onclick="doRentalStatus(${r.id},'貸出中')">発送する</button>
+    <button class="btn sm ghost" onclick="doRentalStatus(${r.id},'キャンセル')">キャンセル</button>`;
+  if (r.status === '貸出中') return `<button class="btn sm" onclick="doRentalStatus(${r.id},'返却済み')">返却済みにする</button>`;
+  return '';
+}
+function showRentalDetail(id) {
+  const r = db.rentalReqs.find(x => x.id === id);
+  if (!r) return;
+  const p = prod(r.product_code);
+  openModal(`申込 #${r.id}`, `
+    <div class="info" style="margin-bottom:14px">
+      <div><span class="k">お客様</span>${esc(r.customer_name)}</div>
+      <div><span class="k">会社名</span>${esc(r.company || '—')}</div>
+      <div><span class="k">メール</span>${esc(r.email || '—')}</div>
+      <div><span class="k">電話</span>${esc(r.phone || '—')}</div>
+      <div><span class="k">商品</span>${esc(p ? titleOf(p) : r.product_code)}</div>
+      <div><span class="k">割り当てた個体</span>${r.item_id
+        ? `<a href="#" onclick="closeModal();go('item','${esc(r.item_id)}');return false">${esc(r.item_id)}</a>` : '—'}</div>
+      <div><span class="k">希望開始日</span>${r.start_date ? fmtD(r.start_date) : '—'}</div>
+      <div><span class="k">希望利用月数</span>${r.months || '—'}</div>
+      <div><span class="k">申込日</span>${esc(fmtDT(r.created_at))}</div>
+      <div><span class="k">状態</span>${rentalStatusTag(r.status)}</div>
+    </div>
+    ${r.message ? `<div class="sec" style="font-size:16px;margin:16px 0 6px">お問い合わせ内容</div><div class="pre">${esc(r.message)}</div>` : ''}
+  `, [['閉じる', 'closeModal()', 'btn ghost'],
+      ...(canEdit() && r.status === '申込' ? [
+        ['キャンセル', `doRentalStatus(${r.id},'キャンセル');closeModal()`, 'btn ghost'],
+        ['発送する', `doRentalStatus(${r.id},'貸出中');closeModal()`, 'btn lime']
+      ] : []),
+      ...(canEdit() && r.status === '貸出中' ? [
+        ['返却済みにする', `doRentalStatus(${r.id},'返却済み');closeModal()`, 'btn lime']
+      ] : [])]);
+}
+async function doRentalStatus(id, status) {
+  const { data, error } = await sb.rpc('inv_rental_set_status', { p_request_id: id, p_status: status });
+  if (error) { toast('進められませんでした：' + error.message); return; }
+  const i = db.rentalReqs.findIndex(x => x.id === id);
+  if (i >= 0 && data) db.rentalReqs[i] = data;
+  await loadAll();
+  render();
+  toast(`申込 #${id} を「${status}」にしました`);
 }
 
 /* Escapeで、開いているものを手前から順に閉じる */

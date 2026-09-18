@@ -15,6 +15,7 @@
 --     inventory_items           個体管理（1行＝現物1台。管理番号がQRのキー）
 --     inventory_products        数量管理（1行＝1品目。数が増減する）
 --     inventory_channels        出品（販売サイトごと。実物1台に付く）
+--     inventory_rental_requests 8RENT（自社在庫のレンタル公開）への申込
 --     inventory_transactions    履歴（追記のみ。更新も削除もしない）
 --     inventory_loans           貸出
 --     inventory_stocktakes      棚卸セッション
@@ -24,6 +25,8 @@
 --   操作用の関数（画面から直接UPDATEせず、必ずこれを通す）
 --     inv_item_op()        貸出／返却／移動／状態変更／廃棄／棚卸確認
 --     inv_listing_set()    販売サイトごとの出品情報を入れ直す
+--     inv_rental_request()    8RENTからのレンタル申込（在庫を1台その場で予約中にする）
+--     inv_rental_set_status() レンタル申込の状態を進める（個体の状態も連動）
 --     inv_product_move()   入庫／出庫
 --     inv_product_adjust() 棚卸調整（実数に合わせる）
 --     inv_next_id()        管理番号・商品コードの採番
@@ -1733,7 +1736,308 @@ comment on function public.inv_listings_import is
 
 
 -- ============================================================
--- 28) 追加分の権限
+-- 28) 8RENT（自社在庫のレンタル公開）
+--
+--     8RENTは「販売」とは統合しない。/zaiko の自社在庫のうち
+--     rental_enabled=true の商品だけを、レンタル専用で公開する。
+--
+--     個体の状態がそのままレンタル可否になる。新しい状態は「予約中」の1つだけ：
+--       在庫    … レンタル可能（現在庫にも数える）
+--       予約中  … 申込が入り、発送待ち（現在庫からは外れる。売る・貸すへは進めない）
+--       貸出中  … 発送済み・レンタル中（社内の内部貸出と同じ状態を共用する）
+--       修理中・故障・紛失・廃棄・売却済 … 利用不可
+--
+--     レンタル可能数 = 総在庫 − 貸出中 − 予約中 − 修理中 − 利用不可
+--                    = status = '在庫' の個体数（他はすべて上のどれかに当たるため）
+-- ============================================================
+
+-- ------------------------------------------------------------
+-- 29-1) 商品マスタにレンタル設定を追加
+-- ------------------------------------------------------------
+alter table public.inventory_products add column if not exists rental_enabled     boolean default false;
+alter table public.inventory_products add column if not exists rental_price_month numeric;         -- 月額料金
+alter table public.inventory_products add column if not exists rental_min_months  integer default 1; -- 最低利用期間（月）
+alter table public.inventory_products add column if not exists office_supported   boolean default false; -- Office対応
+alter table public.inventory_products add column if not exists trial_eligible     boolean default false; -- お試し対象
+alter table public.inventory_products add column if not exists rental_tags        text[] default '{}'; -- 'recommend' / 'new' / 'popular' など
+alter table public.inventory_products add column if not exists rental_description text;             -- 8RENT公開用の説明文
+alter table public.inventory_products add column if not exists rental_image_url   text;             -- 8RENT公開用のメイン画像
+alter table public.inventory_products add column if not exists rental_images      jsonb default '[]'::jsonb; -- 複数枚（1枚目がメイン）
+
+comment on column public.inventory_products.rental_enabled is
+  'true の商品だけが8RENT（/rental/）に公開される。source of truthは/zaiko。';
+comment on column public.inventory_products.rental_tags is
+  '8RENTの「おすすめ商品」で使う印。レンタル可能数が0の商品はタグが付いていても表示しない。';
+
+create index if not exists inventory_products_rental_idx
+  on public.inventory_products (rental_enabled) where rental_enabled = true;
+
+-- ------------------------------------------------------------
+-- 29-1b) 商品のレンタル設定を変える（/zaiko の商品詳細から）
+--        値を変える操作は必ず関数を通す、という既存の方針にそろえる。
+--        rental_enabled が変わったときだけ履歴に残す（価格の打ち直しで埋まらないように）
+-- ------------------------------------------------------------
+create or replace function public.inv_product_rental_set(
+  p_code         text,
+  p_enabled      boolean,
+  p_price_month  numeric default null,
+  p_min_months   integer default 1,
+  p_office       boolean default false,
+  p_trial        boolean default false,
+  p_tags         text[] default '{}',
+  p_description  text default null,
+  p_image_url    text default null
+) returns public.inventory_products
+language plpgsql security invoker set search_path = public as $$
+declare
+  pr public.inventory_products;
+  v_before text;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+
+  select * into pr from public.inventory_products where code = p_code for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_code;
+  end if;
+  v_before := case when pr.rental_enabled then '公開中' else '非公開' end;
+
+  update public.inventory_products set
+    rental_enabled      = coalesce(p_enabled, false),
+    rental_price_month  = p_price_month,
+    rental_min_months   = coalesce(p_min_months, 1),
+    office_supported    = coalesce(p_office, false),
+    trial_eligible      = coalesce(p_trial, false),
+    rental_tags         = coalesce(p_tags, '{}'),
+    rental_description  = nullif(btrim(coalesce(p_description,'')), ''),
+    rental_image_url    = nullif(btrim(coalesce(p_image_url,'')), '')
+  where code = p_code
+  returning * into pr;
+
+  if v_before <> (case when pr.rental_enabled then '公開中' else '非公開' end) then
+    insert into public.inventory_transactions (actor, ref_kind, ref_id, label, action, before_value, after_value)
+    values (public.inv_actor(), 'product', p_code, coalesce(pr.name, pr.model), '8RENT公開設定',
+            v_before, case when pr.rental_enabled then '公開中' else '非公開' end);
+  end if;
+
+  return pr;
+end $$;
+
+comment on function public.inv_product_rental_set is
+  '商品の8RENT向け設定（公開・月額・最低利用期間・Office対応・お試し対象・おすすめタグ・説明・画像）をまとめて入れ直す。';
+
+-- ------------------------------------------------------------
+-- 29-2) レンタル申込（8RENT公開ページからの問い合わせ・申込）
+-- ------------------------------------------------------------
+create table if not exists public.inventory_rental_requests (
+  id            bigint generated by default as identity primary key,
+  product_code  text not null references public.inventory_products(code) on delete cascade,
+  item_id       text references public.inventory_items(id) on delete set null, -- 割り当てた実物1台
+  customer_name text not null,
+  company       text,
+  email         text,
+  phone         text,
+  start_date    date,          -- 希望開始日
+  months        integer,       -- 希望利用月数
+  message       text,          -- お問い合わせ内容
+  status        text not null default '申込',  -- 申込 / 貸出中 / 返却済み / キャンセル
+  created_at    timestamptz default now(),
+  updated_at    timestamptz default now()
+);
+
+create index if not exists inventory_rental_requests_status_idx
+  on public.inventory_rental_requests (status, created_at desc);
+create index if not exists inventory_rental_requests_item_idx
+  on public.inventory_rental_requests (item_id);
+
+comment on table public.inventory_rental_requests is
+  '8RENTからのレンタル申込。個体の割り当ては申込時にRPCが自動で行い、以後の状態変更も個体と同じ行で追える。';
+
+drop trigger if exists inventory_rental_requests_touch on public.inventory_rental_requests;
+create trigger inventory_rental_requests_touch before update on public.inventory_rental_requests
+  for each row execute function public.inv_touch();
+
+-- ------------------------------------------------------------
+-- 29-3) 申込を受け付ける（公開ページから anon が呼ぶ）
+--       在庫の個体を1台、申込と同じトランザクションで「予約中」にする。
+--       これをしないと、ほぼ同時の2件の申込で同じ1台が二重に割り当たる。
+-- ------------------------------------------------------------
+create or replace function public.inv_rental_request(
+  p_code    text,
+  p_name    text,
+  p_company text default null,
+  p_email   text default null,
+  p_phone   text default null,
+  p_start   date default null,
+  p_months  integer default null,
+  p_message text default null
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_item_id text;
+  v_req_id  bigint;
+begin
+  if p_name is null or btrim(p_name) = '' then
+    raise exception 'お名前を入力してください';
+  end if;
+  if not exists (select 1 from public.inventory_products where code = p_code and rental_enabled = true) then
+    raise exception 'この商品は現在レンタルを受け付けていません';
+  end if;
+
+  -- 在庫の個体を1台、行ロックして予約中にする（管理番号の若いものから）
+  select id into v_item_id
+    from public.inventory_items
+   where product_code = p_code and status = '在庫'
+   order by id
+   limit 1
+   for update skip locked;
+
+  if v_item_id is null then
+    raise exception 'あいにく、この商品はいまレンタルできる台数がありません';
+  end if;
+
+  update public.inventory_items set status = '予約中' where id = v_item_id;
+
+  insert into public.inventory_transactions (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values ('8RENT', 'item', v_item_id,
+          (select coalesce(name, model) from public.inventory_products where code = p_code),
+          '予約', '在庫', '予約中（' || btrim(p_name) || '）');
+
+  insert into public.inventory_rental_requests
+    (product_code, item_id, customer_name, company, email, phone, start_date, months, message, status)
+  values
+    (p_code, v_item_id, btrim(p_name), nullif(btrim(coalesce(p_company,'')),''),
+     nullif(btrim(coalesce(p_email,'')),''), nullif(btrim(coalesce(p_phone,'')),''),
+     p_start, p_months, nullif(btrim(coalesce(p_message,'')),''), '申込')
+  returning id into v_req_id;
+
+  return jsonb_build_object('request_id', v_req_id, 'item_id', v_item_id);
+end $$;
+
+comment on function public.inv_rental_request is
+  '8RENT公開ページからのレンタル申込。在庫の個体を1台その場で予約中にし、申込を記録する。anonが実行する唯一の書き込み経路。';
+
+-- ------------------------------------------------------------
+-- 29-4) 申込の状態を進める（社内・/zaiko側の操作）
+--       申込に紐づく個体の状態も、同じトランザクションで連動させる。
+--         貸出中   … 発送した（個体: 予約中 → 貸出中）
+--         返却済み … 戻ってきた（個体: 貸出中 → 在庫）
+--         キャンセル … 申込を取り消す（個体: 予約中 → 在庫）
+-- ------------------------------------------------------------
+create or replace function public.inv_rental_set_status(
+  p_request_id bigint,
+  p_status     text
+) returns public.inventory_rental_requests
+language plpgsql security invoker set search_path = public as $$
+declare
+  r  public.inventory_rental_requests;
+  it public.inventory_items;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  -- 「申込」へ戻す操作は無い（最初の1回だけ inv_rental_request() がその状態で作る）。
+  -- ここで受け付けるのは、そこから先へ進む3つの操作だけ
+  if p_status not in ('貸出中','返却済み','キャンセル') then
+    raise exception '知らない状態です（%）', p_status;
+  end if;
+
+  select * into r from public.inventory_rental_requests where id = p_request_id for update;
+  if not found then
+    raise exception '申込が見つかりません（%）', p_request_id;
+  end if;
+  -- 返却済み・キャンセルは終端の状態。そこからは何もできない
+  if r.status in ('返却済み','キャンセル') then
+    raise exception 'この申込はすでに「%」で終わっています', r.status;
+  end if;
+
+  if r.item_id is not null then
+    select * into it from public.inventory_items where id = r.item_id for update;
+  end if;
+
+  if p_status = '貸出中' then
+    if it.id is null or it.status <> '予約中' then
+      raise exception '予約中の個体だけ貸出中にできます（いまは %）', coalesce(it.status, '個体なし');
+    end if;
+    update public.inventory_items
+       set status = '貸出中', user_name = r.customer_name, loaned_at = now()
+     where id = it.id;
+
+  elsif p_status = '返却済み' then
+    if it.id is null or it.status <> '貸出中' then
+      raise exception '貸出中の個体だけ返却済みにできます（いまは %）', coalesce(it.status, '個体なし');
+    end if;
+    update public.inventory_items
+       set status = '在庫', user_name = null, loaned_at = null
+     where id = it.id;
+
+  elsif p_status = 'キャンセル' then
+    -- キャンセルは「発送前」だけ。発送済み（貸出中）はキャンセルではなく返却済みで扱う
+    if it.id is null or it.status <> '予約中' then
+      raise exception '予約中の個体だけキャンセルできます（発送済みは「返却済みにする」を使ってください。いまは %）',
+        coalesce(it.status, '個体なし');
+    end if;
+    update public.inventory_items set status = '在庫' where id = it.id;
+  end if;
+
+  if it.id is not null then
+    insert into public.inventory_transactions (actor, ref_kind, ref_id, label, action, before_value, after_value)
+    values (public.inv_actor(), 'item', it.id, r.customer_name, 'レンタル' || p_status, r.status, p_status);
+  end if;
+
+  update public.inventory_rental_requests set status = p_status where id = p_request_id
+  returning * into r;
+
+  return r;
+end $$;
+
+comment on function public.inv_rental_set_status is
+  'レンタル申込の状態を進める。紐づく個体の状態（予約中・貸出中・在庫）も同じトランザクションで連動させる。';
+
+-- ------------------------------------------------------------
+-- 29-5) 公開カタログ（8RENT / anon が読む）
+--       仕入価格・原価など内部情報は一切含めない。rental_enabled=true だけを出す。
+-- ------------------------------------------------------------
+drop view if exists public.inv_rental_catalog;
+create view public.inv_rental_catalog as
+select
+  p.code, p.name, p.model, p.maker, p.category_id, p.spec,
+  p.rental_price_month, p.rental_min_months, p.office_supported, p.trial_eligible,
+  p.rental_tags, p.rental_description, p.rental_image_url, p.rental_images,
+  count(i.id) filter (where i.status = '在庫')                    as rental_available,
+  count(i.id) filter (where i.status not in ('売却済','廃棄'))     as total_owned,
+  p.updated_at
+from public.inventory_products p
+left join public.inventory_items i on i.product_code = p.code
+where p.rental_enabled = true
+group by p.code;
+
+comment on view public.inv_rental_catalog is
+  '8RENT公開ページ用。rental_enabled=true の商品だけを、レンタル可能数つきで出す。仕入価格・原価は含めない。';
+
+
+-- ============================================================
+-- 29-6) 旧レンタル機能の退役
+--
+--     rental_items / rental_orders（/admin/rental/ で管理していた、
+--     /zaiko と独立した在庫）は、上の8RENTの仕組みに完全に置き換わった。
+--     在庫を二重に持たないための削除なので、このデータの移行はしない
+--     （8RENTは inventory_products／個体／inventory_rental_requests だけを基準にする）。
+--
+--     このブロックを含む setup.sql を実行すると、rental_items・rental_orders と
+--     そこに入っていたデータは元に戻せません。zimu_is_admin() は /admin/ の
+--     ほかの画面（棚卸・決算資料・商品画像など）でも使っている共有の関数なので、
+--     これは消さない。
+-- ============================================================
+
+drop function if exists public.rental_public_inquiry(uuid,text,text,text,text,date,date,text);
+drop table if exists public.rental_orders cascade;
+drop table if exists public.rental_items cascade;
+
+
+-- ============================================================
+-- 29) 追加分の権限
 -- ============================================================
 
 grant select, insert, update, delete on public.inventory_channels to authenticated;
@@ -1747,6 +2051,13 @@ grant execute on function public.inv_norm_model(text) to authenticated;
 grant execute on function public.inv_upsert_product(jsonb) to authenticated;
 grant execute on function public.inv_listing_set(text,text,text,text,text,numeric,text,text) to authenticated;
 grant execute on function public.inv_listings_import(jsonb) to authenticated;
+grant execute on function public.inv_rental_set_status(bigint,text) to authenticated;
+grant execute on function public.inv_product_rental_set(text,boolean,numeric,integer,boolean,boolean,text[],text,text) to authenticated;
+-- anon（8RENTの一般訪問者）にはこの関数の実行だけを許可。テーブルへの直接書き込み権限は与えない
+grant execute on function public.inv_rental_request(text,text,text,text,text,date,integer,text) to anon;
+grant usage on schema public to anon;
+grant select on public.inv_rental_catalog to anon;
+grant select, update on public.inventory_rental_requests to authenticated;
 
 alter table public.inventory_channels enable row level security;
 
@@ -1757,6 +2068,19 @@ create policy "inventory_channels read" on public.inventory_channels
 drop policy if exists "inventory_channels write" on public.inventory_channels;
 create policy "inventory_channels write" on public.inventory_channels
   for all to authenticated
+  using (public.inv_can_edit()) with check (public.inv_can_edit());
+
+alter table public.inventory_rental_requests enable row level security;
+
+drop policy if exists "inventory_rental_requests read" on public.inventory_rental_requests;
+create policy "inventory_rental_requests read" on public.inventory_rental_requests
+  for select to authenticated using (true);
+
+-- 状態の更新は inv_rental_set_status() の中でだけ行う（invoker権限で通すため update 自体は許可する）。
+-- テーブルへの insert は許可しない＝新しい申込は inv_rental_request()（security definer）経由だけ
+drop policy if exists "inventory_rental_requests update" on public.inventory_rental_requests;
+create policy "inventory_rental_requests update" on public.inventory_rental_requests
+  for update to authenticated
   using (public.inv_can_edit()) with check (public.inv_can_edit());
 
 

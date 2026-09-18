@@ -15,7 +15,7 @@
       "destination": "/zaiko/index.html"
     },
     {
-      "source": "/zaiko/(list|in|out|loan|stock|locations|history|register|labels)",
+      "source": "/zaiko/(list|in|out|loan|stock|locations|history|register|labels|rental-requests)",
       "destination": "/zaiko/index.html"
     },
     {

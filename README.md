@@ -924,6 +924,91 @@ WKBｾｯﾄ　総数 9　個品ID 00039586573　落札 36,000＋3,600
 
 ---
 
+## 8RENT（/rental/）— 自社在庫のレンタル公開
+
+**8RENTは「販売」とは統合しません。** `/zaiko` の自社在庫のうち `rental_enabled = true` の
+商品だけを、レンタル専用で公開します。8RENTの商品詳細から購入したい人には
+「購入について相談する」（`/index.html#contact` への軽いリンク）を出すだけで、
+それ以上は8ECの購入・見積もり導線に立ち入りません。
+
+```
+/zaiko で仕入れる → rental_enabled をオンにする → 8RENTに公開 → 申込 → 発送 → 返却
+```
+
+### データの基準は/zaiko
+
+`/zaiko` の商品マスタ（`inventory_products`）にレンタル向けの列を足しただけで、
+在庫を別に持ちません。**個体の状態がそのままレンタル可否になります。**
+
+| 個体の状態 | レンタル可能数への影響 |
+|---|---|
+| 在庫 | 数える（＝レンタル可能） |
+| 予約中 | 数えない（8RENTから申込が入り、発送待ち） |
+| 貸出中 | 数えない（社内の内部貸出と同じ状態を共用する） |
+| 修理中・故障・紛失・廃棄・売却済 | 数えない |
+
+**レンタル可能数 = status = '在庫' の個体数。** これは「総在庫 − 貸出中 − 予約中 − 修理中 −
+利用不可」と同じ意味です（除かれるものはすべて「在庫」以外のどれかに当たるため）。
+販売数と同期する仕組みは持ちません（今回は販売機能との統合をしない方針のため）。
+
+### 商品マスタに足した列
+
+| 列 | 意味 |
+|---|---|
+| `rental_enabled` | true の商品だけが8RENTに公開される |
+| `rental_price_month` | 月額料金 |
+| `rental_min_months` | 最低利用期間（月） |
+| `office_supported` | Office対応 |
+| `trial_eligible` | お試し対象 |
+| `rental_tags` | おすすめ表示（`recommend` / `popular` / `new`） |
+| `rental_description` / `rental_image_url` / `rental_images` | 8RENT公開用の説明文・画像 |
+
+`/zaiko` の商品詳細（基本情報タブ）に「8RENT設定を変える」があり、ここで全部まとめて入れます。
+公開・非公開が変わったときだけ履歴に残ります（`inv_product_rental_set`）。
+
+### 申込から返却までの一連
+
+申込は `inventory_rental_requests` に入ります。個体の割り当ては申込と同じトランザクションで
+自動的に行われるので、**ほぼ同時の2件の申込で同じ1台が二重に割り当たることはありません**
+（`for update skip locked` で行ロックを取る）。
+
+```
+8RENT公開ページで申込
+  ↓ inv_rental_request()（anonが実行できる唯一の書き込み経路）
+  在庫の個体を1台、その場で「予約中」にする
+  ↓ /zaiko の「8RENT申込」画面で確認
+発送する → 個体が「貸出中」に（inv_rental_set_status）
+  ↓
+返却済みにする → 個体が「在庫」に戻る
+```
+
+キャンセルも同じ関数で扱い、個体は「在庫」に戻ります。すべて履歴に残ります。
+
+### 公開ページが読む・書く経路
+
+anon（8RENTの一般訪問者）には以下だけを許可し、テーブルへの直接権限は与えません。
+
+| 経路 | 中身 |
+|---|---|
+| `inv_rental_catalog`（ビュー・select） | 公開用の列だけ。仕入価格・原価などの内部情報は含まない |
+| `inv_rental_request()`（RPC） | レンタル申込。実行だけを許可し、テーブルへの直接書き込みは許可しない |
+
+### 旧レンタル機能は削除済み
+
+以前 `/admin/rental/` で独自に管理していた `rental_items` / `rental_orders`
+（/zaiko とは別の在庫を持つ仕組みだった）は、**この8RENTに完全に置き換えて削除しました。**
+`/admin/rental/index.html` と `rental/supabase-setup.sql` はリポジトリから削除し、
+`zaiko/setup.sql` の実行時に `rental_items` / `rental_orders` テーブルと
+`rental_public_inquiry()` 関数も削除されます（**元に戻せません**）。
+
+`zimu_is_admin()` は棚卸・決算資料・商品画像など `/admin/` の他の画面でも使う
+共有の関数なので、これは削除していません。
+
+在庫は `inventory_products` ＋ 個体（`inventory_items`）＋
+`inventory_rental_requests`（8RENTの申込）の3つだけを基準にしています。
+
+---
+
 ## EC一元管理（/admin/ec/）
 
 8EC を商品・在庫のマスターにして、楽天・Amazon・Yahoo! への出品をまとめて扱う画面です。
