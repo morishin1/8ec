@@ -370,13 +370,37 @@ function extractExplicitModel(name: string, caption: string): string | null {
   return m ? m[1].trim() : null;
 }
 
+/**
+ * 楽天の画像URLは末尾に縮小指定が付く（例 …/cabinet/img.jpg?_ex=128x128）。
+ * この _ex を外すと、店舗がアップロードした元サイズの画像が返るので、
+ * 商品詳細で大きく出しても粗くならない。_ex 以外のクエリは残す
+ * （将来ほかのパラメータが増えても壊さないため）。
+ */
+function hiResImageUrl(raw: string): string {
+  const u = String(raw || "").trim();
+  if (!u) return u;
+  const q = u.indexOf("?");
+  if (q < 0) return u;
+  const base = u.slice(0, q);
+  const rest = u.slice(q + 1).split("&").filter((kv) => kv && !/^_ex=/i.test(kv));
+  return rest.length ? base + "?" + rest.join("&") : base;
+}
+
 function normalizeItem(raw: any): Record<string, unknown> {
   const item = raw?.Item || raw;
   const name: string = item.itemName || "";
   const caption: string = item.itemCaption || "";
-  const images: string[] = Array.isArray(item.mediumImageUrls)
-    ? item.mediumImageUrls.map((x: any) => (typeof x === "string" ? x : x?.imageUrl)).filter(Boolean)
-    : [];
+  // medium（無ければ small）のURLから縮小指定を外し、元サイズの画像として保存する。
+  // 同じ画像がサイズ違いで重複しないよう、_ex を外したあとで重複を除く
+  const rawUrls: string[] = [item.mediumImageUrls, item.smallImageUrls]
+    .filter(Array.isArray)
+    .flatMap((arr: any[]) => arr.map((x: any) => (typeof x === "string" ? x : x?.imageUrl)))
+    .filter(Boolean);
+  const images: string[] = [];
+  for (const u of rawUrls) {
+    const hi = hiResImageUrl(u);
+    if (hi && images.indexOf(hi) < 0) images.push(hi);
+  }
   return {
     item_code: item.itemCode || null,
     item_url: item.itemUrl || null,
@@ -771,6 +795,7 @@ Deno.serve(async (req: Request) => {
         has_caption: !!n.caption,
         has_image: !!n.image_url,
         image_count: (n.images || []).length,
+        image_sample: ((n.images || []) as string[])[0] || null,
         model_explicit: n.model,
         extracted: n.extracted,
         raw: items[i]?.Item || items[i],

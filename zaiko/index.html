@@ -155,6 +155,15 @@ table.t tr.clk:hover td{background:var(--n100)}
 /* ---- 詳細 ---- */
 .detail{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
 .detail .main{flex:1 1 380px;min-width:0}
+/* 個体詳細の右側：商品写真とQRを縦に並べる（現場で「この機器か」を確かめやすく） */
+.detail .sidebox{flex:0 0 auto;display:flex;flex-direction:column;gap:14px;align-items:center}
+.photobox{width:240px;text-align:center}
+.photobox img{max-width:100%;max-height:200px;width:auto;height:auto;object-fit:contain;
+  background:#fff;padding:8px;border:1px solid var(--line);border-radius:var(--r2)}
+.photobox .ph{display:grid;place-items:center;gap:4px;height:160px;background:var(--n100);
+  border:1px solid var(--line);border-radius:var(--r2);color:var(--n600);font-size:12px}
+.photobox .ph .ms{font-size:32px}
+.photobox .u{font-size:10.5px;color:var(--n600);margin-top:6px}
 .detail .qrbox{flex:0 0 auto;text-align:center}
 .detail .qrbox img{width:140px;height:140px;image-rendering:pixelated;background:#fff;padding:6px;border:1px solid var(--line)}
 .detail .qrbox .u{font-size:10px;color:var(--n600);word-break:break-all;max-width:152px;margin-top:6px}
@@ -316,6 +325,8 @@ table.t tr.clk.on:hover td{background:var(--i200)}
 body.selbar-on{padding-bottom:104px}
 /* スマホは「件数＋選択解除」で1段、操作ボタンで2段程度に折り返す */
 @media(max-width:760px){
+  .detail .sidebox{flex-direction:row;flex-wrap:wrap;gap:12px;align-items:flex-start}
+  .photobox{width:180px}
   #selbar{padding:9px 12px;gap:8px}
   #selbar .n{order:0;flex:1 1 auto}
   #selbar > .btn.ghost{order:1}
