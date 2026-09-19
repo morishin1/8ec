@@ -84,7 +84,8 @@ let me = { email: '', name: '', role: 'viewer' };
 const db = {
   cats: [], locs: [], masters: [], items: [], channels: [],
   tx: [], stocktake: null, stChecked: [], stPast: [], members: [], imports: [], rentalReqs: [],
-  chanSettings: []          // 販売サイトごとの管理画面URL（inventory_channel_settings）
+  chanSettings: [],         // 販売サイトごとの管理画面URL（inventory_channel_settings）
+  stats: null               // 今月の経営数値（inv_dashboard_stats）
 };
 const ui = {
   screen: 'dash', itemId: null, prodId: null, locId: null,
@@ -444,14 +445,17 @@ async function loadAll() {
     sb.from('inventory_imports').select('*').order('imported_at', { ascending: false }).limit(100),
     sb.from('inventory_rental_requests').select('*').order('created_at', { ascending: false }).limit(500),
     sb.from('inventory_channel_listings').select('*').limit(LOAD_LIMIT),
-    sb.from('inventory_channel_settings').select('*')
+    sb.from('inventory_channel_settings').select('*'),
+    sb.rpc('inv_dashboard_stats')
   ];
-  const [c, l, i, p, t, s, ch, im, rr, cl, cs] = await Promise.all(q);
+  const [c, l, i, p, t, s, ch, im, rr, cl, cs, ds] = await Promise.all(q);
   const bad = [c, l, i, p, t, s, ch, im].find(r => r.error);
   if (bad) { showSetup(bad.error); return false; }
   db.imports = im.data || [];
   db.rentalReqs = rr.error ? [] : (rr.data || []);   // 未実行(setup.sql未更新)でも他が動くよう静かに空にする
   db.chanSettings = cs.error ? [] : (cs.data || []);
+  // 経営数値。migration未適用でも他の画面が動くよう、取れなければnullにする
+  db.stats = ds.error ? null : (ds.data || null);
 
   db.cats = c.data || [];
   db.locs = l.data || [];
@@ -628,6 +632,58 @@ const guardNote = () => canEdit() ? '' : '<div class="card" style="margin-bottom
 const dis = () => canEdit() ? '' : 'disabled';
 
 /* ===== 1. ダッシュボード ===== */
+/* ---- 今月の経営状況 ----
+   売上だけでなく、粗利と在庫原価を同じ画面で見られるようにする。
+   数はすべてサーバー側（inv_dashboard_stats）が実データから数えたもので、
+   画面では計算し直さない（履歴の読み込み上限に左右されないため）。
+   並びは 売上 → 粗利 → 粗利率 → 販売 → 仕入 → 在庫 の順。 */
+function plBlock() {
+  const st = db.stats;
+  const kpi = (label, v, note, cls) =>
+    `<div class="kpi ${cls || ''}"><div class="lbl">${esc(label)}</div><div class="v num${
+      cls && cls.indexOf('na') >= 0 ? ' na' : ''}">${v}</div><div class="n">${note || ''}</div></div>`;
+  if (!st) {
+    return `<div class="sec">今月の経営状況</div>
+      <div class="card" style="margin-bottom:22px">まだ集計できていません。
+        <span class="meta">migration <code>2026-09-19-dashboard-pl.sql</code> を実行すると出ます。</span></div>`;
+  }
+  const n = (v) => Number(v || 0);
+  const gp = n(st.gross_profit);
+  const margin = st.gross_margin == null ? null : Number(st.gross_margin);
+  const avg = st.avg_profit_per_unit == null ? null : Number(st.avg_profit_per_unit);
+  const miss = n(st.profit_missing_cost);
+  return `
+    <div class="sec">今月の経営状況<span class="secn">${esc(st.month || '')}</span></div>
+    <div class="kpis pl">
+      ${kpi('今月売上', yen(n(st.sales_total)), st.rental_available
+          ? `販売 ${yen(n(st.sales_sale))}／レンタル ${yen(n(st.sales_rental))}`
+          : '販売のみ（レンタル売上は未集計）', 'lead')}
+      ${kpi('今月粗利', yen(gp), miss ? `原価未登録 ${miss}台は除く` : '実売価格 − 原価',
+          'lead' + (gp < 0 ? ' minus' : ''))}
+      ${kpi('粗利率', margin == null ? '—' : margin + '%', margin == null ? '売れた実績がありません' : '粗利 ÷ 売上',
+          margin == null ? 'na' : '')}
+      ${kpi('今月販売台数', n(st.sold_count) + '台', miss ? `うち原価未登録 ${miss}台` : '')}
+      ${kpi('今月仕入額', yen(n(st.purchase_amount)), '仕入価格＋諸費用')}
+      ${kpi('今月仕入台数', n(st.purchase_count) + '台', '仕入日で集計')}
+      ${kpi('現在庫原価', yen(n(st.stock_cost)), `${n(st.stock_count)}台（売却済・廃棄を除く）`)}
+      ${kpi('平均粗利／台', avg == null ? '—' : yen(avg), avg == null ? '売れた実績がありません' : '今月粗利 ÷ 販売台数',
+          avg == null ? 'na' : '')}
+    </div>
+    ${miss ? `<p class="plnote">原価（仕入価格＋諸費用）が入っていない個体が ${miss}台あります。
+      売値をそのまま粗利にすると実態と違うので、粗利・粗利率・平均粗利からは外しています
+      （売上と販売台数には入っています）。</p>` : ''}
+
+    <div class="sec">在庫の質</div>
+    <div class="kpis">
+      ${kpi('60日超在庫', n(st.aged_60) + '台', '仕入から60日を超えたもの')}
+      ${kpi('90日超在庫', n(st.aged_90) + '台', '仕入から90日を超えたもの', n(st.aged_90) ? 'minus' : '')}
+      ${kpi('90日超の原価', yen(n(st.aged_90_cost)), '寝ている資金')}
+      ${kpi('平均在庫日数', st.avg_stock_days == null ? '—' : Number(st.avg_stock_days) + '日',
+          n(st.stock_no_date) ? `仕入日なし ${n(st.stock_no_date)}台は除く` : '保有在庫の平均',
+          st.avg_stock_days == null ? 'na' : '')}
+    </div>`;
+}
+
 function viewDash() {
   const live = db.items.filter(i => i.status !== '廃棄');
   const qtyMasters = db.masters.filter(p => p.kind !== 'individual');
@@ -639,16 +695,12 @@ function viewDash() {
     .concat(db.masters.filter(p => p.kind === 'individual' && stockOf(p).inStock <= 0));
   const order = qtyMasters.filter(needsOrder);
   const broken = live.filter(i => i.status === '修理中' || i.status === '故障');
-  const now = new Date(), ym = now.getFullYear() + '-' + P2(now.getMonth() + 1);
-  const bought = db.items.filter(i => (i.purchased_on || '').slice(0, 7) === ym);
-  const boughtSum = bought.reduce((s, i) => s + Number(i.price || 0), 0);
-
   // 棚卸で「まだ確認していない」件数
   const checkedIds = db.stChecked.filter(x => x.checked_at).map(x => x.item_id);
   const stLeft = db.stocktake ? db.stChecked.length - checkedIds.length : 0;
 
-  const kpi = (label, v, note) =>
-    `<div class="kpi"><div class="lbl">${esc(label)}</div><div class="v num">${v}</div><div class="n">${note || ''}</div></div>`;
+  const kpi = (label, v, note, cls) =>
+    `<div class="kpi ${cls || ''}"><div class="lbl">${esc(label)}</div><div class="v num">${v}</div><div class="n">${note || ''}</div></div>`;
 
   const chk = (icon, title, n, detail, screen, setup) =>
     `<button class="chk card" onclick="${setup || ''}go('${screen}')">
@@ -661,6 +713,9 @@ function viewDash() {
       <h1>ダッシュボード</h1>
       <span class="meta">${fmtDT(new Date().toISOString())}　${esc(me.name)}</span>
     </div>
+    ${plBlock()}
+
+    <div class="sec">在庫の状況</div>
     <div class="kpis">
       ${kpi('総在庫', live.length + qtySum, `個体 ${live.length}／数量 ${qtySum}`)}
       ${kpi('貸出中', loans.length, longs.length ? `${LOAN_LONG_DAYS}日超 ${longs.length}件` : '')}
@@ -668,7 +723,6 @@ function viewDash() {
       ${kpi('在庫切れ', zero.length, '数量管理')}
       ${kpi('要発注', order.length, '最低在庫以下')}
       ${kpi('故障・修理', broken.length, '')}
-      ${kpi('今月購入額', yen(boughtSum), `${bought.length}件`)}
     </div>
 
     <div class="sec">要確認</div>

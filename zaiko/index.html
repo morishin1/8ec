@@ -142,6 +142,14 @@ table.t tr.clk:hover td{background:var(--n100)}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:26px 20px;margin-bottom:10px}
 .kpi .v{font-size:44px;font-weight:700;line-height:1;margin-top:4px}
 .kpi .n{font-size:11px;color:var(--n600);margin-top:4px}
+/* 経営数値。売上と粗利は大きく、赤字は色を変える */
+.kpis.pl{grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:22px 18px;padding:20px 22px;
+  background:var(--n100);border:1px solid var(--line);border-radius:var(--r2);margin-bottom:22px}
+.kpis.pl .kpi .v{font-size:34px}
+.kpis.pl .kpi.lead .v{font-size:46px}
+.kpi .v.minus{color:#B3261E}
+.kpi .v.na{font-size:22px;color:var(--n600);font-weight:500}
+.plnote{font-size:11.5px;color:var(--n600);margin:-12px 0 22px;line-height:1.7}
 .checks{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:15px}
 .chk{cursor:pointer;border:none;text-align:left;font:inherit;display:block;width:100%}
 .chk .h{display:flex;align-items:center;gap:8px;margin-bottom:5px}
