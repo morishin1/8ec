@@ -3079,8 +3079,18 @@ sale_agg as (
          count(*)                                                       as cnt,
          coalesce(sum(sold_price) filter (where cost > 0), 0)           as profit_base,
          coalesce(sum(sold_price - cost) filter (where cost > 0), 0)    as profit,
-         count(*) filter (where coalesce(cost, 0) <= 0)                 as missing_cost
+         count(*) filter (where coalesce(cost, 0) <= 0)                 as missing_cost,
+         count(*) filter (where coalesce(sold_price, 0) <= 0)           as missing_price,
+         -- 粗利を出せた台数＝原価も売価も入っている台数。平均粗利/台の母数はこれ
+         count(*) filter (where cost > 0 and sold_price > 0)            as profit_cnt
     from sold
+),
+-- 売却済みなのに売価が入っていない個体（全期間）。今月かどうかに関わらず直してほしい
+price_gap as (
+  select count(*) as cnt
+    from public.inventory_items i
+   where i.status = '売却済'
+     and coalesce(i.sold_price, 0) <= 0
 ),
 -- 今月仕入れた個体（仕入日で見る）
 buy_agg as (
@@ -3119,9 +3129,13 @@ select jsonb_build_object(
   'gross_margin',      case when s.profit_base > 0
                             then round(s.profit * 100.0 / s.profit_base, 1) end,
   'profit_missing_cost', s.missing_cost,
-  'avg_profit_per_unit', case when s.cnt - s.missing_cost > 0
-                              then round(s.profit / (s.cnt - s.missing_cost)) end,
+  'profit_count',      s.profit_cnt,
+  'avg_profit_per_unit', case when s.profit_cnt > 0
+                              then round(s.profit / s.profit_cnt) end,
   'sold_count',        s.cnt,
+  -- 売価が入っていない個体（金額として数えられないもの）
+  'sold_price_missing',       g.cnt,
+  'sold_price_missing_month', s.missing_price,
   -- 仕入
   'purchase_amount',   b2.amount,
   'purchase_count',    b2.cnt,
@@ -3134,15 +3148,16 @@ select jsonb_build_object(
   'avg_stock_days',    h.avg_days,
   'stock_no_date',     h.no_date
 )
-from sale_agg s, buy_agg b2, held_agg h;
+from sale_agg s, price_gap g, buy_agg b2, held_agg h;
 $$;
 
 comment on function public.inv_dashboard_stats is
   'ダッシュボードの経営数値。売上・粗利・粗利率・販売台数・仕入・在庫原価・滞留在庫を実データから数える。
    売れた日は inventory_transactions（action=売却）、売れた額は inventory_items.sold_price、
    原価は cost（price + purchase_fee）。原価が入っていない個体は粗利の計算から外し、
-   その件数を profit_missing_cost で返す。売上は販売とレンタルを分けて返す
-   （レンタルの請求データはまだ無いので rental_available=false）。';
+   その件数を profit_missing_cost で返す。売却済みなのに売価が入っていない個体は
+   sold_price_missing（全期間）と sold_price_missing_month（今月ぶん）で返す。
+   売上は販売とレンタルを分けて返す（レンタルの請求データはまだ無いので rental_available=false）。';
 
 comment on column public.inventory_products.description is
   '一般の商品説明。楽天から取得した説明、または人が入力したもの。8RENTはrental_descriptionが空ならこちらを使う。';
