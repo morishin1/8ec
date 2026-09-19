@@ -101,6 +101,39 @@ language sql stable as $$ select public.inv_role() in ('admin','member') $$;
 create or replace function public.inv_is_admin() returns boolean
 language sql stable as $$ select public.inv_role() = 'admin' $$;
 
+-- まとめて書き換える保守操作は、Webのログインを持たないDB管理セッション
+-- （Supabase SQL Editor・psql）からも実行したい。実行元は session_user で見分ける。
+--   PostgREST … authenticator でDBに接続し、リクエストごとに SET ROLE anon/authenticated
+--               するので session_user は常に 'authenticator'
+--   SQL Editor … postgres などで直接ログインするので session_user はそのロール名
+-- current_user は SECURITY DEFINER で関数所有者に変わるため判定に使わない。
+-- session_user は SET ROLE でも SECURITY DEFINER でも変わらないので迂回できない。
+create or replace function public.inv_is_db_session()
+returns boolean
+language sql
+stable
+set search_path = pg_catalog, public
+as $$
+  select session_user not in ('authenticator', 'anon', 'authenticated', 'service_role');
+$$;
+
+comment on function public.inv_is_db_session is
+  'DBへ直接ログインしているセッション（Supabase SQL Editor・psql など）なら true。
+   PostgREST経由（anon/authenticated/service_role）は session_user が authenticator なので false。';
+
+create or replace function public.inv_can_maintain()
+returns boolean
+language sql
+stable
+set search_path = pg_catalog, public
+as $$
+  select public.inv_is_db_session() or public.inv_is_admin();
+$$;
+
+comment on function public.inv_can_maintain is
+  'まとめて書き換える保守操作を実行してよいか。Webアプリ（PostgREST）からは管理者だけ、
+   DB管理セッション（SQL Editor・psql）からは許可する。一般メンバー・閲覧のみ・anon は不可。';
+
 
 -- ============================================================
 -- 2) カテゴリ・保管場所
@@ -2331,15 +2364,24 @@ begin
   return pr;
 end $$;
 
+-- まだ手を入れていない商品に、自動生成のレンタル向け説明をまとめて入れる。
+-- Webアプリからは管理者だけ、SQL Editor などDB管理セッションからは保守実行できる
 create or replace function public.inv_rental_text_fill(p_only_empty boolean default true)
 returns integer
-language plpgsql security invoker set search_path = public as $$
+language plpgsql
+security invoker
+set search_path = public, pg_catalog
+as $$
 declare
   v_n integer := 0;
 begin
-  if not public.inv_can_edit() then
-    raise exception '操作する権限がありません（閲覧のみ）';
+  -- Webアプリからは管理者だけ。SQL Editor などDBへ直接つないだ保守実行は許可する
+  if not public.inv_can_maintain() then
+    raise exception 'レンタル説明の一括生成は管理者だけができます（いまの権限：%）', public.inv_role()
+      using hint = 'Supabase の SQL Editor から実行する場合はそのまま実行できます。'
+                || 'Webアプリから実行する場合は inventory_members の role を admin にしてください。';
   end if;
+
   update public.inventory_products p
      set rental_description = public.inv_rental_text(p.code)
    where p.kind = 'individual'
@@ -2351,33 +2393,11 @@ begin
 end $$;
 
 comment on function public.inv_rental_text_fill is
-  '人が直していない商品のレンタル向け説明を、自動生成で埋める。p_only_empty=false なら作り直す。';
+  '人が直していない商品のレンタル向け説明を、自動生成で埋める。p_only_empty=false なら作り直す。
+   Webアプリからは管理者だけ、Supabase SQL Editor など DB管理セッションからは保守実行できる。';
 
 comment on function public.inv_product_rental_description_set is
   'レンタル向け説明を入れ直す。p_manual=true（人が直した）なら、以後は自動生成・楽天同期で上書きしない。';
-
--- まだ手を入れていない商品に、自動生成のレンタル向け説明をまとめて入れる
-create or replace function public.inv_rental_text_fill(p_only_empty boolean default true)
-returns integer
-language plpgsql security invoker set search_path = public as $$
-declare
-  v_n integer := 0;
-begin
-  if not public.inv_can_edit() then
-    raise exception '操作する権限がありません（閲覧のみ）';
-  end if;
-  update public.inventory_products p
-     set rental_description = public.inv_rental_text(p.code)
-   where p.kind = 'individual'
-     and coalesce(p.rental_description_manual, false) = false
-     and (not coalesce(p_only_empty, true)
-          or nullif(btrim(coalesce(p.rental_description,'')), '') is null);
-  get diagnostics v_n = row_count;
-  return v_n;
-end $$;
-
-comment on function public.inv_rental_text_fill is
-  '人が直していない商品のレンタル向け説明を、自動生成で埋める。p_only_empty=false なら作り直す。';
 
 -- ------------------------------------------------------------
 -- 29-2) レンタル申込（8RENT公開ページからの問い合わせ・申込）
@@ -4364,7 +4384,13 @@ grant execute on function public.inv_model_key(text,text,text) to anon, authenti
 grant execute on function public.inv_rental_allocate(bigint) to authenticated;
 grant execute on function public.inv_product_procurement_set(text,boolean) to authenticated;
 grant execute on function public.inv_rental_text(text) to authenticated;
+-- 一括生成は authenticated だけに渡す（anon・PUBLIC には渡さない）。
+-- 管理者以外のWebユーザーは、関数の中の inv_can_maintain() で弾かれる
+revoke all on function public.inv_rental_text_fill(boolean) from public;
 grant execute on function public.inv_rental_text_fill(boolean) to authenticated;
+revoke all on function public.inv_is_db_session() from public;
+revoke all on function public.inv_can_maintain() from public;
+grant execute on function public.inv_is_db_session(), public.inv_can_maintain() to authenticated;
 grant execute on function public.inv_product_rental_description_set(text,text,boolean) to authenticated;
 grant usage on schema public to anon;
 grant select on public.inv_rental_catalog to anon, authenticated;

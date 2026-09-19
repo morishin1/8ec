@@ -335,6 +335,7 @@ Supabase の SQL Editor で `zaiko/setup.sql` を実行します。何度実行�
 | `2026-09-19-rakuten-orders.sql` | 楽天の受注を在庫につなぐ。`inventory_sale_orders`（注文番号×明細番号×連番で一意）、`inv_sale_orders_apply()`（在庫→販売予約、発送済みなら売却済）、`inv_sale_order_link()`。**あわせて社内用ビュー `inv_channel_stock_feed` を anon から見えないようにします**（Supabaseの既定権限で公開キーから読めていました）。Edge Function `rakuten-order-sync` のデプロイも必要 |
 | `2026-09-19-sale-flow.sql` | 売却の記録に**売却先**（`inventory_items.sold_channel`）を足し、履歴に 売却先・原価・利益 を載せる。販売サイトの管理画面URL（`inventory_channel_listings.admin_url` と `inventory_channel_settings`）と `inv_item_sell()` |
 | `2026-09-19-rental-inquiry.sql` | 公開側を**法人向けレンタル相談型**に。`inv_public_catalog` から在庫数と楽天の販売情報を外し（`availability` だけにする）、申込を「希望受付」に変える（`inv_rental_request_create`）。レンタル向け説明の自動生成（`inv_rental_text`）、楽天の説明原文は `sale_description` へ。**実行後に `select public.inv_rental_text_fill(true);` でレンタル説明を作ってください** |
+| `2026-09-19-rental-text-fill-admin-fix.sql` | `inv_rental_text_fill()` を **Supabase SQL Editor からも実行できる**ようにする（判定を `inv_can_maintain()` へ）。Webアプリからは管理者だけ、一般メンバー・閲覧のみ・anon は不可のまま |
 
 ### 使う人と権限
 
@@ -1088,6 +1089,28 @@ Office：ご希望に応じてOffice付きでご用意できます（申込時�
 
 `/zaiko` の商品詳細 →「レンタル向け説明」で人が直せます（「レンタル説明を生成」ボタンつき）。
 **人が直した文（`rental_description_manual = true`）は、自動生成でも楽天同期でも上書きしません。**
+
+#### 一括生成を実行するときの権限
+
+```sql
+select public.inv_rental_text_fill(true);   -- Supabase SQL Editor からそのまま実行できます
+```
+
+実行元で判定が変わります。判定は `inv_can_maintain()`（＝`inv_is_db_session() or inv_is_admin()`）です。
+
+| 実行元 | 可否 |
+|---|---|
+| Supabase SQL Editor・psql（DBへ直接ログイン） | **できる**（保守実行） |
+| Webアプリの管理者 | できる |
+| Webアプリの一般メンバー・閲覧のみ・未登録ユーザー | できない |
+| anon（未ログイン）・service_role | **関数の実行権限そのものが無い** |
+
+見分けているのは `session_user` です。PostgREST は `authenticator` でDBに接続し、
+リクエストごとに `SET ROLE anon / authenticated` するため、
+Web経由では `session_user` が常に `authenticator` になります。
+`SET ROLE` でも `SECURITY DEFINER` でも `session_user` は変わらないので、
+anon や一般ユーザーからは迂回できません
+（`current_user` は `SECURITY DEFINER` で関数所有者に変わるため判定に使いません）。
 
 ---
 
