@@ -3711,6 +3711,10 @@ const heldCounts = (code) => {
   return c;
 };
 
+const RENTAL_FORM_LABEL = { notebook: 'ノートPC', desktop: 'デスクトップPC', monitor: 'モニター',
+  peripheral: '周辺機器・アクセサリ', other: 'その他' };
+const RENTAL_LISTING_LABEL = { standalone: '単品レンタル', option: 'PCレンタルのオプション', not_public: '公開しない' };
+
 /* 商品詳細に出す8RENT設定。/zaikoが基準（source of truth）で、
    ここでrental_enabledをオンにした商品だけが8EC（トップ・8RENT）に公開される。
    楽天は販売チャネルなので、レンタル公開にしても楽天の掲載は解除しない
@@ -3726,6 +3730,9 @@ function rentalBox(p) {
     <div><div class="lbl">レンタル対象の個体</div><div class="v">${elig}<span class="meta"> / ${itemsOf(p.code).filter(i => !GONE.includes(i.status)).length}台</span></div></div>
     <div><div class="lbl">レンタル可能数</div><div class="v ${on && avail ? 'plus' : ''}">${on ? avail : '—'}</div></div>
     <div><div class="lbl">取り寄せ</div><div class="v">${p.procurement_available ? '可' : '—'}</div></div>
+    <div><div class="lbl">かたち</div><div class="v" style="font-size:15px">${esc(RENTAL_FORM_LABEL[p.rental_form] || '未分類')}</div></div>
+    <div><div class="lbl">8ECでの出しかた</div><div class="v" style="font-size:15px">${
+      esc(RENTAL_LISTING_LABEL[p.rental_listing_type || 'standalone'])}</div></div>
     <div><div class="lbl">最低利用期間</div><div class="v">${p.rental_min_months || 1}ヶ月〜</div></div>
     <button class="btn sm ghost" onclick="sheetRentalSet('${esc(p.code)}')" ${dis()}>8RENT設定を変える</button>
     <button class="btn sm ghost" onclick="sheetRentalText('${esc(p.code)}')" ${dis()}>レンタル向け説明</button>
@@ -3829,7 +3836,25 @@ function sheetRentalSet(code) {
         <input class="input num" type="number" min="0" step="100" id="rtPrice" value="${esc(n(p.rental_price_month))}" placeholder="例 4980"></label>
       <label class="field" style="margin-bottom:10px"><span>最低利用期間（ヶ月）</span>
         <input class="input num" type="number" min="1" id="rtMonths" value="${esc(n(p.rental_min_months) || '1')}"></label>
-      <label class="bchk" style="margin-bottom:8px"><input type="checkbox" id="rtOffice" ${p.office_supported ? 'checked' : ''}> Office対応</label>
+      <label class="field" style="margin-bottom:10px"><span>商品のかたち（レンタル説明のひな形）</span>
+        <select class="input" id="rtForm">
+          ${[['', '未分類（スペックから推定）'], ['notebook', 'ノートPC'], ['desktop', 'デスクトップPC'],
+             ['monitor', 'モニター'], ['peripheral', '周辺機器・アクセサリ'], ['other', 'その他']]
+            .map(([v, t]) => `<option value="${v}"${(p.rental_form || '') === v ? ' selected' : ''}>${t}</option>`).join('')}
+        </select>
+        <span class="meta">PC以外に選ぶと、Office・CPU・カメラなどPC向けの文章を出しません。</span></label>
+      <label class="field" style="margin-bottom:10px"><span>8ECでの出しかた</span>
+        <select class="input" id="rtListing">
+          ${[['standalone', '単品レンタル（商品カードとして公開）'],
+             ['option', 'PCレンタルのオプション（単独では公開しない）'],
+             ['not_public', '公開しない']]
+            .map(([v, t]) => `<option value="${v}"${(p.rental_listing_type || 'standalone') === v ? ' selected' : ''}>${t}</option>`).join('')}
+        </select>
+        <span class="meta">セキュリティワイヤーのように、PCに付ける前提のものは「オプション」にしてください。</span></label>
+      <label class="bchk" style="margin-bottom:8px"><input type="checkbox" id="rtOffice" ${p.office_supported ? 'checked' : ''}> Office付きで用意できると確認ずみ</label>
+      <label class="bchk" style="margin-bottom:8px"><input type="checkbox" id="rtOfficeNg" ${p.office_unavailable ? 'checked' : ''}> Officeは付けられない（はっきりしている場合だけ）</label>
+      <p class="meta" style="margin:-4px 0 10px">どちらも外れているときは「Officeの有無はお申し込み時にご希望をお知らせください」と出ます
+        （8RENTは希望を伺って用意するので、これが既定です）。</p>
       <label class="bchk" style="margin-bottom:8px"><input type="checkbox" id="rtTrial" ${p.trial_eligible ? 'checked' : ''}> お試し対象</label>
       <label class="bchk" style="margin-bottom:10px"><input type="checkbox" id="rtProcure" ${p.procurement_available ? 'checked' : ''}> 取り寄せ可（在庫0でも申込を受ける）</label>
       <p class="meta" style="margin:-4px 0 12px">取り寄せ可にすると、8RENTに「取り寄せ可能」と出て、申込は「調達確認」から始まります。
@@ -3854,6 +3879,15 @@ async function saveRentalSet(code, enabled) {
   });
   if (error) { toast('保存できませんでした：' + error.message); return; }
   let saved = data;
+  // 商品のかたち・8ECでの出しかた・Office不可は、説明の作り分けに使う区分なので専用のRPCで保存する
+  const r0 = await sb.rpc('inv_product_rental_form_set', {
+    p_code: code,
+    p_form: (($('rtForm') || {}).value || ''),
+    p_listing: (($('rtListing') || {}).value || 'standalone'),
+    p_office_ng: !!($('rtOfficeNg') || {}).checked
+  });
+  if (r0.error) { toast('レンタル区分を保存できませんでした：' + r0.error.message); return; }
+  saved = r0.data || saved;
   // 取り寄せの可否は8RENTの公開設定とは別の判断なので、専用のRPCで保存する
   const procure = !!($('rtProcure') || {}).checked;
   if (procure !== !!(prod(code) || {}).procurement_available) {
