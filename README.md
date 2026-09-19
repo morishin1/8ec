@@ -1188,7 +1188,26 @@ inv_public_catalog → 8ec.jp
 **全ページ（最大100ページ）を確認しても見つからないときだけ**「楽天API検索対象外」として扱います。
 
 Edge Function のログには `total_count` / `page_count` / `scanned_pages` /
-`matched_by`（itemCode か url）/ `external_item_code_saved` を出します。
+`matched_by`（itemCode か url）/ `external_item_code_saved` / `url_mismatch` を出します。
+
+**掲載URLが古い・間違っているときの検知**
+
+モール側で商品ページのURLが変わることがあります。保存してあるURLが古いままだと、
+`itemCode` が分かるまでAPIで商品を見つけられません
+（実例：`P-00537` は保存 `…/8commerce/l09150188/`、実際 `…/8commerce/00039769233/`）。
+
+そこで同期が成功したときは、**APIが返した正式な `itemUrl` と保存済みURLを毎回見比べます**。
+
+| 保存済みURL | どうなるか |
+|---|---|
+| 空 | 正式URLをそのまま保存 |
+| 正式URLと同じ（http/https・末尾スラッシュ・クエリの違いは無視） | `url_checked_at` を更新するだけ |
+| 正式URLと違う | **自動では書き換えず** `inventory_channel_listings.url_candidate` に更新候補として入れ、履歴に「掲載URL差異」を残す |
+
+更新候補は `/zaiko` の同期結果と、商品詳細の「販売情報」タブに出ます。
+「URLを更新」（`inv_listing_url_accept()`）で差し替え、「このまま」（`inv_listing_url_dismiss()`）で
+候補だけ消します（次の同期でまた差があれば、また知らせます）。URLは人が入れた値でもあるので、
+同期が黙って書き換えることはしません。
 
 API呼び出し回数は「商品数」ではなく「ページ数」です。結果は
 

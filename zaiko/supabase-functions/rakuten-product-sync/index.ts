@@ -478,7 +478,7 @@ async function syncTargets(
   }));
 
   // ── 3. 1商品ずつ商品マスターへ反映 ──
-  let imagesOk = 0, updated = 0, unchanged = 0, failed = 0;
+  let imagesOk = 0, updated = 0, unchanged = 0, failed = 0, urlMismatches = 0;
   const notFound: any[] = [];
   const details: any[] = [];
 
@@ -514,15 +514,24 @@ async function syncTargets(
     // URLで見つけた商品は、APIが返した正式なitemCodeが external_item_code に保存される
     // （inv_rakuten_apply_one が空のときだけ埋める）。次回からはitemCodeで直接照合できる
     const savedCode = !!out?.external_item_code_saved;
+    // 保存済みURLが楽天の正式URLと違っていたら、更新候補として記録されている
+    const urlMismatch = !!out?.url_mismatch;
+    if (urlMismatch) urlMismatches++;
     console.log(JSON.stringify({
       applied: t.code, matched_by: matchedBy, item_code: norm.item_code,
       images_added: imagesAdded, image_count: out?.image_count ?? 0,
       external_item_code_saved: savedCode ? norm.item_code : null,
+      url_mismatch: urlMismatch,
+      url_saved: urlMismatch ? out?.url_saved ?? null : null,
+      url_candidate: urlMismatch ? out?.url_candidate ?? null : null,
     }));
     details.push({
       code: t.code, name: t.name, ok: true, images_added: imagesAdded,
       image_count: out?.image_count ?? 0, changed: !!out?.changed, item_code: norm.item_code,
       matched_by: matchedBy, external_item_code_saved: savedCode,
+      url_mismatch: urlMismatch,
+      url_saved: out?.url_saved ?? null,
+      url_candidate: out?.url_candidate ?? null,
     });
   }
 
@@ -539,6 +548,7 @@ async function syncTargets(
     images_ok: imagesOk,
     updated,
     unchanged,
+    url_mismatches: urlMismatches,   // 掲載URLが楽天側と違っていた商品の数
     failed: failed + notFound.length,
     not_found: notFound,
     details,
@@ -725,7 +735,11 @@ Deno.serve(async (req: Request) => {
           changed: !!oneOut?.changed, item_code: normalized[0].item_code,
           matched_by: (urlSearch.matched_by as string) || (targetItemCode ? "itemCode" : null),
           external_item_code_saved: !!oneOut?.external_item_code_saved,
+          url_mismatch: !!oneOut?.url_mismatch,
+          url_saved: oneOut?.url_saved ?? null,
+          url_candidate: oneOut?.url_candidate ?? null,
         }],
+        url_mismatches: oneOut?.url_mismatch ? 1 : 0,
       });
     }
 

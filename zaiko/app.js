@@ -1727,6 +1727,24 @@ async function runRakutenSync() {
     if (btn) btn.disabled = false;
   }
 }
+/* 掲載URLの更新候補を採用する／そのままにする。
+   URLは人が入れた値でもあるので、同期では書き換えず、ここで確認してから反映する。 */
+async function acceptListingUrl(code) {
+  const { data, error } = await sb.rpc('inv_listing_url_accept', { p_code: code, p_channel: 'rakuten' });
+  if (error) { toast('更新できませんでした：' + error.message); return; }
+  const row = $('rkurl-' + code);
+  if (row) row.innerHTML = `<span class="c">${esc(code)}</span><span class="meta">掲載URLを更新しました：${esc((data || {}).url || '')}</span>`;
+  await loadAll();
+  toast(`${code} の掲載URLを更新しました`);
+}
+async function dismissListingUrl(code) {
+  const { error } = await sb.rpc('inv_listing_url_dismiss', { p_code: code, p_channel: 'rakuten' });
+  if (error) { toast('取り消せませんでした：' + error.message); return; }
+  const row = $('rkurl-' + code);
+  if (row) row.innerHTML = `<span class="c">${esc(code)}</span><span class="meta">いまのURLのままにしました（次の同期でまた差があれば知らせます）</span>`;
+  await loadAll();
+}
+
 function rakutenSyncResultHtml(out) {
   // まとめ同期（画像が未取得だけ／全部／1商品）の結果
   if (out.mode) {
@@ -1737,6 +1755,7 @@ function rakutenSyncResultHtml(out) {
         <div><div class="lbl">画像取得成功</div><div class="v ${out.images_ok ? 'plus' : ''}">${out.images_ok ?? 0}件</div></div>
         <div><div class="lbl">商品情報更新</div><div class="v ${out.updated ? 'plus' : ''}">${out.updated ?? 0}件</div></div>
         <div><div class="lbl">失敗</div><div class="v ${out.failed ? 'minus' : ''}">${out.failed ?? 0}件</div></div>
+        ${out.url_mismatches ? `<div><div class="lbl">URL差異</div><div class="v minus">${out.url_mismatches}件</div></div>` : ''}
       </div>
       <p class="meta" style="margin:10px 0">対象 ${out.target_count ?? 0}商品／楽天から取得 ${out.fetched_count ?? 0}件${
         out.scanned_pages ? `（${out.scanned_pages}/${out.page_count ?? '—'}ページ・全${out.total_count ?? '—'}件・API ${out.api_requests ?? 0}回）` : ''}${
@@ -1749,6 +1768,20 @@ function rakutenSyncResultHtml(out) {
           `<div class="p"><span class="c">${esc(d.code)}</span><span>${esc(d.name || '')}</span>
             <span class="meta" style="margin-left:auto">${d.image_count}枚保存（表示は代表1枚）${
               d.matched_by ? '／' + (d.matched_by === 'url' ? 'URL一致' : 'itemCode一致') : ''}</span></div>`).join('')}</div>` : ''}
+      ${(out.details || []).some(d => d.url_mismatch) ? `<div class="sec">掲載URLが楽天側と違う商品</div>
+        <p class="meta" style="margin-bottom:8px">楽天が返した正式なURLと、登録してある掲載URLが違います。
+          自動では書き換えていません。内容を見て「URLを更新」を押すと差し替わります
+          （古いURLのままだと、次に商品を探すときに見つけられないことがあります）。</p>
+        <div class="plist" id="rkUrlList">${(out.details || []).filter(d => d.url_mismatch).slice(0, 30).map(d =>
+          `<div class="p" id="rkurl-${esc(d.code)}" style="align-items:flex-start">
+            <span class="c">${esc(d.code)}</span>
+            <span style="flex:1;min-width:0">${esc(d.name || '')}
+              <div class="meta" style="word-break:break-all">いま：${esc(d.url_saved || '—')}</div>
+              <div class="meta" style="word-break:break-all">楽天：<strong>${esc(d.url_candidate || '')}</strong></div></span>
+            <span class="nowrap" style="margin-left:auto;display:flex;gap:6px">
+              <button class="btn sm lime" onclick="acceptListingUrl('${esc(d.code)}')">URLを更新</button>
+              <button class="btn sm ghost" onclick="dismissListingUrl('${esc(d.code)}')">このまま</button></span>
+          </div>`).join('')}</div>` : ''}
       ${nf.length ? `<div class="sec">楽天側で見つからなかった商品</div>
         <div class="plist">${nf.slice(0, 30).map(d =>
           `<div class="p"><span class="c">${esc(d.code)}</span><span>${esc(d.name || '')}</span>
@@ -3636,6 +3669,7 @@ function tabSales(p) {
       ? '出品は<strong>実物1台ごと</strong>に持ちます。1台ずつの中身は、下の管理番号をクリックしてください。'
       : '数量管理の品目なので、出品情報は品目まるごとで持ちます。'}</p>
     ${ind ? saleQtyNote(p) : ''}
+    ${listingUrlNote(p)}
     <div class="table-wrap"><table class="t">
       <thead><tr><th>販売サイト</th>${ind ? '<th class="r">出品中</th><th class="r">販売できる数量</th>' : ''}
         <th>型番まとめての設定</th><th>SKU</th><th class="r">販売価格</th><th>商品URL</th>
@@ -3680,6 +3714,34 @@ function saleQtyNote(p) {
     <div class="meta" style="margin-top:4px">発送できない個体（予約中・貸出中・販売予約・修理中）は数量に含めません。
       ${p.rental_enabled ? '8ECでレンタル中でも' : ''}販売サイトの商品ページ（掲載）はそのまま残し、在庫数だけを0にしてください。</div>
   </div>`;
+}
+
+/* 掲載URLの更新候補。API同期で「楽天側の正式URLと違う」と分かった商品にだけ出す */
+function listingUrlNote(p) {
+  const rows = channelsOf(p.code).filter(x => (x.url_candidate || '').trim());
+  if (!rows.length) return '';
+  return rows.map(x => `<div class="warnbox" style="margin-bottom:12px">
+    <span class="ms">link_off</span>
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:500">${esc(chanLabel(x.channel))}の掲載URLが変わっているようです</div>
+      <div class="meta" style="word-break:break-all">いま：${esc(x.url || '—')}</div>
+      <div class="meta" style="word-break:break-all">${esc(chanLabel(x.channel))}：<strong>${esc(x.url_candidate)}</strong></div>
+      <div class="meta" style="margin-top:4px">API同期で見つかった正式なURLです。自動では書き換えていません。</div>
+    </div>
+    ${canEdit() ? `<span class="nowrap" style="display:flex;gap:6px">
+      <button class="btn sm lime" onclick="acceptListingUrlAndRender('${esc(p.code)}','${esc(x.channel)}')">URLを更新</button>
+      <button class="btn sm ghost" onclick="dismissListingUrlAndRender('${esc(p.code)}','${esc(x.channel)}')">このまま</button></span>` : ''}
+  </div>`).join('');
+}
+async function acceptListingUrlAndRender(code, ch) {
+  const { error } = await sb.rpc('inv_listing_url_accept', { p_code: code, p_channel: ch || 'rakuten' });
+  if (error) { toast('更新できませんでした：' + error.message); return; }
+  await loadAll(); render(); toast('掲載URLを更新しました');
+}
+async function dismissListingUrlAndRender(code, ch) {
+  const { error } = await sb.rpc('inv_listing_url_dismiss', { p_code: code, p_channel: ch || 'rakuten' });
+  if (error) { toast('取り消せませんでした：' + error.message); return; }
+  await loadAll(); render(); toast('いまのURLのままにしました');
 }
 
 /* 型番まとめての出品設定。1台ぶんの設定が無い個体に当たる */
