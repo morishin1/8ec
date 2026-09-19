@@ -1681,13 +1681,34 @@ async function runRakutenSync() {
       : mode === 'one' ? { item_url: targetUrl, code: targetCode || undefined, limit: 1 }
       : { limit };
     const { data: { session } } = await sb.auth.getSession();
-    const res = await fetch(SUPA_URL + '/functions/v1/rakuten-product-sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: SUPA_KEY, Authorization: 'Bearer ' + (session ? session.access_token : '') },
-      body: JSON.stringify(payload)
-    });
-    let out = {};
-    try { out = await res.json(); } catch (_) { out = {}; }
+    const call = async (extra) => {
+      const r = await fetch(SUPA_URL + '/functions/v1/rakuten-product-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: SUPA_KEY, Authorization: 'Bearer ' + (session ? session.access_token : '') },
+        body: JSON.stringify(Object.assign({}, payload, extra || {}))
+      });
+      let j = {};
+      try { j = await r.json(); } catch (_) { j = {}; }
+      return { r, j };
+    };
+    // 楽天の商品一覧は1ページ30件・最大100ページ。1回で見きれなかったときは
+    // next_page（続きのページ）が返るので、そのまま続きから探す
+    let { r: res, j: out } = await call();
+    for (let round = 0; round < 6 && res.ok && out && out.next_page; round++) {
+      host.innerHTML = `<div class="status" style="padding:10px 0"><span class="ms">progress_activity</span>
+        楽天の商品一覧を確認しています… ${esc(String(out.scanned_pages || 0))}/${esc(String(out.page_count || '—'))}ページ</div>`;
+      const nxt = await call({ start_page: out.next_page });
+      res = nxt.r;
+      // 積み上げる（件数は合算、一覧は後勝ちでなく結合）
+      const prev = out;
+      out = nxt.j || {};
+      ['images_ok', 'updated', 'unchanged', 'failed', 'fetched_count', 'api_requests'].forEach(k => {
+        out[k] = (Number(prev[k]) || 0) + (Number(out[k]) || 0);
+      });
+      out.scanned_pages = (Number(prev.scanned_pages) || 0) + (Number(out.scanned_pages) || 0);
+      out.details = (prev.details || []).concat(out.details || []);
+      out.not_found = out.not_found || [];
+    }
     if (!res.ok || out.error) {
       host.innerHTML = `<div class="warnbox"><span class="ms">error</span>
         <div>${esc(out.error || ('HTTP ' + res.status))}${out.rakuten_response
@@ -1718,17 +1739,24 @@ function rakutenSyncResultHtml(out) {
         <div><div class="lbl">失敗</div><div class="v ${out.failed ? 'minus' : ''}">${out.failed ?? 0}件</div></div>
       </div>
       <p class="meta" style="margin:10px 0">対象 ${out.target_count ?? 0}商品／楽天から取得 ${out.fetched_count ?? 0}件${
-        out.pages_read ? `（${out.pages_read}ページ・API ${out.api_requests ?? 0}回）` : ''}${
+        out.scanned_pages ? `（${out.scanned_pages}/${out.page_count ?? '—'}ページ・全${out.total_count ?? '—'}件・API ${out.api_requests ?? 0}回）` : ''}${
         out.unchanged ? `／変更なし ${out.unchanged}件` : ''}</p>
+      ${(out.details || []).some(d => d.external_item_code_saved) ? `<p class="meta" style="margin:-4px 0 10px">
+        掲載URLしか無かった商品に、楽天の正式な商品コード（itemCode）を保存しました
+        （${esc((out.details || []).filter(d => d.external_item_code_saved).map(d => d.code).join('・'))}）。次回からは直接照合します。</p>` : ''}
       ${shots.length ? `<div class="sec">写真が入った商品</div>
         <div class="plist">${shots.slice(0, 30).map(d =>
           `<div class="p"><span class="c">${esc(d.code)}</span><span>${esc(d.name || '')}</span>
-            <span class="meta" style="margin-left:auto">${d.image_count}枚</span></div>`).join('')}</div>` : ''}
+            <span class="meta" style="margin-left:auto">${d.image_count}枚保存（表示は代表1枚）${
+              d.matched_by ? '／' + (d.matched_by === 'url' ? 'URL一致' : 'itemCode一致') : ''}</span></div>`).join('')}</div>` : ''}
       ${nf.length ? `<div class="sec">楽天側で見つからなかった商品</div>
         <div class="plist">${nf.slice(0, 30).map(d =>
           `<div class="p"><span class="c">${esc(d.code)}</span><span>${esc(d.name || '')}</span>
-            <span class="meta" style="margin-left:auto">${esc(d.item_code || d.url || '')}</span></div>`).join('')}</div>
-        <p class="meta" style="margin-top:8px">掲載URL・商品コードが正しいか、いま楽天に出品中かをご確認ください。</p>` : ''}
+            <span class="meta" style="margin-left:auto">${esc(d.item_code || d.url || '')}${
+              d.searched_all === false ? '／未確認のページが残っています' : ''}</span></div>`).join('')}</div>
+        <p class="meta" style="margin-top:8px">${nf.every(d => d.searched_all !== false)
+          ? `自社店舗の全${out.page_count ?? '—'}ページ（${out.total_count ?? '—'}件）を確認しても見つからなかったものです（楽天API検索対象外）。掲載URLが正しいか、いま出品中かをご確認ください。`
+          : '途中まで確認した結果です。もう一度実行すると続きから探します。'}</p>` : ''}
       <p class="meta" style="margin-top:10px">公開ページ（8ec.jp）は次の読み込みから反映されます。再デプロイは要りません。</p>`;
   }
   const nums = [
