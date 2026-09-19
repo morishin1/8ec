@@ -2452,7 +2452,9 @@ begin
     maker             = coalesce(nullif(maker,''), nullif(p_item->>'maker','')),
     model             = coalesce(nullif(model,''), nullif(p_item->>'model','')),
     description       = coalesce(nullif(description,''), nullif(p_item->>'caption','')),
-    image_url         = coalesce(nullif(image_url,''), nullif(p_item->>'image_url','')),
+    -- 画像は images（楽天から取り込んだ写真）にだけ入れる。image_url は
+    -- 「人が/zaikoで指定したメイン画像」専用にして、同期では一切触らない。
+    -- 公開ページは image_url → images[0] の順に見るので、これで写真は出る
     images            = case when jsonb_array_length(coalesce(images,'[]'::jsonb)) = 0
                               and jsonb_typeof(p_item->'images') = 'array'
                          then p_item->'images' else images end,
@@ -2504,12 +2506,68 @@ begin
             null, coalesce(v_item_code, ''));
   end if;
 
-  return jsonb_build_object('product', to_jsonb(after_row), 'changed', (v_changed or v_chan_new));
+  return jsonb_build_object(
+    'product', to_jsonb(after_row),
+    'changed', (v_changed or v_chan_new),
+    -- 画像が0枚から入ったか（同期結果の「画像取得成功 ○件」に使う）
+    'images_added', (jsonb_array_length(coalesce(before_row.images,'[]'::jsonb)) = 0
+                     and jsonb_array_length(coalesce(after_row.images,'[]'::jsonb)) > 0),
+    'image_count', jsonb_array_length(coalesce(after_row.images,'[]'::jsonb)));
 end $$;
 
 comment on function public.inv_rakuten_apply_one is
   '楽天から取得した1商品ぶんのデータで、指定した商品コードの不足情報だけを埋める。
-   すでに値が入っている列は上書きしない。実在庫（inventory_items）は作らない。';
+   すでに値が入っている列は上書きしない。画像は images にだけ入れ、image_url
+   （人が指定したメイン画像）は触らない。実在庫（inventory_items）は作らない。';
+
+-- ------------------------------------------------------------
+-- 30-1b) 楽天の画像同期の対象を出す（「楽天商品を同期」のまとめ実行用）
+--
+--     楽天に掲載している商品（inventory_channel_listings.channel='rakuten' で
+--     itemCode か掲載URLが分かっているもの）を、同期の対象として返す。
+--       p_scope='missing' … まだ写真が1枚も無い商品だけ（既定）
+--       p_scope='all'     … 楽天に掲載している商品すべて
+--     Edge Function（rakuten-product-sync）がこれを読み、楽天APIから
+--     写真を取ってきて商品マスターへ入れる。公開ページは商品マスターだけを
+--     読むので、8ECの表示のたびに楽天APIを呼ぶことはない。
+-- ------------------------------------------------------------
+create or replace function public.inv_rakuten_sync_targets(p_scope text default 'missing')
+returns jsonb
+language plpgsql security invoker set search_path = public as $$
+declare
+  v jsonb;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  if coalesce(p_scope,'') not in ('missing','all') then
+    raise exception '知らない範囲です（%）。missing か all を指定してください', p_scope;
+  end if;
+
+  select coalesce(jsonb_agg(t order by t->>'code'), '[]'::jsonb) into v
+    from (
+      select jsonb_build_object(
+               'code', p.code,
+               'name', coalesce(p.name, p.model),
+               'item_code', nullif(btrim(coalesce(l.external_item_code,'')), ''),
+               'url', nullif(btrim(coalesce(l.url,'')), ''),
+               'image_count', jsonb_array_length(coalesce(p.images,'[]'::jsonb)),
+               'has_main_image', nullif(p.image_url,'') is not null) as t
+        from public.inventory_channel_listings l
+        join public.inventory_products p on p.code = l.product_code
+       where l.channel = 'rakuten'
+         and (nullif(btrim(coalesce(l.external_item_code,'')), '') is not null
+              or nullif(btrim(coalesce(l.url,'')), '') is not null)
+         and (p_scope = 'all'
+              or (jsonb_array_length(coalesce(p.images,'[]'::jsonb)) = 0
+                  and nullif(p.image_url,'') is null))
+    ) x;
+  return v;
+end $$;
+
+comment on function public.inv_rakuten_sync_targets is
+  '楽天の画像同期の対象商品を返す。missing=写真が無い商品だけ／all=楽天に掲載している商品すべて。
+   itemCode か掲載URLのどちらかが分かっている商品だけを対象にする（URLは推測しない）。';
 
 -- ------------------------------------------------------------
 -- 30-2) 楽天の商品一覧をまとめて照合・補完する（「楽天商品を同期」ボタンの本体）
@@ -3117,6 +3175,7 @@ grant execute on function public.inv_product_rental_set(text,boolean,numeric,int
 grant execute on function public.inv_sale_reserve(text,text,text,text) to authenticated;
 grant execute on function public.inv_items_bulk_op(text[],text,text,text,date,boolean) to authenticated;
 grant execute on function public.inv_rakuten_apply_one(text,jsonb) to authenticated;
+grant execute on function public.inv_rakuten_sync_targets(text) to authenticated;
 grant execute on function public.inv_rakuten_sync_apply(jsonb) to authenticated;
 grant execute on function public.inv_rakuten_link_confirm(text,jsonb) to authenticated;
 grant execute on function public.inv_product_images_set(text,text,jsonb) to authenticated;
