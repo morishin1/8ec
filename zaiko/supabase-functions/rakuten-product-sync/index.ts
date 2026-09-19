@@ -86,13 +86,15 @@ const RAKUTEN_ENDPOINT = "https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/
 const RAKUTEN_REFERER = "https://www.8ec.jp/";
 const RAKUTEN_ORIGIN = "https://www.8ec.jp";
 
-// 自社商品は150件前後（hits=30で5ページ程度）なので、余裕を持たせつつ
-// 無限ループにはしない上限（URL一致検索でページングする最大ページ数）。
-const MAX_URL_SEARCH_PAGES = 10;
+// 楽天の商品検索APIは hits 最大30・page 最大100（＝最大3000件）。
+// レスポンスの pageCount（総ページ数）まで見にいき、安全のため100ページで頭打ちにする。
+// 固定ページ数で打ち切ると、後ろのページにある商品が「見つからない」ことになる
+// （P-00537 が5ページ＝150件の打ち切りで見つからなかった例）。
+const RAKUTEN_MAX_PAGE = 100;
 
-// まとめ同期（mode=missing/all）で読む最大ページ数。hits=30なので最大600商品。
-// 対象がすべて見つかった時点で早めに切り上げる。
-const MAX_SYNC_PAGES = 20;
+// Edge Functionの実行時間が尽きる前に区切るための目安（ミリ秒）。
+// ここで止めたときは next_page を返し、続きから再開できるようにする。
+const PAGE_TIME_BUDGET_MS = 90_000;
 
 // このRakuten Developersアプリの予想QPS登録が「1リクエスト/秒」のため、
 // ページング時は次のリクエストまで必ずこれだけ空ける（1秒に余裕を持たせて1.2秒）。
@@ -198,43 +200,83 @@ async function findRakutenItemByUrl(
   accessKey: string,
   shopCode: string,
   targetUrl: string,
-): Promise<{ ok: boolean; status: number; item: any | null; data: any; httpCalls: number }> {
+  startPage = 1,
+): Promise<{
+  ok: boolean; status: number; item: any | null; data: any; httpCalls: number;
+  matchedBy: "url" | "itemCode" | null; totalCount: number | null; pageCount: number | null;
+  scannedPages: number; nextPage: number | null;
+}> {
   const targetNorm = normalizeUrlForMatch(targetUrl);
   let lastData: any = null;
   let lastStatus = 0;
   let httpCalls = 0;
+  let pageCount: number | null = null;
+  let totalCount: number | null = null;
+  let scanned = 0;
+  const startedAt = Date.now();
 
-  for (let page = 1; page <= MAX_URL_SEARCH_PAGES; page++) {
-    if (page > 1) await sleep(PAGE_INTERVAL_MS);
+  for (let page = Math.max(1, startPage); page <= RAKUTEN_MAX_PAGE; page++) {
+    if (page > Math.max(1, startPage)) await sleep(PAGE_INTERVAL_MS);
 
     const res = await fetchRakutenPage(applicationId, accessKey, shopCode, page, 30);
     httpCalls += res.httpCalls;
     lastData = res.data;
     lastStatus = res.status;
+    scanned++;
     if (!res.ok) {
       console.log(JSON.stringify({
         search_mode: "shop_url_match", page, returned_count: 0,
         url_match_found: false, rakuten_http_status: res.status,
       }));
-      return { ok: false, status: res.status, item: null, data: res.data, httpCalls };
+      return {
+        ok: false, status: res.status, item: null, data: res.data, httpCalls,
+        matchedBy: null, totalCount, pageCount, scannedPages: scanned, nextPage: null,
+      };
     }
 
+    // 楽天が返す総件数・総ページ数。これに従ってページングする（固定ページ数で打ち切らない）
+    totalCount = Number.isFinite(Number(res.data?.count)) ? Number(res.data.count) : totalCount;
+    pageCount = Number.isFinite(Number(res.data?.pageCount)) ? Number(res.data.pageCount) : pageCount;
+
     const items: any[] = Array.isArray(res.data?.Items) ? res.data.Items : [];
+    // URLで一致（itemCodeはURLから推測しない。APIが返す正式な値だけを使う）
+    let matchedBy: "url" | "itemCode" | null = null;
     const found = items.find((raw) => {
       const it = raw?.Item || raw;
-      return normalizeUrlForMatch(it.itemUrl || "") === targetNorm;
+      if (normalizeUrlForMatch(it.itemUrl || "") === targetNorm) { matchedBy = "url"; return true; }
+      // 掲載URLの代わりに正式なitemCodeを渡された場合にも拾えるようにする
+      if (it.itemCode && String(it.itemCode) === targetUrl.trim()) { matchedBy = "itemCode"; return true; }
+      return false;
     }) || null;
 
     console.log(JSON.stringify({
       search_mode: "shop_url_match", page, returned_count: items.length,
-      url_match_found: !!found, rakuten_http_status: res.status,
+      total_count: totalCount, page_count: pageCount, scanned_pages: scanned,
+      matched_by: matchedBy, url_match_found: !!found, rakuten_http_status: res.status,
     }));
 
-    if (found) return { ok: true, status: res.status, item: found, data: res.data, httpCalls };
-    if (items.length < 30) break; // 最終ページまで見た（これ以上は無い）
+    if (found) {
+      return {
+        ok: true, status: res.status, item: found, data: res.data, httpCalls,
+        matchedBy, totalCount, pageCount, scannedPages: scanned, nextPage: null,
+      };
+    }
+    if (pageCount != null && page >= Math.min(pageCount, RAKUTEN_MAX_PAGE)) break;  // 最終ページまで見た
+    if (items.length < 30) break;                                                   // これ以上は無い
+    if (Date.now() - startedAt > PAGE_TIME_BUDGET_MS) {
+      // 時間切れ。続きのページ番号を返して、呼び出し元から再開できるようにする
+      console.log(JSON.stringify({ search_mode: "shop_url_match", time_budget_reached: true, next_page: page + 1 }));
+      return {
+        ok: true, status: lastStatus, item: null, data: lastData, httpCalls,
+        matchedBy: null, totalCount, pageCount, scannedPages: scanned, nextPage: page + 1,
+      };
+    }
   }
 
-  return { ok: true, status: lastStatus, item: null, data: lastData, httpCalls };
+  return {
+    ok: true, status: lastStatus, item: null, data: lastData, httpCalls,
+    matchedBy: null, totalCount, pageCount, scannedPages: scanned, nextPage: null,
+  };
 }
 
 // ---- スペック抽出（商品名・商品説明から）。Node.jsで動作確認したロジックをそのまま使う ----
@@ -361,6 +403,7 @@ function normalizeItem(raw: any): Record<string, unknown> {
 async function syncTargets(
   cfg: { appId: string; accessKey: string; shopCode: string; supabaseUrl: string; anon: string; token: string },
   scope: "missing" | "all",
+  startPage = 1,
 ): Promise<Record<string, unknown>> {
   // ── 1. 対象商品 ──
   const tres = await fetch(`${cfg.supabaseUrl}/rest/v1/rpc/inv_rakuten_sync_targets`, {
@@ -389,14 +432,23 @@ async function syncTargets(
   let apiRequests = 0;
   let pagesRead = 0;
 
-  for (let page = 1; page <= MAX_SYNC_PAGES; page++) {
-    if (page > 1) await sleep(PAGE_INTERVAL_MS);
+  let pageCount: number | null = null;
+  let totalCount: number | null = null;
+  let nextPage: number | null = null;
+  const startedAt = Date.now();
+
+  for (let page = Math.max(1, startPage); page <= RAKUTEN_MAX_PAGE; page++) {
+    if (page > Math.max(1, startPage)) await sleep(PAGE_INTERVAL_MS);
     const rk = await fetchRakutenPage(cfg.appId, cfg.accessKey, cfg.shopCode, page, 30);
     apiRequests += rk.httpCalls;
-    pagesRead = page;
+    pagesRead++;
     if (!rk.ok) {
       return { error: "楽天APIの呼び出しに失敗しました（認証情報または仕様をご確認ください）。", status: rk.status, rakuten_response: rk.data };
     }
+    // 楽天が返す総件数・総ページ数に従ってページングする（固定ページ数で打ち切らない）
+    totalCount = Number.isFinite(Number(rk.data?.count)) ? Number(rk.data.count) : totalCount;
+    pageCount = Number.isFinite(Number(rk.data?.pageCount)) ? Number(rk.data.pageCount) : pageCount;
+
     const items: any[] = Array.isArray(rk.data?.Items) ? rk.data.Items : [];
     fetched += items.length;
     for (const raw of items) {
@@ -408,12 +460,22 @@ async function syncTargets(
     const gotAll = list.every((t) =>
       (t.item_code && byCode.has(String(t.item_code))) ||
       (t.url && byUrl.has(normalizeUrlForMatch(String(t.url)))));
+    console.log(JSON.stringify({
+      sync_scope: scope, page, returned_count: items.length,
+      total_count: totalCount, page_count: pageCount, scanned_pages: pagesRead,
+      matched_so_far: list.filter((t) =>
+        (t.item_code && byCode.has(String(t.item_code))) ||
+        (t.url && byUrl.has(normalizeUrlForMatch(String(t.url))))).length,
+    }));
     if (gotAll) break;
-    if (items.length < 30) break;                       // 最後のページまで来た
-    const total = Number(rk.data?.count);
-    if (Number.isFinite(total) && page * 30 >= total) break;
+    if (pageCount != null && page >= Math.min(pageCount, RAKUTEN_MAX_PAGE)) break;
+    if (items.length < 30) break;
+    if (Date.now() - startedAt > PAGE_TIME_BUDGET_MS) { nextPage = page + 1; break; }
   }
-  console.log(JSON.stringify({ sync_scope: scope, targets: list.length, pages_read: pagesRead, fetched, api_requests: apiRequests }));
+  console.log(JSON.stringify({
+    sync_scope: scope, targets: list.length, total_count: totalCount, page_count: pageCount,
+    scanned_pages: pagesRead, fetched, api_requests: apiRequests, next_page: nextPage,
+  }));
 
   // ── 3. 1商品ずつ商品マスターへ反映 ──
   let imagesOk = 0, updated = 0, unchanged = 0, failed = 0;
@@ -421,10 +483,17 @@ async function syncTargets(
   const details: any[] = [];
 
   for (const t of list) {
-    const raw = (t.item_code && byCode.get(String(t.item_code))) ||
-                (t.url && byUrl.get(normalizeUrlForMatch(String(t.url)))) || null;
+    const byCodeHit = t.item_code ? byCode.get(String(t.item_code)) : null;
+    const byUrlHit = !byCodeHit && t.url ? byUrl.get(normalizeUrlForMatch(String(t.url))) : null;
+    const raw = byCodeHit || byUrlHit || null;
+    const matchedBy: "itemCode" | "url" | null = byCodeHit ? "itemCode" : (byUrlHit ? "url" : null);
     if (!raw) {
-      notFound.push({ code: t.code, name: t.name, item_code: t.item_code || null, url: t.url || null });
+      // 全ページ見たうえで見つからなければ「楽天API検索対象外」。
+      // 途中で時間切れしたときは searched_all=false にして、続きから再開できることを示す
+      notFound.push({
+        code: t.code, name: t.name, item_code: t.item_code || null, url: t.url || null,
+        searched_all: nextPage == null,
+      });
       continue;
     }
     const norm = normalizeItem(raw);
@@ -442,9 +511,18 @@ async function syncTargets(
     const imagesAdded = !!out?.images_added;
     if (imagesAdded) imagesOk++;
     if (out?.changed) updated++; else unchanged++;
+    // URLで見つけた商品は、APIが返した正式なitemCodeが external_item_code に保存される
+    // （inv_rakuten_apply_one が空のときだけ埋める）。次回からはitemCodeで直接照合できる
+    const savedCode = !!out?.external_item_code_saved;
+    console.log(JSON.stringify({
+      applied: t.code, matched_by: matchedBy, item_code: norm.item_code,
+      images_added: imagesAdded, image_count: out?.image_count ?? 0,
+      external_item_code_saved: savedCode ? norm.item_code : null,
+    }));
     details.push({
       code: t.code, name: t.name, ok: true, images_added: imagesAdded,
       image_count: out?.image_count ?? 0, changed: !!out?.changed, item_code: norm.item_code,
+      matched_by: matchedBy, external_item_code_saved: savedCode,
     });
   }
 
@@ -452,7 +530,11 @@ async function syncTargets(
     mode: scope,
     target_count: list.length,
     fetched_count: fetched,
+    total_count: totalCount,
+    page_count: pageCount,
+    scanned_pages: pagesRead,
     pages_read: pagesRead,
+    next_page: nextPage,          // 時間切れで途中まで見た場合、続きのページ番号
     api_requests: apiRequests,
     images_ok: imagesOk,
     updated,
@@ -533,10 +615,11 @@ Deno.serve(async (req: Request) => {
 
     // ── まとめ同期（画像が無い商品だけ／楽天掲載の全商品） ──
     if (mode === "missing" || mode === "all") {
+      const startPage = Math.max(1, Math.min(Number(body?.start_page) || 1, RAKUTEN_MAX_PAGE));
       const out = await syncTargets({
         appId: APP_ID, accessKey: ACCESS_KEY, shopCode: SHOP_CODE,
         supabaseUrl: SUPABASE_URL, anon: SUPABASE_ANON, token,
-      }, mode);
+      }, mode, startPage);
       return json(out, (out as any)?.error ? 502 : 200);
     }
 
@@ -545,6 +628,7 @@ Deno.serve(async (req: Request) => {
     let rkData: any;
     let rkAuthMode = "query:accessKey";
     let totalApiRequests = 0;
+    let urlSearch: Record<string, unknown> = {};
 
     if (targetItemCode) {
       console.log(JSON.stringify({ search_mode: "itemCode" }));
@@ -568,10 +652,15 @@ Deno.serve(async (req: Request) => {
         }, 404);
       }
     } else if (targetUrl) {
-      const found = await findRakutenItemByUrl(APP_ID, ACCESS_KEY, SHOP_CODE, targetUrl);
+      const startPage = Math.max(1, Math.min(Number(body?.start_page) || 1, RAKUTEN_MAX_PAGE));
+      const found = await findRakutenItemByUrl(APP_ID, ACCESS_KEY, SHOP_CODE, targetUrl, startPage);
       rkData = found.data;
       totalApiRequests = found.httpCalls;
-      console.log(JSON.stringify({ total_api_requests: totalApiRequests }));
+      urlSearch = {
+        total_count: found.totalCount, page_count: found.pageCount,
+        scanned_pages: found.scannedPages, matched_by: found.matchedBy, next_page: found.nextPage,
+      };
+      console.log(JSON.stringify({ total_api_requests: totalApiRequests, ...urlSearch }));
       if (!found.ok) {
         return json({
           error: "楽天APIの呼び出しに失敗しました（認証情報または仕様をご確認ください）。",
@@ -580,10 +669,15 @@ Deno.serve(async (req: Request) => {
         }, 502);
       }
       if (!found.item) {
+        // 途中で時間切れした場合は「見つからなかった」ではなく「続きから再開」を案内する。
+        // 全ページ（最大100ページ）見たうえで無ければ、そのとき初めて楽天API検索対象外
         return json({
-          error: `指定したURL（${targetUrl}）に一致する商品が見つかりませんでした。自社店舗（${SHOP_CODE}）の商品か、URLをご確認ください。`,
-          rakuten_response: found.data,
-        }, 404);
+          error: found.nextPage
+            ? `${found.scannedPages}ページまで確認しましたが、まだ見つかっていません（全${found.pageCount ?? '—'}ページ）。「続きから探す」でこのまま続けてください。`
+            : `指定したURL（${targetUrl}）に一致する商品が、自社店舗（${SHOP_CODE}）の全${found.pageCount ?? '—'}ページ（${found.totalCount ?? '—'}件）に見つかりませんでした（楽天API検索対象外）。掲載URLと、いま出品中かをご確認ください。`,
+          ...urlSearch,
+          rakuten_response: found.nextPage ? undefined : found.data,
+        }, found.nextPage ? 200 : 404);
       }
       items = [found.item];
     } else {
@@ -617,6 +711,7 @@ Deno.serve(async (req: Request) => {
       }
       return json({
         mode: "one",
+        ...urlSearch,
         target_count: 1,
         fetched_count: 1,
         images_ok: oneOut?.images_added ? 1 : 0,
@@ -628,6 +723,8 @@ Deno.serve(async (req: Request) => {
           code: targetCode, name: normalized[0].name, ok: true,
           images_added: !!oneOut?.images_added, image_count: oneOut?.image_count ?? 0,
           changed: !!oneOut?.changed, item_code: normalized[0].item_code,
+          matched_by: (urlSearch.matched_by as string) || (targetItemCode ? "itemCode" : null),
+          external_item_code_saved: !!oneOut?.external_item_code_saved,
         }],
       });
     }

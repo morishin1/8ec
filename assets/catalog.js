@@ -16,8 +16,8 @@
      表示項目            → 取得元
      商品名/型番/メーカー → inventory_products
      カテゴリ名          → inventory_categories
-     代表画像            → image_url（人が指定したメイン画像）→ images[0]
-     8RENT用の画像       → rental_image_url / rental_images（無ければ一般画像）
+     代表画像（1枚だけ）  → rental_image_url → rental_images[0] → image_url → images[0]
+                            → どれも無ければ「画像準備中」。並べて見せるのではなく1枚だけ
      提供可能数 available → inventory_items.status = '在庫' の個体数
                             （予約中・販売予約・貸出中・修理中などは含めない）
      レンタル可否・月額   → rental_enabled / rental_price_month
@@ -93,9 +93,10 @@ window.EightCatalog = (function () {
     return null;
   }
 
-  /* 表示に使う画像の候補を順番に返す（重複なし）。
-       mode='rental' … 8RENT向け画像 → 一般画像
-       それ以外       … 一般画像（メイン → 一覧）→ 8RENT向け画像 */
+  /* 表示に使う画像。8ECで見せるのは代表画像の1枚だけ（カードも商品詳細も同じ）。
+     優先順位： rental_image_url → rental_images[0] → image_url → images[0] → 画像準備中
+     返すのは候補の配列だが、2枚目以降は「1枚目が読めなかったときの差し替え先」で、
+     並べて見せるためのものではない（枚数は商品マスターに何枚あっても表示は1枚）。 */
   function images(it, mode) {
     const list = [];
     const push = (u) => { const v = validUrl(u); if (v && list.indexOf(v) < 0) list.push(v); };
@@ -104,6 +105,8 @@ window.EightCatalog = (function () {
     if (mode === 'rental') { rental(); general(); } else { general(); rental(); }
     return list;
   }
+  /* 代表画像1枚（無ければ null） */
+  function mainImage(it, mode) { return images(it, mode)[0] || null; }
 
   const placeholder = () => `<div class="ph" aria-label="画像準備中"><span class="ms">devices</span><span class="ph-t">画像準備中</span></div>`;
 
@@ -235,19 +238,13 @@ window.EightCatalog = (function () {
   </article>`;
   }
 
-  /* 商品詳細のギャラリー（写真が複数あるときだけサムネイルを並べる） */
+  /* 商品詳細の写真。サムネイルは並べず、代表画像を1枚だけ出す
+     （枚数を見せることより、どの商品かが分かることを優先する）。
+     読めなければ次の候補へ差し替え、最後は「画像準備中」。 */
   function galleryHtml(it, mode) {
     const c = images(it, mode);
     if (!c.length) return `<div class="c-media dt-media">${placeholder()}</div>`;
-    const main = `<div class="c-media dt-media"><img id="dtShot" src="${esc(c[0])}" alt="${esc(title(it))}" decoding="async" width="640" height="480" data-alt="${esc(c.slice(1).join('|'))}" onerror="EightCatalog.imgError(this)"></div>`;
-    if (c.length < 2) return main;
-    return main + `<div class="dt-shots">${c.map((u, i) =>
-      `<button type="button" class="${i === 0 ? 'on' : ''}" onclick="EightCatalog.showShot('${esc(u)}',this)" aria-label="写真${i + 1}"><img src="${esc(u)}" alt="" loading="lazy" onerror="this.parentNode.remove()"></button>`).join('')}</div>`;
-  }
-  function showShot(url, btn) {
-    const img = document.getElementById('dtShot');
-    if (img) { img.removeAttribute('data-alt'); img.src = url; }
-    if (btn && btn.parentNode) { [...btn.parentNode.children].forEach(b => b.classList.remove('on')); btn.classList.add('on'); }
+    return `<div class="c-media dt-media"><img id="dtShot" src="${esc(c[0])}" alt="${esc(title(it))}" decoding="async" width="640" height="480" data-alt="${esc(c.slice(1).join('|'))}" onerror="EightCatalog.imgError(this)"></div>`;
   }
 
   /* URL の ?code= / #code から商品コードを取る（別ページからの遷移用） */
@@ -258,7 +255,7 @@ window.EightCatalog = (function () {
     return /^[A-Z]+-\d+$/i.test(h) ? h : null;
   }
 
-  return { load, images, mediaHtml, imgError, availTag, sale, rental, saleAvailable, rentalAvailable,
+  return { load, images, mainImage, mediaHtml, imgError, availTag, sale, rental, saleAvailable, rentalAvailable,
            specLine, categoryCounts, cardHtml,
-           galleryHtml, showShot, codeFromUrl, catLabel, catIcon, title, esc, yen, CAT_META, TAG_LABEL, SUPA_URL, SUPA_KEY, client };
+           galleryHtml, codeFromUrl, catLabel, catIcon, title, esc, yen, CAT_META, TAG_LABEL, SUPA_URL, SUPA_KEY, client };
 })();

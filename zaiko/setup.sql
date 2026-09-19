@@ -2426,6 +2426,7 @@ create or replace function public.inv_rakuten_apply_one(
 language plpgsql security invoker set search_path = public as $$
 declare
   ex           jsonb := coalesce(p_item->'extracted', '{}'::jsonb);
+  v_code_saved boolean := false;
   v_item_code  text  := nullif(btrim(coalesce(p_item->>'item_code','')), '');
   v_url        text  := nullif(btrim(coalesce(p_item->>'item_url','')), '');
   v_price      numeric;
@@ -2489,9 +2490,18 @@ begin
         (product_code, channel, state, external_item_code, url, price, api_synced_at, api_sync_status, updated_at)
       values (p_code, 'rakuten', '出品中', v_item_code, v_url, v_price, now(), 'ok', now());
       v_chan_new := true;
+      v_code_saved := true;
     else
+      -- 掲載URLしか無かった商品も、ここでAPIが返した正式なitemCodeを覚える。
+      -- 次回からはURLの総当たりではなく、itemCodeで直接照合できる
+      -- （itemCodeをURLから推測することはしない）
+      select nullif(btrim(coalesce(external_item_code,'')), '') is null
+        into v_code_saved
+        from public.inventory_channel_listings
+       where product_code = p_code and channel = 'rakuten';
+
       update public.inventory_channel_listings set
-        external_item_code = coalesce(external_item_code, v_item_code),
+        external_item_code = coalesce(nullif(btrim(coalesce(external_item_code,'')), ''), v_item_code),
         url = coalesce(url, v_url),
         api_synced_at = now(),
         api_sync_status = 'ok',
@@ -2509,6 +2519,9 @@ begin
   return jsonb_build_object(
     'product', to_jsonb(after_row),
     'changed', (v_changed or v_chan_new),
+    -- 掲載URLしか無かった商品に、正式なitemCodeを保存できたか
+    'external_item_code_saved', coalesce(v_code_saved, false),
+    'external_item_code', v_item_code,
     -- 画像が0枚から入ったか（同期結果の「画像取得成功 ○件」に使う）
     'images_added', (jsonb_array_length(coalesce(before_row.images,'[]'::jsonb)) = 0
                      and jsonb_array_length(coalesce(after_row.images,'[]'::jsonb)) > 0),

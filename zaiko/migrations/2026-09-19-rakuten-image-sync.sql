@@ -19,7 +19,9 @@
 --   この migration で変えること
 --     1. inv_rakuten_apply_one … 同期では image_url を触らない（人が指定した
 --        メイン画像専用にする）。画像は images にだけ入れる。
---        返り値に images_added / image_count を足し、「画像取得成功 ○件」を数えられるようにする
+--        返り値に images_added / image_count / external_item_code_saved を足す
+--        （「画像取得成功 ○件」と、掲載URLしか無かった商品に正式なitemCodeを
+--         保存できたかを数えられるようにする）
 --     2. 【新規】inv_rakuten_sync_targets … 同期対象（楽天に掲載していて、
 --        写真が無い商品／掲載中の全商品）を返す
 --     3. 権限
@@ -41,6 +43,7 @@ create or replace function public.inv_rakuten_apply_one(
 language plpgsql security invoker set search_path = public as $$
 declare
   ex           jsonb := coalesce(p_item->'extracted', '{}'::jsonb);
+  v_code_saved boolean := false;
   v_item_code  text  := nullif(btrim(coalesce(p_item->>'item_code','')), '');
   v_url        text  := nullif(btrim(coalesce(p_item->>'item_url','')), '');
   v_price      numeric;
@@ -104,9 +107,18 @@ begin
         (product_code, channel, state, external_item_code, url, price, api_synced_at, api_sync_status, updated_at)
       values (p_code, 'rakuten', '出品中', v_item_code, v_url, v_price, now(), 'ok', now());
       v_chan_new := true;
+      v_code_saved := true;
     else
+      -- 掲載URLしか無かった商品も、ここでAPIが返した正式なitemCodeを覚える。
+      -- 次回からはURLの総当たりではなく、itemCodeで直接照合できる
+      -- （itemCodeをURLから推測することはしない）
+      select nullif(btrim(coalesce(external_item_code,'')), '') is null
+        into v_code_saved
+        from public.inventory_channel_listings
+       where product_code = p_code and channel = 'rakuten';
+
       update public.inventory_channel_listings set
-        external_item_code = coalesce(external_item_code, v_item_code),
+        external_item_code = coalesce(nullif(btrim(coalesce(external_item_code,'')), ''), v_item_code),
         url = coalesce(url, v_url),
         api_synced_at = now(),
         api_sync_status = 'ok',
@@ -124,6 +136,9 @@ begin
   return jsonb_build_object(
     'product', to_jsonb(after_row),
     'changed', (v_changed or v_chan_new),
+    -- 掲載URLしか無かった商品に、正式なitemCodeを保存できたか
+    'external_item_code_saved', coalesce(v_code_saved, false),
+    'external_item_code', v_item_code,
     -- 画像が0枚から入ったか（同期結果の「画像取得成功 ○件」に使う）
     'images_added', (jsonb_array_length(coalesce(before_row.images,'[]'::jsonb)) = 0
                      and jsonb_array_length(coalesce(after_row.images,'[]'::jsonb)) > 0),
@@ -134,7 +149,6 @@ comment on function public.inv_rakuten_apply_one is
   '楽天から取得した1商品ぶんのデータで、指定した商品コードの不足情報だけを埋める。
    すでに値が入っている列は上書きしない。画像は images にだけ入れ、image_url
    （人が指定したメイン画像）は触らない。実在庫（inventory_items）は作らない。';
-
 
 -- ------------------------------------------------------------
 -- 2) 同期対象の商品を返す
