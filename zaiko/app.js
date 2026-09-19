@@ -3732,7 +3732,14 @@ function tabSales(p) {
           <td class="nowrap"><span class="tag ch ${n || x.state === LISTED ? 'on' : ''}">${esc(c.short)}</span> ${esc(c.label)}</td>
           ${ind ? `<td class="num r${n ? '' : ' meta'}">${n || '—'}</td>
           <td class="num r${saleListed(p.code, c.key) ? (q ? '' : ' minus') : ' meta'}">${saleListed(p.code, c.key) ? q + '台' : '—'}</td>` : ''}
-          <td class="nowrap">${x.state ? `<span class="tag ${x.state === LISTED ? 'ch on' : 'act'}">${esc(x.state)}</span>` : '<span class="meta">—</span>'}</td>
+          <td class="nowrap">${x.state
+            ? `<span class="tag ${x.state === LISTED ? 'ch on' : 'act'}">${esc(x.state)}</span>`
+            : (n && canEdit()
+                // 個体には出品情報があるのに、商品まるごとの行が無い状態。
+                // 楽天APIの画像同期は商品単位の行を見るので、ここから作れるようにする
+                ? `<button class="btn sm" title="個体の出品情報（URL・価格）から商品まるごとの行を作ります"
+                     onclick="makeListingFromItems('${esc(p.code)}','${c.key}')">個体から作る</button>`
+                : '<span class="meta">—</span>')}</td>
           <td class="num">${esc(x.sku || '') || '<span class="meta">—</span>'}</td>
           <td class="num r">${x.price == null ? '<span class="meta">—</span>' : yen(x.price)}</td>
           <td>${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener" class="meta" style="word-break:break-all">開く</a>` : '<span class="meta">—</span>'}</td>
@@ -3764,6 +3771,17 @@ function saleQtyNote(p) {
     <div class="meta" style="margin-top:4px">発送できない個体（予約中・貸出中・販売予約・修理中）は数量に含めません。
       ${p.rental_enabled ? '8ECでレンタル中でも' : ''}販売サイトの商品ページ（掲載）はそのまま残し、在庫数だけを0にしてください。</div>
   </div>`;
+}
+
+/* 個体別の出品情報から、商品まるごとの出品情報を作る。
+   中古は1台ごとの出品が基本だが、同じ商品ページに複数台をぶら下げていると
+   商品単位の行が無く、楽天APIの画像同期の対象から漏れてしまうため。 */
+async function makeListingFromItems(code, ch) {
+  const { data, error } = await sb.rpc('inv_listing_from_items', { p_code: code, p_channel: ch || 'rakuten' });
+  if (error) { toast('作成できませんでした：' + error.message); return; }
+  await loadAll();
+  render();
+  toast(`${chanLabel(ch)}の出品情報を作りました（${(data || {}).url || (data || {}).sku || ''}）。楽天商品を同期すると画像が入ります`);
 }
 
 /* 掲載URLの更新候補。API同期で「楽天側の正式URLと違う」と分かった商品にだけ出す */
