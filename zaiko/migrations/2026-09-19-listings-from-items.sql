@@ -30,6 +30,8 @@
 --   補完された商品にも画像が入ります。
 -- ============================================================
 
+begin;
+
 -- ------------------------------------------------------------
 -- 27b-2) 個体別の出品情報から、商品単位の楽天listingを補う
 --
@@ -243,3 +245,5 @@ select count(*) as "楽天に掲載中",
  where l.channel = 'rakuten'
    and (nullif(btrim(coalesce(l.external_item_code,'')),'') is not null
         or nullif(btrim(coalesce(l.url,'')),'') is not null);
+
+commit;
