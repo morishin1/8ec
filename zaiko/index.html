@@ -420,6 +420,30 @@ table.t .r{text-align:right}
 table.t td.nos{font-size:11.5px;line-height:1.5;white-space:nowrap;font-variant-numeric:tabular-nums}
 table.t td.ops2{display:flex;gap:6px;align-items:center;padding-top:9px}
 table.t td.ops2 .btn{min-height:32px;padding:5px 11px;font-size:12.5px}
+
+/* ---- 価格調査（楽天・Amazon・メルカリの検索結果を開くだけ） ----
+   出品先の欄は「実際にどこへ出しているか」、こちらは外部検索のボタン。
+   役割が違うので、見た目もはっきり分ける（角の丸い枠付きの小さなボタン）。 */
+table.t th.mchk-col,table.t td.mchk-col{white-space:nowrap;width:1%}
+.mchks{display:flex;gap:4px;align-items:center}
+.mchks.sp{display:none}
+.mchk{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;
+  border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--n700);
+  font-size:11.5px;font-weight:600;line-height:1;text-decoration:none;cursor:pointer}
+.mchk:hover{border-color:var(--ink);color:var(--ink);background:var(--n100)}
+.mchk:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.mchk.off{color:var(--n500);background:var(--n100);border-style:dashed;cursor:not-allowed}
+a.idlink{color:inherit;text-decoration:none;border-bottom:1px solid transparent}
+a.idlink:hover{border-bottom-color:currentColor}
+a.idlink:focus-visible{outline:2px solid var(--ink);outline-offset:2px;border-radius:2px}
+
+/* スマートフォンでは列が横に流れてしまうので、価格調査の列はたたんで
+   型番・販売予定価格のすぐ下にまとめて出す */
+@media(max-width:560px){
+  table.t th.mchk-col,table.t td.mchk-col{display:none}
+  .mchks.sp{display:flex;justify-content:flex-start;gap:4px;margin-top:7px}
+  .mchks.sp .lbl{font-size:10.5px;color:var(--n600);align-self:center;margin-right:2px}
+}
 table.t.buy input.plan{width:116px;min-height:38px;text-align:right;padding:6px 9px;font-size:14px;display:inline-block}
 /* 数量は必ず直せる欄。直したことが分かるよう、CSVの値との差を下に出す */
 table.t.buy input.qty{width:74px;min-height:38px;text-align:center;padding:6px 8px;font-size:15px;font-weight:600;display:inline-block}
