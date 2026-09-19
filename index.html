@@ -789,6 +789,23 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
   .dt-specs { grid-template-columns: 88px 1fr; }
 }
 
+/* ---- 申込フォームの「仕様を選ぶ」 -------------------------------------- */
+.spec-list { display: grid; gap: 6px; margin-top: 6px; }
+.spec-opt { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer;
+  border: 1px solid var(--color-divider); border-radius: 3px; background: #fff; font-size: 13px; }
+.spec-opt:hover { border-color: var(--lime); background: #F6FCE2; }
+.spec-opt input { accent-color: #7E9B1C; flex: none; }
+.spec-opt > span { display: flex; flex: 1 1 auto; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.spec-opt .n { margin-left: auto; font-size: 11.5px; font-weight: 700; color: #6C6E64; white-space: nowrap; }
+
+/* いま何台出せるか。条件を変えるたびに出し直す */
+.avail-note { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 14px; padding: 11px 13px;
+  border-radius: 3px; font-size: 12.5px; line-height: 1.7; }
+.avail-note .ms { font-size: 17px; flex: none; }
+.avail-note.now { background: #F6FCE2; color: #43530E; }
+.avail-note.order { background: #FFF4E5; color: #7A4E00; }
+.avail-note.none { background: #FDECEC; color: #8C1D18; }
+
 </style>
 </head>
 <body>
@@ -1228,6 +1245,40 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
             <input class="input" type="number" min="1" value="1" id="fQty" oninput="runFinder()" style="background: rgb(255, 255, 255);">
           </div>
           <div>
+            <div style="font-size: 11px; color: rgb(154, 155, 144); font-weight: 700; margin-bottom: 6px;">利用期間</div>
+            <select class="input" id="fMonths" onchange="runFinder()" style="background: rgb(255, 255, 255);">
+              <option value="1">1ヶ月</option><option value="3">3ヶ月</option>
+              <option value="6">6ヶ月</option><option value="12">12ヶ月</option>
+            </select>
+          </div>
+          <div>
+            <div style="font-size: 11px; color: rgb(154, 155, 144); font-weight: 700; margin-bottom: 6px;">CPU</div>
+            <select class="input" id="fCpu" onchange="runFinder()" style="background: rgb(255, 255, 255);">
+              <option value="">指定しない</option>
+            </select>
+          </div>
+          <div>
+            <div style="font-size: 11px; color: rgb(154, 155, 144); font-weight: 700; margin-bottom: 6px;">メモリ</div>
+            <select class="input" id="fMemory" onchange="runFinder()" style="background: rgb(255, 255, 255);">
+              <option value="">指定しない</option><option value="8">8GB以上</option>
+              <option value="16">16GB以上</option><option value="32">32GB以上</option>
+            </select>
+          </div>
+          <div>
+            <div style="font-size: 11px; color: rgb(154, 155, 144); font-weight: 700; margin-bottom: 6px;">ストレージ</div>
+            <select class="input" id="fStorage" onchange="runFinder()" style="background: rgb(255, 255, 255);">
+              <option value="">指定しない</option><option value="256">256GB以上</option>
+              <option value="512">512GB以上</option><option value="1024">1TB以上</option>
+            </select>
+          </div>
+          <div>
+            <div style="font-size: 11px; color: rgb(154, 155, 144); font-weight: 700; margin-bottom: 6px;">画面サイズ</div>
+            <select class="input" id="fScreen" onchange="runFinder()" style="background: rgb(255, 255, 255);">
+              <option value="">指定しない</option><option value="small">13型以下（持ち運び）</option>
+              <option value="mid">14型前後</option><option value="large">15型以上（大画面）</option>
+            </select>
+          </div>
+          <div>
             <div style="font-size: 11px; color: rgb(154, 155, 144); font-weight: 700; margin-bottom: 6px;">Office</div>
             <select class="input" id="fOffice" onchange="runFinder()" style="background: rgb(255, 255, 255);">
               <option value="">指定しない</option>
@@ -1235,10 +1286,17 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
             </select>
           </div>
           <div>
-            <div style="font-size: 11px; color: rgb(154, 155, 144); font-weight: 700; margin-bottom: 6px;">利用期間</div>
-            <select class="input" id="fMonths" onchange="runFinder()" style="background: rgb(255, 255, 255);">
-              <option value="1">1ヶ月</option><option value="3">3ヶ月</option>
-              <option value="6">6ヶ月</option><option value="12">12ヶ月</option>
+            <div style="font-size: 11px; color: rgb(154, 155, 144); font-weight: 700; margin-bottom: 6px;">カメラ</div>
+            <select class="input" id="fWebcam" onchange="runFinder()" style="background: rgb(255, 255, 255);">
+              <option value="">指定しない</option>
+              <option value="yes">必要</option>
+            </select>
+          </div>
+          <div>
+            <div style="font-size: 11px; color: rgb(154, 155, 144); font-weight: 700; margin-bottom: 6px;">テンキー</div>
+            <select class="input" id="fNumpad" onchange="runFinder()" style="background: rgb(255, 255, 255);">
+              <option value="">指定しない</option>
+              <option value="yes">必要</option>
             </select>
           </div>
         </div>
@@ -2298,13 +2356,22 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
    トップ（/）＝ 8RENT。見た目はデザインZIPの「8RENT 法人PCレンタル」を正とし、
    商品・写真・在庫・料金はすべて /zaiko の実データ（inv_public_catalog）から描く。
 
+   借りかたの考えかた
+     お客様は「個体」でも「商品コード」でもなく、条件に合う"機種"を選ぶ。
+     同じメーカー＋型番（model_key）なら、メモリ違い・Office有無で商品コードが
+     分かれていても1枚のカードにまとめ、仕様の違いは商品詳細の中で見せる。
+     どの1台を貸すかはサーバー（inv_rental_apply）が決める。管理番号はここに出さない。
+     在庫が0でも「取り寄せ可能」の機種は申し込める（申込 → 調達確認 → 貸出確定）。
+     Officeは別商品ではなく、申込のオプションとして扱う。
+
+   表示の出どころ
      商品名・型番・メーカー・スペック … inventory_products
      代表画像（1枚）  … rental_image_url → rental_images[0] → image_url → images[0]
                         → どれも無ければ「画像準備中」（楽天同期で入った写真もここ）
-     レンタル可能数    … status='在庫' かつ rental_eligible=true の個体数
+     いま貸せる台数    … status='在庫' かつ rental_eligible=true の個体数
+     取り寄せ可能      … procurement_available
      購入（補助導線）  … 楽天に掲載があり、いま買える台数があるときだけ商品詳細に出す
-   カテゴリー件数・条件検索・おすすめ商品はすべてこの実データから組み立てる
-   （HTMLに商品名・写真・価格・在庫数を書かない）。楽天APIはここからは呼ばない。 */
+   HTMLには商品名・写真・価格・在庫数を書かない。楽天APIもここからは呼ばない。 */
 const C = window.EightCatalog;
 const $ = (id) => document.getElementById(id);
 const esc = C ? C.esc : (s) => String(s == null ? '' : s);
@@ -2322,10 +2389,11 @@ const USECASES = [
 const PURPOSES = ['新入社員・中途入社', '短期プロジェクト', '研修・eラーニング', 'テレワーク', 'PC入替前の試用',
   '学校・教育', '自治体・リスキリング', 'イベント・セミナー', 'オフィス開設・増員', 'システム開発・検証', '故障・BCP・緊急代替'];
 
-let items = [];
+let items = [];       // inv_public_catalog の1行＝仕様違いの枝番
+let models = [];      // メーカー＋型番でまとめた機種（カードの単位）
 let recTab = 'pc';
 let activeCat = '';
-let currentCode = null;
+let currentKey = null;
 
 (function init() {
   const purpose = $('fPurpose');
@@ -2362,12 +2430,15 @@ async function loadCatalog(keepDialog) {
   const { items: list, error } = await C.load({ rental: true });
   if (error) { showState('機材の読み込みに失敗しました。時間をおいて再読み込みしてください。（' + esc(error.message || error) + '）', true); return; }
   items = list;
+  models = buildModels(items);
+  fillCpuOptions();
   renderCatTiles();
   renderRecommend();
   runFinder();
   if (keepDialog !== false) {
     const code = C.codeFromUrl();
-    if (code) openDlg(code);
+    const m = code && models.find(x => x.variants.some(v => v.code === code));
+    if (m) openDlg(m.key);
   }
 }
 function showState(msg, isErr) {
@@ -2375,11 +2446,57 @@ function showState(msg, isErr) {
   if (g) g.innerHTML = `<div class="state${isErr ? ' err' : ''}" style="grid-column:1/-1">${msg}</div>`;
 }
 
+/* ===== 同じメーカー＋型番を1機種にまとめる =====
+   仕様違いの枝番（メモリ・ストレージ・Office有無）は、カードを分けずに
+   機種の中に持たせる。同じ機種のカードが2枚以上出ないようにするための要。 */
+function buildModels(list) {
+  const map = new Map();
+  list.forEach(it => {
+    const key = it.model_key || it.code;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(it);
+  });
+  return [...map.entries()].map(([key, v]) => {
+    // 代表は「いま貸せる台数が多く、安い」枝番。写真と名前はここから採る
+    const rep = v.slice().sort((a, b) =>
+      (C.rentalAvailable(b) - C.rentalAvailable(a)) ||
+      ((a.rental_price_month || Infinity) - (b.rental_price_month || Infinity)))[0];
+    const prices = v.map(x => x.rental_price_month).filter(x => x > 0);
+    return {
+      key, rep, variants: v,
+      maker: rep.maker, model: rep.model,
+      category_id: rep.category_id, category_name: rep.category_name,
+      title: commonName(v.map(x => C.title(x))) || C.title(rep),
+      image: v.map(x => C.mainImage(x, 'rental')).find(Boolean) || null,
+      imageOf: v.find(x => C.mainImage(x, 'rental')) || rep,
+      available: v.reduce((a, x) => a + C.rentalAvailable(x), 0),
+      procurement: v.some(x => x.procurement_available),
+      office: v.some(x => x.office_supported),
+      price: prices.length ? Math.min.apply(null, prices) : null,
+      minMonths: Math.min.apply(null, v.map(x => x.rental_min_months || 1)),
+      tags: [...new Set(v.reduce((a, x) => a.concat(x.rental_tags || []), []))]
+    };
+  }).sort((a, b) => (b.available - a.available) || ((a.price || Infinity) - (b.price || Infinity)));
+}
+/* 枝番の名前の共通部分を機種名にする（「ProBook 450 G9 8GB」「…16GB」→「ProBook 450 G9」）。
+   共通部分が短すぎるときは代表の名前をそのまま使う */
+function commonName(names) {
+  if (!names.length) return '';
+  let p = names[0];
+  names.slice(1).forEach(n => {
+    let i = 0;
+    while (i < p.length && i < n.length && p[i] === n[i]) i++;
+    p = p.slice(0, i);
+  });
+  p = p.replace(/[\s　/・（(\-－—]+$/, '').trim();
+  return p.length >= 4 ? p : '';
+}
+
 /* ===== カテゴリーから探す（件数は実データの機種数） ===== */
 function renderCatTiles() {
   const host = $('catTiles');
   if (!host) return;
-  const cats = C.categoryCounts(items);
+  const cats = C.categoryCounts(models);
   if (!cats.length) { host.innerHTML = '<div class="state" style="grid-column:1/-1">公開中の機材がありません。</div>'; return; }
   host.innerHTML = cats.map(c => `
     <button type="button" onclick="setCat('${esc(c.id)}')" style="border: 1px solid ${activeCat === c.id ? 'rgb(27,29,26)' : 'var(--color-divider)'}; background: ${activeCat === c.id ? 'rgb(246,252,226)' : 'rgb(255, 255, 255)'}; border-radius: 3px; padding: 18px 14px 16px; cursor: pointer; font: inherit; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 8px;">
@@ -2399,41 +2516,112 @@ function setCat(id) {
   if (sec) sec.scrollIntoView({ behavior: 'smooth' });
 }
 
-/* ===== 条件を入れると、借りられる台数まで分かります ===== */
+/* ===== 条件で選ぶ =====
+   スペックの文字列（'16GB' '512GB' '15.6型'）から数を取り出して比べる。
+   書いていない項目は「分からない」であって「条件に合わない」ではないので、
+   条件を指定されたときだけ落とす。 */
+const numOf = (s) => { const m = String(s == null ? '' : s).match(/[\d.]+/); return m ? parseFloat(m[0]) : null; };
+function gbOf(s) {
+  const v = numOf(s); if (v == null) return null;
+  return /TB/i.test(String(s)) ? v * 1024 : v;
+}
+/* CPUの呼び名をまとめる（Core i5-1235U → Core i5）。選択肢は実データから作る */
+function cpuFamily(s) {
+  const t = String(s == null ? '' : s).trim();
+  if (!t) return '';
+  let m = t.match(/Core\s*(Ultra\s*)?(i[3579])/i);
+  if (m) return 'Core ' + (m[1] ? 'Ultra ' : '') + m[2].toLowerCase();
+  m = t.match(/Ryzen\s*([3579])/i);
+  if (m) return 'Ryzen ' + m[1];
+  m = t.match(/Apple\s*(M[1-9])/i);
+  if (m) return 'Apple ' + m[1].toUpperCase();
+  m = t.match(/(Celeron|Pentium|Athlon|Xeon)/i);
+  if (m) return m[1];
+  return t.split(/[\s-]/)[0];
+}
+function fillCpuOptions() {
+  const sel = $('fCpu');
+  if (!sel) return;
+  const counts = {};
+  items.forEach(it => { const f = cpuFamily(it.cpu); if (f) counts[f] = (counts[f] || 0) + 1; });
+  const keep = sel.value;
+  sel.innerHTML = '<option value="">指定しない</option>' +
+    Object.keys(counts).sort((a, b) => counts[b] - counts[a] || a.localeCompare(b))
+      .map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join('');
+  if (keep) sel.value = keep;
+}
 function cond() {
+  const v = (id) => (($(id) || {}).value || '');
   return {
-    purpose: ($('fPurpose') || {}).value || PURPOSES[0],
-    qty: Math.max(1, parseInt(($('fQty') || {}).value || '1', 10) || 1),
-    office: ($('fOffice') || {}).value || '',
-    months: Number(($('fMonths') || {}).value || 1)
+    purpose: v('fPurpose') || PURPOSES[0],
+    qty: Math.max(1, parseInt(v('fQty') || '1', 10) || 1),
+    months: Number(v('fMonths') || 1),
+    office: v('fOffice'),
+    cpu: v('fCpu'),
+    memory: Number(v('fMemory') || 0),
+    storage: Number(v('fStorage') || 0),
+    screen: v('fScreen'),
+    webcam: v('fWebcam') === 'yes',
+    numpad: v('fNumpad') === 'yes'
   };
 }
+/* 1つの枝番が条件に合うか */
+function matchCond(it, c) {
+  if (c.office === 'yes' && !it.office_supported) return false;
+  if (c.cpu && cpuFamily(it.cpu) !== c.cpu) return false;
+  if (c.memory) { const g = gbOf(it.memory_size); if (g == null || g < c.memory) return false; }
+  if (c.storage) { const g = gbOf(it.storage_capacity); if (g == null || g < c.storage) return false; }
+  if (c.screen) {
+    const s = numOf(it.screen_size);
+    if (s == null) return false;
+    if (c.screen === 'small' && s > 13.5) return false;
+    if (c.screen === 'mid' && (s < 13.5 || s > 14.9)) return false;
+    if (c.screen === 'large' && s < 15) return false;
+  }
+  if (c.webcam && it.webcam !== true) return false;
+  if (c.numpad && it.numpad !== true) return false;
+  if ((it.rental_min_months || 1) > c.months) return false;
+  return true;
+}
+/* 機種のうち条件に合う枝番。これが申込のときサーバーへ渡す候補になる */
+function matchVariants(m, c) { return m.variants.filter(it => matchCond(it, c)); }
+function availOf(list) { return list.reduce((a, x) => a + C.rentalAvailable(x), 0); }
+function canProcure(list) { return list.some(x => x.procurement_available); }
+
 function runFinder() {
   const host = $('finderResult');
-  if (!host || !items.length) return;
+  if (!host || !models.length) return;
   const c = cond();
-  let pool = items.filter(it => C.rentalAvailable(it) >= c.qty && (it.rental_min_months || 1) <= c.months);
-  if (c.office === 'yes') pool = pool.filter(it => it.category_id === 'pc' && it.office_supported);
-  pool.sort((a, b) => (a.rental_price_month || 1e9) - (b.rental_price_month || 1e9));
+  const hits = models.map(m => ({ m, v: matchVariants(m, c) })).filter(x => x.v.length);
+  const now = hits.filter(x => availOf(x.v) >= c.qty);
+  const order = hits.filter(x => availOf(x.v) < c.qty && canProcure(x.v));
+  const pick = now.concat(order).slice(0, 4);
   const head = (t) => `<div style="font-size: 12px; color: rgb(154, 155, 144); font-weight: 700; margin-bottom: 12px;">${t}</div>`;
-  if (!pool.length) {
-    host.innerHTML = head(`${esc(c.purpose)}／${c.qty}台／${c.months}ヶ月　→　条件に合う在庫がいまはありません。` +
+  if (!pick.length) {
+    host.innerHTML = head(`${esc(c.purpose)}／${c.qty}台／${c.months}ヶ月　→　この条件に合う機種がいまはありません。` +
       `<a href="#contact" style="color:#C7ED3E;text-decoration:underline">ご相談ください</a>`);
     return;
   }
-  host.innerHTML = head(`${esc(c.purpose)}／${c.qty}台／${c.months}ヶ月　→　${pool.length}機種が ${c.qty}台 即納可能`) +
+  const line = [now.length ? `${now.length}機種が ${c.qty}台 即納可能` : '', order.length ? `${order.length}機種が取り寄せ可能` : '']
+    .filter(Boolean).join('／');
+  host.innerHTML = head(`${esc(c.purpose)}／${c.qty}台／${c.months}ヶ月　→　${line}`) +
     `<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px;">` +
-    pool.slice(0, 4).map(it => `
-      <button type="button" onclick="openDlg('${esc(it.code)}')" style="text-align: left; border: 1px solid rgba(255, 255, 255, 0.22); background: rgba(255, 255, 255, 0.06); border-radius: 3px; padding: 16px; cursor: pointer; font: inherit;">
-        <div style="font-size: 14.5px; font-weight: 700; color: rgb(255, 255, 255); line-height: 1.4;">${esc(C.title(it))}</div>
-        <div style="font-size: 11.5px; color: rgb(198, 199, 192); margin-top: 4px;">${esc([it.maker, it.model].filter(Boolean).join(' '))}</div>
+    pick.map(({ m, v }) => {
+      const n = availOf(v);
+      const price = Math.min.apply(null, v.map(x => x.rental_price_month || Infinity));
+      return `
+      <button type="button" onclick="openDlg('${esc(m.key)}')" style="text-align: left; border: 1px solid rgba(255, 255, 255, 0.22); background: rgba(255, 255, 255, 0.06); border-radius: 3px; padding: 16px; cursor: pointer; font: inherit;">
+        <div style="font-size: 14.5px; font-weight: 700; color: rgb(255, 255, 255); line-height: 1.4;">${esc(m.title)}</div>
+        <div style="font-size: 11.5px; color: rgb(198, 199, 192); margin-top: 4px;">${esc([m.maker, m.model].filter(Boolean).join(' '))}</div>
         <div style="display: flex; align-items: baseline; gap: 10px; margin-top: 10px; flex-wrap: wrap;">
-          ${it.rental_price_month
-            ? `<span><span class="num" style="font-size: 45px; font-weight: 800; color: rgb(199, 237, 62);">${yen(it.rental_price_month)}</span><span style="font-size: 11.5px; color: rgb(255, 255, 255); font-weight: 700;"> 円／月〜</span></span>`
+          ${isFinite(price)
+            ? `<span><span class="num" style="font-size: 45px; font-weight: 800; color: rgb(199, 237, 62);">${yen(price)}</span><span style="font-size: 11.5px; color: rgb(255, 255, 255); font-weight: 700;"> 円／月〜</span></span>`
             : `<span style="font-size: 13px; color: rgb(255,255,255); font-weight: 700;">料金はお問い合わせください</span>`}
-          <span class="num" style="font-size: 12px; font-weight: 700; color: rgb(199, 237, 62);">${C.rentalAvailable(it)}台 即納可能</span>
+          <span class="num" style="font-size: 12px; font-weight: 700; color: rgb(199, 237, 62);">${
+            n >= c.qty ? `${n}台 即納可能` : '取り寄せ可能'}</span>
         </div>
-      </button>`).join('') + `</div>`;
+      </button>`;
+    }).join('') + `</div>`;
 }
 function applyUsecase(i) {
   const u = USECASES[i] || {};
@@ -2451,91 +2639,92 @@ function applyUsecase(i) {
   if (sec) sec.scrollIntoView({ behavior: 'smooth' });
 }
 
-/* ===== おすすめ商品（3タブ・カードは添付HTMLと同じ作り） ===== */
+/* ===== おすすめ商品（3タブ・カードは機種ごとに1枚） ===== */
 function renderRecommend() {
   const host = $('recommendGrid');
   if (!host) return;
+  const c = cond();
+  const ok = (m) => m.available > 0 || m.procurement;
+  const rec = (m) => m.tags.includes('recommend');
   let list;
-  const rec = (it) => (it.rental_tags || []).includes('recommend');
-  if (recTab === 'pc') list = items.filter(it => it.category_id === 'pc' && rec(it) && C.rentalAvailable(it) > 0);
-  else if (recTab === 'other') list = items.filter(it => it.category_id !== 'pc' && rec(it) && C.rentalAvailable(it) > 0);
-  else list = items.filter(it => C.rentalAvailable(it) > 0);
-  if (activeCat) list = list.filter(it => it.category_id === activeCat);
-  if (!list.length && recTab !== 'now') list = items.filter(it => C.rentalAvailable(it) > 0 &&
-    (recTab === 'pc' ? it.category_id === 'pc' : it.category_id !== 'pc') && (!activeCat || it.category_id === activeCat));
-  list = list.slice().sort((a, b) => C.rentalAvailable(b) - C.rentalAvailable(a));
+  if (recTab === 'pc') list = models.filter(m => m.category_id === 'pc' && rec(m) && ok(m));
+  else if (recTab === 'other') list = models.filter(m => m.category_id !== 'pc' && rec(m) && ok(m));
+  else list = models.filter(m => m.available > 0);
+  if (activeCat) list = list.filter(m => m.category_id === activeCat);
+  if (!list.length && recTab !== 'now') list = models.filter(m => ok(m) &&
+    (recTab === 'pc' ? m.category_id === 'pc' : m.category_id !== 'pc') && (!activeCat || m.category_id === activeCat));
   if (!list.length) {
-    host.innerHTML = `<div class="state" style="grid-column:1/-1">${items.length
+    host.innerHTML = `<div class="state" style="grid-column:1/-1">${models.length
       ? 'いまこの条件で借りられる機材がありません。条件を変えるか、<a href="#contact" style="font-weight:700">ご相談ください</a>。'
       : '公開中の機材を準備しています。お手数ですが<a href="#contact" style="font-weight:700">お問い合わせ</a>ください。'}</div>`;
     return;
   }
-  host.innerHTML = list.map(cardHtml).join('');
+  host.innerHTML = list.map(m => cardHtml(m, c)).join('');
 }
 
-/* 商品カード（添付HTMLのカードと同じ構成。写真は代表1枚） */
-function cardHtml(it) {
-  const img = C.mainImage(it, 'rental');
-  const avail = C.rentalAvailable(it);
+/* 機種カード（添付HTMLのカードと同じ構成。写真は代表1枚、同じ型番で2枚は出さない） */
+function cardHtml(m, c) {
   const tag = (t, accent) => `<span class="tag" style="background: ${accent ? 'rgb(246, 252, 226)' : 'rgb(241, 241, 238)'}; color: ${accent ? 'rgb(67, 83, 14)' : 'rgb(74, 76, 67)'}; font-size: 10.5px; font-weight: 700;">${t}</span>`;
-  const spec = C.specLine(it);
+  const spec = C.specLine(m.rep);
+  const kinds = m.variants.length > 1 ? `${m.variants.length}種類の仕様から選べます` : '';
   return `<div style="border: 1px solid var(--color-divider); border-radius: 3px; overflow: hidden; display: flex; flex-direction: column; background: rgb(255, 255, 255);">
-    <div class="pbox" style="cursor: pointer;${img ? '' : 'background: rgb(247, 247, 242); padding: 0;'}" onclick="openDlg('${esc(it.code)}')">
-      ${img
-        ? `<img class="pimg" src="${esc(img)}" alt="${esc(C.title(it))}" loading="lazy" decoding="async" onerror="EightCatalog.imgError(this)" data-alt="${esc(C.images(it, 'rental').slice(1).join('|'))}">`
+    <div class="pbox" style="cursor: pointer;${m.image ? '' : 'background: rgb(247, 247, 242); padding: 0;'}" onclick="openDlg('${esc(m.key)}')">
+      ${m.image
+        ? `<img class="pimg" src="${esc(m.image)}" alt="${esc(m.title)}" loading="lazy" decoding="async" onerror="EightCatalog.imgError(this)" data-alt="${esc(C.images(m.imageOf, 'rental').slice(1).join('|'))}">`
         : `<div class="ph-none"><span class="ms">devices</span><span>画像準備中</span></div>`}
     </div>
     <div style="padding: 15px 16px 18px; display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto;">
       <div style="display: flex; gap: 5px; flex-wrap: wrap;">
-        ${it.category_name || C.catLabel(it.category_id) ? tag(esc(it.category_name || C.catLabel(it.category_id))) : ''}
-        ${avail > 0 ? tag(avail > 3 ? '在庫あり' : `残り${avail}台`, true) : tag('在庫切れ')}
-        ${it.office_supported ? tag('Office付き', true) : ''}
+        ${m.category_name || C.catLabel(m.category_id) ? tag(esc(m.category_name || C.catLabel(m.category_id))) : ''}
+        ${m.available > 0 ? tag(m.available > 3 ? '今すぐ貸出可能' : `残り${m.available}台`, true)
+          : (m.procurement ? tag('取り寄せ可能', true) : tag('在庫切れ'))}
+        ${m.office ? tag('Office対応', true) : ''}
       </div>
-      <div style="font-size: 11px; color: rgb(108, 110, 100);">${esc([it.maker, it.model].filter(Boolean).join('　'))}</div>
-      <div style="font-size: 16px; font-weight: 700; line-height: 1.35;">${esc(C.title(it))}</div>
+      <div style="font-size: 11px; color: rgb(108, 110, 100);">${esc([m.maker, m.model].filter(Boolean).join('　'))}</div>
+      <div style="font-size: 16px; font-weight: 700; line-height: 1.35;">${esc(m.title)}</div>
       ${spec ? `<div style="font-size: 12px; color: rgb(74, 76, 67); line-height: 1.7;">${esc(spec)}</div>` : ''}
+      ${kinds ? `<div style="font-size: 11.5px; color: rgb(126, 155, 28); font-weight: 700;">${kinds}</div>` : ''}
       <div style="margin-top: auto; padding-top: 8px;">
-        ${it.rental_price_month
+        ${m.price
           ? `<div style="display: flex; align-items: baseline; gap: 4px;">
-               <span class="num" style="font-size: 50px; font-weight: 900; color: rgb(27, 29, 26);">${yen(it.rental_price_month)}</span>
+               <span class="num" style="font-size: 50px; font-weight: 900; color: rgb(27, 29, 26);">${yen(m.price)}</span>
                <span style="font-size: 13px; font-weight: 700;">円／月〜</span></div>`
           : `<div style="font-size: 14px; font-weight: 700;">料金はお問い合わせください</div>`}
-        <div style="font-size: 11px; color: rgb(108, 110, 100); margin-top: 3px;">最低利用期間 ${it.rental_min_months || 1}ヶ月</div>
+        <div style="font-size: 11px; color: rgb(108, 110, 100); margin-top: 3px;">最低利用期間 ${m.minMonths}ヶ月</div>
       </div>
       <div style="display: flex; gap: 7px; margin-top: 10px;">
-        <button type="button" class="btn btn-secondary" onclick="openDlg('${esc(it.code)}')" style="flex: 1 1 auto; font-size: 12.5px; min-height: 42px; border-color: rgb(27,29,26); border-radius: 3px;">詳細を見る</button>
-        ${avail > 0
-          ? `<button type="button" class="btn btn-primary" onclick="openDlg('${esc(it.code)}')" style="flex: 1 1 auto; font-size: 12.5px; min-height: 42px; background: rgb(199, 237, 62); border-color: rgb(199, 237, 62); color: rgb(27, 29, 26); font-weight: 700; border-radius: 3px;">申し込む</button>`
+        <button type="button" class="btn btn-secondary" onclick="openDlg('${esc(m.key)}')" style="flex: 1 1 auto; font-size: 12.5px; min-height: 42px; border-color: rgb(27,29,26); border-radius: 3px;">詳細を見る</button>
+        ${m.available > 0 || m.procurement
+          ? `<button type="button" class="btn btn-primary" onclick="openDlg('${esc(m.key)}')" style="flex: 1 1 auto; font-size: 12.5px; min-height: 42px; background: rgb(199, 237, 62); border-color: rgb(199, 237, 62); color: rgb(27, 29, 26); font-weight: 700; border-radius: 3px;">申し込む</button>`
           : ''}
       </div>
     </div>
   </div>`;
 }
 
-/* ===== 商品詳細＋レンタル申込 ===== */
-function openDlg(code) {
-  const it = items.find(x => x.code === code);
-  if (!it) return;
-  currentCode = code;
-  const avail = C.rentalAvailable(it);
-  const s = C.sale(it);
-  $('dlgTitle').textContent = C.title(it);
+/* ===== 機種の詳細＋レンタル申込 ===== */
+function openDlg(key) {
+  const m = models.find(x => x.key === key);
+  if (!m) return;
+  currentKey = key;
+  const c = cond();
+  const s = C.sale(m.rep);
+  $('dlgTitle').textContent = m.title;
   const rows = [
-    ['型番', it.model], ['メーカー', it.maker],
-    ['CPU', [it.cpu, it.cpu_gen].filter(Boolean).join(' ')], ['メモリ', it.memory_size],
-    ['ストレージ', [it.storage_capacity, it.storage_type].filter(Boolean).join(' ')],
-    ['画面', it.screen_size], ['OS', it.os], ['付属品', it.accessories]
+    ['型番', m.model], ['メーカー', m.maker],
+    ['CPU', [m.rep.cpu, m.rep.cpu_gen].filter(Boolean).join(' ')],
+    ['画面', m.rep.screen_size], ['OS', m.rep.os], ['付属品', m.rep.accessories]
   ].filter(x => x[1]);
-  if (!rows.length && it.spec) rows.push(['スペック', it.spec]);
-  rows.push(['レンタル可能数', avail > 0 ? avail + '台' : '現在レンタルできる在庫がありません']);
-  rows.push(['最低利用期間', (it.rental_min_months || 1) + 'ヶ月〜']);
+  if (!rows.length && m.rep.spec) rows.push(['スペック', m.rep.spec]);
+  rows.push(['いま貸せる台数', m.available > 0 ? m.available + '台' : (m.procurement ? '0台（取り寄せ可能）' : '0台')]);
+  rows.push(['最低利用期間', m.minMonths + 'ヶ月〜']);
   $('dlgBody').innerHTML = `
-    ${C.galleryHtml(it, 'rental').replace('c-media dt-media', 'dlg-media')}
+    ${C.galleryHtml(m.imageOf, 'rental').replace('c-media dt-media', 'dlg-media')}
     <dl class="dt-specs">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
-    ${it.rental_price_month ? `<div style="display:flex;align-items:baseline;gap:6px;margin-bottom:14px">
-      <span class="num" style="font-size:40px;font-weight:900">${yen(it.rental_price_month)}</span>
+    ${m.price ? `<div style="display:flex;align-items:baseline;gap:6px;margin-bottom:14px">
+      <span class="num" style="font-size:40px;font-weight:900">${yen(m.price)}</span>
       <span style="font-size:13px;font-weight:700">円／月（税別）〜</span></div>` : ''}
-    ${it.rental_description ? `<p style="font-size:13.5px;color:#4A4C43;line-height:1.85;margin-bottom:16px">${esc(it.rental_description)}</p>` : ''}
+    ${m.rep.rental_description ? `<p style="font-size:13.5px;color:#4A4C43;line-height:1.85;margin-bottom:16px">${esc(m.rep.rental_description)}</p>` : ''}
     <div style="padding:14px 16px;border:1px solid var(--color-divider);border-radius:3px;margin-bottom:18px">
       <div style="font-size:12.5px;font-weight:700;margin-bottom:8px">ご利用条件</div>
       <dl style="display:grid;grid-template-columns:78px 1fr;gap:6px 12px;font-size:12.5px;color:#4A4C43;margin:0">
@@ -2548,26 +2737,52 @@ function openDlg(code) {
     <div class="dt-buy"><span class="ms" style="font-size:16px">storefront</span>
       ${s && s.available > 0
         ? `<span>この機材は<b>購入</b>もできます${s.price ? `（${esc(s.label)}：¥${yen(s.price)}）` : ''}。<a href="${esc(s.url)}" target="_blank" rel="noopener" style="font-weight:700;text-decoration:underline">${esc(s.label)} →</a></span>`
-        : `<span>この機材の<b>購入</b>をご検討の場合は<a href="#contact" onclick="consult('${esc(it.code)}')" style="font-weight:700;text-decoration:underline">購入について相談する →</a></span>`}</div>`;
-  renderApply(it);
+        : `<span>この機材の<b>購入</b>をご検討の場合は<a href="#contact" onclick="consult('${esc(m.key)}')" style="font-weight:700;text-decoration:underline">購入について相談する →</a></span>`}</div>`;
+  renderApply(m, c);
   $('dlgOv').classList.add('open');
 }
-function closeDlg() { $('dlgOv').classList.remove('open'); currentCode = null; }
+function closeDlg() { $('dlgOv').classList.remove('open'); currentKey = null; }
 
-/* 申込フォームは「いまレンタルできる台数が1台以上」のときだけ出す */
-function renderApply(it) {
+/* 申込フォーム。仕様はこの中で選び、どの1台を貸すかはサーバーが決める。
+   在庫が0でも「取り寄せ可能」の機種は申し込める（申込 → 調達確認 → 貸出確定）。 */
+function renderApply(m, c) {
   const host = $('applyHost');
   if (!host) return;
-  if (C.rentalAvailable(it) <= 0) {
+  if (m.available <= 0 && !m.procurement) {
     host.innerHTML = `<div class="state">あいにく、いまこの機材はレンタルできる台数がありません。
       <div style="margin-top:12px"><a class="btn btn-secondary" href="#contact" onclick="closeDlg()" style="border-color:rgb(27,29,26);border-radius:3px;min-height:46px;padding-inline:20px">入荷のご相談をする</a></div></div>`;
     return;
   }
+  const specOpt = (v) => {
+    const n = C.rentalAvailable(v);
+    const label = [v.memory_size ? 'メモリ ' + v.memory_size : '',
+      v.storage_capacity ? [v.storage_capacity, v.storage_type].filter(Boolean).join(' ') : '',
+      v.office_supported ? 'Office対応' : ''].filter(Boolean).join('／') || C.title(v);
+    return `<label class="spec-opt"><input type="radio" name="a-spec" value="${esc(v.code)}" onchange="onSpecChange()">
+      <span><b>${esc(label)}</b><span class="n">${n > 0 ? `今すぐ ${n}台` : (v.procurement_available ? '取り寄せ' : '在庫なし')}</span></span></label>`;
+  };
   host.innerHTML = `
     <h4 style="font-size:15px;font-weight:700;margin:0 0 12px">レンタルを申し込む</h4>
     <form id="applyForm" novalidate>
-      <label class="f-row"><span>お名前・会社名<span class="req">必須</span></span>
-        <input class="input" id="a-name" type="text" autocomplete="name" placeholder="例：山田太郎 / 株式会社◯◯"></label>
+      ${m.variants.length > 1 ? `<div class="f-row" style="margin-bottom:12px"><span>仕様</span>
+        <div class="spec-list">
+          <label class="spec-opt"><input type="radio" name="a-spec" value="" checked onchange="onSpecChange()">
+            <span><b>おまかせ</b><span class="n">条件に合うものをご用意します</span></span></label>
+          ${m.variants.slice().sort((a, b) => C.rentalAvailable(b) - C.rentalAvailable(a)).map(specOpt).join('')}
+        </div></div>` : ''}
+      <div class="f-grid">
+        <label class="f-row"><span>台数<span class="req">必須</span></span>
+          <input class="input" id="a-qty" type="number" min="1" max="50" value="${c.qty}" oninput="onSpecChange()"></label>
+        <label class="f-row"><span>利用月数</span>
+          <select class="input" id="a-months">${[1, 3, 6, 12].map(n =>
+            `<option value="${n}"${n === c.months ? ' selected' : ''}>${n}ヶ月</option>`).join('')}</select></label>
+      </div>
+      ${m.office ? `<label class="bchk" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13.5px">
+        <input type="checkbox" id="a-office" ${c.office === 'yes' ? 'checked' : ''} onchange="onSpecChange()">
+        Officeを付ける（オプション）</label>` : ''}
+      <div id="applyAvail" class="avail-note"></div>
+      <label class="f-row"><span>お名前<span class="req">必須</span></span>
+        <input class="input" id="a-name" type="text" autocomplete="name" placeholder="例：山田太郎"></label>
       <div class="f-grid">
         <label class="f-row"><span>会社名</span><input class="input" id="a-company" type="text" autocomplete="organization"></label>
         <label class="f-row"><span>メール</span><input class="input" id="a-email" type="email" autocomplete="email"></label>
@@ -2576,40 +2791,91 @@ function renderApply(it) {
         <label class="f-row"><span>電話番号</span><input class="input" id="a-phone" type="tel" autocomplete="tel"></label>
         <label class="f-row"><span>希望開始日</span><input class="input" id="a-start" type="date"></label>
       </div>
-      <div class="f-grid">
-        <label class="f-row"><span>利用月数</span>
-          <select class="input" id="a-months"><option value="1">1ヶ月</option><option value="3">3ヶ月</option><option value="6">6ヶ月</option><option value="12">12ヶ月</option></select></label>
-        <label class="f-row"><span>台数のご希望など</span><input class="input" id="a-message" type="text" placeholder="例：3台・キッティング希望"></label>
-      </div>
+      <label class="f-row"><span>ご要望など</span>
+        <input class="input" id="a-message" type="text" placeholder="例：キッティング希望・納品先など"></label>
       <button class="btn btn-primary" type="submit" id="applyBtn" style="width:100%;min-height:52px;font-size:15px;font-weight:700;background:rgb(199,237,62);border-color:rgb(199,237,62);color:rgb(27,29,26);border-radius:3px">この内容でレンタルを申し込む</button>
       <div id="applyMsg" style="margin-top:10px;font-size:13px;font-weight:700;text-align:center"></div>
       <p class="privacy">送信により<a href="/privacy.html" target="_blank" rel="noopener">プライバシーポリシー</a>に同意したものとみなします。担当より1〜2営業日以内にご連絡します。</p>
     </form>`;
   document.getElementById('applyForm').addEventListener('submit', onApplySubmit);
+  onSpecChange();
+}
+
+/* いま選ばれている条件で、サーバーへ渡す候補（商品コード）を作る */
+function applyPick() {
+  const m = models.find(x => x.key === currentKey);
+  if (!m) return null;
+  const spec = (document.querySelector('input[name="a-spec"]:checked') || {}).value || '';
+  const office = !!($('a-office') || {}).checked;
+  const qty = Math.max(1, parseInt(($('a-qty') || {}).value || '1', 10) || 1);
+  let v = spec ? m.variants.filter(x => x.code === spec) : matchVariants(m, cond());
+  if (!v.length) v = m.variants.slice();
+  if (office) {
+    const withOffice = v.filter(x => x.office_supported);
+    if (withOffice.length) v = withOffice;
+  }
+  return { m, v, qty, office, codes: v.map(x => x.code) };
+}
+/* 選びなおすたびに「今すぐ何台／取り寄せ」を出し直す */
+function onSpecChange() {
+  const p = applyPick();
+  const host = $('applyAvail');
+  if (!p || !host) return;
+  const n = availOf(p.v);
+  const procure = canProcure(p.v);
+  if (n >= p.qty) {
+    host.className = 'avail-note now';
+    host.innerHTML = `<span class="ms">check_circle</span>この条件で <b>${p.qty}台</b> 今すぐ貸出可能です（在庫 ${n}台）。`;
+  } else if (procure) {
+    host.className = 'avail-note order';
+    host.innerHTML = `<span class="ms">local_shipping</span>` + (n > 0
+      ? `いますぐ出せるのは ${n}台です。残り ${p.qty - n}台は<b>取り寄せ</b>になります。`
+      : `この条件は<b>取り寄せ</b>でのご用意になります。`) +
+      `お申込みのあと、納期をご確認してから貸出確定となります。`;
+  } else {
+    host.className = 'avail-note none';
+    host.innerHTML = `<span class="ms">error</span>この条件では ${n}台しかご用意できません。台数か仕様を変えるか、ご相談ください。`;
+  }
+  const btn = $('applyBtn');
+  if (btn) btn.disabled = !(n >= p.qty || procure);
 }
 
 async function onApplySubmit(e) {
   e.preventDefault();
+  const p = applyPick();
+  if (!p) return;
   const g = (k) => { const el = $('a-' + k); return el ? el.value.trim() : ''; };
   const msg = $('applyMsg'), btn = $('applyBtn');
-  if (!g('name')) { msg.style.color = '#B3261E'; msg.textContent = 'お名前・会社名を入力してください。'; return; }
+  if (!g('name')) { msg.style.color = '#B3261E'; msg.textContent = 'お名前を入力してください。'; return; }
   btn.disabled = true; msg.style.color = '#6C6E64'; msg.textContent = '送信中…';
+  const c = cond();
   try {
-    const { error } = await C.client().rpc('inv_rental_request', {
-      p_code: currentCode, p_name: g('name'), p_company: g('company') || null,
-      p_email: g('email') || null, p_phone: g('phone') || null,
+    const { data, error } = await C.client().rpc('inv_rental_apply', {
+      p_codes: p.codes, p_name: g('name'), p_qty: p.qty,
+      p_company: g('company') || null, p_email: g('email') || null, p_phone: g('phone') || null,
       p_start: g('start') || null, p_months: g('months') ? Number(g('months')) : null,
-      p_message: g('message') || null
+      p_office: p.office, p_message: g('message') || null,
+      p_conditions: {
+        purpose: c.purpose, cpu: c.cpu || null, memory_gb: c.memory || null,
+        storage_gb: c.storage || null, screen: c.screen || null,
+        webcam: c.webcam, numpad: c.numpad, office: p.office
+      }
     });
     if (error) {
       let t = '送信に失敗しました。時間をおいて再度お試しください。';
-      if (/レンタルできる台数がありません/.test(error.message)) t = 'あいにく、ちょうどこのタイミングで在庫がなくなりました。恐れ入りますが再読み込みのうえお問い合わせください。';
-      else if (/受け付けていません/.test(error.message)) t = 'この機材は現在レンタルを受け付けていません。ページを再読み込みしてください。';
+      if (/台数が足りません|台数がありません/.test(error.message)) t = 'あいにく、ちょうどこのタイミングで在庫が埋まりました。お手数ですが台数か仕様を変えてお試しください。';
+      else if (/受け付けていません|受け付けている機種がありません/.test(error.message)) t = 'この機材は現在レンタルを受け付けていません。ページを再読み込みしてください。';
+      else if (/1〜50/.test(error.message)) t = error.message;
       msg.style.color = '#B3261E'; msg.textContent = t; btn.disabled = false; return;
     }
+    const r = data || {};
     $('applyHost').innerHTML = `<div class="done"><div class="ic">✓</div>
-      <b style="display:block;font-size:17px;margin-bottom:6px">申込みを受け付けました</b>
-      <p style="color:#4A4C43;font-size:13.5px">担当より1〜2営業日以内にご連絡いたします。</p></div>`;
+      <b style="display:block;font-size:17px;margin-bottom:6px">${r.status === '調達確認' ? '取り寄せのご依頼を受け付けました' : '申込みを受け付けました'}</b>
+      <p style="color:#4A4C43;font-size:13.5px">${r.status === '調達確認'
+        ? (r.allocated
+            ? `${p.qty}台のうち ${r.allocated}台はお取り置きしました。残り ${r.procure_qty}台は取り寄せとなりますので、納期をご確認のうえ改めてご連絡いたします。`
+            : `${p.qty}台を取り寄せでご用意します。納期をご確認のうえ、1〜2営業日以内に担当よりご連絡いたします。`)
+        : `${p.qty}台をお取り置きしました。担当より1〜2営業日以内にご連絡いたします。`}</p></div>`;
     loadCatalog(false);
   } catch (err) {
     msg.style.color = '#B3261E'; msg.textContent = '通信エラー：' + (err && err.message ? err.message : err);
@@ -2617,12 +2883,12 @@ async function onApplySubmit(e) {
   }
 }
 
-/* 商品詳細から相談：商品コードを本文に入れて相談フォームへ */
-function consult(code) {
-  const it = items.find(x => x.code === code);
+/* 商品詳細から相談：機種を本文に入れて相談フォームへ */
+function consult(key) {
+  const m = models.find(x => x.key === key);
   closeDlg();
   const b = $('fBody');
-  const text = it ? `商品コード ${it.code}（${C.title(it)}）について` : '';
+  const text = m ? `${[m.maker, m.model].filter(Boolean).join(' ')}（${m.title}）について` : '';
   if (b && text && b.value.indexOf(text) < 0) b.value = (text + '\n' + b.value).trim() + '\n';
 }
 
