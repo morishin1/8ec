@@ -93,7 +93,7 @@ const ui = {
   fAction: '', hq: '', regKind: 'ind', made: null, tab: 'info',
   drafts: {}, labelSel: {}, stScope: '', loaded: false, sel: {}, selItems: {}, fBatch: null, doneBatch: null,
   // 一覧のタブ。individual / model のほかに、販売サイトのキーと 'none'（未出品）を取る
-  listMode: 'unit', fSt: '', fDiff: false, fRental: '', fRentEl: ''
+  listMode: 'unit', fSt: '', fDiff: false, fNoPrice: false, fRental: '', fRentEl: ''
 };
 
 /* 仕入の置き場所はたいてい柏の倉庫なので、取込の初期値にする。
@@ -652,26 +652,39 @@ function plBlock() {
   const margin = st.gross_margin == null ? null : Number(st.gross_margin);
   const avg = st.avg_profit_per_unit == null ? null : Number(st.avg_profit_per_unit);
   const miss = n(st.profit_missing_cost);
+  const noPriceM = n(st.sold_price_missing_month);
+  // 粗利を出せた台数。原価か売価が入っていない個体は入らない
+  const base = st.profit_count == null ? n(st.sold_count) - miss : n(st.profit_count);
   return `
     <div class="sec">今月の経営状況<span class="secn">${esc(st.month || '')}</span></div>
     <div class="kpis pl">
-      ${kpi('今月売上', yen(n(st.sales_total)), st.rental_available
-          ? `販売 ${yen(n(st.sales_sale))}／レンタル ${yen(n(st.sales_rental))}`
-          : '販売のみ（レンタル売上は未集計）', 'lead')}
+      ${kpi('今月売上', yen(n(st.sales_total)), noPriceM
+          ? `売価未登録 ${noPriceM}台は入っていません`
+          : (st.rental_available
+              ? `販売 ${yen(n(st.sales_sale))}／レンタル ${yen(n(st.sales_rental))}`
+              : '販売のみ（レンタル売上は未集計）'), 'lead')}
       ${kpi('今月粗利', yen(gp), miss ? `原価未登録 ${miss}台は除く` : '実売価格 − 原価',
           'lead' + (gp < 0 ? ' minus' : ''))}
-      ${kpi('粗利率', margin == null ? '—' : margin + '%', margin == null ? '売れた実績がありません' : '粗利 ÷ 売上',
+      ${kpi('粗利率', margin == null ? '—' : margin + '%',
+          margin == null ? '売れた実績がありません'
+            : (base < n(st.sold_count)
+                ? `${noPriceM ? '原価・売価が登録済み' : '原価登録済み'} ${base}台を対象`
+                : '粗利 ÷ 売上'),
           margin == null ? 'na' : '')}
       ${kpi('今月販売台数', n(st.sold_count) + '台', miss ? `うち原価未登録 ${miss}台` : '')}
       ${kpi('今月仕入額', yen(n(st.purchase_amount)), '仕入価格＋諸費用')}
       ${kpi('今月仕入台数', n(st.purchase_count) + '台', '仕入日で集計')}
       ${kpi('現在庫原価', yen(n(st.stock_cost)), `${n(st.stock_count)}台（売却済・廃棄を除く）`)}
-      ${kpi('平均粗利／台', avg == null ? '—' : yen(avg), avg == null ? '売れた実績がありません' : '今月粗利 ÷ 販売台数',
+      ${kpi('平均粗利／台', avg == null ? '—' : yen(avg),
+          avg == null ? '売れた実績がありません'
+            : (base < n(st.sold_count) ? `今月粗利 ÷ ${base}台` : '今月粗利 ÷ 販売台数'),
           avg == null ? 'na' : '')}
     </div>
     ${miss ? `<p class="plnote">原価（仕入価格＋諸費用）が入っていない個体が ${miss}台あります。
       売値をそのまま粗利にすると実態と違うので、粗利・粗利率・平均粗利からは外しています
       （売上と販売台数には入っています）。</p>` : ''}
+    ${noPriceM ? `<p class="plnote">今月売却した ${noPriceM}台は販売価格が登録されていないため、
+      今月売上・粗利に入っていません。「要確認」の<b>売価未登録</b>から直してください。</p>` : ''}
 
     <div class="sec">在庫の質</div>
     <div class="kpis">
@@ -698,6 +711,8 @@ function viewDash() {
   // 棚卸で「まだ確認していない」件数
   const checkedIds = db.stChecked.filter(x => x.checked_at).map(x => x.item_id);
   const stLeft = db.stocktake ? db.stChecked.length - checkedIds.length : 0;
+  // 売却済みなのに売価が入っていない個体。0件なら「要確認」に出さない
+  const noPrice = Number((db.stats || {}).sold_price_missing || 0);
 
   const kpi = (label, v, note, cls) =>
     `<div class="kpi ${cls || ''}"><div class="lbl">${esc(label)}</div><div class="v num">${v}</div><div class="n">${note || ''}</div></div>`;
@@ -731,6 +746,10 @@ function viewDash() {
       ${chk('schedule', '長期貸出', longs.length, `${LOAN_LONG_DAYS}日を超えて返却されていないもの`, 'loan')}
       ${chk('help', '棚卸未確認', stLeft, db.stocktake ? '実施中の棚卸で、まだ確認できていないもの' : '棚卸は実施していません', 'stock')}
       ${chk('build', '故障・修理中', broken.length, '使えない状態のまま残っているもの', 'list', "ui.q='';")}
+      ${noPrice ? `<button class="chk card" onclick="showNoPrice(true)">
+        <div class="h"><span class="ms">sell</span><span class="t">売価未登録</span>
+          <span class="b on">${noPrice}</span></div>
+        <div class="d">売却済みですが販売価格が登録されていません</div></button>` : ''}
     </div>
 
     <div class="sec">直近の操作</div>
@@ -860,6 +879,7 @@ function viewList() {
     ${importHistLine()}
     ${batchBanner()}
     ${diffBar()}
+    ${noPriceBar()}
     ${listTabs()}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:4px">
       <input class="input" id="f-q" value="${esc(ui.q)}" oninput="onFilter()"
@@ -1089,13 +1109,14 @@ function unitsFiltered(ignoreTab) {
   const onTab = (on) => !tab || (tab === 'none' ? !on.length : on.indexOf(tab) >= 0);
   const out = db.items.filter(i => {
     if (ui.fDiff && !isMismatch(i)) return false;
+    if (ui.fNoPrice && !isNoPrice(i)) return false;
     return hit(i, prod(i.product_code)) && onTab(liveOn(i));
   }).map(i => ({ kind: 'item', i, m: prod(i.product_code) }));
   // 数量管理は個体を持たない。見えなくならないよう1品目1行で混ぜる
   db.masters.filter(p => p.kind !== 'individual').forEach(p => {
     const fake = { id: p.code, product_code: p.code, category_id: p.category_id, maker: p.maker,
                    model: p.model, name: p.name, location_id: p.location_id, status: '' };
-    if (ui.fSt || ui.fDiff || ui.fRentEl) return;
+    if (ui.fSt || ui.fDiff || ui.fNoPrice || ui.fRentEl) return;
     if (hit(fake, p) && onTab(liveOnProd(p.code))) out.push({ kind: 'qty', i: fake, m: p });
   });
   return out;
@@ -1105,6 +1126,11 @@ function unitsFiltered(ignoreTab) {
    自社在庫DBが正なので、出品のほうを直してもらう */
 function isMismatch(i) { return GONE.includes(i.status) && liveOn(i).length > 0; }
 const mismatchAll = () => db.items.filter(isMismatch);
+
+/* 売却済みなのに販売価格が入っていない1台。金額として数えられないので、
+   今月売上にも粗利にも入らない。null も 0 も同じ「未登録」として扱う */
+function isNoPrice(i) { return i.status === '売却済' && !(Number(i.sold_price) > 0); }
+const noPriceAll = () => db.items.filter(isNoPrice);
 
 function diffBar() {
   const n = mismatchAll().length;
@@ -1124,8 +1150,28 @@ function diffBar() {
 }
 function showDiff(on) {
   ui.fDiff = !!on;
-  if (on) { ui.listMode = 'unit'; ui.fSt = ''; }
+  if (on) { ui.listMode = 'unit'; ui.fSt = ''; ui.fNoPrice = false; }
   go('list');
+}
+
+/* 「売価未登録」だけを個体別で出す。ここで売却の金額を入れ直してもらう */
+function showNoPrice(on) {
+  ui.fNoPrice = !!on;
+  if (on) { ui.listMode = 'unit'; ui.fSt = ''; ui.fDiff = false; ui.q = ''; }
+  go('list');
+}
+
+/* 絞り込んでいる間だけ、何を見ているかを上に出す */
+function noPriceBar() {
+  if (!ui.fNoPrice) return '';
+  const n = noPriceAll().length;
+  return `<div class="diffbar on">
+    <span class="ms">sell</span>
+    <div style="flex:1;min-width:0"><div class="bt">売価未登録 ${n}台</div>
+      <div class="meta">売却済みですが販売価格が登録されていません。
+        行を開いて売却価格を入れると、売上と粗利に入ります。</div></div>
+    <button class="btn sm ghost" onclick="showNoPrice(false)">すべて表示</button>
+  </div>`;
 }
 
 /* 出品先。出しているサイトだけ小さく並べる。長い名前は出さない */
@@ -2250,7 +2296,7 @@ function showBatch(id, justNow) {
   // 「今回」と言えるのは取り込んだ直後だけ。履歴から過去の回を選んだ時点で終わり
   ui.doneBatch = justNow ? id : null;
   ui.q = ''; ui.fCat = ''; ui.fMaker = ''; ui.fLoc = ''; ui.fStock = ''; ui.fSt = '';
-  ui.fDiff = false; ui.sel = {}; ui.selItems = {};
+  ui.fDiff = false; ui.fNoPrice = false; ui.sel = {}; ui.selItems = {};
   // 取り込んだ直後は、いま入れたものが見えないと意味がない。サイト別のタブからは戻す
   if (ui.listMode !== 'model') ui.listMode = 'unit';
   go('list');
