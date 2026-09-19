@@ -3088,7 +3088,7 @@ function viewItem() {
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <span class="num" style="font-size:19px;font-weight:500">${esc(it.id)}</span>
         ${statusTag(it.status, true)}
-        ${GONE.includes(it.status) ? '' : rentalTag(it)}
+        <span id="itemRentTag">${GONE.includes(it.status) ? '' : rentalTag(it)}</span>
         ${isLong(it) ? '<span class="tag" style="background:var(--l200)">長期貸出 ' + daysSince(it.loaned_at) + '日</span>' : ''}
       </div>
       <div class="info">
@@ -3111,6 +3111,7 @@ function viewItem() {
         ${op('paid', '売却', `sheetSell('${esc(it.id)}')`, false, !GONE.includes(it.status))}
         ${op('undo', '予約解除', `sheetUnreserve('${esc(it.id)}')`, false, it.status === '販売予約')}
         ${op('fact_check', '棚卸確認', `checkItem('${esc(it.id)}')`)}
+        <span id="itemRentOps" style="display:contents">${rentalOpsHtml(it)}</span>
         ${canAdmin() ? op('delete', '廃棄', `sheetScrap('${esc(it.id)}')`) : ''}
       </div>
     </div>
@@ -3688,23 +3689,61 @@ function unitMenu(id) {
     </div>`, [['閉じる', 'closeModal()', 'btn ghost']]);
 }
 
-/* 1台だけ8RENT対象を切り替える。処理と履歴は一括操作と同じ（inv_items_bulk_op）。
-   商品が8RENT非掲載のままだと8ECには出ないので、そのときは続けて知らせる。 */
-async function toggleItemRental(id) {
+/* 8RENTに出す／外すのボタン。出せる・外せるの判定は在庫一覧の一括操作と同じ規則で、
+   外せるのは貸し出していない個体だけ（予約中・貸出中はレンタルの約束が生きている）。
+   押せない理由はボタンのツールチップに出す。 */
+function rentalOpsHtml(it) {
+  const gone = GONE.includes(it.status);
+  const held = it.status === '予約中' || it.status === '貸出中';
+  const heldWhy = it.status === '予約中'
+    ? '予約中 のため8RENTから外せません（先に申込をキャンセルしてください）'
+    : '貸出中 のため8RENTから外せません（先に返却してください）';
+  const b = (label, icon, on, cls, ok, why) =>
+    `<button class="btn ${cls}" onclick="setItemRental('${esc(it.id)}',${on})"` +
+    `${ok && canEdit() ? '' : ' disabled'}${why ? ` title="${esc(why)}"` : ''}>` +
+    `<span class="ms">${icon}</span><span class="t">${label}</span></button>`;
+  return b('8RENTに出す', 'devices', true, 'lime', !gone && !it.rental_eligible,
+      gone ? `${it.status} なので8RENTには出せません` : (it.rental_eligible ? 'すでにレンタル対象です' : '')) +
+    b('8RENTから外す', 'devices_off', false, '', !gone && !held && it.rental_eligible,
+      gone ? `${it.status} なので8RENTには出せません`
+        : held ? heldWhy : (it.rental_eligible ? '' : 'すでに対象外です'));
+}
+
+/* バッジとボタンだけをその場で描き直す（画面は読み込み直さない） */
+function paintItemRental(it) {
+  const tag = $('itemRentTag');
+  if (tag) tag.innerHTML = GONE.includes(it.status) ? '' : rentalTag(it);
+  const ops = $('itemRentOps');
+  if (ops) ops.innerHTML = rentalOpsHtml(it);
+}
+
+/* 1台だけ8RENT対象を切り替える。処理・検証・履歴は一括操作と同じ（inv_items_bulk_op）で、
+   詳細画面のためのロジックは持たない。商品の掲載ONも一括操作と同じ扱いにする。 */
+async function setItemRental(id, on) {
   const it = item(id); if (!it) return;
-  const on = !it.rental_eligible;
   const { data, error } = await sb.rpc('inv_items_bulk_op', {
-    p_ids: [id], p_action: on ? '8RENT対象' : '8RENT対象外', p_enable_product: false
+    p_ids: [id], p_action: on ? '8RENT対象' : '8RENT対象外',
+    p_enable_product: on                       // 最初の1台なら商品の掲載も自動でON
   });
   if (error) { toast('変更できませんでした：' + error.message); return; }
   const ng = ((data || {}).ng || [])[0];
   if (ng) { toast(ng.reason); return; }
-  await loadAll();
-  render();
-  const p = prod(it.product_code);
+  it.rental_eligible = on;                     // 待たせずにその場で直す
+  paintItemRental(it);
+  const empty = (((data || {}).products_empty) || [])[0];
   toast(on
-    ? (p && p.rental_enabled ? `${id} を8RENT対象にしました` : `${id} を8RENT対象にしました（商品が8RENT非掲載のままです）`)
-    : `${id} を8RENT対象から外しました`);
+    ? '✓ 8RENTのレンタル対象にしました' + ((data || {}).products_enabled ? '（商品も8RENTに掲載しました）' : '')
+    : '✓ 8RENTの対象から外しました' + (empty ? '（この商品は対象の個体が0台になりました）' : ''));
+  await loadAll();                             // 裏で取り直す
+  const fresh = item(id);
+  if (fresh && ui.screen === 'item' && ui.itemId === id) paintItemRental(fresh);
+  else render();
+}
+
+/* 一覧の操作メニューからも同じ処理を使う */
+function toggleItemRental(id) {
+  const it = item(id);
+  if (it) setItemRental(id, !it.rental_eligible);
 }
 
 /* --- 販売情報 ---
