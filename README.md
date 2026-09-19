@@ -331,7 +331,7 @@ Supabase の SQL Editor で `zaiko/setup.sql` を実行します。何度実行�
 | `2026-09-19-item-rental-eligible.sql` | 個体単位のレンタル対象 `inventory_items.rental_eligible` と、在庫一覧のまとめて操作 `inv_items_bulk_op()`。**実行直後はどの個体もレンタル対象ではないので、8ECのレンタル可能数は0になります**（在庫一覧で「8RENTに出す」個体を選んでください） |
 | `2026-09-19-rakuten-image-sync.sql` | 楽天の商品画像を `inventory_products.images` へ同期（`inv_rakuten_sync_targets()` を追加、同期は `image_url` を触らない）。あわせて `supabase functions deploy rakuten-product-sync` が必要 |
 | `2026-09-19-listings-from-items.sql` | 個体別の出品情報（`inventory_channels`）から、商品単位の楽天listingを補完。**同じ商品ページに複数台をぶら下げている商品が、画像同期の対象から漏れていたのを直します** |
-| `2026-09-19-rental-by-condition.sql` | 8RENTのレンタルを「個体在庫」から**条件で選ぶ商品**へ。メーカー＋型番で1機種にまとめる `inv_model_key()`、在庫0でも申込を受ける `procurement_available`、条件と台数で申し込む `inv_rental_apply()`（個体の割当はサーバー側）、取り寄せぶんを後から割り当てる `inv_rental_allocate()`。取り込み済み画像の縮小指定（`_ex=`）も元サイズに直します |
+| `2026-09-19-rental-by-condition.sql` | 8RENTのレンタルを「個体在庫」から**条件で選ぶ商品**へ。メーカー＋型番で1機種にまとめる `inv_model_key()`、在庫0でも申込を受ける `procurement_available`、条件と台数で申し込む `inv_rental_apply()`（個体の割当はサーバー側）、取り寄せぶんを後から割り当てる `inv_rental_allocate()`。取り込み済み画像の縮小指定（`_ex=`）も元サイズに直します。**冒頭の §32-0 で、このファイルが使う共通関数（`inv_img_hires()` `inv_norm_model()` `inv_norm_url()` ほか）を先に作り直します** — `rakuten-image-sync.sql` は適用後にこのリポジトリ側で追記されており、本番には古い版が当たっているため |
 
 ### 使う人と権限
 

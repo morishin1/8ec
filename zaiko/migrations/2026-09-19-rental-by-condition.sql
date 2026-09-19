@@ -6,6 +6,9 @@
 --   何度流しても同じ結果になる（add column if not exists / create or replace）。
 --
 --   入っているもの
+--     0) このmigrationが前提にする共通関数・列（inv_img_hires など）を先に作る
+--        ※ 適用済みの 2026-09-19-rakuten-image-sync.sql は書き換えず、
+--          そこに後から足した分をここで作り直している
 --     1) 楽天から取り込み済みの画像URLを元サイズに直す（_ex= を外す）
 --     2) inventory_products.procurement_available（在庫0でも申込を受ける＝取り寄せ）
 --     3) inv_model_key()（メーカー＋型番で1機種にまとめるキー）
@@ -22,6 +25,328 @@
 -- ============================================================
 
 begin;
+
+-- ------------------------------------------------------------
+-- 32-0) このmigrationが前提にする共通関数・列（先に必ず作る）
+--
+--     本番の 2026-09-19-rakuten-image-sync.sql は、あとからこのファイルへ
+--     足した分（inv_img_hires など）より前の版が当たっている。適用済みの
+--     ファイルは書き換えない方針なので、足りない分をここで作り直す。
+--     どれも setup.sql と同じ定義で、create or replace ／
+--     add column if not exists なので、すでに入っていれば同じ内容で
+--     置き換わるだけ（何度流しても同じ結果になる）。
+--
+--     この節より下の SQL は inv_img_hires() / inv_norm_model() /
+--     inv_norm_url() を使うので、順番を入れ替えないこと。
+-- ------------------------------------------------------------
+
+-- 型番の表記ゆれをそろえる（inv_model_key が使う）
+create or replace function public.inv_norm_model(s text)
+returns text language sql immutable set search_path = public as $$
+  select upper(regexp_replace(
+           translate(normalize(coalesce(s, ''), NFKC), '‐‑‒–—―−', '-------'),
+           '[[:space:]]', '', 'g'))
+$$;
+
+comment on function public.inv_norm_model is
+  '型番の突き合わせ用に表記をそろえる（全角→半角・空白除去・大文字化）。';
+
+-- URLを比較用に正規化する（掲載URLの突き合わせが使う）
+create or replace function public.inv_norm_url(p_url text)
+returns text language sql immutable as $$
+  -- http/https・末尾スラッシュ・クエリ文字列の違いを無視して比べる
+  select nullif(lower(regexp_replace(regexp_replace(split_part(coalesce(p_url,''), '?', 1),
+                                     '/+$', ''), '^https?://', '')), '');
+$$;
+
+comment on function public.inv_norm_url is
+  'URLを比較用に正規化する（http/https・末尾スラッシュ・クエリを無視）。Edge Function側の比較と同じ規則。';
+
+-- 楽天の画像URLから縮小指定（_ex=幅x高さ）を外す
+--   ここから下の「既存画像の高解像度化」と inv_rakuten_apply_one が使う
+create or replace function public.inv_img_hires(p_url text)
+returns text language sql immutable as $$
+  -- 楽天の画像URLに付く縮小指定（?_ex=128x128）を外して、店舗がアップロードした
+  -- 元サイズの画像を指すようにする。商品詳細で大きく出しても粗くならない。
+  -- _ex 以外のクエリは残す（将来ほかのパラメータが増えても壊さない）
+  select case when coalesce(p_url, '') = '' then p_url
+    else regexp_replace(
+           regexp_replace(
+             regexp_replace(p_url, '([?&])_ex=[^&]*', '\1', 'g'),
+           '\?&+', '?'),
+         '[?&]+$', '')
+  end;
+$$;
+
+comment on function public.inv_img_hires is
+  '楽天の画像URLの縮小指定（_ex=幅x高さ）を外して元サイズのURLにする。Edge Function側の hiResImageUrl と同じ規則。';
+
+-- 掲載URLの更新候補（自動では書き換えず、人が採用・取り消しする）
+alter table public.inventory_channel_listings add column if not exists url_candidate  text;
+alter table public.inventory_channel_listings add column if not exists url_checked_at timestamptz;
+
+comment on column public.inventory_channel_listings.url_candidate is
+  'API同期でモール側の正式URLが保存済みURLと違ったときに入る更新候補。inv_listing_url_accept() で採用、
+   inv_listing_url_dismiss() で取り消す。自動では書き換えない。';
+
+create or replace function public.inv_listing_url_accept(
+  p_code    text,
+  p_channel text default 'rakuten'
+) returns public.inventory_channel_listings
+language plpgsql security invoker set search_path = public as $$
+declare
+  r public.inventory_channel_listings;
+  v_before text;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  select * into r from public.inventory_channel_listings
+   where product_code = p_code and channel = p_channel for update;
+  if not found then
+    raise exception '出品情報が見つかりません（% / %）', p_code, p_channel;
+  end if;
+  if nullif(btrim(coalesce(r.url_candidate,'')), '') is null then
+    raise exception '更新候補のURLがありません';
+  end if;
+  v_before := r.url;
+
+  update public.inventory_channel_listings
+     set url = r.url_candidate, url_candidate = null, url_checked_at = now(), updated_at = now()
+   where product_code = p_code and channel = p_channel
+  returning * into r;
+
+  insert into public.inventory_transactions (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'product', p_code,
+          (select coalesce(name, model) from public.inventory_products where code = p_code),
+          '掲載URL更新', v_before, r.url);
+  return r;
+end $$;
+
+comment on function public.inv_listing_url_accept is
+  'API同期で見つかった掲載URLの更新候補を採用する（/zaikoから人が確認して実行）。履歴に残す。';
+
+create or replace function public.inv_listing_url_dismiss(
+  p_code    text,
+  p_channel text default 'rakuten'
+) returns public.inventory_channel_listings
+language plpgsql security invoker set search_path = public as $$
+declare
+  r public.inventory_channel_listings;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  update public.inventory_channel_listings
+     set url_candidate = null, url_checked_at = now(), updated_at = now()
+   where product_code = p_code and channel = p_channel
+  returning * into r;
+  if not found then
+    raise exception '出品情報が見つかりません（% / %）', p_code, p_channel;
+  end if;
+  return r;
+end $$;
+
+comment on function public.inv_listing_url_dismiss is
+  '掲載URLの更新候補を取り消す（いまのURLのままにする）。次の同期でまた差があれば再び候補に入る。';
+
+-- 楽天から取った1商品ぶんで不足情報を埋める（画像は元サイズで入れる）
+create or replace function public.inv_rakuten_apply_one(
+  p_code text,
+  p_item jsonb
+) returns jsonb
+language plpgsql security invoker set search_path = public as $$
+declare
+  ex           jsonb := coalesce(p_item->'extracted', '{}'::jsonb);
+  v_code_saved   boolean := false;
+  v_url_mismatch boolean := false;
+  v_old_url      text;
+  v_item_code  text  := nullif(btrim(coalesce(p_item->>'item_code','')), '');
+  v_url        text  := nullif(btrim(coalesce(p_item->>'item_url','')), '');
+  v_price      numeric;
+  before_row   public.inventory_products;
+  after_row    public.inventory_products;
+  before_snap  jsonb;
+  after_snap   jsonb;
+  v_chan_new   boolean := false;
+  v_changed    boolean;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+
+  select * into before_row from public.inventory_products where code = p_code for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_code;
+  end if;
+  before_snap := to_jsonb(before_row) - 'updated_at' - 'rakuten_synced_at';
+
+  v_price := nullif(p_item->>'price', '')::numeric;
+
+  update public.inventory_products set
+    maker             = coalesce(nullif(maker,''), nullif(p_item->>'maker','')),
+    model             = coalesce(nullif(model,''), nullif(p_item->>'model','')),
+    description       = coalesce(nullif(description,''), nullif(p_item->>'caption','')),
+    -- 画像は images（楽天から取り込んだ写真）にだけ入れる。image_url は
+    -- 「人が/zaikoで指定したメイン画像」専用にして、同期では一切触らない。
+    -- 公開ページは image_url → images[0] の順に見るので、これで写真は出る
+    -- 縮小指定（?_ex=128x128）が付いていたらここでも外す。Edge Function側でも
+    -- 外しているが、古い版から呼ばれても粗い画像を保存しないための保険
+    images            = case when jsonb_array_length(coalesce(images,'[]'::jsonb)) = 0
+                              and jsonb_typeof(p_item->'images') = 'array'
+                         then (select coalesce(jsonb_agg(u order by ord), '[]'::jsonb)
+                                 from (select public.inv_img_hires(x) as u, min(ord) as ord
+                                         from jsonb_array_elements_text(p_item->'images')
+                                              with ordinality t(x, ord)
+                                        where btrim(x) <> ''
+                                        group by 1) q)
+                         else images end,
+    cpu               = coalesce(nullif(cpu,''), nullif(ex->>'cpu','')),
+    cpu_gen           = coalesce(nullif(cpu_gen,''), nullif(ex->>'cpu_gen','')),
+    memory_size       = coalesce(nullif(memory_size,''), nullif(ex->>'memory','')),
+    storage_type      = coalesce(nullif(storage_type,''), nullif(ex->>'storage_type','')),
+    storage_capacity  = coalesce(nullif(storage_capacity,''), nullif(ex->>'storage_capacity','')),
+    screen_size       = coalesce(nullif(screen_size,''), nullif(ex->>'screen_size','')),
+    os                = coalesce(nullif(os,''), nullif(ex->>'os','')),
+    office_supported  = coalesce(office_supported, (nullif(ex->>'office_supported',''))::boolean, false),
+    webcam            = coalesce(webcam, (nullif(ex->>'webcam',''))::boolean),
+    wifi              = coalesce(wifi, (nullif(ex->>'wifi',''))::boolean),
+    bluetooth         = coalesce(bluetooth, (nullif(ex->>'bluetooth',''))::boolean),
+    numpad            = coalesce(numpad, (nullif(ex->>'numpad',''))::boolean),
+    accessories       = coalesce(nullif(accessories,''), nullif(ex->>'accessories','')),
+    rakuten_synced_at = now()
+  where code = p_code
+  returning * into after_row;
+
+  after_snap := to_jsonb(after_row) - 'updated_at' - 'rakuten_synced_at';
+  v_changed := before_snap is distinct from after_snap;
+
+  -- 出品先（楽天）への紐付けは、商品×チャネルの掲載情報テーブルへ。
+  -- 楽天のitemCodeは external_item_code に入れる（sku はスタッフ入力欄なので混同しない）。
+  -- 初回だけ作る。すでにあれば external_item_code/url が空のときだけ埋める
+  -- （出品状態・価格・skuなど、スタッフが手で入れた値は変えない）
+  if v_item_code is not null then
+    if not exists (select 1 from public.inventory_channel_listings
+                    where product_code = p_code and channel = 'rakuten') then
+      insert into public.inventory_channel_listings
+        (product_code, channel, state, external_item_code, url, price, api_synced_at, api_sync_status,
+         url_checked_at, updated_at)
+      values (p_code, 'rakuten', '出品中', v_item_code, v_url, v_price, now(), 'ok', now(), now());
+      v_chan_new := true;
+      v_code_saved := true;
+    else
+      -- 保存済みURLと、APIが返した正式なURLを見比べる。
+      -- 違っていたら勝手に書き換えず、更新候補（url_candidate）として残して人に見せる
+      -- （古い商品ページのURLが残っていると、itemCodeが分かるまで商品を見つけられないため）
+      select nullif(btrim(coalesce(url,'')), '') into v_old_url
+        from public.inventory_channel_listings
+       where product_code = p_code and channel = 'rakuten';
+      if v_url is not null and v_old_url is not null
+         and public.inv_norm_url(v_old_url) is distinct from public.inv_norm_url(v_url) then
+        v_url_mismatch := true;
+      end if;
+      -- 掲載URLしか無かった商品も、ここでAPIが返した正式なitemCodeを覚える。
+      -- 次回からはURLの総当たりではなく、itemCodeで直接照合できる
+      -- （itemCodeをURLから推測することはしない）
+      select nullif(btrim(coalesce(external_item_code,'')), '') is null
+        into v_code_saved
+        from public.inventory_channel_listings
+       where product_code = p_code and channel = 'rakuten';
+
+      update public.inventory_channel_listings set
+        external_item_code = coalesce(nullif(btrim(coalesce(external_item_code,'')), ''), v_item_code),
+        url = coalesce(url, v_url),                       -- 空のときだけ入れる
+        url_candidate = case when v_url_mismatch then v_url else null end,  -- 違っていれば候補に、同じなら消す
+        url_checked_at = now(),
+        api_synced_at = now(),
+        api_sync_status = 'ok',
+        updated_at = case when external_item_code is null or url is null or v_url_mismatch
+                          then now() else updated_at end
+      where product_code = p_code and channel = 'rakuten';
+
+      if v_url_mismatch then
+        insert into public.inventory_transactions
+          (actor, ref_kind, ref_id, label, action, before_value, after_value)
+        values ('楽天連携', 'product', p_code, coalesce(after_row.name, after_row.model),
+                '掲載URL差異', v_old_url, v_url || '（更新候補）');
+      end if;
+    end if;
+  end if;
+
+  if v_changed or v_chan_new then
+    insert into public.inventory_transactions (actor, ref_kind, ref_id, label, action, before_value, after_value)
+    values ('楽天連携', 'product', p_code, coalesce(after_row.name, after_row.model), '楽天連携で補完',
+            null, coalesce(v_item_code, ''));
+  end if;
+
+  return jsonb_build_object(
+    'product', to_jsonb(after_row),
+    'changed', (v_changed or v_chan_new),
+    -- 掲載URLしか無かった商品に、正式なitemCodeを保存できたか
+    'external_item_code_saved', coalesce(v_code_saved, false),
+    'external_item_code', v_item_code,
+    -- 保存済みURLが楽天の正式URLと違っていたか（違えば url_candidate に入れてある）
+    'url_mismatch', coalesce(v_url_mismatch, false),
+    'url_saved', v_old_url,
+    'url_candidate', case when v_url_mismatch then v_url end,
+    -- 画像が0枚から入ったか（同期結果の「画像取得成功 ○件」に使う）
+    'images_added', (jsonb_array_length(coalesce(before_row.images,'[]'::jsonb)) = 0
+                     and jsonb_array_length(coalesce(after_row.images,'[]'::jsonb)) > 0),
+    'image_count', jsonb_array_length(coalesce(after_row.images,'[]'::jsonb)));
+end $$;
+
+comment on function public.inv_rakuten_apply_one is
+  '楽天から取得した1商品ぶんのデータで、指定した商品コードの不足情報だけを埋める。
+   すでに値が入っている列は上書きしない。画像は images にだけ入れ、image_url
+   （人が指定したメイン画像）は触らない。実在庫（inventory_items）は作らない。';
+
+-- 楽天同期の対象を返す
+create or replace function public.inv_rakuten_sync_targets(p_scope text default 'missing')
+returns jsonb
+language plpgsql security invoker set search_path = public as $$
+declare
+  v jsonb;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  if coalesce(p_scope,'') not in ('missing','all') then
+    raise exception '知らない範囲です（%）。missing か all を指定してください', p_scope;
+  end if;
+
+  select coalesce(jsonb_agg(t order by t->>'code'), '[]'::jsonb) into v
+    from (
+      select jsonb_build_object(
+               'code', p.code,
+               'name', coalesce(p.name, p.model),
+               'item_code', nullif(btrim(coalesce(l.external_item_code,'')), ''),
+               'url', nullif(btrim(coalesce(l.url,'')), ''),
+               'image_count', jsonb_array_length(coalesce(p.images,'[]'::jsonb)),
+               'has_main_image', nullif(p.image_url,'') is not null) as t
+        from public.inventory_channel_listings l
+        join public.inventory_products p on p.code = l.product_code
+       where l.channel = 'rakuten'
+         and (nullif(btrim(coalesce(l.external_item_code,'')), '') is not null
+              or nullif(btrim(coalesce(l.url,'')), '') is not null)
+         and (p_scope = 'all'
+              or (jsonb_array_length(coalesce(p.images,'[]'::jsonb)) = 0
+                  and nullif(p.image_url,'') is null))
+    ) x;
+  return v;
+end $$;
+
+comment on function public.inv_rakuten_sync_targets is
+  '楽天の画像同期の対象商品を返す。missing=写真が無い商品だけ／all=楽天に掲載している商品すべて。
+   itemCode か掲載URLのどちらかが分かっている商品だけを対象にする（URLは推測しない）。';
+
+grant execute on function public.inv_norm_model(text) to authenticated;
+grant execute on function public.inv_norm_url(text) to anon, authenticated;
+grant execute on function public.inv_img_hires(text) to anon, authenticated;
+grant execute on function public.inv_listing_url_accept(text,text) to authenticated;
+grant execute on function public.inv_listing_url_dismiss(text,text) to authenticated;
+grant execute on function public.inv_rakuten_apply_one(text,jsonb) to authenticated;
+grant execute on function public.inv_rakuten_sync_targets(text) to authenticated;
+
 
 -- ------------------------------------------------------------
 -- 32-1) 楽天から取り込み済みの画像URLを元サイズに直す
