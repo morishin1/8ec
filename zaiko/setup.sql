@@ -2798,9 +2798,9 @@ language sql immutable set search_path = pg_catalog, public as $$
 $$;
 
 comment on function public.inv_rental_form is
-  'レンタル説明のひな形に使う区分。rental_form が入っていればそれを使い、未分類なら
-   登録済みのスペックの有無だけから推定する（商品名やキーワードからの推測はしない）。
-   推定できなければ null を返し、呼び出し側でかたちを断定しない文章にする。';
+  '未分類の商品を洗い出すときの目安。登録済みスペックの有無だけから、かたちの候補を返す
+   （商品名やキーワードからの推測はしない）。公開文の生成には使わない
+   （断定を避けるため、生成は明示された rental_form だけを見る）。';
 
 create or replace function public.inv_rental_text(p_code text)
 returns text
@@ -2814,23 +2814,21 @@ declare
   v_out    text[] := '{}';
   v_head   text;
   v_has    boolean;
-  v_label  text;
   v_unit   text;
 begin
   select * into p from public.inventory_products where code = p_code;
   if not found then
     return null;
   end if;
-  v_form   := public.inv_rental_form(p);
+  -- 明示された区分だけを使う。未分類なら推定しない
+  v_form   := nullif(btrim(coalesce(p.rental_form, '')), '');
   v_screen := nullif(regexp_replace(coalesce(p.screen_size,''), '[^0-9.]', '', 'g'), '')::numeric;
   v_mem    := nullif(regexp_replace(coalesce(p.memory_size,''), '[^0-9]',   '', 'g'), '')::numeric;
-  -- PCらしさの手がかりがあるか（Officeの案内を出してよいか）
+  -- PCとして扱ってよい手がかりがあるか（Officeの案内を出してよいか）
   v_has := nullif(btrim(coalesce(p.cpu,'')),'') is not null
         or nullif(btrim(coalesce(p.os,'')),'') is not null
         or nullif(btrim(coalesce(p.memory_size,'')),'') is not null
         or nullif(btrim(coalesce(p.storage_capacity,'')),'') is not null;
-  v_label := case v_form when 'notebook' then 'ノートPC' when 'desktop' then 'デスクトップPC'
-                         when 'monitor' then 'モニター' when 'peripheral' then '周辺機器' end;
   v_unit  := case when v_form in ('monitor','peripheral','other') then '数量' else '台数' end;
 
   -- ① どんな用途に向いているか
@@ -2852,21 +2850,30 @@ begin
         when p.cpu is not null then p.cpu || 'を搭載しています。'
         else '' end;
     else
-      -- 型番しか分からない。仕様を推測せず、条件を伺う文章にする
-      v_head := '法人利用向けの' || coalesce(v_label, 'PC') || 'です。詳細な仕様は、ご希望条件に合わせてご案内します。';
+      v_head := '法人利用向けの'
+             || case v_form when 'desktop' then 'デスクトップPC' else 'ノートPC' end
+             || 'です。詳細な仕様は、ご希望条件に合わせてご案内します。';
     end if;
   elsif v_form = 'monitor' then
     v_head := coalesce(nullif(p.screen_size,'') || 'の', '') || '法人のオフィス利用向けのモニターです。'
-           || case when v_has then '' else '設置環境やご利用台数に合わせてご案内します。' end;
+           || case when nullif(btrim(coalesce(p.screen_size,'')),'') is null
+                   then '設置環境やご利用台数に合わせてご案内します。' else '' end;
   elsif v_form = 'peripheral' then
     v_head := '法人でのご利用向けの周辺機器です。PCと合わせてのご利用にも対応します。';
   else
+    -- 未分類、または other。かたちを断定しない
     v_head := '法人向けにレンタルできる機器です。詳細な仕様やご利用条件は、ご希望に合わせてご案内します。';
   end if;
   v_out := array_append(v_out, v_head);
 
-  -- ② 主な仕様。かたちごとに出す項目を変える。分かっているものだけ書く
-  if v_form in ('notebook','desktop') then
+  -- ② 主な仕様。分かっているものだけ書く。モニターにCPU・OSは出さない
+  if v_form = 'monitor' then
+    if nullif(btrim(coalesce(p.screen_size,'')),'') is not null then v_spec := array_append(v_spec, btrim(p.screen_size)); end if;
+    if nullif(btrim(coalesce(p.spec,'')),'') is not null then v_spec := array_append(v_spec, btrim(p.spec)); end if;
+  elsif v_form = 'peripheral' then
+    if nullif(btrim(coalesce(p.spec,'')),'') is not null then v_spec := array_append(v_spec, btrim(p.spec)); end if;
+  else
+    -- ノートPC・デスクトップPC・未分類は、入っている事実をそのまま並べる
     if nullif(btrim(coalesce(p.cpu,'')),'')  is not null then v_spec := array_append(v_spec, btrim(p.cpu)); end if;
     if nullif(btrim(coalesce(p.memory_size,'')),'') is not null then v_spec := array_append(v_spec, btrim(p.memory_size)); end if;
     if nullif(btrim(coalesce(p.storage_capacity,'')),'') is not null then
@@ -2878,18 +2885,13 @@ begin
     if p.wifi      is true then v_spec := array_append(v_spec, 'Wi-Fi'); end if;
     if p.bluetooth is true then v_spec := array_append(v_spec, 'Bluetooth'); end if;
     if p.numpad    is true then v_spec := array_append(v_spec, 'テンキー'); end if;
-  elsif v_form = 'monitor' then
-    -- モニターにCPU・OS・カメラ・Officeは出さない
-    if nullif(btrim(coalesce(p.screen_size,'')),'') is not null then v_spec := array_append(v_spec, btrim(p.screen_size)); end if;
-    if nullif(btrim(coalesce(p.spec,'')),'') is not null then v_spec := array_append(v_spec, btrim(p.spec)); end if;
-  else
-    if nullif(btrim(coalesce(p.spec,'')),'') is not null then v_spec := array_append(v_spec, btrim(p.spec)); end if;
   end if;
   if coalesce(array_length(v_spec, 1), 0) > 0 then
     v_out := array_append(v_out, '主な仕様：' || array_to_string(v_spec, ' / '));
   end if;
 
-  -- ③ Office。PCのときだけ。8RENTは希望を伺って用意するので、原則は「ご相談ください」
+  -- ③ Office。PCと明示された商品か、未分類でもPCの手がかりがある商品だけ。
+  --    8RENTは希望を伺って用意するので、原則は「ご相談ください」
   if v_form in ('notebook','desktop') or (v_form is null and v_has) then
     v_out := array_append(v_out, case
       when coalesce(p.office_unavailable, false)
@@ -2920,9 +2922,10 @@ begin
 end $$;
 
 comment on function public.inv_rental_text is
-  'レンタル向け説明を、商品のかたち（ノートPC／デスクトップPC／モニター／周辺機器）ごとのひな形で組み立てる。
-   OfficeとPC向けの言い回しはPCのときだけ使う。スペックが足りない商品は、推測せずに
-   条件を伺う文章にする。楽天の販売用の文は使わない。';
+  'レンタル向け説明を、明示された rental_form のひな形で組み立てる。
+   未分類の商品は、かたち（ノートPC／デスクトップ／モニター）を断定せず、
+   分かっている仕様だけを並べる。推定（inv_rental_form）は未分類の洗い出し用で、
+   公開文の生成には使わない。OfficeとPC向けの言い回しはPCのときだけ使う。';
 
 create or replace function public.inv_product_rental_description_set(
   p_code   text,

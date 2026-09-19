@@ -337,6 +337,7 @@ Supabase の SQL Editor で `zaiko/setup.sql` を実行します。何度実行�
 | `2026-09-19-rental-inquiry.sql` | 公開側を**法人向けレンタル相談型**に。`inv_public_catalog` から在庫数と楽天の販売情報を外し（`availability` だけにする）、申込を「希望受付」に変える（`inv_rental_request_create`）。レンタル向け説明の自動生成（`inv_rental_text`）、楽天の説明原文は `sale_description` へ。**実行後に `select public.inv_rental_text_fill(true);` でレンタル説明を作ってください** |
 | `2026-09-19-rental-text-fill-admin-fix.sql` | `inv_rental_text_fill()` を **Supabase SQL Editor からも実行できる**ようにする（判定を `inv_can_maintain()` へ）。Webアプリからは管理者だけ、一般メンバー・閲覧のみ・anon は不可のまま |
 | `2026-09-19-rental-text-by-category.sql` | レンタル説明を**商品のかたちごと**に作り分ける（`rental_form`）。モニター・周辺機器にOfficeやPC向けの文章を出さない。`rental_listing_type` で単品レンタル／PCのオプション／非公開を分け、公開カタログは単品レンタルだけを出す。**実行後に `select public.inv_rental_text_fill(false);` で作り直してください** |
+| `2026-09-19-rental-form-master.sql` | 公開中17商品の `rental_form` / `rental_listing_type` を**確定値として保存**。P-00415 の誤ったスペック（9型）を消す。説明の生成は**明示された `rental_form` だけ**を見るようにし、未分類をdesktop/monitorへ断定しない。**実行後に `select public.inv_rental_text_fill(false);`** |
 
 ### 使う人と権限
 
@@ -1101,8 +1102,15 @@ Office：ご希望に応じてOffice付きでご用意できます（申込時�
 | 未分類（null） | 登録済みスペックの有無だけから推定。**推定できなければ、かたちを断定しない文章**にする |
 
 **PC以外には Office・CPU・OS・Webカメラ・「この機種」を出しません。**
-未分類の推定は「CPU/OS/メモリのどれかがある → PC」「PCの手がかりが無く画面サイズだけある → モニター」という
-**列に値があるかどうかだけ**で行い、商品名やキーワードからの当て推量はしません。
+
+**説明の生成が見るのは、明示された `rental_form` だけです。**
+推定（`inv_rental_form`）は未分類の商品を洗い出すときの目安として残していますが、
+公開文には使いません。未分類の商品を desktop / monitor などへ断定しないためです
+（画面サイズが未入力のノートPCが desktop に、画面サイズだけ入っていた iPhone が monitor に
+なる誤判定が本番で出たため）。未分類の商品は、かたちを言わずに分かっている仕様だけを並べます。
+
+**新しい商品を8RENTに出すときは、`/zaiko` の商品詳細 →「8RENT設定を変える」で
+かたちと出しかたを設定してから公開してください。**
 
 | Officeの出しかた | 条件 |
 |---|---|
