@@ -330,6 +330,7 @@ Supabase の SQL Editor で `zaiko/setup.sql` を実行します。何度実行�
 | `2026-09-19-rental-sale-channels.sql` | 楽天＝販売／8EC＝レンタルの整理（公開条件を `rental_enabled` だけにし、掲載と販売可能数量を分ける） |
 | `2026-09-19-item-rental-eligible.sql` | 個体単位のレンタル対象 `inventory_items.rental_eligible` と、在庫一覧のまとめて操作 `inv_items_bulk_op()`。**実行直後はどの個体もレンタル対象ではないので、8ECのレンタル可能数は0になります**（在庫一覧で「8RENTに出す」個体を選んでください） |
 | `2026-09-19-rakuten-image-sync.sql` | 楽天の商品画像を `inventory_products.images` へ同期（`inv_rakuten_sync_targets()` を追加、同期は `image_url` を触らない）。あわせて `supabase functions deploy rakuten-product-sync` が必要 |
+| `2026-09-19-listings-from-items.sql` | 個体別の出品情報（`inventory_channels`）から、商品単位の楽天listingを補完。**同じ商品ページに複数台をぶら下げている商品が、画像同期の対象から漏れていたのを直します** |
 
 ### 使う人と権限
 
@@ -1182,6 +1183,23 @@ inv_public_catalog → 8ec.jp
 | 楽天に掲載している商品すべて | 掲載中の全商品を見直す（入っている値は上書きしない） |
 | 1商品だけ（掲載URLを指定） | 1件だけ試す・接続確認。反映先の商品コードも指定できる |
 | 商品一覧から商品マスターを補完 | 従来どおり、型番などで照合して不足情報を埋める（該当が無ければ新規登録） |
+
+**同期の対象になるのは「商品単位の楽天listing」がある商品です**
+
+中古は実物1台ごとに出品するので、出品情報は個体別（`inventory_channels`）に入ります。
+ところが**同じ商品ページに2台以上をぶら下げている**と、商品単位
+（`inventory_channel_listings`）に楽天の行が無いままになり、画像同期の対象から漏れます。
+
+> 例：`P-00536 / PROBOOK445G11` は個体 `00039769953` と `00039770113` が同じ楽天URLを共有。
+> 商品単位の楽天listingが無く、楽天に出ているのに画像が入りませんでした。
+
+`zaiko/migrations/2026-09-19-listings-from-items.sql` が、同じ状況の商品をまとめて埋めます
+（同じURL/SKUは1件にまとめ、すでにある商品は作らず、`url` / `state` / `price`（個体の販売予定価格）/ `sku`
+を引き継ぎ、`external_item_code` は推測せず次の同期で正式値を保存。元の `inventory_channels` は消しません）。
+同じ商品で違うURLが混ざっていたときは、いま手元にある個体で多いほうを採り、実行ログで知らせます。
+
+あとから増えた商品は、`/zaiko` の商品詳細「販売情報」タブに出る**「個体から作る」**ボタン
+（`inv_listing_from_items()`）で1商品ずつ同じ補完ができます。
 
 **商品の見つけ方（itemCodeはURLから推測しません）**
 
