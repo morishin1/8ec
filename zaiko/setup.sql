@@ -2422,6 +2422,23 @@ create index if not exists inventory_channels_sku_idx on public.inventory_channe
 --     そこでAPI同期のたびに正式URLと見比べ、違えば url_candidate に置いて人に見せる。
 --     自動で書き換えないのは、URLは人が入れた値でもあるため。
 -- ------------------------------------------------------------
+create or replace function public.inv_img_hires(p_url text)
+returns text language sql immutable as $$
+  -- 楽天の画像URLに付く縮小指定（?_ex=128x128）を外して、店舗がアップロードした
+  -- 元サイズの画像を指すようにする。商品詳細で大きく出しても粗くならない。
+  -- _ex 以外のクエリは残す（将来ほかのパラメータが増えても壊さない）
+  select case when coalesce(p_url, '') = '' then p_url
+    else regexp_replace(
+           regexp_replace(
+             regexp_replace(p_url, '([?&])_ex=[^&]*', '\1', 'g'),
+           '\?&+', '?'),
+         '[?&]+$', '')
+  end;
+$$;
+
+comment on function public.inv_img_hires is
+  '楽天の画像URLの縮小指定（_ex=幅x高さ）を外して元サイズのURLにする。Edge Function側の hiResImageUrl と同じ規則。';
+
 create or replace function public.inv_norm_url(p_url text)
 returns text language sql immutable as $$
   -- http/https・末尾スラッシュ・クエリ文字列の違いを無視して比べる
@@ -3303,6 +3320,7 @@ grant execute on function public.inv_sale_reserve(text,text,text,text) to authen
 grant execute on function public.inv_items_bulk_op(text[],text,text,text,date,boolean) to authenticated;
 grant execute on function public.inv_rakuten_apply_one(text,jsonb) to authenticated;
 grant execute on function public.inv_rakuten_sync_targets(text) to authenticated;
+grant execute on function public.inv_img_hires(text) to anon, authenticated;
 grant execute on function public.inv_listing_url_accept(text,text) to authenticated;
 grant execute on function public.inv_listing_url_dismiss(text,text) to authenticated;
 grant execute on function public.inv_rakuten_sync_apply(jsonb) to authenticated;

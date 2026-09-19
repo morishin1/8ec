@@ -244,7 +244,17 @@ window.EightCatalog = (function () {
   function galleryHtml(it, mode) {
     const c = images(it, mode);
     if (!c.length) return `<div class="c-media dt-media">${placeholder()}</div>`;
-    return `<div class="c-media dt-media"><img id="dtShot" src="${esc(c[0])}" alt="${esc(title(it))}" decoding="async" width="640" height="480" data-alt="${esc(c.slice(1).join('|'))}" onerror="EightCatalog.imgError(this)"></div>`;
+    return `<div class="c-media dt-media"><img id="dtShot" src="${esc(c[0])}" alt="${esc(title(it))}" decoding="async" width="640" height="480" data-alt="${esc(c.slice(1).join('|'))}" onload="EightCatalog.fitShot(this)" onerror="EightCatalog.imgError(this)"></div>`;
+  }
+  /* 元画像より大きく引き伸ばさない。小さい写真を枠いっぱいに拡大すると粗く見えるので、
+     自然サイズを上限にして中央に置く（object-fit: contain と併用） */
+  function fitShot(img) {
+    if (!img || !img.naturalWidth) return;
+    // 枠（CSSの上限）と元画像の小さいほうに合わせる。大きい写真は枠なりに縮み、
+    // 小さい写真は等倍のまま出る（引き伸ばして粗くしない）
+    img.style.maxWidth = `min(100%, ${img.naturalWidth}px)`;
+    img.style.maxHeight = `min(420px, ${img.naturalHeight}px)`;
+    img.style.margin = '0 auto';
   }
 
   /* URL の ?code= / #code から商品コードを取る（別ページからの遷移用） */
@@ -255,7 +265,7 @@ window.EightCatalog = (function () {
     return /^[A-Z]+-\d+$/i.test(h) ? h : null;
   }
 
-  return { load, images, mainImage, mediaHtml, imgError, availTag, sale, rental, saleAvailable, rentalAvailable,
+  return { load, images, mainImage, mediaHtml, imgError, fitShot, availTag, sale, rental, saleAvailable, rentalAvailable,
            specLine, categoryCounts, cardHtml,
            galleryHtml, codeFromUrl, catLabel, catIcon, title, esc, yen, CAT_META, TAG_LABEL, SUPA_URL, SUPA_KEY, client };
 })();

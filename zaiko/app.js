@@ -3114,9 +3114,12 @@ function viewItem() {
         ${canAdmin() ? op('delete', '廃棄', `sheetScrap('${esc(it.id)}')`) : ''}
       </div>
     </div>
-    <div class="qrbox">
-      <img src="${qr(url)}" alt="${esc(it.id)} のQRコード" width="140" height="140">
-      <div class="u">${esc(url)}</div>
+    <div class="sidebox">
+      ${itemPhoto(m)}
+      <div class="qrbox">
+        <img src="${qr(url)}" alt="${esc(it.id)} のQRコード" width="140" height="140">
+        <div class="u">${esc(url)}</div>
+      </div>
     </div>
   </div>
   ${itemListings(it)}
@@ -3402,6 +3405,53 @@ function prodPrices(p) {
       <div class="v ${t.cost ? (gain < 0 ? 'minus' : 'plus') : ''}">${t.cost ? yen(gain) : '—'}</div></div>
   </div>
   <p class="meta" style="margin-top:6px">売れたものは実際の販売価格、売れていないものは販売予定価格で見込んでいます。</p>`;
+}
+
+/* 個体詳細に出す商品写真。
+   個体ごとに画像は持たず、商品マスター（inventory_products）の画像を見る。
+     個体 00039769953 → 商品 P-00536 → inventory_products.images → 表示
+   画面を開くときに楽天APIは呼ばない（楽天同期で保存済みの画像だけを使う）。
+   在庫管理の画面なので、8RENT用の画像より一般の商品画像を優先する：
+     image_url → images[0] → rental_image_url → rental_images[0] → 画像準備中
+   同じ商品の個体が10台あっても、全部この1枚を参照する（画像の重複保存はしない）。 */
+function productPhotoUrl(p) {
+  if (!p) return null;
+  // http(s) かサイト内の絶対パスだけ通す（相対パス・空文字で壊れた画像を出さない）
+  const ok = (u) => {
+    const v = typeof u === 'string' ? u.trim() : '';
+    return v && (/^https?:\/\//i.test(v) || v.startsWith('/')) ? v : null;
+  };
+  const first = (a) => (Array.isArray(a) ? a : []).map(ok).find(Boolean) || null;
+  return ok(p.image_url) || first(p.images) || ok(p.rental_image_url) || first(p.rental_images) || null;
+}
+function itemPhoto(p) {
+  const src = productPhotoUrl(p);
+  const listed = p ? channelsOf(p.code).some(c => c.channel === 'rakuten' && (c.external_item_code || c.url)) : false;
+  if (!src) {
+    return `<div class="photobox">
+      <div class="ph"><span class="ms">devices</span><span>画像準備中</span></div>
+      ${p ? `<div class="u">${listed && canAdmin()
+        ? `楽天に掲載中です。<a href="#" onclick="openRakutenSync();return false">楽天画像を同期</a>`
+        : '商品詳細の「商品画像を登録・変更」から登録できます'}</div>` : ''}
+    </div>`;
+  }
+  // 元画像より大きく引き伸ばさない（小さい写真を拡大すると粗く見えるため）
+  return `<div class="photobox">
+    <img src="${esc(src)}" alt="${esc(titleOf(p))}" loading="lazy" decoding="async"
+         onload="itemPhotoFit(this)" onerror="itemPhotoError(this)">
+    <div class="u">${esc(p.code)} の商品画像</div>
+  </div>`;
+}
+/* 元画像より大きくしない。枠（CSSの上限）と自然サイズの小さいほうに合わせる
+   ＝ 大きい写真は枠なりに縮み、小さい写真は等倍のまま（引き伸ばして粗くしない） */
+function itemPhotoFit(img) {
+  if (!img || !img.naturalWidth) return;
+  img.style.maxWidth = `min(100%, ${img.naturalWidth}px)`;
+  img.style.maxHeight = `min(200px, ${img.naturalHeight}px)`;
+}
+function itemPhotoError(img) {
+  const box = img && img.closest ? img.closest('.photobox') : null;
+  if (box) box.innerHTML = '<div class="ph"><span class="ms">devices</span><span>画像を読めません</span></div>';
 }
 
 /* 8EC（レンタル）と楽天（販売）は同じ実在庫を共有する。貸出中・予約中・販売予約・

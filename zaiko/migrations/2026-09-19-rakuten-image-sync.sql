@@ -28,7 +28,8 @@
 --        url_checked_at を足し、API同期でモール側の正式URLと違っていたら
 --        「更新候補」として残す（自動では書き換えない）。
 --        採用は inv_listing_url_accept()、取り消しは inv_listing_url_dismiss()
---     4. 権限
+--     4. 保存済みの画像URLから縮小指定（_ex=128x128）を外して元サイズにする
+--     5. 権限
 --
 --   本番SupabaseのSQL Editorに貼って実行してください。何度実行しても安全です。
 --   あわせて Edge Function を再デプロイしてください：
@@ -314,10 +315,58 @@ comment on function public.inv_rakuten_sync_targets is
 
 
 -- ------------------------------------------------------------
--- 4) 権限
+-- 4) 画像URLを元サイズに直す（すでに取り込んだぶんの手当て）
+--
+--     楽天APIが返す画像URLには縮小指定（?_ex=128x128）が付いていて、そのまま
+--     保存すると商品詳細で大きく出したときに粗く見えます。_ex を外すと店舗が
+--     アップロードした元サイズの画像になるので、保存済みのURLも直します。
+--     （これから取り込むぶんは Edge Function 側で外してから保存します）
+-- ------------------------------------------------------------
+create or replace function public.inv_img_hires(p_url text)
+returns text language sql immutable as $$
+  -- 楽天の画像URLに付く縮小指定（?_ex=128x128）を外して、店舗がアップロードした
+  -- 元サイズの画像を指すようにする。商品詳細で大きく出しても粗くならない。
+  -- _ex 以外のクエリは残す（将来ほかのパラメータが増えても壊さない）
+  select case when coalesce(p_url, '') = '' then p_url
+    else regexp_replace(
+           regexp_replace(
+             regexp_replace(p_url, '([?&])_ex=[^&]*', '\1', 'g'),
+           '\?&+', '?'),
+         '[?&]+$', '')
+  end;
+$$;
+
+comment on function public.inv_img_hires is
+  '楽天の画像URLの縮小指定（_ex=幅x高さ）を外して元サイズのURLにする。Edge Function側の hiResImageUrl と同じ規則。';
+
+-- images（画像一覧）を元サイズのURLに直す。同じ画像がサイズ違いで重複していたらまとめる
+update public.inventory_products p
+   set images = z.fixed
+  from (
+    select p2.code,
+           coalesce((select jsonb_agg(u order by ord)
+                       from (select public.inv_img_hires(x) as u, min(ord) as ord
+                               from jsonb_array_elements_text(coalesce(p2.images, '[]'::jsonb))
+                                    with ordinality t(x, ord)
+                              group by 1) q), '[]'::jsonb) as fixed
+      from public.inventory_products p2
+     where position('_ex=' in coalesce(p2.images::text, '')) > 0
+  ) z
+ where p.code = z.code and p.images is distinct from z.fixed;
+
+-- メイン画像も、楽天から入ったURL（thumbnail.image.rakuten.co.jp）のときだけ直す
+-- （人が/zaikoで入れた画像URLには触らない）
+update public.inventory_products
+   set image_url = public.inv_img_hires(image_url)
+ where coalesce(image_url, '') like '%thumbnail.image.rakuten.co.jp%'
+   and position('_ex=' in coalesce(image_url, '')) > 0;
+
+-- ------------------------------------------------------------
+-- 5) 権限
 -- ------------------------------------------------------------
 grant execute on function public.inv_rakuten_apply_one(text,jsonb) to authenticated;
 grant execute on function public.inv_rakuten_sync_targets(text) to authenticated;
+grant execute on function public.inv_img_hires(text) to anon, authenticated;
 grant execute on function public.inv_listing_url_accept(text,text) to authenticated;
 grant execute on function public.inv_listing_url_dismiss(text,text) to authenticated;
 
