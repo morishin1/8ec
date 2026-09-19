@@ -428,22 +428,28 @@ async function syncTargets(
   cfg: { appId: string; accessKey: string; shopCode: string; supabaseUrl: string; anon: string; token: string },
   scope: "missing" | "all",
   startPage = 1,
+  onlyCodes: string[] | null = null,
 ): Promise<Record<string, unknown>> {
   // ── 1. 対象商品 ──
+  // 失敗したぶんだけやり直すときは、対象一覧（all）から商品コードで絞る。
+  // 全件を取り直さないので、楽天APIの呼び出しも必要なぶんで済む。
+  const pick = onlyCodes && onlyCodes.length ? new Set(onlyCodes.map(String)) : null;
   const tres = await fetch(`${cfg.supabaseUrl}/rest/v1/rpc/inv_rakuten_sync_targets`, {
     method: "POST",
     headers: { apikey: cfg.anon, Authorization: `Bearer ${cfg.token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ p_scope: scope }),
+    body: JSON.stringify({ p_scope: pick ? "all" : scope }),
   });
   const targets = await tres.json();
   if (!tres.ok) {
     return { error: "同期する商品の一覧を取れませんでした：" + (targets?.message || JSON.stringify(targets)) };
   }
-  const list: any[] = Array.isArray(targets) ? targets : [];
+  let list: any[] = Array.isArray(targets) ? targets : [];
+  if (pick) list = list.filter((t) => pick.has(String(t.code)));
   if (list.length === 0) {
     return {
-      mode: scope, target_count: 0, fetched_count: 0, api_requests: 0,
-      images_ok: 0, updated: 0, unchanged: 0, failed: 0, not_found: [], details: [],
+      mode: scope, retry_of: pick ? onlyCodes : null,
+      target_count: 0, fetched_count: 0, api_requests: 0,
+      images_ok: 0, updated: 0, unchanged: 0, failed: 0, not_found: [], failures: [], details: [],
     };
   }
 
@@ -502,9 +508,24 @@ async function syncTargets(
   }));
 
   // ── 3. 1商品ずつ商品マスターへ反映 ──
-  let imagesOk = 0, updated = 0, unchanged = 0, failed = 0, urlMismatches = 0;
+  let imagesOk = 0, updated = 0, unchanged = 0, urlMismatches = 0;
   const notFound: any[] = [];
   const details: any[] = [];
+  // 写真が入らなかったものは、理由を分けて記録する（全部やり直さずに済むように）
+  //   not_found_by_item_code … external_item_code はあるが楽天側に無い
+  //   not_found_by_url       … URLでしか探せず、そのURLが楽天側に無い（listing URL不一致）
+  //   no_key                 … itemCodeもURLも無く、照合の手がかりが無い
+  //   no_images_in_api       … 楽天では見つかったが、APIレスポンスに画像が無い
+  //   api_error              … 反映RPC・APIがエラーを返した
+  //   not_searched           … 時間切れで全ページを見きれていない
+  const failures: any[] = [];
+  const fail = (t: any, reason: string, detail?: string) => {
+    failures.push({
+      code: t.code, name: t.name || null, reason,
+      detail: detail || null,
+      item_code: t.item_code || null, url: t.url || null,
+    });
+  };
 
   for (const t of list) {
     const byCodeHit = t.item_code ? byCode.get(String(t.item_code)) : null;
@@ -518,6 +539,10 @@ async function syncTargets(
         code: t.code, name: t.name, item_code: t.item_code || null, url: t.url || null,
         searched_all: nextPage == null,
       });
+      if (nextPage != null) fail(t, "not_searched", `${pagesRead}/${pageCount ?? "—"}ページまで確認`);
+      else if (t.item_code) fail(t, "not_found_by_item_code", String(t.item_code));
+      else if (t.url) fail(t, "not_found_by_url", String(t.url));
+      else fail(t, "no_key");
       continue;
     }
     const norm = normalizeItem(raw);
@@ -528,13 +553,18 @@ async function syncTargets(
     });
     const out = await res.json().catch(() => null);
     if (!res.ok) {
-      failed++;
       details.push({ code: t.code, name: t.name, ok: false, reason: out?.message || `HTTP ${res.status}` });
+      fail(t, "api_error", out?.message || `HTTP ${res.status}`);
       continue;
     }
     const imagesAdded = !!out?.images_added;
     if (imagesAdded) imagesOk++;
     if (out?.changed) updated++; else unchanged++;
+    // 楽天では見つかったのに写真が入らなかった＝APIレスポンスに画像が無い。
+    // もともと写真がある商品（all指定の見直し）は、入らなくても失敗ではない
+    if (!imagesAdded && !Number(t.image_count) && !t.has_main_image) {
+      fail(t, "no_images_in_api", norm.item_code ? String(norm.item_code) : null);
+    }
     // URLで見つけた商品は、APIが返した正式なitemCodeが external_item_code に保存される
     // （inv_rakuten_apply_one が空のときだけ埋める）。次回からはitemCodeで直接照合できる
     const savedCode = !!out?.external_item_code_saved;
@@ -573,9 +603,11 @@ async function syncTargets(
     updated,
     unchanged,
     url_mismatches: urlMismatches,   // 掲載URLが楽天側と違っていた商品の数
-    failed: failed + notFound.length,
+    failed: failures.length,
+    failures,                        // 商品ごとの理由（reason で分類）
     not_found: notFound,
     details,
+    retry_of: pick ? onlyCodes : null,
   };
 }
 
@@ -650,10 +682,14 @@ Deno.serve(async (req: Request) => {
     // ── まとめ同期（画像が無い商品だけ／楽天掲載の全商品） ──
     if (mode === "missing" || mode === "all") {
       const startPage = Math.max(1, Math.min(Number(body?.start_page) || 1, RAKUTEN_MAX_PAGE));
+      // codes を渡されたら、その商品だけをやり直す（失敗分の再試行）
+      const onlyCodes: string[] | null = Array.isArray(body?.codes)
+        ? body.codes.map((c: unknown) => String(c).trim()).filter(Boolean).slice(0, 500)
+        : null;
       const out = await syncTargets({
         appId: APP_ID, accessKey: ACCESS_KEY, shopCode: SHOP_CODE,
         supabaseUrl: SUPABASE_URL, anon: SUPABASE_ANON, token,
-      }, mode, startPage);
+      }, mode, startPage, onlyCodes);
       return json(out, (out as any)?.error ? 502 : 200);
     }
 
