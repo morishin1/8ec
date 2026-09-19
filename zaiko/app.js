@@ -1251,6 +1251,7 @@ function selBarItems(n) {
   return `<span class="n"><span class="ms">check_box</span>${n}件選択中</span>
     <div class="selops">
       ${b('8RENTに出す', 'devices', 'openBulkRental()', 'lime')}
+      ${b('8RENTから外す', 'devices_off', 'openBulkRentalOff()')}
       ${b('貸出', 'assignment_ind', 'openBulkLoan()')}
       ${b('売却', 'paid', 'openBulkSell()')}
       ${b('修理', 'build', 'openBulkRepair()')}
@@ -1284,7 +1285,8 @@ function bulkHead(text, cls) {
 
 /* ---- 8RENTに出す（個体のレンタル対象） ----
    商品の「8RENTに掲載するか」（rental_enabled）とは別の設定。
-   ここで選んだ個体だけが、8ECのレンタル可能数に数えられる。 */
+   ここで選んだ個体だけが、8ECのレンタル可能数に数えられる。
+   最初の1台を対象にしたら、その商品の掲載も自動でONにする。 */
 function openBulkRental() {
   const b = selBreakdown(GONE);
   if (!b.n) return;
@@ -1299,15 +1301,42 @@ function openBulkRental() {
       レンタル可能数に数えるのは <strong>状態が「在庫」かつレンタル対象</strong>の個体だけです。
       レンタル対象にしても、在庫のうちは楽天でも売れます（先に売れたほうに1台が渡ります）。
       楽天の出品はこの操作では解除しません。</p>
-    ${offCodes.length ? `<label class="bchk" style="margin-bottom:10px">
-      <input type="checkbox" id="blEnable" checked>
-      商品も8RENTに掲載する（${offCodes.length}商品が非掲載）</label>
-      <div class="meta" style="margin:0 0 12px 25px">個体を対象にしても、商品が非掲載だと8ECには出ません。</div>` : ''}
+    ${offCodes.length ? `<p class="meta" style="margin-bottom:12px">
+      <strong>${offCodes.length}商品</strong>がまだ8RENT非掲載です。最初の1台を対象にするので、
+      あわせて商品も8RENTに掲載します（掲載しないと8ECには出ません）。</p>` : ''}
     <label class="field"><span>メモ（任意・履歴に残ります）</span>
       <input class="input" id="blNote" placeholder="例 8RENT用に確保"></label>
   `, [['閉じる', 'closeModal()', 'btn ghost'],
-      ['対象から外す', "doBulk('8RENT対象外')", 'btn'],
       ['8RENT対象にする', "doBulk('8RENT対象')", 'btn lime']]);
+}
+
+/* ---- 8RENTから外す（販売用に戻す） ----
+   レンタルの約束が生きている個体（予約中・貸出中）は外せない。
+   商品の掲載設定（rental_enabled）はここでは触らない。対象が0台になった商品は、
+   結果画面で知らせて、掲載を止めるかどうかは人が商品詳細で決める。 */
+function openBulkRentalOff() {
+  const b = selBreakdown(GONE.concat(['予約中', '貸出中']));
+  if (!b.n) return;
+  const rows = b.rows.filter(i => i.rental_eligible && !GONE.includes(i.status));
+  const codes = [...new Set(rows.map(i => i.product_code))];
+  // この操作でレンタル対象が0台になりそうな商品（掲載中のもの）
+  const willEmpty = codes.filter(c => {
+    const off = rows.filter(i => i.product_code === c && !['予約中', '貸出中'].includes(i.status)).length;
+    const p = prod(c);
+    return p && p.rental_enabled && rentalEligibleOf(c) - off <= 0;
+  });
+  openModal('8RENTから外す', `
+    ${bulkHead(`選んだ <strong>${b.n}台</strong>のうち、<strong>${b.ok}台</strong>をレンタル対象から外します。
+      <div class="meta" style="margin-top:4px">外した個体は8ECのレンタル可能数から抜け、販売用として在庫に残ります。</div>
+      ${b.ng ? `<div class="meta" style="margin-top:4px">${esc(b.note)} は外せません（予約中・貸出中はレンタルの約束が残っているため、先にキャンセル・返却してください）。</div>` : ''}`)}
+    ${willEmpty.length ? `<p class="meta" style="margin-bottom:12px">
+      <strong>${willEmpty.map(c => esc(titleOf(prod(c)))).join('・')}</strong> はレンタル対象が0台になります。
+      商品の8RENT掲載はそのままにします（8ECでは「在庫切れ」の表示になります）。
+      掲載自体を止めるときは、商品詳細の「8RENT設定を変える」で非公開にしてください。</p>` : ''}
+    <label class="field"><span>メモ（任意・履歴に残ります）</span>
+      <input class="input" id="blNote" placeholder="例 販売用に戻す"></label>
+  `, [['閉じる', 'closeModal()', 'btn ghost'],
+      ['8RENTから外す', "doBulk('8RENT対象外')", 'btn']]);
 }
 
 /* ---- 貸出（社内・お客様への貸出） ---- */
@@ -1399,7 +1428,7 @@ async function doBulk(action) {
     p_value: action === '貸出' ? val('blUser') : (action === '売却' ? (val('blPrice') || null) : null),
     p_note: val('blNote') || null,
     p_due: action === '貸出' ? (val('blDue') || null) : null,
-    p_enable_product: action === '8RENT対象' ? !!(($('blEnable') || {}).checked) : false
+    p_enable_product: action === '8RENT対象'   // 最初の1台なら商品の掲載も自動でON
   };
   closeModal();
   toast(`${BULK_LABEL[action]}を実行しています…`);
@@ -1416,10 +1445,26 @@ async function doBulk(action) {
 function showBulkResult(action, r) {
   const ok = r.ok || 0, ng = (r.ng || []).length, total = r.total || 0;
   const extra = r.products_enabled ? `（商品 ${r.products_enabled}件も8RENTに掲載しました）` : '';
-  if (!ng) {
+  const empty = (r.products_empty || []);
+  if (!ng && !empty.length) {
     toast(action === '8RENT対象' ? `8RENT対象に${ok}台追加しました${extra}`
         : action === '8RENT対象外' ? `${ok}台を8RENT対象から外しました`
         : `${ok}台を${BULK_LABEL[action]}にしました`);
+    return;
+  }
+  // レンタル対象が0台になった商品は、掲載を落とさずに知らせる（止めるかは人が決める）
+  if (!ng && empty.length) {
+    toast(`${ok}台を8RENT対象から外しました`);
+    openModal('8RENTから外しました', `
+      ${bulkHead(`${ok}台をレンタル対象から外しました。`)}
+      <p class="meta" style="margin-bottom:10px">次の商品は<strong>レンタル対象が0台</strong>になりました。
+        8RENTの掲載設定（公開中）はそのままにしています。8ECでは「在庫切れ」の表示になり、申込はできません。
+        掲載自体を止めるときは、商品詳細の「8RENT設定を変える」で非公開にしてください。</p>
+      <div class="plist">${empty.map(x =>
+        `<div class="p"><span class="c">${esc(x.code)}</span><span>${esc(x.name || '')}</span>
+          <button class="btn sm ghost" style="margin-left:auto"
+            onclick="closeModal();go('prod','${esc(x.code)}')">商品を開く</button></div>`).join('')}</div>
+    `, [['閉じる', 'closeModal()', 'btn ghost']]);
     return;
   }
   const one = ng === 1 ? `${total}台中${ok}台成功・1台は${esc(r.ng[0].reason)}` : `${total}台中${ok}台成功・${ng}台失敗`;
@@ -1431,6 +1476,9 @@ function showBulkResult(action, r) {
       <div><div class="lbl">できなかった</div><div class="v err">${ng}</div></div>
     </div>
     ${extra ? `<p class="meta" style="margin-bottom:10px">${esc(extra)}</p>` : ''}
+    ${empty.length ? `<p class="meta" style="margin-bottom:10px">
+      ${esc(empty.map(x => x.name || x.code).join('・'))} はレンタル対象が0台になりました。
+      8RENTの掲載はそのままです（8ECでは「在庫切れ」）。止めるときは商品詳細の「8RENT設定を変える」から。</p>` : ''}
     <div class="table-wrap"><table class="t">
       <thead><tr><th>管理番号</th><th>理由</th></tr></thead>
       <tbody>${r.ng.map(x => `<tr><td class="num">${esc(x.id)}</td><td class="meta">${esc(x.reason)}</td></tr>`).join('')}</tbody>

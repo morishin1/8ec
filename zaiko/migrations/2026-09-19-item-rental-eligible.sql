@@ -26,6 +26,8 @@
 --     3. inv_rental_request（レンタル対象の個体だけ確保する）
 --     4. inv_sale_reserve（レンタル対象は後回しにして確保する）
 --     5. 【新規】inv_items_bulk_op：在庫一覧で選んだ個体のまとめて操作
+--        （8RENT対象／対象外・貸出・売却・修理・棚卸・廃棄。対象にしたら商品の掲載も
+--         自動ON、対象外は予約中・貸出中を受け付けず、商品の掲載設定には触らない）
 --     6. inv_public_catalog / inv_channel_stock_feed を入れ直す
 --     7. 権限
 --
@@ -191,7 +193,7 @@ create or replace function public.inv_items_bulk_op(
   p_value          text    default null,   -- 貸出先／売却価格
   p_note           text    default null,   -- 理由・メモ（履歴に残る）
   p_due            date    default null,   -- 貸出の予定返却日
-  p_enable_product boolean default false   -- 8RENT対象にするとき、商品の掲載もONにする
+  p_enable_product boolean default true    -- 8RENT対象にするとき、非掲載の商品を掲載ONにする
 ) returns jsonb
 language plpgsql security invoker set search_path = public as $$
 declare
@@ -201,6 +203,7 @@ declare
   v_ng       jsonb   := '[]'::jsonb;
   v_codes    text[]  := '{}';
   v_enabled  integer := 0;
+  v_empty    jsonb   := '[]'::jsonb;
   v_note     text    := nullif(btrim(coalesce(p_note, '')), '');
   v_on       boolean;
 begin
@@ -232,6 +235,13 @@ begin
         -- 手元に無いものはレンタルに回せない
         if it.status in ('売却済', '廃棄') then
           raise exception '% なので8RENTには出せません', it.status;
+        end if;
+        -- レンタルの約束が生きている個体は外せない（先に返却・キャンセルしてもらう）
+        if not v_on and it.status = '予約中' then
+          raise exception '予約中 のため8RENTから外せません（先に申込をキャンセルしてください）';
+        end if;
+        if not v_on and it.status = '貸出中' then
+          raise exception '貸出中 のため8RENTから外せません（先に返却してください）';
         end if;
         if coalesce(it.rental_eligible, false) = v_on then
           raise exception 'すでに%です', case when v_on then 'レンタル対象' else '対象外' end;
@@ -296,8 +306,8 @@ begin
     end;
   end loop;
 
-  -- 8RENT対象にした個体の商品を、あわせて8ECに掲載する（頼まれたときだけ）
-  if p_action = '8RENT対象' and p_enable_product and coalesce(array_length(v_codes, 1), 0) > 0 then
+  -- 最初の1台を8RENT対象にしたら、その商品も8ECに掲載する（非掲載のままだと出ないため）
+  if p_action = '8RENT対象' and coalesce(p_enable_product, true) and coalesce(array_length(v_codes, 1), 0) > 0 then
     with up as (
       update public.inventory_products set rental_enabled = true
        where code = any(v_codes) and coalesce(rental_enabled, false) = false
@@ -311,19 +321,35 @@ begin
     select count(*)::integer into v_enabled from tx;
   end if;
 
+  -- 8RENT対象が0台になった商品を知らせる。掲載（rental_enabled）は勝手に落とさない
+  -- ＝8ECでは「在庫切れ」で残り、掲載を止めるかどうかは人が商品詳細で決める
+  if p_action = '8RENT対象外' and coalesce(array_length(v_codes, 1), 0) > 0 then
+    select coalesce(jsonb_agg(jsonb_build_object('code', p.code, 'name', coalesce(p.name, p.model))), '[]'::jsonb)
+      into v_empty
+      from public.inventory_products p
+     where p.code = any(v_codes)
+       and coalesce(p.rental_enabled, false)
+       and not exists (select 1 from public.inventory_items i
+                        where i.product_code = p.code and coalesce(i.rental_eligible, false));
+  end if;
+
   return jsonb_build_object(
     'action', p_action,
     'total', coalesce(array_length(p_ids, 1), 0),
     'ok', v_ok,
     'ng_count', jsonb_array_length(v_ng),
     'ng', v_ng,
-    'products_enabled', coalesce(v_enabled, 0));
+    'products_enabled', coalesce(v_enabled, 0),
+    'products_empty', v_empty);
 end $$;
 
 comment on function public.inv_items_bulk_op is
   '在庫一覧で選んだ個体をまとめて動かす（8RENT対象／8RENT対象外／貸出／売却／修理／棚卸／廃棄）。
    1台ずつの検証と履歴は inv_item_op() に任せ、1台が失敗しても他は進める。
-   成功件数と、失敗した個体・理由をまとめて返す。';
+   成功件数と、失敗した個体・理由をまとめて返す。
+   8RENT対象にしたときは非掲載の商品を掲載ONにする。8RENT対象外では商品設定に触らず、
+   対象が0台になった商品を products_empty で返す（掲載を止めるかは人が決める）。
+   予約中・貸出中の個体は8RENTから外せない。';
 
 
 -- ------------------------------------------------------------
