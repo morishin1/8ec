@@ -2095,6 +2095,12 @@ alter table public.inventory_products add column if not exists rental_image_url 
 alter table public.inventory_products add column if not exists rental_images      jsonb default '[]'::jsonb; -- 複数枚（1枚目がメイン）
 -- 在庫が無くても申込を受けられるか（取り寄せ）。仮の個体は作らず、現物が入ってから割り当てる
 alter table public.inventory_products add column if not exists procurement_available boolean not null default false;
+-- 楽天の商品説明の原文（販売用）。8ECのレンタル画面には出さない
+alter table public.inventory_products add column if not exists sale_description text;
+-- 中古品としての状態（事実情報）
+alter table public.inventory_products add column if not exists condition_note text;
+-- レンタル向け説明を人が直したか。true なら自動生成でも楽天同期でも上書きしない
+alter table public.inventory_products add column if not exists rental_description_manual boolean not null default false;
 
 comment on column public.inventory_products.procurement_available is
   '在庫が無くてもレンタルの申込を受けられるか（取り寄せ）。true なら8RENTに「取り寄せ可能」として出て、
@@ -2217,6 +2223,162 @@ comment on function public.inv_product_procurement_set is
   '在庫が無くてもレンタルの申込を受けるか（取り寄せ）を切り替える。8RENTでは「取り寄せ可能」と出て、
    申込は「調達確認」から始まる。仮の個体は作らない。';
 
+create or replace function public.inv_rental_text(p_code text)
+returns text
+language plpgsql stable set search_path = public as $$
+declare
+  p        public.inventory_products;
+  v_screen numeric;
+  v_mem    numeric;
+  v_use    text;
+  v_spec   text[] := '{}';
+  v_out    text[] := '{}';
+  v_office text;
+  v_cond   text;
+begin
+  select * into p from public.inventory_products where code = p_code;
+  if not found then
+    return null;
+  end if;
+
+  v_screen := nullif(regexp_replace(coalesce(p.screen_size,''), '[^0-9.]', '', 'g'), '')::numeric;
+  v_mem    := nullif(regexp_replace(coalesce(p.memory_size,''), '[^0-9]',   '', 'g'), '')::numeric;
+
+  -- 1) どんな用途に向いているか。画面の大きさとメモリから、言い切れる範囲だけ書く
+  v_use := case
+    when v_screen is null then null
+    when v_screen <= 13.5 then coalesce(p.screen_size,'') || 'の持ち運びやすいノートPC。'
+    when v_screen <= 14.9 then coalesce(p.screen_size,'') || 'の標準的なサイズのノートPC。'
+    else coalesce(p.screen_size,'') || 'の大画面ノートPC。'
+  end;
+  if v_use is not null then
+    v_use := v_use || case
+      when p.cpu is null and v_mem is null then 'オフィスワークの基本的な用途に向いています。'
+      when v_mem is not null and v_mem >= 16 then
+        coalesce(p.cpu || '・', '') || 'メモリ' || coalesce(p.memory_size,'') ||
+        'を搭載し、複数アプリを使う事務作業やオンライン会議にも対応しやすい構成です。'
+      when v_mem is not null then
+        coalesce(p.cpu || '・', '') || 'メモリ' || coalesce(p.memory_size,'') ||
+        'を搭載し、文書作成・表計算・オンライン会議などの事務作業に向いた構成です。'
+      else coalesce(p.cpu, '') || 'を搭載しています。'
+    end;
+    v_out := array_append(v_out, v_use);
+  end if;
+
+  -- 2) 主な仕様。分かっているものだけを並べる
+  if nullif(btrim(coalesce(p.cpu,'')),'')  is not null then v_spec := array_append(v_spec, btrim(p.cpu)); end if;
+  if nullif(btrim(coalesce(p.memory_size,'')),'') is not null then v_spec := array_append(v_spec, btrim(p.memory_size)); end if;
+  if nullif(btrim(coalesce(p.storage_capacity,'')),'') is not null then
+    v_spec := array_append(v_spec, btrim(coalesce(p.storage_type || ' ', '') || p.storage_capacity));
+  end if;
+  if nullif(btrim(coalesce(p.screen_size,'')),'') is not null then v_spec := array_append(v_spec, btrim(p.screen_size)); end if;
+  if nullif(btrim(coalesce(p.os,'')),'') is not null then v_spec := array_append(v_spec, btrim(p.os)); end if;
+  if p.webcam   is true then v_spec := array_append(v_spec, 'Webカメラ'); end if;
+  if p.wifi     is true then v_spec := array_append(v_spec, 'Wi-Fi'); end if;
+  if p.bluetooth is true then v_spec := array_append(v_spec, 'Bluetooth'); end if;
+  if p.numpad   is true then v_spec := array_append(v_spec, 'テンキー'); end if;
+  if coalesce(array_length(v_spec, 1), 0) > 0 then
+    v_out := array_append(v_out, '主な仕様：' || array_to_string(v_spec, ' / '));
+  end if;
+
+  -- 3) Office。付けられるかどうかは申込のオプションとして伝える
+  v_office := case when coalesce(p.office_supported, false)
+    then 'Office：ご希望に応じてOffice付きでご用意できます（申込時にお選びください）。'
+    else 'Office：この機種はOfficeなしでのご用意となります。' end;
+  v_out := array_append(v_out, v_office);
+
+  -- 4) 付属品
+  if nullif(btrim(coalesce(p.accessories,'')),'') is not null then
+    v_out := array_append(v_out, '付属品：' || btrim(p.accessories));
+  end if;
+
+  -- 5) 中古品としての状態
+  v_cond := nullif(btrim(coalesce(p.condition_note,'')), '');
+  v_out := array_append(v_out, '状態：' || coalesce(v_cond,
+    '中古品です。動作を確認したうえで、クリーニングしてお渡しします。外観に使用に伴う小傷がある場合があります。'));
+
+  -- 6) 希望を送ってもらう案内
+  v_out := array_append(v_out,
+    'ご希望の台数・利用期間・Officeの有無をお知らせください。在庫・調達状況を確認のうえ担当者よりご案内します。');
+
+  return array_to_string(v_out, E'\n');
+end $$;
+
+comment on function public.inv_rental_text is
+  'レンタル向け説明を、構造化済みのスペックから組み立てる。楽天の販売用の文は使わない。
+   分かっている項目だけを書く（用途／主な仕様／Office／付属品／状態／希望の送りかた）。';
+
+create or replace function public.inv_product_rental_description_set(
+  p_code   text,
+  p_text   text default null,
+  p_manual boolean default true
+) returns public.inventory_products
+language plpgsql security invoker set search_path = public as $$
+declare
+  pr public.inventory_products;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  update public.inventory_products
+     set rental_description        = nullif(btrim(coalesce(p_text,'')), ''),
+         rental_description_manual = coalesce(p_manual, true)
+   where code = p_code
+  returning * into pr;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_code;
+  end if;
+  return pr;
+end $$;
+
+create or replace function public.inv_rental_text_fill(p_only_empty boolean default true)
+returns integer
+language plpgsql security invoker set search_path = public as $$
+declare
+  v_n integer := 0;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  update public.inventory_products p
+     set rental_description = public.inv_rental_text(p.code)
+   where p.kind = 'individual'
+     and coalesce(p.rental_description_manual, false) = false
+     and (not coalesce(p_only_empty, true)
+          or nullif(btrim(coalesce(p.rental_description,'')), '') is null);
+  get diagnostics v_n = row_count;
+  return v_n;
+end $$;
+
+comment on function public.inv_rental_text_fill is
+  '人が直していない商品のレンタル向け説明を、自動生成で埋める。p_only_empty=false なら作り直す。';
+
+comment on function public.inv_product_rental_description_set is
+  'レンタル向け説明を入れ直す。p_manual=true（人が直した）なら、以後は自動生成・楽天同期で上書きしない。';
+
+-- まだ手を入れていない商品に、自動生成のレンタル向け説明をまとめて入れる
+create or replace function public.inv_rental_text_fill(p_only_empty boolean default true)
+returns integer
+language plpgsql security invoker set search_path = public as $$
+declare
+  v_n integer := 0;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  update public.inventory_products p
+     set rental_description = public.inv_rental_text(p.code)
+   where p.kind = 'individual'
+     and coalesce(p.rental_description_manual, false) = false
+     and (not coalesce(p_only_empty, true)
+          or nullif(btrim(coalesce(p.rental_description,'')), '') is null);
+  get diagnostics v_n = row_count;
+  return v_n;
+end $$;
+
+comment on function public.inv_rental_text_fill is
+  '人が直していない商品のレンタル向け説明を、自動生成で埋める。p_only_empty=false なら作り直す。';
+
 -- ------------------------------------------------------------
 -- 29-2) レンタル申込（8RENT公開ページからの問い合わせ・申込）
 -- ------------------------------------------------------------
@@ -2325,7 +2487,7 @@ comment on function public.inv_reserve_available_item is
 --       在庫が足りないときは、取り寄せできる商品なら「調達確認」で受け付ける。
 --       在庫が無いのに仮の個体を作って予約することはしない。
 -- ------------------------------------------------------------
-create or replace function public.inv_rental_apply(
+create or replace function public.inv_rental_request_create(
   p_codes      text[],
   p_name       text,
   p_qty        integer default 1,
@@ -2340,221 +2502,49 @@ create or replace function public.inv_rental_apply(
 ) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
-  v_codes   text[] := '{}';
-  v_keys    text[];
-  v_key     text;
-  v_code    text;
-  v_item    text;
-  v_items   text[] := '{}';
-  v_alloc   integer;
-  v_short   integer;
-  v_status  text;
-  v_procure boolean;
-  v_req_id  bigint;
-  v_label   text;
-  i         integer;
+  v_codes  text[];
+  v_keys   text[];
+  v_key    text;
+  v_req_id bigint;
 begin
   if p_name is null or btrim(p_name) = '' then
     raise exception 'お名前を入力してください';
   end if;
-  if coalesce(p_qty, 1) < 1 or coalesce(p_qty, 1) > 50 then
-    raise exception '台数は1〜50台でお願いします（まとまった台数はご相談ください）';
-  end if;
-  if p_codes is null or coalesce(array_length(p_codes, 1), 0) = 0 then
-    raise exception '機種が選ばれていません';
+  if coalesce(p_qty, 1) < 1 or coalesce(p_qty, 1) > 500 then
+    raise exception '台数は1〜500台でお願いします（それ以上はご相談ください）';
   end if;
 
-  -- 公開していてレンタルを受け付けている枝番だけに絞る（Office希望ならOffice対応だけ）
-  select array_agg(code order by code), array_agg(distinct public.inv_model_key(maker, model, code))
-    into v_codes, v_keys
-    from public.inventory_products
-   where code = any(p_codes)
-     and kind = 'individual'
-     and coalesce(rental_enabled, false)
-     and (not coalesce(p_office, false) or coalesce(office_supported, false));
-
-  if coalesce(array_length(v_codes, 1), 0) = 0 then
-    raise exception 'この条件でレンタルを受け付けている機種がありません';
-  end if;
-  if coalesce(array_length(v_keys, 1), 0) > 1 then
-    raise exception '別々の機種はまとめて申し込めません';
-  end if;
-  v_key := v_keys[1];
-
-  -- 在庫の多い枝番から順に確保する（同じ機種の中でどれになるかは在庫任せ）
-  select array_agg(x.code order by x.n desc, x.code) into v_codes
-    from (select p.code,
-                 (select count(*) from public.inventory_items i
-                   where i.product_code = p.code and i.status = '在庫'
-                     and coalesce(i.rental_eligible, false)) as n
-            from public.inventory_products p
-           where p.code = any(v_codes)) x;
-
-  for i in 1..p_qty loop
-    v_item := null;
-    foreach v_code in array v_codes loop
-      v_item := public.inv_reserve_available_item(v_code, '予約中', true);
-      exit when v_item is not null;
-    end loop;
-    exit when v_item is null;
-    v_items := array_append(v_items, v_item);
-  end loop;
-
-  v_alloc := coalesce(array_length(v_items, 1), 0);
-  v_short := p_qty - v_alloc;
-
-  if v_short > 0 then
-    select bool_or(coalesce(procurement_available, false)) into v_procure
-      from public.inventory_products where code = any(v_codes);
-    if not coalesce(v_procure, false) then
-      -- 確保したぶんも含めて、この例外で全部もとに戻る
-      raise exception 'あいにく、この機種はいまレンタルできる台数が足りません（ご希望 %台／ご用意できる %台）',
-        p_qty, v_alloc;
+  -- 機種が指定されていれば、公開中のものだけに絞る。指定が無くても受け付ける
+  -- （「条件だけ送る」相談も8RENTの入口なので断らない）
+  if p_codes is not null and coalesce(array_length(p_codes, 1), 0) > 0 then
+    select array_agg(code order by code), array_agg(distinct public.inv_model_key(maker, model, code))
+      into v_codes, v_keys
+      from public.inventory_products
+     where code = any(p_codes) and kind = 'individual' and coalesce(rental_enabled, false);
+    if coalesce(array_length(v_keys, 1), 0) > 1 then
+      raise exception '別々の機種はまとめて申し込めません';
     end if;
-    v_status := '調達確認';
-  else
-    v_status := '申込';
-  end if;
-
-  select coalesce(name, model) into v_label
-    from public.inventory_products
-   where code = coalesce((select product_code from public.inventory_items where id = v_items[1]), v_codes[1]);
-
-  if v_alloc > 0 then
-    foreach v_item in array v_items loop
-      insert into public.inventory_transactions
-        (actor, ref_kind, ref_id, label, action, before_value, after_value)
-      values ('8RENT', 'item', v_item, v_label, '予約', '在庫', '予約中（' || btrim(p_name) || '）');
-    end loop;
+    v_key := v_keys[1];
   end if;
 
   insert into public.inventory_rental_requests
     (product_code, item_id, item_ids, qty, procure_qty, office, model_key, conditions,
      customer_name, company, email, phone, start_date, months, message, status)
   values
-    (coalesce((select product_code from public.inventory_items where id = v_items[1]), v_codes[1]),
-     v_items[1], v_items, p_qty, v_short, coalesce(p_office, false), v_key,
+    (v_codes[1], null, '{}', p_qty, p_qty, coalesce(p_office, false), v_key,
      coalesce(p_conditions, '{}'::jsonb),
      btrim(p_name), nullif(btrim(coalesce(p_company,'')),''),
      nullif(btrim(coalesce(p_email,'')),''), nullif(btrim(coalesce(p_phone,'')),''),
-     p_start, p_months, nullif(btrim(coalesce(p_message,'')),''), v_status)
+     p_start, p_months, nullif(btrim(coalesce(p_message,'')),''), '希望受付')
   returning id into v_req_id;
 
-  return jsonb_build_object(
-    'request_id', v_req_id, 'status', v_status, 'qty', p_qty,
-    'allocated', v_alloc, 'procure_qty', v_short,
-    'item_count', v_alloc);
+  return jsonb_build_object('request_id', v_req_id, 'status', '希望受付', 'qty', p_qty);
 end $$;
 
-comment on function public.inv_rental_apply is
-  '8RENTからのレンタル申込。お客様は条件（機種の枝番）・台数・Office有無だけを選び、
-   どの個体を貸すかはこの関数が在庫から決める（管理番号は受け取らない）。
-   在庫が足りないときは、取り寄せできる商品なら「調達確認」で受け付け、
-   足りないぶんを procure_qty に残す。仮の個体は作らない。
-   確保には楽天の販売予約と共通の inv_reserve_available_item を使うので、二重に確保されることはない。';
+comment on function public.inv_rental_request_create is
+  '8RENTからの「希望条件の送信」。条件と台数だけを受け取り、実在庫は動かさない（status=希望受付）。
+   在庫が無くても受け付ける。個体の確保は社内で inv_rental_allocate を実行したときだけ行う。';
 
-create or replace function public.inv_rental_request(
-  p_code    text,
-  p_name    text,
-  p_company text default null,
-  p_email   text default null,
-  p_phone   text default null,
-  p_start   date default null,
-  p_months  integer default null,
-  p_message text default null
-) returns jsonb
-language plpgsql security definer set search_path = public as $$
-begin
-  return public.inv_rental_apply(
-    array[p_code], p_name, 1, p_company, p_email, p_phone, p_start, p_months, false, p_message);
-end $$;
-
-comment on function public.inv_rental_request is
-  '商品コードを1つ指定する、1台ぶんのレンタル申込。中身は inv_rental_apply と同じ
-   （割り当ての規則を二重に持たない）。';
-
-create or replace function public.inv_rental_allocate(p_request_id bigint)
-returns public.inventory_rental_requests
-language plpgsql security invoker set search_path = public as $$
-declare
-  r       public.inventory_rental_requests;
-  v_ids   text[];
-  v_codes text[];
-  v_code  text;
-  v_item  text;
-  v_need  integer;
-  i       integer;
-begin
-  if not public.inv_can_edit() then
-    raise exception '操作する権限がありません（閲覧のみ）';
-  end if;
-  select * into r from public.inventory_rental_requests where id = p_request_id for update;
-  if not found then
-    raise exception '申込が見つかりません（%）', p_request_id;
-  end if;
-  if r.status not in ('調達確認', '申込') then
-    raise exception '「%」の申込には個体を割り当てられません', r.status;
-  end if;
-
-  v_ids := case when coalesce(array_length(r.item_ids, 1), 0) > 0 then r.item_ids
-                when r.item_id is not null then array[r.item_id]
-                else '{}'::text[] end;
-  v_need := greatest(coalesce(r.qty, 1) - coalesce(array_length(v_ids, 1), 0), 0);
-
-  if v_need > 0 then
-    select array_agg(p.code order by p.code) into v_codes
-      from public.inventory_products p
-     where p.kind = 'individual'
-       and coalesce(p.rental_enabled, false)
-       and (not coalesce(r.office, false) or coalesce(p.office_supported, false))
-       and (case when r.model_key is null then p.code = r.product_code
-                 else public.inv_model_key(p.maker, p.model, p.code) = r.model_key end);
-
-    if coalesce(array_length(v_codes, 1), 0) = 0 then
-      raise exception 'この機種はいまレンタルを受け付けていません（商品の8RENT掲載を確認してください）';
-    end if;
-
-    for i in 1..v_need loop
-      v_item := null;
-      foreach v_code in array v_codes loop
-        v_item := public.inv_reserve_available_item(v_code, '予約中', true);
-        exit when v_item is not null;
-      end loop;
-      exit when v_item is null;
-      v_ids := array_append(v_ids, v_item);
-      insert into public.inventory_transactions
-        (actor, ref_kind, ref_id, label, action, before_value, after_value)
-      values (public.inv_actor(), 'item', v_item, r.customer_name, '予約', '在庫',
-              '予約中（申込 #' || r.id || '／取り寄せぶん）');
-    end loop;
-  end if;
-
-  update public.inventory_rental_requests
-     set item_ids    = v_ids,
-         item_id     = coalesce(v_ids[1], item_id),
-         procure_qty = greatest(coalesce(r.qty, 1) - coalesce(array_length(v_ids, 1), 0), 0),
-         status      = case when coalesce(array_length(v_ids, 1), 0) >= coalesce(r.qty, 1)
-                            then '申込' else r.status end
-   where id = p_request_id
-  returning * into r;
-
-  return r;
-end $$;
-
-comment on function public.inv_rental_allocate is
-  '取り寄せ（調達確認）の申込に、8RENT対象の在庫から個体を割り当てる。
-   台数がそろったら「申込」（発送待ち）に進む。在庫が無いときは仮の個体を作らず、
-   割り当てられたぶんだけ進めて残りを procure_qty に残す。';
-
--- ------------------------------------------------------------
--- 29-4) 申込の状態を進める（社内・/zaiko側の操作）
---       申込に紐づく個体（複数台）の状態も、同じトランザクションで連動させる。
---         貸出中   … 発送した＝貸出確定（個体: 予約中 → 貸出中）
---         返却済み … 戻ってきた（個体: 貸出中 → 在庫）
---         キャンセル … 申込を取り消す（予約中の個体だけ 在庫 に戻す）
---       取り寄せ待ち（調達確認）は、inv_rental_allocate() で個体を割り当ててからでないと
---       貸出中にできない。
--- ------------------------------------------------------------
 create or replace function public.inv_rental_set_status(
   p_request_id bigint,
   p_status     text
@@ -2569,8 +2559,7 @@ begin
   if not public.inv_can_edit() then
     raise exception '操作する権限がありません（閲覧のみ）';
   end if;
-  -- 「申込」へ戻す操作は無い（inv_rental_apply／inv_rental_allocate だけがその状態にする）
-  if p_status not in ('貸出中','返却済み','キャンセル') then
+  if p_status not in ('在庫・調達確認','レンタル確定','貸出中','返却済み','キャンセル') then
     raise exception '知らない状態です（%）', p_status;
   end if;
 
@@ -2586,9 +2575,19 @@ begin
                 when r.item_id is not null then array[r.item_id]
                 else '{}'::text[] end;
 
-  if p_status = '貸出中' then
-    if r.status = '調達確認' then
-      raise exception '取り寄せの確認中です。調達した個体を登録してから「個体を割り当てる」を先に行ってください';
+  if p_status = '在庫・調達確認' then
+    if r.status <> '希望受付' then
+      raise exception '「希望受付」の申込だけ確認中にできます（いまは %）', r.status;
+    end if;
+
+  elsif p_status = 'レンタル確定' then
+    if r.status <> '個体割当' then
+      raise exception '個体を割り当ててから確定してください（いまは %）', r.status;
+    end if;
+
+  elsif p_status = '貸出中' then
+    if r.status <> 'レンタル確定' then
+      raise exception '「レンタル確定」の申込だけ発送できます（いまは %）', r.status;
     end if;
     if coalesce(array_length(v_ids, 1), 0) = 0 then
       raise exception '個体が割り当てられていません';
@@ -2618,15 +2617,15 @@ begin
     end loop;
 
   elsif p_status = 'キャンセル' then
-    -- キャンセルは「発送前」だけ。発送済み（貸出中）はキャンセルではなく返却済みで扱う。
-    -- 取り寄せ待ちで1台も割り当たっていない申込も、そのまま取り消せる。
+    -- どの段階からでも取り消せる。確保済みの個体だけ在庫に戻す（発送済みは返却で扱う）
     foreach v_id in array coalesce(v_ids, '{}'::text[]) loop
       select * into it from public.inventory_items where id = v_id for update;
-      if coalesce(it.status, '') <> '予約中' then
-        raise exception '予約中の個体だけキャンセルできます（発送済みは「返却済みにする」を使ってください。% は %）',
-          v_id, coalesce(it.status, '個体なし');
+      if coalesce(it.status, '') = '貸出中' then
+        raise exception '発送済みです。「返却済みにする」を使ってください（% は 貸出中）', v_id;
       end if;
-      update public.inventory_items set status = '在庫' where id = v_id;
+      if coalesce(it.status, '') = '予約中' then
+        update public.inventory_items set status = '在庫' where id = v_id;
+      end if;
     end loop;
   end if;
 
@@ -2637,13 +2636,84 @@ begin
 
   update public.inventory_rental_requests set status = p_status where id = p_request_id
   returning * into r;
-
   return r;
 end $$;
 
 comment on function public.inv_rental_set_status is
-  'レンタル申込の状態を進める。紐づく個体（複数台）の状態も同じトランザクションで連動させる。
-   取り寄せ待ち（調達確認）は、個体を割り当ててからでないと貸出中にできない。';
+  'レンタル申込の状態を進める（希望受付 → 在庫・調達確認 → 個体割当 → レンタル確定 → 貸出中 → 返却済み）。
+   紐づく個体の状態も同じトランザクションで連動させる。';
+
+create or replace function public.inv_rental_allocate(p_request_id bigint)
+returns public.inventory_rental_requests
+language plpgsql security invoker set search_path = public as $$
+declare
+  r       public.inventory_rental_requests;
+  v_ids   text[];
+  v_codes text[];
+  v_code  text;
+  v_item  text;
+  v_need  integer;
+  i       integer;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  select * into r from public.inventory_rental_requests where id = p_request_id for update;
+  if not found then
+    raise exception '申込が見つかりません（%）', p_request_id;
+  end if;
+  if r.status not in ('希望受付','在庫・調達確認','個体割当') then
+    raise exception '「%」の申込には個体を割り当てられません', r.status;
+  end if;
+  if r.model_key is null and r.product_code is null then
+    raise exception '機種が決まっていません。先に商品を決めてから割り当ててください';
+  end if;
+
+  v_ids := case when coalesce(array_length(r.item_ids, 1), 0) > 0 then r.item_ids
+                when r.item_id is not null then array[r.item_id]
+                else '{}'::text[] end;
+  v_need := greatest(coalesce(r.qty, 1) - coalesce(array_length(v_ids, 1), 0), 0);
+
+  if v_need > 0 then
+    select array_agg(p.code order by p.code) into v_codes
+      from public.inventory_products p
+     where p.kind = 'individual'
+       and coalesce(p.rental_enabled, false)
+       and (not coalesce(r.office, false) or coalesce(p.office_supported, false))
+       and (case when r.model_key is null then p.code = r.product_code
+                 else public.inv_model_key(p.maker, p.model, p.code) = r.model_key end);
+    if coalesce(array_length(v_codes, 1), 0) = 0 then
+      raise exception 'この機種はいまレンタルを受け付けていません（商品の8RENT掲載を確認してください）';
+    end if;
+    for i in 1..v_need loop
+      v_item := null;
+      foreach v_code in array v_codes loop
+        v_item := public.inv_reserve_available_item(v_code, '予約中', true);
+        exit when v_item is not null;
+      end loop;
+      exit when v_item is null;
+      v_ids := array_append(v_ids, v_item);
+      insert into public.inventory_transactions
+        (actor, ref_kind, ref_id, label, action, before_value, after_value)
+      values (public.inv_actor(), 'item', v_item, r.customer_name, '予約', '在庫',
+              '予約中（申込 #' || r.id || '）');
+    end loop;
+  end if;
+
+  update public.inventory_rental_requests
+     set item_ids    = v_ids,
+         item_id     = coalesce(v_ids[1], item_id),
+         procure_qty = greatest(coalesce(r.qty, 1) - coalesce(array_length(v_ids, 1), 0), 0),
+         status      = case when coalesce(array_length(v_ids, 1), 0) >= coalesce(r.qty, 1)
+                            then '個体割当' else '在庫・調達確認' end
+   where id = p_request_id
+  returning * into r;
+  return r;
+end $$;
+
+comment on function public.inv_rental_allocate is
+  '申込に8RENT対象の在庫から個体を割り当てる。台数がそろったら「個体割当」に進む。
+   足りないぶんは procure_qty に残し、仮の個体は作らない。';
 
 -- ------------------------------------------------------------
 -- 29-4b) 楽天など販売チャネルの受注で在庫を確保する（社内・/zaiko側の操作）
@@ -3017,7 +3087,10 @@ begin
   update public.inventory_products set
     maker             = coalesce(nullif(maker,''), nullif(p_item->>'maker','')),
     model             = coalesce(nullif(model,''), nullif(p_item->>'model','')),
-    description       = coalesce(nullif(description,''), nullif(p_item->>'caption','')),
+    -- モールの商品説明は販売向けの文言（領収書・保証・返品・会社概要など）が多い。
+    -- 8ECのレンタル画面には出さないので、原文は sale_description に置くだけにする。
+    -- description と rental_description には触らない（レンタル向けの文は自前で作る）
+    sale_description  = coalesce(nullif(sale_description,''), nullif(p_item->>'caption','')),
     -- 画像は images（楽天から取り込んだ写真）にだけ入れる。image_url は
     -- 「人が/zaikoで指定したメイン画像」専用にして、同期では一切触らない。
     -- 公開ページは image_url → images[0] の順に見るので、これで写真は出る
@@ -3410,22 +3483,15 @@ drop view if exists public.inv_public_catalog;
 create view public.inv_public_catalog as
 with avail as (
   select product_code,
-         count(*) filter (where status = '在庫')                 as available,
          count(*) filter (where status = '在庫'
-                            and coalesce(rental_eligible, false)) as rental_available,
-         count(*) filter (where status not in ('売却済','廃棄')) as total_owned
+                            and coalesce(rental_eligible, false)) as rental_available
     from public.inventory_items
    group by product_code
-),
-rk as (
-  select product_code, url, state, price
-    from public.inventory_channel_listings
-   where channel = 'rakuten'
 )
 select
   p.code, p.name, p.model, p.maker, p.category_id, c.name as category_name,
   public.inv_model_key(p.maker, p.model, p.code)                    as model_key,
-  p.spec, p.description,
+  p.spec,
   coalesce(nullif(p.image_url,''),
            (select x from jsonb_array_elements_text(coalesce(p.images,'[]'::jsonb)) x
              where btrim(x) <> '' limit 1))                        as image_url,
@@ -3435,43 +3501,33 @@ select
              where btrim(x) <> '' limit 1))                        as rental_image_url,
   case when jsonb_array_length(coalesce(p.rental_images,'[]'::jsonb)) > 0
        then p.rental_images else coalesce(p.images,'[]'::jsonb) end as rental_images,
+  -- 事実としてのスペック（条件で選んでもらうために出す）
   p.cpu, p.cpu_gen, p.memory_size, p.storage_type, p.storage_capacity,
   p.screen_size, p.os, p.webcam, p.wifi, p.bluetooth, p.numpad, p.accessories,
-  p.office_supported,
-  -- 実在庫（両チャネル共通。ここから二重に確保されることはない）
-  coalesce(a.available, 0)::integer                                 as available,
-  coalesce(a.total_owned, 0)::integer                               as total_owned,
-  -- レンタル（8EC）。掲載は商品の rental_enabled、貸せる台数は個体の rental_eligible
+  p.condition_note, p.office_supported,
+  -- レンタル（8EC）。台数は出さず、用意できるかどうかだけ
   coalesce(p.rental_enabled, false)                                 as rental_enabled,
-  coalesce(a.rental_available, 0)::integer                          as rental_available,
-  -- 在庫が0でも申込を受けられるか（取り寄せ）
   coalesce(p.procurement_available, false)                          as procurement_available,
+  case when coalesce(a.rental_available, 0) > 0 then 'ご案内可能'
+       when coalesce(p.procurement_available, false) then '取り寄せ可能'
+       else 'ご相談ください' end                                    as availability,
   p.rental_price_month, p.rental_min_months, p.trial_eligible, p.rental_tags,
-  coalesce(nullif(p.rental_description,''), p.description)          as rental_description,
-  -- 販売（楽天）。掲載状態と購入できる数量を分けて出す
-  coalesce(rk.state = '出品中' and nullif(rk.url,'') is not null, false) as sale_listed,
-  coalesce(rk.state = '出品中' and nullif(rk.url,'') is not null, false) as sale_enabled,
-  case when rk.state = '出品中' and nullif(rk.url,'') is not null
-       then coalesce(a.available, 0)::integer else 0 end            as sale_available,
-  case when rk.state = '出品中' and nullif(rk.url,'') is not null then 'rakuten' end as sale_channel,
-  case when rk.state = '出品中' and nullif(rk.url,'') is not null then rk.url   end as sale_url,
-  case when rk.state = '出品中' and nullif(rk.url,'') is not null then rk.price end as sale_price,
+  -- 8ECが出す説明はレンタル向けの文だけ（楽天の販売用の文は出さない）
+  nullif(btrim(coalesce(p.rental_description,'')), '')              as rental_description,
   p.updated_at
 from public.inventory_products p
 left join public.inventory_categories c on c.id = p.category_id
 left join avail a on a.product_code = p.code
-left join rk on rk.product_code = p.code
 where p.kind = 'individual'
   and coalesce(p.rental_enabled, false) = true;
 
 comment on view public.inv_public_catalog is
-  '8ECトップと8RENTが共通で読む公開カタログ。8ECはレンタルサイトなので rental_enabled=true の商品だけを出す
-   （楽天に出品中かどうかは公開条件にしない）。1行は仕様違いの枝番で、8RENTのカードは model_key
-   （メーカー＋型番）でまとめて1機種1枚にする。available は status=在庫 の個体数、
-   rental_available はそのうち rental_eligible=true（8RENTに出すと選んだ）個体数、
-   procurement_available は在庫0でも申込を受けられるか。
-   楽天の掲載（sale_listed）と、楽天でいま購入できる数量（sale_available）は別の列で持つ。
-   シリアル・仕入価格・利用者・備考・管理番号は含めない。';
+  '8ECトップ／8RENTが読む公開カタログ。rental_enabled=true の商品だけを出す。
+   在庫数（available / rental_available / total_owned）と楽天の販売情報
+   （sale_listed / sale_available / sale_url / sale_price）は公開しない。
+   用意できるかどうかは availability（ご案内可能／取り寄せ可能／ご相談ください）だけで表す。
+   説明は rental_description（レンタル向けに作り直した文）のみ。
+   社内で数量を見るときは inv_channel_stock_feed（authenticated専用）を使う。';
 
 -- ------------------------------------------------------------
 -- 30-6) 商品画像の登録（/zaiko の商品詳細から）
@@ -4303,11 +4359,13 @@ grant execute on function public.inv_rakuten_sync_apply(jsonb) to authenticated;
 grant execute on function public.inv_rakuten_link_confirm(text,jsonb) to authenticated;
 grant execute on function public.inv_product_images_set(text,text,jsonb) to authenticated;
 -- anon（8RENT・8ECトップの一般訪問者）にはこの関数の実行だけを許可。テーブルへの直接書き込み権限は与えない
-grant execute on function public.inv_rental_apply(text[],text,integer,text,text,text,date,integer,boolean,text,jsonb) to anon;
-grant execute on function public.inv_rental_request(text,text,text,text,text,date,integer,text) to anon;
+grant execute on function public.inv_rental_request_create(text[],text,integer,text,text,text,date,integer,boolean,text,jsonb) to anon;
 grant execute on function public.inv_model_key(text,text,text) to anon, authenticated;
 grant execute on function public.inv_rental_allocate(bigint) to authenticated;
 grant execute on function public.inv_product_procurement_set(text,boolean) to authenticated;
+grant execute on function public.inv_rental_text(text) to authenticated;
+grant execute on function public.inv_rental_text_fill(boolean) to authenticated;
+grant execute on function public.inv_product_rental_description_set(text,text,boolean) to authenticated;
 grant usage on schema public to anon;
 grant select on public.inv_rental_catalog to anon, authenticated;
 grant select on public.inv_public_catalog to anon, authenticated;

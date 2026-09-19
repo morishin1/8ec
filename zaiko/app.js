@@ -3728,6 +3728,7 @@ function rentalBox(p) {
     <div><div class="lbl">取り寄せ</div><div class="v">${p.procurement_available ? '可' : '—'}</div></div>
     <div><div class="lbl">最低利用期間</div><div class="v">${p.rental_min_months || 1}ヶ月〜</div></div>
     <button class="btn sm ghost" onclick="sheetRentalSet('${esc(p.code)}')" ${dis()}>8RENT設定を変える</button>
+    <button class="btn sm ghost" onclick="sheetRentalText('${esc(p.code)}')" ${dis()}>レンタル向け説明</button>
   </div>
   ${on ? `<p class="meta" style="margin-top:6px">${[
       p.office_supported ? 'Office対応' : '', p.trial_eligible ? 'お試し対象' : '',
@@ -3837,8 +3838,6 @@ function sheetRentalSet(code) {
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:6px">${RENTAL_TAGS.map(t => `
           <label class="bchk"><input type="checkbox" class="rtTag" value="${t.key}" ${tags.includes(t.key) ? 'checked' : ''}> ${esc(t.label)}</label>`).join('')}
         </div></label>
-      <label class="field" style="margin-bottom:10px"><span>説明文（8RENT公開用）</span>
-        <textarea class="input" id="rtDesc" rows="3" placeholder="この機器がおすすめの用途など">${esc(p.rental_description || '')}</textarea></label>
       <label class="field"><span>画像URL</span>
         <input class="input" id="rtImg" value="${esc(p.rental_image_url || '')}" placeholder="https://…"></label>`,
     run: (val) => saveRentalSet(code, val === 'true')
@@ -3850,7 +3849,8 @@ async function saveRentalSet(code, enabled) {
     p_code: code, p_enabled: enabled,
     p_price_month: numField('rtPrice'), p_min_months: numField('rtMonths') || 1,
     p_office: !!($('rtOffice') || {}).checked, p_trial: !!($('rtTrial') || {}).checked,
-    p_tags: tags, p_description: ($('rtDesc') || {}).value || null, p_image_url: ($('rtImg') || {}).value || null
+    p_tags: tags, p_description: (prod(code) || {}).rental_description || null,
+    p_image_url: ($('rtImg') || {}).value || null
   });
   if (error) { toast('保存できませんでした：' + error.message); return; }
   let saved = data;
@@ -3866,6 +3866,51 @@ async function saveRentalSet(code, enabled) {
   await refreshTx();
   render();
   toast(enabled ? '8RENTに公開しました' : '8RENT設定を保存しました');
+}
+
+/* ---- レンタル向け説明 ----
+   8ECの公開画面はこの文だけを出す。楽天の商品説明（sale_description）は
+   販売向けの文言が多いので、そのままは使わない。
+   基本は構造化スペックからの自動生成で、直したい商品だけ人が書き換える。
+   人が直した文は、生成ボタンでも楽天同期でも上書きしない。 */
+function sheetRentalText(code) {
+  const p = prod(code); if (!p) return;
+  openSheet({
+    title: 'レンタル向け説明', subject: code, cta: '保存',
+    hint: `8ECの公開画面に出る文です。<strong>楽天の商品説明はそのままでは使いません</strong>
+      （領収書・保証・返品などの販売向けの文言が入っているため）。
+      ${p.rental_description_manual ? '<br><strong>この商品は人が直した文です。</strong>自動生成や楽天同期では上書きされません。' : ''}`,
+    body: `<label class="field" style="margin-bottom:8px"><span>レンタル向け説明</span>
+        <textarea class="input" id="rdText" rows="10" style="line-height:1.8"
+          placeholder="スペックから自動で作れます">${esc(p.rental_description || '')}</textarea></label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <button type="button" class="btn sm" onclick="genRentalText('${esc(code)}')">レンタル説明を生成</button>
+        <span class="meta">用途／主な仕様／Office／付属品／状態／希望の送りかた の順に、
+          登録済みのスペックから作ります（分かっている項目だけ書きます）。</span>
+      </div>
+      ${p.sale_description ? `<div class="sec" style="font-size:15px;margin:14px 0 6px">楽天の商品説明（原文・公開しません）</div>
+        <div class="pre legacy" style="max-height:160px;overflow:auto">${esc(p.sale_description)}</div>` : ''}`,
+    run: () => saveRentalText(code, (($('rdText') || {}).value || '').trim())
+  });
+}
+/* 生成はサーバー側の inv_rental_text（公開画面と同じ規則）に任せる */
+async function genRentalText(code) {
+  const { data, error } = await sb.rpc('inv_rental_text', { p_code: code });
+  if (error) { toast('作れませんでした：' + error.message); return; }
+  const el = $('rdText');
+  if (el) { el.value = data || ''; el.focus(); }
+  toast('スペックから作りました。必要なら直して保存してください');
+}
+async function saveRentalText(code, text) {
+  const { data, error } = await sb.rpc('inv_product_rental_description_set', {
+    p_code: code, p_text: text || null, p_manual: true
+  });
+  if (error) { toast('保存できませんでした：' + error.message); return; }
+  const i = db.masters.findIndex(x => x.code === code);
+  if (i >= 0 && data) db.masters[i] = data;
+  await refreshTx();
+  render();
+  toast('レンタル向け説明を保存しました（以後、自動生成や楽天同期では上書きしません）');
 }
 
 /* --- 個体一覧。QRを出し、クリックで操作できる --- */
@@ -5507,7 +5552,7 @@ function handleCode(raw) {
    inv_rental_request() が自動でやっている（在庫の個体を1台「予約中」にする）ので、
    ここでの操作は状態を進めるだけ：発送する（予約中→貸出中）／返却済みにする（貸出中→在庫）／
    キャンセル（予約中→在庫）。個体の状態と申込の状態は常に連動する。 */
-const RENTAL_STATES = ['申込', '調達確認', '貸出中', '返却済み', 'キャンセル'];
+const RENTAL_STATES = ['希望受付', '在庫・調達確認', '個体割当', 'レンタル確定', '貸出中', '返却済み', 'キャンセル'];
 function onRentalFilter() {
   ui.fRental = ($('rf-status') || {}).value || '';
   renderRentalBody();
@@ -5517,15 +5562,18 @@ function renderRentalBody() {
   if (el) el.innerHTML = rentalBodyHtml();
 }
 function viewRentalRequests() {
-  const open = db.rentalReqs.filter(r => r.status === '申込').length;
-  const procure = db.rentalReqs.filter(r => r.status === '調達確認').length;
+  const open = db.rentalReqs.filter(r => r.status === '希望受付').length;
+  const procure = db.rentalReqs.filter(r => ['在庫・調達確認', '個体割当', 'レンタル確定'].includes(r.status)).length;
   return `<h1>8RENT申込</h1>
-    <p class="sub" style="margin:8px 0 15px">8RENTから入ったレンタル申込です。お客様は条件と台数だけを選び、どの個体を貸すかはサーバーが決めます。
-      在庫から取れたぶんは申込の時点で「予約中」になっています。発送したら「発送する」＝貸出確定、戻ってきたら「返却済みにする」を押してください。<br>
-      在庫が足りなかったぶんは「調達確認」で止まります。仮の個体は作らないので、取り寄せた現物を登録して8RENT対象にしてから「個体を割り当てる」を押してください。</p>
+    <p class="sub" style="margin:8px 0 15px">8RENTから届いた<strong>ご希望</strong>です。お客様は個体を選びません。条件と台数だけが届きます。<br>
+      <strong>希望受付</strong>の時点では在庫を押さえていません。
+      <strong>確認を始める</strong>→<strong>個体を割り当てる</strong>（ここではじめて個体が「予約中」になります）→
+      <strong>レンタル確定</strong>→<strong>発送する</strong>→<strong>返却済みにする</strong>の順で進めてください。<br>
+      在庫が足りないぶんは「在庫・調達確認」のまま残ります。仮の個体は作らないので、取り寄せた現物を登録して
+      8RENT対象にしてから、もう一度「個体を割り当てる」を押してください。</p>
     ${open || procure ? `<div class="card" style="background:#FFF4E5;margin-bottom:15px;display:flex;align-items:center;gap:10px">
       <span class="ms" style="font-size:20px;color:#B26A00">notifications_active</span>
-      <div>${[open ? `発送待ちの申込が <b>${open}件</b>` : '', procure ? `取り寄せ待ちが <b>${procure}件</b>` : '']
+      <div>${[open ? `未対応のご希望が <b>${open}件</b>` : '', procure ? `対応中が <b>${procure}件</b>` : '']
         .filter(Boolean).join('、')} あります。</div>
     </div>` : ''}
     <div style="max-width:260px;margin-bottom:12px">
@@ -5537,9 +5585,22 @@ function viewRentalRequests() {
     <div id="rentalBody">${rentalBodyHtml()}</div>`;
 }
 const rentalStatusTag = (s) => {
-  const cls = { '申込': 'few', '調達確認': 'few', '貸出中': 'ok', '返却済み': 'none', 'キャンセル': 'none' }[s] || 'none';
+  const cls = { '希望受付': 'few', '在庫・調達確認': 'few', '個体割当': 'few',
+                'レンタル確定': 'ok', '貸出中': 'ok', '返却済み': 'none', 'キャンセル': 'none' }[s] || 'none';
   return `<span class="tag stk-${cls}">${esc(s)}</span>`;
 };
+/* お客様が送ってきた条件を1行にする（公開側の申込フォームと同じ並び） */
+function rentalCondText(r) {
+  const c = r.conditions || {};
+  return [
+    c.cpu, c.memory_gb ? `メモリ${c.memory_gb}GB以上` : '',
+    c.storage_gb ? (c.storage_gb >= 1024 ? 'SSD 1TB以上' : `SSD ${c.storage_gb}GB以上`) : '',
+    { small: '13型以下', mid: '14型前後', large: '15型以上' }[c.screen] || '',
+    c.office === 'yes' ? 'Officeあり' : (c.office === 'no' ? 'Officeなし' : ''),
+    c.webcam ? 'カメラ必須' : '', c.numpad ? 'テンキー必須' : ''
+  ].filter(Boolean).join('／');
+}
+
 /* 申込に割り当てられた個体。複数台に対応する前の申込は item_id にだけ入っている */
 const reqItems = (r) => (r.item_ids && r.item_ids.length ? r.item_ids : (r.item_id ? [r.item_id] : []));
 function rentalBodyHtml() {
@@ -5566,13 +5627,18 @@ function rentalBodyHtml() {
       </tr>`;
     }).join('')}</tbody></table></div>`;
 }
+/* 希望受付 → 在庫・調達確認 → 個体割当 → レンタル確定 → 貸出中 → 返却済み。
+   個体を押さえるのは「個体を割り当てる」を押したときだけ。 */
 function rentalActionBtns(r) {
-  if (r.status === '申込') return `
-    <button class="btn sm" onclick="doRentalStatus(${r.id},'貸出中')">発送する</button>
-    <button class="btn sm ghost" onclick="doRentalStatus(${r.id},'キャンセル')">キャンセル</button>`;
-  if (r.status === '調達確認') return `
-    <button class="btn sm" onclick="doRentalAllocate(${r.id})">個体を割り当てる</button>
-    <button class="btn sm ghost" onclick="doRentalStatus(${r.id},'キャンセル')">キャンセル</button>`;
+  const cancel = `<button class="btn sm ghost" onclick="doRentalStatus(${r.id},'キャンセル')">キャンセル</button>`;
+  if (r.status === '希望受付') return `
+    <button class="btn sm" onclick="doRentalStatus(${r.id},'在庫・調達確認')">確認を始める</button>${cancel}`;
+  if (r.status === '在庫・調達確認') return `
+    <button class="btn sm" onclick="doRentalAllocate(${r.id})">個体を割り当てる</button>${cancel}`;
+  if (r.status === '個体割当') return `
+    <button class="btn sm" onclick="doRentalStatus(${r.id},'レンタル確定')">レンタル確定</button>${cancel}`;
+  if (r.status === 'レンタル確定') return `
+    <button class="btn sm" onclick="doRentalStatus(${r.id},'貸出中')">発送する</button>${cancel}`;
   if (r.status === '貸出中') return `<button class="btn sm" onclick="doRentalStatus(${r.id},'返却済み')">返却済みにする</button>`;
   return '';
 }
@@ -5589,6 +5655,7 @@ function showRentalDetail(id) {
       <div><span class="k">商品</span>${esc(p ? titleOf(p) : r.product_code)}</div>
       <div><span class="k">台数</span>${r.qty || 1}台${r.procure_qty ? `（うち取り寄せ ${r.procure_qty}台）` : ''}</div>
       <div><span class="k">Office</span>${r.office ? '希望あり' : '—'}</div>
+      <div><span class="k">ご希望の条件</span>${esc(rentalCondText(r)) || '—'}</div>
       <div><span class="k">割り当てた個体</span>${reqItems(r).length
         ? reqItems(r).map(id => `<a href="#" onclick="closeModal();go('item','${esc(id)}');return false">${esc(id)}</a>`).join('、')
         : '—'}</div>
@@ -5599,13 +5666,21 @@ function showRentalDetail(id) {
     </div>
     ${r.message ? `<div class="sec" style="font-size:16px;margin:16px 0 6px">お問い合わせ内容</div><div class="pre">${esc(r.message)}</div>` : ''}
   `, [['閉じる', 'closeModal()', 'btn ghost'],
-      ...(canEdit() && r.status === '申込' ? [
+      ...(canEdit() && r.status === '希望受付' ? [
         ['キャンセル', `doRentalStatus(${r.id},'キャンセル');closeModal()`, 'btn ghost'],
-        ['発送する', `doRentalStatus(${r.id},'貸出中');closeModal()`, 'btn lime']
+        ['確認を始める', `doRentalStatus(${r.id},'在庫・調達確認');closeModal()`, 'btn lime']
       ] : []),
-      ...(canEdit() && r.status === '調達確認' ? [
+      ...(canEdit() && r.status === '在庫・調達確認' ? [
         ['キャンセル', `doRentalStatus(${r.id},'キャンセル');closeModal()`, 'btn ghost'],
         ['個体を割り当てる', `doRentalAllocate(${r.id});closeModal()`, 'btn lime']
+      ] : []),
+      ...(canEdit() && r.status === '個体割当' ? [
+        ['キャンセル', `doRentalStatus(${r.id},'キャンセル');closeModal()`, 'btn ghost'],
+        ['レンタル確定', `doRentalStatus(${r.id},'レンタル確定');closeModal()`, 'btn lime']
+      ] : []),
+      ...(canEdit() && r.status === 'レンタル確定' ? [
+        ['キャンセル', `doRentalStatus(${r.id},'キャンセル');closeModal()`, 'btn ghost'],
+        ['発送する', `doRentalStatus(${r.id},'貸出中');closeModal()`, 'btn lime']
       ] : []),
       ...(canEdit() && r.status === '貸出中' ? [
         ['返却済みにする', `doRentalStatus(${r.id},'返却済み');closeModal()`, 'btn lime']
@@ -5629,9 +5704,9 @@ async function doRentalAllocate(id) {
   render();
   const r = data || {};
   const got = (r.item_ids || []).length;
-  toast(r.status === '申込'
-    ? `申込 #${id} に${got}台そろいました。発送できます`
-    : `申込 #${id} に${got}台まで割り当てました（あと${r.procure_qty}台は取り寄せ待ちです）`);
+  toast(r.status === '個体割当'
+    ? `申込 #${id} に${got}台そろいました。レンタル確定に進めます`
+    : `申込 #${id} に${got}台まで割り当てました（あと${r.procure_qty}台は在庫・調達待ちです）`);
 }
 
 /* Escapeで、開いているものを手前から順に閉じる */

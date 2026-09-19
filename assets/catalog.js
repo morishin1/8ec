@@ -1,36 +1,38 @@
 /* ===================================================================
-   8EC / 8RENT 共通：公開カタログの取得・画像選択・提供可能数の表示
+   8EC / 8RENT 共通：公開カタログの取得・画像選択・用意できるかの表示
 
-   チャネルの役割
-     楽天 … 販売チャネル（購入は楽天市場の商品ページで完結する）
-     8EC  … レンタルチャネル（このサイトはレンタルの入口）
-   同じ商品・同じ実在庫を両方に出すが、公開条件は別。8ECに載せる条件は
-   rental_enabled=true だけで、楽天に出品中かどうかは条件にしない。
-   逆に、8ECでレンタル中でも楽天の商品ページ（掲載）は消さない。
+   役割分担
+     楽天    … 販売チャネル（裏側。公開画面には出さない）
+     8EC     … レンタルチャネル。「いまある在庫から1台選ぶ」のではなく、
+               必要なスペック・台数・期間を送ってもらい、こちらで在庫や仕入れを
+               組み合わせて用意するサービスとして見せる
+     /zaiko  … 商品・実在庫の共通基盤（個体管理はここだけ）
 
-   取得元は Supabase の公開ビュー inv_public_catalog（zaiko/setup.sql・
-   zaiko/migrations/2026-09-19-rental-sale-channels.sql）。/zaiko が管理する
-   商品マスター・画像・実在庫・出品情報から、公開してよい列だけを返す。
-   ビュー自体が rental_enabled=true の商品だけを返す。
+   公開画面に出さないもの
+     実在庫数（残り1台・在庫2台・レンタル可能3台・購入可能台数）
+       … 法人のお客様に「残り1台」と見せると複数台を借りられない印象になるため。
+         数は内部管理（inv_channel_stock_feed）でだけ使う
+     楽天の販売情報（購入リンク・販売価格・販売可能台数）
+     楽天の商品説明の原文（販売向けの文言が多いため）
+
+   取得元は Supabase の公開ビュー inv_public_catalog。ビューの時点で
+   rental_enabled=true の商品だけに絞られ、在庫数と楽天の販売情報は入っていない。
 
      表示項目            → 取得元
      商品名/型番/メーカー → inventory_products
      カテゴリ名          → inventory_categories
      代表画像（1枚だけ）  → rental_image_url → rental_images[0] → image_url → images[0]
-                            → どれも無ければ「画像準備中」。並べて見せるのではなく1枚だけ
-     提供可能数 available → inventory_items.status = '在庫' の個体数
-                            （予約中・販売予約・貸出中・修理中などは含めない）
-     レンタル可否・月額   → rental_enabled / rental_price_month
-                            レンタルを受け付けられるのは rental_available > 0 のときだけ
-     購入先（掲載）      → inventory_channel_listings（楽天に出品中で
-                            登録済みURLがあるもの）。URLは推測生成しない
-     購入できる数量      → sale_available（掲載中でも、発送できない個体は含めない）
+                            → どれも無ければ「画像準備中」
+     スペック（事実）     → cpu / memory_size / storage_* / screen_size / os /
+                            webcam / wifi / bluetooth / numpad / accessories / condition_note
+     用意できるか        → availability（ご案内可能／取り寄せ可能／ご相談ください）
+                            台数は出さない。台数はお客様から伺う
+     説明                → rental_description（レンタル向けに作り直した文だけ）
 
-   「掲載しているか（sale_listed）」と「いま買える数量（sale_available）」は
-   別物として扱う。最後の1台が貸出中なら、掲載は残るが数量は0になる。
+   同じメーカー＋型番は公開側では1商品にまとめる（model_key）。
+   スペック違いは商品詳細と申込条件のバリエーションとして扱う。
 
-   このファイルはサイトのトップ（/ ＝ 8RENT）が読み込む。取得・画像・在庫の判定を
-   画面ごとに書き分けない（ずれた表示を作らない）ための共通部品。
+   このファイルはサイトのトップ（/ ＝ 8RENT）が読み込む。
    /rental/ は / へ転送している（vercel.json の redirects）。
    =================================================================== */
 window.EightCatalog = (function () {
@@ -51,7 +53,6 @@ window.EightCatalog = (function () {
     other:   { icon: 'devices_other',   label: 'その他IT機器' }
   };
   const TAG_LABEL = { recommend: 'おすすめ', popular: '人気', new: '新着' };
-  const SALE_LABEL = { rakuten: '楽天市場で購入' };
 
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const yen = (n) => Number(n || 0).toLocaleString('ja-JP');
@@ -130,37 +131,21 @@ window.EightCatalog = (function () {
     img.replaceWith(d.firstChild);
   }
 
-  /* 提供可能数の表示。0 は「在庫切れ」、少なければ残り台数 */
-  function availTag(n) {
-    if (n > 3) return `<span class="c-avail ok">在庫あり</span>`;
-    if (n > 0) return `<span class="c-avail few">残り${n}台</span>`;
-    return `<span class="c-avail none">在庫切れ</span>`;
+  /* 用意できるかどうかだけを出す。台数は公開しない（台数はお客様から伺う） */
+  const AVAIL_CLASS = { 'ご案内可能': 'ok', '取り寄せ可能': 'few' };
+  function availability(it) {
+    return (it && it.availability) || 'ご相談ください';
+  }
+  function availTag(it) {
+    const t = availability(it);
+    return `<span class="c-avail ${AVAIL_CLASS[t] || 'none'}">${esc(t)}</span>`;
   }
 
-  /* 楽天に掲載中か（出品中で登録済みURLがある）。価格は出品先の販売価格。
-     掲載＝購入できる、ではない。いま買える台数は available（sale_available）で見る */
-  function sale(it) {
-    if (!(it.sale_listed != null ? it.sale_listed : it.sale_enabled) || !validUrl(it.sale_url)) return null;
-    return { label: SALE_LABEL[it.sale_channel] || '購入する', url: it.sale_url, price: it.sale_price,
-             channel: it.sale_channel, available: saleAvailable(it) };
-  }
-  /* レンタルできるか（公開設定ON）。申込できるかは提供可能数で別に判定する */
+  /* レンタルの公開設定と料金。台数は持たない（台数はお客様から伺う） */
   function rental(it) {
     if (!it.rental_enabled) return null;
-    return { price: it.rental_price_month, minMonths: it.rental_min_months || 1, available: rentalAvailable(it) };
+    return { price: it.rental_price_month, minMonths: it.rental_min_months || 1, availability: availability(it) };
   }
-  /* いま楽天で買える台数／いまレンタルできる台数。どちらも元は同じ実在庫
-     （status='在庫' の個体数）で、二重には確保されない */
-  function saleAvailable(it) {
-    if (it.sale_available != null) return Number(it.sale_available) || 0;
-    const listed = (it.sale_listed != null ? it.sale_listed : it.sale_enabled) && validUrl(it.sale_url);
-    return listed ? (Number(it.available) || 0) : 0;
-  }
-  function rentalAvailable(it) {
-    const n = it.rental_available != null ? it.rental_available : it.available;
-    return Number(n) || 0;
-  }
-
   function specLine(it) {
     const parts = [it.cpu, it.memory_size ? it.memory_size + (it.storage_capacity ? '' : '') : '',
       it.storage_capacity ? [it.storage_capacity, it.storage_type].filter(Boolean).join(' ') : '',
@@ -173,69 +158,6 @@ window.EightCatalog = (function () {
     const counts = {};
     items.forEach(it => { if (it.category_id) counts[it.category_id] = (counts[it.category_id] || 0) + 1; });
     return Object.keys(counts).sort((a, b) => counts[b] - counts[a]).map(id => ({ id, label: catLabel(id), icon: catIcon(id), count: counts[id] }));
-  }
-
-  /* 商品カード。opts.mode='rental' なら8RENT向け画像と申込導線、それ以外は購入／レンタルの両導線。
-       opts.onDetail(code) … 詳細を開く関数名（文字列）
-       opts.rentalHref(code) … レンタルページへの遷移先を作る関数
-       opts.qty … 必要台数。提供可能数がこれに満たない商品には購入／レンタルのボタンを出さない */
-  function cardHtml(it, opts) {
-    opts = opts || {};
-    const mode = opts.mode || 'top';
-    const name = esc(title(it));
-    const tags = (it.rental_tags || []).map(t => `<span>${esc(TAG_LABEL[t] || t)}</span>`).join('');
-    const need = Math.max(1, Number(opts.qty || 1));
-    const s = sale(it), r = rental(it);
-    // 台数はチャネルごとに見る（掲載・公開設定が残っていても、発送できない台数は出せない）
-    //   レンタル … rental_enabled で一覧に載せ、rental_available > 0 のときだけ申し込める
-    //   購入     … sale_listed で掲載を保ち、sale_available > 0 のときだけ購入ボタンを出す
-    const buyEnough = !!s && s.available >= need;
-    const rentEnough = !!r && r.available >= need;
-    // 在庫バッジは、その画面で提供するチャネルの台数（8ECはレンタル）
-    const avail = mode === 'rental' ? rentalAvailable(it) : Number(it.available || 0);
-    const badges = [
-      it.office_supported ? `<span><span class="ms">description</span>Office対応</span>` : '',
-      it.trial_eligible && r ? `<span><span class="ms">verified</span>お試し対象</span>` : ''
-    ].filter(Boolean).join('');
-    const spec = specLine(it);
-
-    let prices = '';
-    if (mode === 'rental') {
-      prices = r && r.price
-        ? `<div class="c-price"><span class="month num"><span class="yen">¥</span>${yen(r.price)}</span><span class="unit"> /月（税別）〜${r.minMonths}ヶ月</span></div>`
-        : `<div class="c-noprice">料金はお問い合わせください</div>`;
-    } else {
-      const rows = [];
-      if (s) rows.push(`<div class="c-row"><span class="c-k">購入</span>${s.price ? `<span class="month num"><span class="yen">¥</span>${yen(s.price)}</span><span class="unit"> ${esc(s.label)}</span>` : `<span class="unit">${esc(s.label)}</span>`}</div>`);
-      if (r) rows.push(`<div class="c-row"><span class="c-k">レンタル</span>${r.price ? `<span class="month num"><span class="yen">¥</span>${yen(r.price)}</span><span class="unit"> /月（税別）〜${r.minMonths}ヶ月</span>` : `<span class="unit">月額はお問い合わせください</span>`}</div>`);
-      prices = rows.length ? `<div class="c-price">${rows.join('')}</div>` : `<div class="c-noprice">価格はお問い合わせください</div>`;
-    }
-
-    let actions = '';
-    const detail = opts.onDetail ? `<button type="button" class="btn sm" onclick="event.stopPropagation();${opts.onDetail}('${esc(it.code)}')">詳細を見る</button>` : '';
-    if (mode === 'rental') {
-      actions = detail + (rentEnough
-        ? `<button type="button" class="btn sm lime" onclick="event.stopPropagation();${opts.onDetail}('${esc(it.code)}')">申し込む</button>`
-        : '');
-    } else {
-      const rent = rentEnough && opts.rentalHref
-        ? `<a class="btn sm lime" href="${esc(opts.rentalHref(it.code))}" onclick="event.stopPropagation()">レンタルする</a>` : '';
-      const buy = buyEnough
-        ? `<a class="btn sm ${rent ? '' : 'lime'}" href="${esc(s.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(s.label)}</a>` : '';
-      actions = detail + rent + buy;
-    }
-
-    return `<article class="card" data-code="${esc(it.code)}" ${opts.onDetail ? `onclick="${opts.onDetail}('${esc(it.code)}')"` : ''}>
-    <div class="c-media">${mediaHtml(it, mode)}${tags ? `<div class="c-tags">${tags}</div>` : ''}${availTag(avail)}${it.category_id ? `<span class="c-catbadge">${esc(catLabel(it.category_id))}</span>` : ''}</div>
-    <div class="c-body">
-      ${it.maker ? `<p class="c-maker">${esc(it.maker)}${it.model && it.model !== it.name ? '　' + esc(it.model) : ''}</p>` : (it.model && it.model !== it.name ? `<p class="c-maker">${esc(it.model)}</p>` : '')}
-      <h3 class="c-name">${name}</h3>
-      ${spec ? `<p class="c-spec">${esc(spec)}</p>` : ''}
-      ${badges ? `<div class="c-badges">${badges}</div>` : ''}
-      ${prices}
-      ${actions ? `<div class="c-actions">${actions}</div>` : ''}
-    </div>
-  </article>`;
   }
 
   /* 商品詳細の写真。サムネイルは並べず、代表画像を1枚だけ出す
@@ -265,7 +187,7 @@ window.EightCatalog = (function () {
     return /^[A-Z]+-\d+$/i.test(h) ? h : null;
   }
 
-  return { load, images, mainImage, mediaHtml, imgError, fitShot, availTag, sale, rental, saleAvailable, rentalAvailable,
-           specLine, categoryCounts, cardHtml,
+  return { load, images, mainImage, mediaHtml, imgError, fitShot, availTag, availability, rental,
+           specLine, categoryCounts,
            galleryHtml, codeFromUrl, catLabel, catIcon, title, esc, yen, CAT_META, TAG_LABEL, SUPA_URL, SUPA_KEY, client };
 })();
