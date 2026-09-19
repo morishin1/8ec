@@ -336,6 +336,7 @@ Supabase の SQL Editor で `zaiko/setup.sql` を実行します。何度実行�
 | `2026-09-19-sale-flow.sql` | 売却の記録に**売却先**（`inventory_items.sold_channel`）を足し、履歴に 売却先・原価・利益 を載せる。販売サイトの管理画面URL（`inventory_channel_listings.admin_url` と `inventory_channel_settings`）と `inv_item_sell()` |
 | `2026-09-19-rental-inquiry.sql` | 公開側を**法人向けレンタル相談型**に。`inv_public_catalog` から在庫数と楽天の販売情報を外し（`availability` だけにする）、申込を「希望受付」に変える（`inv_rental_request_create`）。レンタル向け説明の自動生成（`inv_rental_text`）、楽天の説明原文は `sale_description` へ。**実行後に `select public.inv_rental_text_fill(true);` でレンタル説明を作ってください** |
 | `2026-09-19-rental-text-fill-admin-fix.sql` | `inv_rental_text_fill()` を **Supabase SQL Editor からも実行できる**ようにする（判定を `inv_can_maintain()` へ）。Webアプリからは管理者だけ、一般メンバー・閲覧のみ・anon は不可のまま |
+| `2026-09-19-rental-text-by-category.sql` | レンタル説明を**商品のかたちごと**に作り分ける（`rental_form`）。モニター・周辺機器にOfficeやPC向けの文章を出さない。`rental_listing_type` で単品レンタル／PCのオプション／非公開を分け、公開カタログは単品レンタルだけを出す。**実行後に `select public.inv_rental_text_fill(false);` で作り直してください** |
 
 ### 使う人と権限
 
@@ -1086,6 +1087,52 @@ Office：ご希望に応じてOffice付きでご用意できます（申込時�
 状態：中古品です。動作を確認したうえで、クリーニングしてお渡しします。
 ご希望の台数・利用期間・Officeの有無をお知らせください。在庫・調達状況を確認のうえ担当者よりご案内します。
 ```
+
+#### 商品のかたちごとに文章を分ける
+
+本番では公開中の商品がすべて `category_id='pc'` で、モニターもセキュリティワイヤーもPC扱いです。
+カテゴリでは出し分けられないので、レンタル用の区分を別に持ちます。
+
+| `rental_form` | ひな形 |
+|---|---|
+| `notebook` / `desktop` | 用途 → 主な仕様 → **Office** → 付属品 → 状態 → 希望台数・期間の案内 |
+| `monitor` | サイズなど → 接続・付属品 → 状態 → 希望数量・期間の案内 |
+| `peripheral` | 用途 → 主な仕様・付属品 → 状態 → 希望数量・期間の案内 |
+| 未分類（null） | 登録済みスペックの有無だけから推定。**推定できなければ、かたちを断定しない文章**にする |
+
+**PC以外には Office・CPU・OS・Webカメラ・「この機種」を出しません。**
+未分類の推定は「CPU/OS/メモリのどれかがある → PC」「PCの手がかりが無く画面サイズだけある → モニター」という
+**列に値があるかどうかだけ**で行い、商品名やキーワードからの当て推量はしません。
+
+| Officeの出しかた | 条件 |
+|---|---|
+| ご希望に応じてOffice付きでご用意できます | `office_supported = true`（確認ずみ） |
+| この商品はOfficeの追加に対応できません | `office_unavailable = true`（はっきりしている場合だけ） |
+| **Officeの有無はお申し込み時にご希望をお知らせください**（既定） | 上のどちらでもない |
+
+`office_supported = false` は「Officeなしでしか貸せない」ではなく**未確認**という意味です。
+8RENTは希望を伺って用意するサービスなので、既定は相談できる表現にしています。
+
+スペックが足りない商品（型番しか分からないもの）は、空同然の説明にせず
+`法人利用向けのノートPCです。詳細な仕様は、ご希望条件に合わせてご案内します。` のようにします。
+**分からないスペックを推測して書くことはしません。**
+
+#### 単品レンタルか、PCのオプションか
+
+| `rental_listing_type` | 8ECでの扱い |
+|---|---|
+| `standalone`（既定） | 商品カードとして公開する |
+| `option` | PCレンタルのオプション。**単独のカードにはしない**（セキュリティワイヤーなど） |
+| `not_public` | 公開しない |
+
+公開カタログは `standalone` の商品だけを返します。`rental_enabled = true` だから機械的に公開する、
+という運用にはしません。区分が未設定のまま公開している商品は次で洗い出せます。
+
+```sql
+select * from public.inv_rental_unclassified();
+```
+
+区分は `/zaiko` の商品詳細 →「8RENT設定を変える」で設定します。
 
 `/zaiko` の商品詳細 →「レンタル向け説明」で人が直せます（「レンタル説明を生成」ボタンつき）。
 **人が直した文（`rental_description_manual = true`）は、自動生成でも楽天同期でも上書きしません。**

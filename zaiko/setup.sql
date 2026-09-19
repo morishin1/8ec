@@ -2134,6 +2134,30 @@ alter table public.inventory_products add column if not exists sale_description 
 alter table public.inventory_products add column if not exists condition_note text;
 -- レンタル向け説明を人が直したか。true なら自動生成でも楽天同期でも上書きしない
 alter table public.inventory_products add column if not exists rental_description_manual boolean not null default false;
+-- レンタル説明のひな形を決める区分と、8ECでの出しかた
+alter table public.inventory_products add column if not exists rental_form         text;
+alter table public.inventory_products add column if not exists rental_listing_type text not null default 'standalone';
+-- Officeを付けられないことがはっきりしている商品だけ true（false は「未確認」）
+alter table public.inventory_products add column if not exists office_unavailable  boolean not null default false;
+
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'inventory_products_rental_form_chk') then
+    alter table public.inventory_products add constraint inventory_products_rental_form_chk
+      check (rental_form is null or rental_form in ('notebook','desktop','monitor','peripheral','other'));
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'inventory_products_rental_listing_type_chk') then
+    alter table public.inventory_products add constraint inventory_products_rental_listing_type_chk
+      check (rental_listing_type in ('standalone','option','not_public'));
+  end if;
+end $$;
+
+comment on column public.inventory_products.rental_form is
+  'レンタル説明のひな形を決める区分（notebook/desktop/monitor/peripheral/other）。
+   nullは未分類で、分かっている事実から推定する。推定できなければかたちを断定しない文章にする。';
+comment on column public.inventory_products.rental_listing_type is
+  '8ECでの出しかた。standalone=単品レンタルとしてカード公開／option=PCレンタルのオプション（単独公開しない）／not_public=公開しない。';
+comment on column public.inventory_products.office_unavailable is
+  'Officeを付けられないことがはっきりしている商品だけ true。office_supported=false は「不可」ではなく「未確認」。';
 
 comment on column public.inventory_products.procurement_available is
   '在庫が無くてもレンタルの申込を受けられるか（取り寄せ）。true なら8RENTに「取り寄せ可能」として出て、
@@ -2256,148 +2280,17 @@ comment on function public.inv_product_procurement_set is
   '在庫が無くてもレンタルの申込を受けるか（取り寄せ）を切り替える。8RENTでは「取り寄せ可能」と出て、
    申込は「調達確認」から始まる。仮の個体は作らない。';
 
-create or replace function public.inv_rental_text(p_code text)
-returns text
-language plpgsql stable set search_path = public as $$
-declare
-  p        public.inventory_products;
-  v_screen numeric;
-  v_mem    numeric;
-  v_use    text;
-  v_spec   text[] := '{}';
-  v_out    text[] := '{}';
-  v_office text;
-  v_cond   text;
-begin
-  select * into p from public.inventory_products where code = p_code;
-  if not found then
-    return null;
-  end if;
 
-  v_screen := nullif(regexp_replace(coalesce(p.screen_size,''), '[^0-9.]', '', 'g'), '')::numeric;
-  v_mem    := nullif(regexp_replace(coalesce(p.memory_size,''), '[^0-9]',   '', 'g'), '')::numeric;
 
-  -- 1) どんな用途に向いているか。画面の大きさとメモリから、言い切れる範囲だけ書く
-  v_use := case
-    when v_screen is null then null
-    when v_screen <= 13.5 then coalesce(p.screen_size,'') || 'の持ち運びやすいノートPC。'
-    when v_screen <= 14.9 then coalesce(p.screen_size,'') || 'の標準的なサイズのノートPC。'
-    else coalesce(p.screen_size,'') || 'の大画面ノートPC。'
-  end;
-  if v_use is not null then
-    v_use := v_use || case
-      when p.cpu is null and v_mem is null then 'オフィスワークの基本的な用途に向いています。'
-      when v_mem is not null and v_mem >= 16 then
-        coalesce(p.cpu || '・', '') || 'メモリ' || coalesce(p.memory_size,'') ||
-        'を搭載し、複数アプリを使う事務作業やオンライン会議にも対応しやすい構成です。'
-      when v_mem is not null then
-        coalesce(p.cpu || '・', '') || 'メモリ' || coalesce(p.memory_size,'') ||
-        'を搭載し、文書作成・表計算・オンライン会議などの事務作業に向いた構成です。'
-      else coalesce(p.cpu, '') || 'を搭載しています。'
-    end;
-    v_out := array_append(v_out, v_use);
-  end if;
 
-  -- 2) 主な仕様。分かっているものだけを並べる
-  if nullif(btrim(coalesce(p.cpu,'')),'')  is not null then v_spec := array_append(v_spec, btrim(p.cpu)); end if;
-  if nullif(btrim(coalesce(p.memory_size,'')),'') is not null then v_spec := array_append(v_spec, btrim(p.memory_size)); end if;
-  if nullif(btrim(coalesce(p.storage_capacity,'')),'') is not null then
-    v_spec := array_append(v_spec, btrim(coalesce(p.storage_type || ' ', '') || p.storage_capacity));
-  end if;
-  if nullif(btrim(coalesce(p.screen_size,'')),'') is not null then v_spec := array_append(v_spec, btrim(p.screen_size)); end if;
-  if nullif(btrim(coalesce(p.os,'')),'') is not null then v_spec := array_append(v_spec, btrim(p.os)); end if;
-  if p.webcam   is true then v_spec := array_append(v_spec, 'Webカメラ'); end if;
-  if p.wifi     is true then v_spec := array_append(v_spec, 'Wi-Fi'); end if;
-  if p.bluetooth is true then v_spec := array_append(v_spec, 'Bluetooth'); end if;
-  if p.numpad   is true then v_spec := array_append(v_spec, 'テンキー'); end if;
-  if coalesce(array_length(v_spec, 1), 0) > 0 then
-    v_out := array_append(v_out, '主な仕様：' || array_to_string(v_spec, ' / '));
-  end if;
 
-  -- 3) Office。付けられるかどうかは申込のオプションとして伝える
-  v_office := case when coalesce(p.office_supported, false)
-    then 'Office：ご希望に応じてOffice付きでご用意できます（申込時にお選びください）。'
-    else 'Office：この機種はOfficeなしでのご用意となります。' end;
-  v_out := array_append(v_out, v_office);
 
-  -- 4) 付属品
-  if nullif(btrim(coalesce(p.accessories,'')),'') is not null then
-    v_out := array_append(v_out, '付属品：' || btrim(p.accessories));
-  end if;
 
-  -- 5) 中古品としての状態
-  v_cond := nullif(btrim(coalesce(p.condition_note,'')), '');
-  v_out := array_append(v_out, '状態：' || coalesce(v_cond,
-    '中古品です。動作を確認したうえで、クリーニングしてお渡しします。外観に使用に伴う小傷がある場合があります。'));
 
-  -- 6) 希望を送ってもらう案内
-  v_out := array_append(v_out,
-    'ご希望の台数・利用期間・Officeの有無をお知らせください。在庫・調達状況を確認のうえ担当者よりご案内します。');
 
-  return array_to_string(v_out, E'\n');
-end $$;
 
-comment on function public.inv_rental_text is
-  'レンタル向け説明を、構造化済みのスペックから組み立てる。楽天の販売用の文は使わない。
-   分かっている項目だけを書く（用途／主な仕様／Office／付属品／状態／希望の送りかた）。';
 
-create or replace function public.inv_product_rental_description_set(
-  p_code   text,
-  p_text   text default null,
-  p_manual boolean default true
-) returns public.inventory_products
-language plpgsql security invoker set search_path = public as $$
-declare
-  pr public.inventory_products;
-begin
-  if not public.inv_can_edit() then
-    raise exception '操作する権限がありません（閲覧のみ）';
-  end if;
-  update public.inventory_products
-     set rental_description        = nullif(btrim(coalesce(p_text,'')), ''),
-         rental_description_manual = coalesce(p_manual, true)
-   where code = p_code
-  returning * into pr;
-  if not found then
-    raise exception '商品が見つかりません（%）', p_code;
-  end if;
-  return pr;
-end $$;
 
--- まだ手を入れていない商品に、自動生成のレンタル向け説明をまとめて入れる。
--- Webアプリからは管理者だけ、SQL Editor などDB管理セッションからは保守実行できる
-create or replace function public.inv_rental_text_fill(p_only_empty boolean default true)
-returns integer
-language plpgsql
-security invoker
-set search_path = public, pg_catalog
-as $$
-declare
-  v_n integer := 0;
-begin
-  -- Webアプリからは管理者だけ。SQL Editor などDBへ直接つないだ保守実行は許可する
-  if not public.inv_can_maintain() then
-    raise exception 'レンタル説明の一括生成は管理者だけができます（いまの権限：%）', public.inv_role()
-      using hint = 'Supabase の SQL Editor から実行する場合はそのまま実行できます。'
-                || 'Webアプリから実行する場合は inventory_members の role を admin にしてください。';
-  end if;
-
-  update public.inventory_products p
-     set rental_description = public.inv_rental_text(p.code)
-   where p.kind = 'individual'
-     and coalesce(p.rental_description_manual, false) = false
-     and (not coalesce(p_only_empty, true)
-          or nullif(btrim(coalesce(p.rental_description,'')), '') is null);
-  get diagnostics v_n = row_count;
-  return v_n;
-end $$;
-
-comment on function public.inv_rental_text_fill is
-  '人が直していない商品のレンタル向け説明を、自動生成で埋める。p_only_empty=false なら作り直す。
-   Webアプリからは管理者だけ、Supabase SQL Editor など DB管理セッションからは保守実行できる。';
-
-comment on function public.inv_product_rental_description_set is
-  'レンタル向け説明を入れ直す。p_manual=true（人が直した）なら、以後は自動生成・楽天同期で上書きしない。';
 
 -- ------------------------------------------------------------
 -- 29-2) レンタル申込（8RENT公開ページからの問い合わせ・申込）
@@ -2879,6 +2772,266 @@ alter table public.inventory_products add column if not exists bluetooth        
 alter table public.inventory_products add column if not exists numpad           boolean;     -- テンキー
 alter table public.inventory_products add column if not exists accessories      text;        -- 付属品
 alter table public.inventory_products add column if not exists rakuten_synced_at timestamptz; -- 最後に楽天から補完した時刻
+
+
+-- ------------------------------------------------------------
+-- 30-1b) レンタル向け説明（商品のかたちごとに作り分ける）
+--     inventory_products のスペック列がそろったあとに置く
+--     （関数本体が p.cpu などを参照するため、列より前には作れない）
+-- ------------------------------------------------------------
+
+create or replace function public.inv_rental_form(p public.inventory_products)
+returns text
+language sql immutable set search_path = pg_catalog, public as $$
+  select case
+    when nullif(btrim(coalesce(p.rental_form,'')), '') is not null then btrim(p.rental_form)
+    -- CPU・OS・メモリのどれかが分かっていればPC。画面があればノート、なければ据え置き
+    when nullif(btrim(coalesce(p.cpu,'')),'') is not null
+      or nullif(btrim(coalesce(p.os,'')),'') is not null
+      or nullif(btrim(coalesce(p.memory_size,'')),'') is not null
+      then case when nullif(btrim(coalesce(p.screen_size,'')),'') is not null
+                then 'notebook' else 'desktop' end
+    -- PCの手がかりが何も無く、画面サイズだけ分かっていればモニター
+    when nullif(btrim(coalesce(p.screen_size,'')),'') is not null then 'monitor'
+    else null            -- 分からない。かたちを断定しない
+  end;
+$$;
+
+comment on function public.inv_rental_form is
+  'レンタル説明のひな形に使う区分。rental_form が入っていればそれを使い、未分類なら
+   登録済みのスペックの有無だけから推定する（商品名やキーワードからの推測はしない）。
+   推定できなければ null を返し、呼び出し側でかたちを断定しない文章にする。';
+
+create or replace function public.inv_rental_text(p_code text)
+returns text
+language plpgsql stable set search_path = public, pg_catalog as $$
+declare
+  p        public.inventory_products;
+  v_form   text;
+  v_screen numeric;
+  v_mem    numeric;
+  v_spec   text[] := '{}';
+  v_out    text[] := '{}';
+  v_head   text;
+  v_has    boolean;
+  v_label  text;
+  v_unit   text;
+begin
+  select * into p from public.inventory_products where code = p_code;
+  if not found then
+    return null;
+  end if;
+  v_form   := public.inv_rental_form(p);
+  v_screen := nullif(regexp_replace(coalesce(p.screen_size,''), '[^0-9.]', '', 'g'), '')::numeric;
+  v_mem    := nullif(regexp_replace(coalesce(p.memory_size,''), '[^0-9]',   '', 'g'), '')::numeric;
+  -- PCらしさの手がかりがあるか（Officeの案内を出してよいか）
+  v_has := nullif(btrim(coalesce(p.cpu,'')),'') is not null
+        or nullif(btrim(coalesce(p.os,'')),'') is not null
+        or nullif(btrim(coalesce(p.memory_size,'')),'') is not null
+        or nullif(btrim(coalesce(p.storage_capacity,'')),'') is not null;
+  v_label := case v_form when 'notebook' then 'ノートPC' when 'desktop' then 'デスクトップPC'
+                         when 'monitor' then 'モニター' when 'peripheral' then '周辺機器' end;
+  v_unit  := case when v_form in ('monitor','peripheral','other') then '数量' else '台数' end;
+
+  -- ① どんな用途に向いているか
+  if v_form in ('notebook','desktop') then
+    if v_has then
+      v_head := case
+        when v_form = 'desktop' then '法人の事務作業向けのデスクトップPCです。'
+        when v_screen is null then '法人の事務作業向けのノートPCです。'
+        when v_screen <= 13.5 then coalesce(p.screen_size,'') || 'の持ち運びやすいノートPCです。'
+        when v_screen <= 14.9 then coalesce(p.screen_size,'') || 'の標準的なサイズのノートPCです。'
+        else coalesce(p.screen_size,'') || 'の大画面ノートPCです。' end;
+      v_head := v_head || case
+        when v_mem is not null and v_mem >= 16 then
+          coalesce(p.cpu || '・', '') || 'メモリ' || coalesce(p.memory_size,'') ||
+          'を搭載し、複数のアプリを並行して使う事務作業やオンライン会議にも対応しやすい構成です。'
+        when v_mem is not null then
+          coalesce(p.cpu || '・', '') || 'メモリ' || coalesce(p.memory_size,'') ||
+          'を搭載し、文書作成・表計算・オンライン会議などの事務作業に向いた構成です。'
+        when p.cpu is not null then p.cpu || 'を搭載しています。'
+        else '' end;
+    else
+      -- 型番しか分からない。仕様を推測せず、条件を伺う文章にする
+      v_head := '法人利用向けの' || coalesce(v_label, 'PC') || 'です。詳細な仕様は、ご希望条件に合わせてご案内します。';
+    end if;
+  elsif v_form = 'monitor' then
+    v_head := coalesce(nullif(p.screen_size,'') || 'の', '') || '法人のオフィス利用向けのモニターです。'
+           || case when v_has then '' else '設置環境やご利用台数に合わせてご案内します。' end;
+  elsif v_form = 'peripheral' then
+    v_head := '法人でのご利用向けの周辺機器です。PCと合わせてのご利用にも対応します。';
+  else
+    v_head := '法人向けにレンタルできる機器です。詳細な仕様やご利用条件は、ご希望に合わせてご案内します。';
+  end if;
+  v_out := array_append(v_out, v_head);
+
+  -- ② 主な仕様。かたちごとに出す項目を変える。分かっているものだけ書く
+  if v_form in ('notebook','desktop') then
+    if nullif(btrim(coalesce(p.cpu,'')),'')  is not null then v_spec := array_append(v_spec, btrim(p.cpu)); end if;
+    if nullif(btrim(coalesce(p.memory_size,'')),'') is not null then v_spec := array_append(v_spec, btrim(p.memory_size)); end if;
+    if nullif(btrim(coalesce(p.storage_capacity,'')),'') is not null then
+      v_spec := array_append(v_spec, btrim(coalesce(p.storage_type || ' ', '') || p.storage_capacity));
+    end if;
+    if nullif(btrim(coalesce(p.screen_size,'')),'') is not null then v_spec := array_append(v_spec, btrim(p.screen_size)); end if;
+    if nullif(btrim(coalesce(p.os,'')),'') is not null then v_spec := array_append(v_spec, btrim(p.os)); end if;
+    if p.webcam    is true then v_spec := array_append(v_spec, 'Webカメラ'); end if;
+    if p.wifi      is true then v_spec := array_append(v_spec, 'Wi-Fi'); end if;
+    if p.bluetooth is true then v_spec := array_append(v_spec, 'Bluetooth'); end if;
+    if p.numpad    is true then v_spec := array_append(v_spec, 'テンキー'); end if;
+  elsif v_form = 'monitor' then
+    -- モニターにCPU・OS・カメラ・Officeは出さない
+    if nullif(btrim(coalesce(p.screen_size,'')),'') is not null then v_spec := array_append(v_spec, btrim(p.screen_size)); end if;
+    if nullif(btrim(coalesce(p.spec,'')),'') is not null then v_spec := array_append(v_spec, btrim(p.spec)); end if;
+  else
+    if nullif(btrim(coalesce(p.spec,'')),'') is not null then v_spec := array_append(v_spec, btrim(p.spec)); end if;
+  end if;
+  if coalesce(array_length(v_spec, 1), 0) > 0 then
+    v_out := array_append(v_out, '主な仕様：' || array_to_string(v_spec, ' / '));
+  end if;
+
+  -- ③ Office。PCのときだけ。8RENTは希望を伺って用意するので、原則は「ご相談ください」
+  if v_form in ('notebook','desktop') or (v_form is null and v_has) then
+    v_out := array_append(v_out, case
+      when coalesce(p.office_unavailable, false)
+        then 'Office：この商品はOfficeの追加に対応できません。'
+      when coalesce(p.office_supported, false)
+        then 'Office：ご希望に応じてOffice付きでご用意できます。お申し込み時にお知らせください。'
+      else 'Office：Officeの有無はお申し込み時にご希望をお知らせください。ご希望に応じてOffice環境をご案内します。'
+    end);
+  end if;
+
+  -- ④ 付属品・接続まわり
+  if nullif(btrim(coalesce(p.accessories,'')),'') is not null then
+    v_out := array_append(v_out,
+      case when v_form = 'monitor' then '接続・付属品：' else '付属品：' end || btrim(p.accessories));
+  end if;
+
+  -- ⑤ 中古品としての状態
+  v_out := array_append(v_out, '状態：' || coalesce(nullif(btrim(coalesce(p.condition_note,'')), ''),
+    '中古品です。動作を確認したうえで、クリーニングしてお渡しします。外観に使用に伴う小傷がある場合があります。'));
+
+  -- ⑥ 希望を送ってもらう案内
+  v_out := array_append(v_out,
+    'ご希望の' || v_unit || '・利用期間'
+    || case when v_form in ('notebook','desktop') or (v_form is null and v_has) then '・Officeの有無' else '' end
+    || 'をお知らせください。在庫・調達状況を確認のうえ担当者よりご案内します。');
+
+  return array_to_string(v_out, E'\n');
+end $$;
+
+comment on function public.inv_rental_text is
+  'レンタル向け説明を、商品のかたち（ノートPC／デスクトップPC／モニター／周辺機器）ごとのひな形で組み立てる。
+   OfficeとPC向けの言い回しはPCのときだけ使う。スペックが足りない商品は、推測せずに
+   条件を伺う文章にする。楽天の販売用の文は使わない。';
+
+create or replace function public.inv_product_rental_description_set(
+  p_code   text,
+  p_text   text default null,
+  p_manual boolean default true
+) returns public.inventory_products
+language plpgsql security invoker set search_path = public as $$
+declare
+  pr public.inventory_products;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  update public.inventory_products
+     set rental_description        = nullif(btrim(coalesce(p_text,'')), ''),
+         rental_description_manual = coalesce(p_manual, true)
+   where code = p_code
+  returning * into pr;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_code;
+  end if;
+  return pr;
+end $$;
+
+-- まだ手を入れていない商品に、自動生成のレンタル向け説明をまとめて入れる。
+-- Webアプリからは管理者だけ、SQL Editor などDB管理セッションからは保守実行できる
+create or replace function public.inv_rental_text_fill(p_only_empty boolean default true)
+returns integer
+language plpgsql
+security invoker
+set search_path = public, pg_catalog
+as $$
+declare
+  v_n integer := 0;
+begin
+  -- Webアプリからは管理者だけ。SQL Editor などDBへ直接つないだ保守実行は許可する
+  if not public.inv_can_maintain() then
+    raise exception 'レンタル説明の一括生成は管理者だけができます（いまの権限：%）', public.inv_role()
+      using hint = 'Supabase の SQL Editor から実行する場合はそのまま実行できます。'
+                || 'Webアプリから実行する場合は inventory_members の role を admin にしてください。';
+  end if;
+
+  update public.inventory_products p
+     set rental_description = public.inv_rental_text(p.code)
+   where p.kind = 'individual'
+     and coalesce(p.rental_description_manual, false) = false
+     and (not coalesce(p_only_empty, true)
+          or nullif(btrim(coalesce(p.rental_description,'')), '') is null);
+  get diagnostics v_n = row_count;
+  return v_n;
+end $$;
+
+comment on function public.inv_rental_text_fill is
+  '人が直していない商品のレンタル向け説明を、自動生成で埋める。p_only_empty=false なら作り直す。
+   Webアプリからは管理者だけ、Supabase SQL Editor など DB管理セッションからは保守実行できる。';
+
+create or replace function public.inv_product_rental_form_set(
+  p_code        text,
+  p_form        text default null,
+  p_listing     text default null,
+  p_office_ng   boolean default null
+) returns public.inventory_products
+language plpgsql security invoker set search_path = public, pg_catalog as $$
+declare
+  pr public.inventory_products;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  if p_form is not null and nullif(btrim(p_form),'') is not null
+     and btrim(p_form) not in ('notebook','desktop','monitor','peripheral','other') then
+    raise exception '知らない区分です（%）', p_form;
+  end if;
+  if p_listing is not null and btrim(p_listing) not in ('standalone','option','not_public') then
+    raise exception '知らない出しかたです（%）', p_listing;
+  end if;
+  update public.inventory_products
+     set rental_form         = case when p_form is null then rental_form
+                                    else nullif(btrim(p_form), '') end,
+         rental_listing_type = coalesce(nullif(btrim(coalesce(p_listing,'')), ''), rental_listing_type),
+         office_unavailable  = coalesce(p_office_ng, office_unavailable)
+   where code = p_code
+  returning * into pr;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_code;
+  end if;
+  return pr;
+end $$;
+
+comment on function public.inv_product_rental_form_set is
+  '商品のレンタル区分（かたち・8ECでの出しかた・Office不可）を設定する。渡さなかった項目は変えない。';
+
+create or replace function public.inv_rental_unclassified()
+returns table (code text, name text, rental_form text, listing_type text, 推定 text, 手がかり text)
+language sql stable set search_path = public, pg_catalog as $$
+  select p.code, coalesce(p.name, p.model), p.rental_form, p.rental_listing_type,
+         coalesce(public.inv_rental_form(p), '推定できません'),
+         nullif(concat_ws(' / ', nullif(p.cpu,''), nullif(p.memory_size,''),
+                          nullif(p.storage_capacity,''), nullif(p.screen_size,''), nullif(p.os,'')), '')
+    from public.inventory_products p
+   where p.kind = 'individual'
+     and coalesce(p.rental_enabled, false)
+     and p.rental_form is null
+   order by p.code;
+$$;
+
+comment on function public.inv_rental_unclassified is
+  'レンタル区分（rental_form）が未設定のまま公開している商品の一覧。
+   rental_enabled=true だから機械的に公開してよい、とはしないための確認用。';
 
 comment on column public.inventory_products.description is
   '一般の商品説明。楽天から取得した説明、または人が入力したもの。8RENTはrental_descriptionが空ならこちらを使う。';
@@ -3525,6 +3678,7 @@ select
   p.cpu, p.cpu_gen, p.memory_size, p.storage_type, p.storage_capacity,
   p.screen_size, p.os, p.webcam, p.wifi, p.bluetooth, p.numpad, p.accessories,
   p.condition_note, p.office_supported,
+  p.rental_form, p.rental_listing_type,
   -- レンタル（8EC）。台数は出さず、用意できるかどうかだけ
   coalesce(p.rental_enabled, false)                                 as rental_enabled,
   coalesce(p.procurement_available, false)                          as procurement_available,
@@ -3539,7 +3693,11 @@ from public.inventory_products p
 left join public.inventory_categories c on c.id = p.category_id
 left join avail a on a.product_code = p.code
 where p.kind = 'individual'
-  and coalesce(p.rental_enabled, false) = true;
+  and coalesce(p.rental_enabled, false) = true
+  -- 単品でレンタルできる商品だけをカードに出す。
+  -- option（PCレンタルのオプション。セキュリティワイヤーなど）と
+  -- not_public は、商品カードとしては公開しない
+  and coalesce(p.rental_listing_type, 'standalone') = 'standalone';
 
 comment on view public.inv_public_catalog is
   '8ECトップ／8RENTが読む公開カタログ。rental_enabled=true の商品だけを出す。
@@ -3547,6 +3705,7 @@ comment on view public.inv_public_catalog is
    （sale_listed / sale_available / sale_url / sale_price）は公開しない。
    用意できるかどうかは availability（ご案内可能／取り寄せ可能／ご相談ください）だけで表す。
    説明は rental_description（レンタル向けに作り直した文）のみ。
+   rental_listing_type が standalone の商品だけを出す（option・not_public は出さない）。
    社内で数量を見るときは inv_channel_stock_feed（authenticated専用）を使う。';
 
 -- ------------------------------------------------------------
@@ -4392,6 +4551,9 @@ revoke all on function public.inv_is_db_session() from public;
 revoke all on function public.inv_can_maintain() from public;
 grant execute on function public.inv_is_db_session(), public.inv_can_maintain() to authenticated;
 grant execute on function public.inv_product_rental_description_set(text,text,boolean) to authenticated;
+grant execute on function public.inv_rental_form(public.inventory_products) to authenticated;
+grant execute on function public.inv_product_rental_form_set(text,text,text,boolean) to authenticated;
+grant execute on function public.inv_rental_unclassified() to authenticated;
 grant usage on schema public to anon;
 grant select on public.inv_rental_catalog to anon, authenticated;
 grant select on public.inv_public_catalog to anon, authenticated;
