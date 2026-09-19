@@ -806,6 +806,31 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
 .avail-note.order { background: #FFF4E5; color: #7A4E00; }
 .avail-note.none { background: #FDECEC; color: #8C1D18; }
 
+/* ---- 企業向けパッケージ：現地作業は基本料金に含まない ------------------
+   「対応できる」と「表示価格に含まれる」を混同させないための注記と、
+   含むものから外したぶんを出す有料オプション枠 */
+.pack-note { font-size: 11.5px; line-height: 1.7; color: #6C6E64; }
+.pack-opt { margin-top: 10px; padding: 10px 12px; border: 1px dashed var(--color-divider);
+  border-radius: 3px; background: #FAFAF7; font-size: 12px; line-height: 1.65; color: #4A4C43; }
+.pack-opt .h { font-size: 10.5px; letter-spacing: .1em; font-weight: 700; color: #7A4E00; margin-bottom: 4px; }
+
+/* ---- カテゴリーから探す ----------------------------------------------
+   カテゴリーマスターの全件を、省略せず最初から出す。横スクロール・
+   「もっと見る」で隠さない。PCは3列、スマートフォンは2列（狭い端末は1列）。 */
+#catTiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.cat-tile { display: flex; align-items: center; gap: 12px; text-align: left; width: 100%;
+  border: 1px solid var(--color-divider); background: #fff; border-radius: 3px;
+  padding: 15px 16px; cursor: pointer; font: inherit; }
+.cat-tile:hover { border-color: var(--lime); background: #FBFDF3; }
+.cat-tile .ms { font-size: 26px; color: var(--charcoal); flex: none; }
+.cat-tile .t { font-size: 13.5px; font-weight: 700; line-height: 1.4; }
+.cat-tile .n { font-size: 11px; color: #6C6E64; margin-top: 2px; }
+.cat-tile.on { border-color: var(--charcoal); background: #F6FCE2; }
+.cat-tile.on .n { color: #43530E; }
+.cat-tile.zero .t, .cat-tile.zero .ms { color: #6C6E64; }
+@media (max-width: 860px) { #catTiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 430px) { #catTiles { grid-template-columns: 1fr; } }
+
 </style>
 </head>
 <body>
@@ -1224,8 +1249,11 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
     </div>
 
     <div style="max-width: 1240px; margin: 0px auto; padding: 52px 24px 0px;">
-      <h2 style="font-size: 26px; letter-spacing: -0.03em; margin-bottom: 18px;">カテゴリーから探す</h2>
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(138px, 1fr)); gap: 10px;" id="catTiles"></div>
+      <div style="display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 18px;">
+        <h2 style="font-size: 26px; letter-spacing: -0.03em;">カテゴリーから探す</h2>
+        <div id="catPicked" style="font-size: 13px; color: rgb(108, 110, 100);"></div>
+      </div>
+      <div id="catTiles"></div>
     </div>
 
     <div style="max-width: 1240px; margin: 0px auto; padding: 52px 24px 0px;">
@@ -1401,7 +1429,7 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
         <div style="flex: 1 1 400px; min-width: 0px;">
           <div style="font-size: 11.5px; letter-spacing: 0.14em; color: rgb(94, 116, 20); font-weight: 700; margin-bottom: 8px;">FOR BUSINESS</div>
           <h2 style="font-size: 32px; letter-spacing: -0.035em;">法人向けサービス</h2>
-          <p style="font-size: 14.5px; line-height: 1.85; color: rgb(74, 76, 67); margin: 16px 0px 22px; max-width: 34em; text-wrap: pretty;">LAN配線・Wi-Fi設計・回線手配から、キッティング・現地設置・接続確認まで。10台から500台まで、法人請求・データ消去証明・故障時交換も含めて一括で対応します。総務・情報システム担当者の作業を、発注1本にまとめます。</p>
+          <p style="font-size: 14.5px; line-height: 1.85; color: rgb(74, 76, 67); margin: 16px 0px 22px; max-width: 34em; text-wrap: pretty;">LAN配線・Wi-Fi設計・回線手配から、キッティング・現地設置・接続確認まで。10台から500台まで、法人請求・データ消去証明・故障時交換も含めて一括でご依頼いただけます。総務・情報システム担当者の作業を、発注1本にまとめます。<b>なお現地設置・現地配線・接続確認・撤収は有料オプションで、レンタル料金には含まれません。</b>ご希望の場合は別途お見積もりします。</p>
           <div style="display: flex; gap: 10px; flex-wrap: wrap;">
             <a href="#contact" class="btn btn-primary" style="min-height: 54px; font-size: 16px; font-weight: 700; padding-inline: 26px; background: rgb(27, 29, 26); border-color: rgb(27, 29, 26);text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;">法人導入を相談する</a>
             <a href="#contact" class="btn btn-secondary" style="min-height: 54px; font-size: 14px; border-color: rgb(27, 29, 26); color: rgb(27, 29, 26);text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;">見積を依頼する</a>
@@ -1449,7 +1477,8 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
     <div style="max-width: 1240px; margin: 0px auto; padding: 60px 24px 0px;">
       <div style="font-size: 11.5px; letter-spacing: 0.14em; color: rgb(94, 116, 20); font-weight: 700; margin-bottom: 8px;">PACK</div>
       <h2 style="font-size: 34px; letter-spacing: -0.035em;">企業向けパッケージ</h2>
-      <p style="font-size: 14.5px; color: rgb(74, 76, 67); margin: 12px 0px 24px; max-width: 42em; text-wrap: pretty;">機器を1点ずつ選ばなくても構いません。場面ごとに必要な機器・ネットワーク・設定・設置をひとまとめにしています。</p>
+      <p style="font-size: 14.5px; color: rgb(74, 76, 67); margin: 12px 0px 14px; max-width: 42em; text-wrap: pretty;">機器を1点ずつ選ばなくても構いません。場面ごとに必要な機器・ネットワーク・設定をひとまとめにしています。現地での作業もご依頼いただけますが、料金は別枠です。</p>
+      <p class="pack-note" style="margin: 0px 0px 24px; max-width: 42em;">※表示価格に現地設置・配線・接続確認・撤収は含まれません。ご希望の場合は別途お見積もりします。</p>
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(272px, 1fr)); gap: 16px;">
         
           <div style="border-width: 4px 1px 1px; border-style: solid; border-color: rgb(199, 237, 62); border-image: initial; border-radius: 3px; padding: 24px 22px 22px; background: rgb(251, 253, 243); display: flex; flex-direction: column; gap: 14px;">
@@ -1458,7 +1487,7 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
               <div class="num" style="font-size: 16px; font-weight: 900; letter-spacing: 0px; margin-top: 10px;">OFFICE START PACK</div>
               <div style="font-size: 13.5px; font-weight: 700; color: rgb(94, 116, 20); margin-top: 4px;">新規オフィス・増員向け</div>
             </div>
-            <p style="font-size: 13px; line-height: 1.8; color: rgb(74, 76, 67); margin: 0px;">入居したその日から働ける状態にします。ネットワークの設計から机の上の配線まで含みます。</p>
+            <p style="font-size: 13px; line-height: 1.8; color: rgb(74, 76, 67); margin: 0px;">御社仕様に初期設定した機器を納品します。現地設置・配線は別途お見積もりします。</p>
             <div>
               <div style="font-size: 10.5px; letter-spacing: 0.1em; color: rgb(108, 110, 100); font-weight: 700; margin-bottom: 8px;">含むもの</div>
               <div style="display: flex; flex-direction: column; gap: 5px;">
@@ -1476,17 +1505,17 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
                   </div>
                 
                   <div style="display: flex; align-items: flex-start; gap: 7px; font-size: 12.5px; line-height: 1.6;">
-                    <span class="ms" style="font-size: 16px; color: rgb(94, 116, 20); flex: 0 0 auto;">check</span>LAN配線・Wi-Fi設計
+                    <span class="ms" style="font-size: 16px; color: rgb(94, 116, 20); flex: 0 0 auto;">check</span>LAN・Wi-Fi設計（現地配線は別途見積）
                   </div>
                 
                   <div style="display: flex; align-items: flex-start; gap: 7px; font-size: 12.5px; line-height: 1.6;">
                     <span class="ms" style="font-size: 16px; color: rgb(94, 116, 20); flex: 0 0 auto;">check</span>Office・キッティング
                   </div>
                 
-                  <div style="display: flex; align-items: flex-start; gap: 7px; font-size: 12.5px; line-height: 1.6;">
-                    <span class="ms" style="font-size: 16px; color: rgb(94, 116, 20); flex: 0 0 auto;">check</span>現地設置・接続確認
-                  </div>
-                
+              </div>
+              <div class="pack-opt">
+                <div class="h">有料オプション（別途見積）</div>
+                <div>現地設置・搬入・配線・接続確認</div>
               </div>
             </div>
             <div style="display: flex; gap: 16px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--color-divider);">
@@ -1495,6 +1524,7 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
             </div>
             <div style="margin-top: auto;">
               <div class="num" style="font-size: 19px; font-weight: 900;">9,800 円／月〜</div>
+              <p class="pack-note" style="margin: 6px 0px 0px;">※表示価格に現地設置・配線・接続確認・撤収は含まれません。ご希望の場合は別途お見積もりします。</p>
               <a href="#contact" class="btn btn-primary" style="width: 100%; min-height: 48px; font-size: 14.5px; font-weight: 700; margin-top: 10px; background: rgb(199, 237, 62); border-color: rgb(199, 237, 62); color: rgb(27, 29, 26);text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;">このパックを相談する</a>
             </div>
           </div>
@@ -1535,6 +1565,10 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
                   </div>
                 
               </div>
+              <div class="pack-opt">
+                <div class="h">有料オプション（別途見積）</div>
+                <div>現地設置・搬入・配線・接続確認</div>
+              </div>
             </div>
             <div style="display: flex; gap: 16px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--color-divider);">
               <div><div style="font-size: 10.5px; color: rgb(108, 110, 100);">規模</div><div style="font-size: 13px; font-weight: 700; margin-top: 2px;">5〜50台</div></div>
@@ -1542,6 +1576,7 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
             </div>
             <div style="margin-top: auto;">
               <div class="num" style="font-size: 19px; font-weight: 900;">6,480 円／月〜</div>
+              <p class="pack-note" style="margin: 6px 0px 0px;">※表示価格に現地設置・配線・接続確認・撤収は含まれません。ご希望の場合は別途お見積もりします。</p>
               <a href="#contact" class="btn btn-primary" style="width: 100%; min-height: 48px; font-size: 14.5px; font-weight: 700; margin-top: 10px; background: rgb(27, 29, 26); border-color: rgb(27, 29, 26); color: rgb(255, 255, 255);text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;">このパックを相談する</a>
             </div>
           </div>
@@ -1552,7 +1587,7 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
               <div class="num" style="font-size: 16px; font-weight: 900; letter-spacing: 0px; margin-top: 10px;">EVENT PACK</div>
               <div style="font-size: 13.5px; font-weight: 700; color: rgb(94, 116, 20); margin-top: 4px;">イベント・セミナー向け</div>
             </div>
-            <p style="font-size: 13px; line-height: 1.8; color: rgb(74, 76, 67); margin: 0px;">会場へ直送し、当日設置まで対応します。回線が不安な会場にはWi-Fiごと持ち込みます。</p>
+            <p style="font-size: 13px; line-height: 1.8; color: rgb(74, 76, 67); margin: 0px;">会場へ直送します。当日設置・撤収も別途お見積もりで対応できます。回線が不安な会場にはWi-Fiごと持ち込みます。</p>
             <div>
               <div style="font-size: 10.5px; letter-spacing: 0.1em; color: rgb(108, 110, 100); font-weight: 700; margin-bottom: 8px;">含むもの</div>
               <div style="display: flex; flex-direction: column; gap: 5px;">
@@ -1573,14 +1608,10 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
                     <span class="ms" style="font-size: 16px; color: rgb(94, 116, 20); flex: 0 0 auto;">check</span>無線AP・回線手配
                   </div>
                 
-                  <div style="display: flex; align-items: flex-start; gap: 7px; font-size: 12.5px; line-height: 1.6;">
-                    <span class="ms" style="font-size: 16px; color: rgb(94, 116, 20); flex: 0 0 auto;">check</span>当日設置・撤収
-                  </div>
-                
-                  <div style="display: flex; align-items: flex-start; gap: 7px; font-size: 12.5px; line-height: 1.6;">
-                    <span class="ms" style="font-size: 16px; color: rgb(94, 116, 20); flex: 0 0 auto;">check</span>当日サポート
-                  </div>
-                
+              </div>
+              <div class="pack-opt">
+                <div class="h">有料オプション（別途見積）</div>
+                <div>当日設置・撤収／当日立会いサポート</div>
               </div>
             </div>
             <div style="display: flex; gap: 16px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--color-divider);">
@@ -1589,6 +1620,7 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
             </div>
             <div style="margin-top: auto;">
               <div class="num" style="font-size: 19px; font-weight: 900;">12,800 円／月〜</div>
+              <p class="pack-note" style="margin: 6px 0px 0px;">※表示価格に現地設置・配線・接続確認・撤収は含まれません。ご希望の場合は別途お見積もりします。</p>
               <a href="#contact" class="btn btn-primary" style="width: 100%; min-height: 48px; font-size: 14.5px; font-weight: 700; margin-top: 10px; background: rgb(27, 29, 26); border-color: rgb(27, 29, 26); color: rgb(255, 255, 255);text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;">このパックを相談する</a>
             </div>
           </div>
@@ -1599,7 +1631,7 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
               <div class="num" style="font-size: 16px; font-weight: 900; letter-spacing: 0px; margin-top: 10px;">OFFICE MOVE PACK</div>
               <div style="font-size: 13.5px; font-weight: 700; color: rgb(94, 116, 20); margin-top: 4px;">移転・増床向け</div>
             </div>
-            <p style="font-size: 13px; line-height: 1.8; color: rgb(74, 76, 67); margin: 0px;">既存ネットワークの調査から新拠点の構築まで。移転当日に業務が止まらないよう段取りします。</p>
+            <p style="font-size: 13px; line-height: 1.8; color: rgb(74, 76, 67); margin: 0px;">既存ネットワークの調査から新拠点の構築まで。移転当日に業務が止まらないよう段取りします。現地調査・移設・立会い・撤去といった現地作業を含むため、基本料金ではなく現地作業を含めた個別見積でご案内します。</p>
             <div>
               <div style="font-size: 10.5px; letter-spacing: 0.1em; color: rgb(108, 110, 100); font-weight: 700; margin-bottom: 8px;">含むもの</div>
               <div style="display: flex; flex-direction: column; gap: 5px;">
@@ -1629,6 +1661,10 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
                   </div>
                 
               </div>
+              <div class="pack-opt">
+                <div class="h">有料オプション（別途見積）</div>
+                <div>上記のうち現地調査・移設・立会い・撤去は現地作業です。個別見積に含めてご案内します</div>
+              </div>
             </div>
             <div style="display: flex; gap: 16px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--color-divider);">
               <div><div style="font-size: 10.5px; color: rgb(108, 110, 100);">規模</div><div style="font-size: 13px; font-weight: 700; margin-top: 2px;">10〜300名</div></div>
@@ -1636,6 +1672,7 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
             </div>
             <div style="margin-top: auto;">
               <div class="num" style="font-size: 19px; font-weight: 900;">個別見積</div>
+              <p class="pack-note" style="margin: 6px 0px 0px;">※表示価格に現地設置・配線・接続確認・撤収は含まれません。ご希望の場合は別途お見積もりします。</p>
               <a href="#contact" class="btn btn-primary" style="width: 100%; min-height: 48px; font-size: 14.5px; font-weight: 700; margin-top: 10px; background: rgb(27, 29, 26); border-color: rgb(27, 29, 26); color: rgb(255, 255, 255);text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;">このパックを相談する</a>
             </div>
           </div>
@@ -1675,7 +1712,7 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
         
           <div style="flex: 1 1 168px; min-width: 150px; border-top: 3px solid rgb(199, 237, 62); border-right-color: ; border-right-style: ; border-right-width: ; border-bottom-color: ; border-bottom-style: ; border-bottom-width: ; border-left-color: ; border-left-style: ; border-left-width: ; border-image-source: ; border-image-slice: ; border-image-width: ; border-image-outset: ; border-image-repeat: ; border-radius: 2px; padding: 16px 15px 15px;">
             <div class="num" style="font-size: 11px; font-weight: 800; color: rgb(94, 116, 20);">05</div>
-            <div style="font-size: 15px; font-weight: 700; margin-top: 6px; line-height: 1.35;">現地設置</div>
+            <div style="font-size: 15px; font-weight: 700; margin-top: 6px; line-height: 1.35;">現地設置（別途見積）</div>
             <div style="font-size: 11.5px; color: rgb(108, 110, 100); line-height: 1.65; margin-top: 5px;">搬入・配線・接続確認</div>
           </div>
         
@@ -1696,7 +1733,7 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
           <div style="border-top: 4px solid rgb(199, 237, 62); border-right-color: ; border-right-style: ; border-right-width: ; border-bottom-color: ; border-bottom-style: ; border-bottom-width: ; border-left-color: ; border-left-style: ; border-left-width: ; border-image-source: ; border-image-slice: ; border-image-width: ; border-image-outset: ; border-image-repeat: ; border-radius: 3px; padding: 22px 20px 20px;">
             <span class="ms" style="font-size: 30px; color: rgb(27, 29, 26);">router</span>
             <div style="font-size: 17.5px; font-weight: 700; margin-top: 12px;">ネットワークまで</div>
-            <p style="font-size: 13px; line-height: 1.8; color: rgb(74, 76, 67); margin: 8px 0px 0px;">LAN配線・Wi-Fi設計・ルーター/スイッチ設定まで対応します。機器を貸すだけでなく、つながる状態にしてお渡しします。</p>
+            <p style="font-size: 13px; line-height: 1.8; color: rgb(74, 76, 67); margin: 8px 0px 0px;">LAN配線・Wi-Fi設計・ルーター/スイッチ設定まで<b>対応可能（現地作業は別途見積）</b>です。機器の設定は済ませてお渡しし、現地での作業はご希望に応じて別途お見積もりします。</p>
           </div>
         
           <div style="border-top: 4px solid rgb(199, 237, 62); border-right-color: ; border-right-style: ; border-right-width: ; border-bottom-color: ; border-bottom-style: ; border-bottom-width: ; border-left-color: ; border-left-style: ; border-left-width: ; border-image-source: ; border-image-slice: ; border-image-width: ; border-image-outset: ; border-image-repeat: ; border-radius: 3px; padding: 22px 20px 20px;">
@@ -1707,8 +1744,8 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
         
           <div style="border-top: 4px solid rgb(199, 237, 62); border-right-color: ; border-right-style: ; border-right-width: ; border-bottom-color: ; border-bottom-style: ; border-bottom-width: ; border-left-color: ; border-left-style: ; border-left-width: ; border-image-source: ; border-image-slice: ; border-image-width: ; border-image-outset: ; border-image-repeat: ; border-radius: 3px; padding: 22px 20px 20px;">
             <span class="ms" style="font-size: 30px; color: rgb(27, 29, 26);">power_settings_new</span>
-            <div style="font-size: 17.5px; font-weight: 700; margin-top: 12px;">設置済みで届く</div>
-            <p style="font-size: 13px; line-height: 1.8; color: rgb(74, 76, 67); margin: 8px 0px 0px;">キッティング済みの機器を現地に設置し、ネットワークに接続した状態でお引き渡しします。</p>
+            <div style="font-size: 17.5px; font-weight: 700; margin-top: 12px;">現地設置も手配可能</div>
+            <p style="font-size: 13px; line-height: 1.8; color: rgb(74, 76, 67); margin: 8px 0px 0px;">キッティング済みで納品します。現地での搬入・配線・接続確認は、必要に応じて別途お見積もりします。</p>
           </div>
         
           <div style="border-top: 4px solid rgb(199, 237, 62); border-right-color: ; border-right-style: ; border-right-width: ; border-bottom-color: ; border-bottom-style: ; border-bottom-width: ; border-left-color: ; border-left-style: ; border-left-width: ; border-image-source: ; border-image-slice: ; border-image-width: ; border-image-outset: ; border-image-repeat: ; border-radius: 3px; padding: 22px 20px 20px;">
@@ -1729,7 +1766,7 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
     <div style="max-width: 1240px; margin: 0px auto; padding: 60px 24px 0px;">
       <div style="font-size: 11.5px; letter-spacing: 0.14em; color: rgb(94, 116, 20); font-weight: 700; margin-bottom: 8px;">NEXT</div>
       <h2 style="font-size: 34px; letter-spacing: -0.035em;">8RENTなら、その先もまとめて対応。</h2>
-      <p style="font-size: 14.5px; color: rgb(74, 76, 67); margin: 12px 0px 26px; max-width: 42em; text-wrap: pretty;">最初は1台。必要になったら、複数台からネットワーク、社内のIT環境全体まで同じ窓口で任せられます。</p>
+      <p style="font-size: 14.5px; color: rgb(74, 76, 67); margin: 12px 0px 26px; max-width: 42em; text-wrap: pretty;">最初は1台。必要になったら、複数台、ネットワーク、社内IT環境の整備から、自社の課題を解決するAIシステムの構築まで、同じ窓口で相談できます。</p>
       <div style="display: flex; flex-wrap: wrap; gap: 8px;">
         
           <div style="flex: 1 1 168px; min-width: 150px; border: 1px solid rgb(199, 237, 62); background: rgb(199, 237, 62); border-radius: 2px; padding: 16px 15px 15px;">
@@ -1776,6 +1813,28 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
             
           </div>
         
+          <div style="flex: 1 1 168px; min-width: 150px; border: 1px solid rgb(27, 29, 26); background: rgb(255, 255, 255); border-radius: 2px; padding: 16px 15px 15px;">
+            <span class="ms" style="font-size: 24px; color: rgb(27, 29, 26);">smart_toy</span>
+            <div style="font-size: 14.5px; font-weight: 700; margin-top: 8px; line-height: 1.35;">AIシステム構築</div>
+            <div style="font-size: 11.5px; color: rgb(74, 76, 67); line-height: 1.65; margin-top: 4px;">自社課題の整理から、生成AI・業務自動化システムの設計・開発・運用まで</div>
+          </div>
+        
+      </div>
+
+      <!-- AIシステム構築の中身と相談先。単なる「AI相談」「AI研修」ではないことが分かるようにする -->
+      <div style="margin-top: 18px; border: 1px solid var(--color-divider); border-radius: 3px; padding: 22px 22px 20px; background: rgb(251, 253, 243);">
+        <div style="font-size: 15.5px; font-weight: 700; line-height: 1.4;">AIシステム構築でお受けしている範囲</div>
+        <ul style="margin: 12px 0px 0px; padding-left: 1.15em; font-size: 13px; line-height: 1.95; color: rgb(74, 76, 67);">
+          <li>業務課題の整理（どこを自動化すると効くかの切り分け）</li>
+          <li>要件定義</li>
+          <li>生成AI・社内検索・問い合わせ対応・業務自動化などの設計</li>
+          <li>システム開発・既存業務との連携</li>
+          <li>導入後の運用改善</li>
+        </ul>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px;">
+          <button type="button" onclick="askAiSystem()" class="btn btn-primary" style="min-height: 52px; font-size: 15px; font-weight: 700; padding-inline: 24px; background: rgb(27, 29, 26); border-color: rgb(27, 29, 26); color: rgb(255, 255, 255); border-radius: 3px;">AIシステム構築を相談する</button>
+          <a href="/ai-dev.html" class="btn btn-secondary" style="min-height: 52px; font-size: 14px; padding-inline: 20px; border-color: rgb(27, 29, 26); color: rgb(27, 29, 26); border-radius: 3px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;">AI・業務システム開発の詳細を見る</a>
+        </div>
       </div>
     </div>
 
@@ -2221,7 +2280,7 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
                 <label class="f-row"><span>ご相談種別</span>
                   <select class="input" id="fType" name="inquiry_type">
                     <option>お試しレンタル</option><option>通常レンタル</option><option>大量・長期レンタル</option>
-                    <option>キッティング・設置</option><option>ネットワーク・IT環境</option><option>購入について</option><option>その他</option>
+                    <option>キッティング・設置</option><option>ネットワーク・IT環境</option><option>AIシステム構築</option><option>購入について</option><option>その他</option>
                   </select></label>
                 <label class="f-row"><span>希望時期</span>
                   <select class="input" id="fDue" name="due">
@@ -2426,6 +2485,9 @@ function setTab(btn, on) {
 
 async function loadCatalog(keepDialog) {
   if (!C || !C.client()) { showState('接続の初期化に失敗しました。時間をおいて再読み込みしてください。', true); return; }
+  // カテゴリーは商品と関係なく全件出すので、商品が読めなくても先に読む
+  await C.loadCategories();
+  renderCatTiles();
   const { items: list, error } = await C.load({ rental: true });
   if (error) { showState('機材の読み込みに失敗しました。時間をおいて再読み込みしてください。（' + esc(error.message || error) + '）', true); return; }
   items = list;
@@ -2496,21 +2558,43 @@ function commonName(names) {
   return p.length >= 4 ? p : '';
 }
 
-/* ===== カテゴリーから探す（件数は実データの機種数） ===== */
+/* ===== カテゴリーから探す =====
+   出すのはカテゴリーマスター（inv_public_categories）の全件。
+   公開中の商品から category_id を逆算しない。逆算すると、まだ商品を
+   載せていないカテゴリーが消えて「8RENTはそれを扱っていない」ように
+   見えてしまう。件数（機種数）はカタログ側を数えて別に足す。
+   横スクロール・プルダウン・「もっと見る」では隠さず、最初から全件出す。 */
 function renderCatTiles() {
   const host = $('catTiles');
   if (!host) return;
   const cats = C.categoryCounts(models);
-  if (!cats.length) { host.innerHTML = '<div class="state" style="grid-column:1/-1">公開中の機材がありません。</div>'; return; }
-  host.innerHTML = cats.map(c => `
-    <button type="button" onclick="setCat('${esc(c.id)}')" style="border: 1px solid ${activeCat === c.id ? 'rgb(27,29,26)' : 'var(--color-divider)'}; background: ${activeCat === c.id ? 'rgb(246,252,226)' : 'rgb(255, 255, 255)'}; border-radius: 3px; padding: 18px 14px 16px; cursor: pointer; font: inherit; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 8px;">
-      <span class="ms" style="font-size: 30px; color: rgb(27, 29, 26);">${esc(c.icon)}</span>
-      <span style="font-size: 13.5px; font-weight: 700; line-height: 1.35;">${esc(c.label)}</span>
-      <span class="num" style="font-size: 11px; color: rgb(108, 110, 100);">${c.count} 機種</span>
-    </button>`).join('');
+  if (!cats.length) { host.innerHTML = '<div class="state" style="grid-column:1/-1">カテゴリーを読み込めませんでした。</div>'; return; }
+  host.innerHTML = cats.map(c => {
+    const on = activeCat === c.id;
+    return `<button type="button" class="cat-tile${on ? ' on' : ''}${c.count ? '' : ' zero'}"
+      aria-pressed="${on ? 'true' : 'false'}" onclick="setCat('${esc(c.id)}')">
+      <span class="ms">${esc(c.icon)}</span>
+      <span style="min-width:0">
+        <span class="t" style="display:block">${esc(c.label)}</span>
+        <span class="n num" style="display:block">${c.count ? c.count + ' 機種' : '掲載準備中'}</span>
+      </span>
+    </button>`;
+  }).join('');
+  paintCatPicked(cats);
+}
+/* 見出しの横に、いま選んでいるカテゴリーを出す（タイルの選択状態と同じ） */
+function paintCatPicked(cats) {
+  const el = $('catPicked');
+  if (!el) return;
+  const c = (cats || C.categoryCounts(models)).find(x => x.id === activeCat);
+  el.innerHTML = c
+    ? `<b style="color:rgb(27,29,26)">${esc(c.label)}</b> で絞り込み中　` +
+      `<button type="button" onclick="setCat('')" style="border:0;background:transparent;font:inherit;` +
+      `font-size:12.5px;color:rgb(108,110,100);text-decoration:underline;cursor:pointer;padding:0">すべて表示</button>`
+    : '';
 }
 function setCat(id) {
-  activeCat = activeCat === id ? '' : id;
+  activeCat = (!id || activeCat === id) ? '' : id;
   renderCatTiles();
   recTab = 'now';
   const tabs = $('recTabs');
@@ -2629,6 +2713,22 @@ function runFinder() {
       </button>`;
     }).join('') + `</div>`;
 }
+/* 「AIシステム構築を相談する」。相談フォームへ送り、相談種別を初期設定する。
+   詳しい内容は既存の /ai-dev.html（AI・業務システム開発）へ別リンクで置いている */
+function askAiSystem() {
+  const t = $('fType');
+  if (t) {
+    const opt = [...t.options].find(o => o.value === 'AIシステム構築' || o.text === 'AIシステム構築');
+    if (opt) t.value = opt.value;
+  }
+  const body = $('fBody');
+  if (body && !body.value.trim()) {
+    body.placeholder = 'いまの困りごと（例：問い合わせ対応に時間がかかる／手作業の集計が多い）と、対象の部署・人数をお書きください。';
+  }
+  const sec = $('contact');
+  if (sec) sec.scrollIntoView({ behavior: 'smooth' });
+}
+
 function applyUsecase(i) {
   const u = USECASES[i] || {};
   if ($('fPurpose') && PURPOSES[i]) $('fPurpose').value = PURPOSES[i];
@@ -2659,7 +2759,14 @@ function renderRecommend() {
   if (!list.length && recTab !== 'now') list = models.filter(m =>
     (recTab === 'pc' ? m.category_id === 'pc' : m.category_id !== 'pc') && (!activeCat || m.category_id === activeCat));
   if (!list.length) {
-    host.innerHTML = `<div class="state" style="grid-column:1/-1">${models.length
+    // カテゴリーを選んでいて、そのカテゴリーに公開中の商品が1件も無いとき。
+    // 「扱っていない」ではなく「いまは載せていない」と伝え、相談へつなぐ
+    const catEmpty = activeCat && !models.some(m => m.category_id === activeCat);
+    host.innerHTML = `<div class="state" style="grid-column:1/-1">${
+      catEmpty
+        ? `<b>${esc(C.catLabel(activeCat))}</b> は現在掲載できる商品はありません。` +
+          `お取り寄せでご用意できる場合がありますので、<a href="#contact" style="font-weight:700">ご相談ください</a>。`
+      : models.length
       ? 'この条件に合う機種が見つかりません。条件を変えるか、<a href="#contact" style="font-weight:700">ご相談ください</a>（在庫にない機種もお探しします）。'
       : '公開中の機材を準備しています。お手数ですが<a href="#contact" style="font-weight:700">お問い合わせ</a>ください。'}</div>`;
     return;

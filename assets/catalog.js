@@ -41,15 +41,42 @@ window.EightCatalog = (function () {
   const SUPA_URL = "https://htglvascsuqkixpmclwr.supabase.co";
   const SUPA_KEY = "sb_publishable_yZCcrwdqjuf0u_5WBWlHIw_AxdvteEV";
   const VIEW = 'inv_public_catalog';
+  const CAT_VIEW = 'inv_public_categories';
 
-  /* カテゴリの表示名・アイコン。id は /zaiko の inventory_categories と同じ */
+  /* 「カテゴリーから探す」に出すカテゴリー。
+     表示元は /zaiko のカテゴリーマスター（inv_public_categories）で、
+     公開中の商品から逆算はしない。商品が0件のカテゴリーも消さない
+     （消すと「8RENTはそれを扱っていない」ように見えるため）。
+
+     ここに書いてあるのは、マスターがまだ読めないとき（migration未適用・
+     通信断）に出す控え。IDはマスターと同じものを使う。 */
+  const CAT_FALLBACK = [
+    { id: 'pc',         name: 'パソコン',                     icon: 'laptop_mac' },
+    { id: 'monitor',    name: 'ディスプレイ・モニター',         icon: 'desktop_windows' },
+    { id: 'software',   name: 'ソフトウェア',                 icon: 'apps' },
+    { id: 'consume',    name: 'パソコンサプライ・消耗品',       icon: 'inventory_2' },
+    { id: 'network',    name: '無線LAN・ネットワーク機器',      icon: 'router' },
+    { id: 'printer',    name: 'プリンター・プロジェクター',      icon: 'print' },
+    { id: 'storage',    name: '外付けドライブ・ストレージ',      icon: 'hard_drive' },
+    { id: 'input',      name: 'キーボード・マウス・ウェブカメラ', icon: 'keyboard' },
+    { id: 'server',     name: 'サーバー関連',                 icon: 'dns' },
+    { id: 'parts',      name: 'パソコンパーツ',               icon: 'memory' },
+    { id: 'mobile-acc', name: 'スマホ・タブレットアクセサリ',    icon: 'smartphone' },
+    { id: 'ups',        name: 'UPS（無停電電源装置）',         icon: 'battery_charging_full' }
+  ];
+
+  /* 読み込んだカテゴリーマスター。商品側のカテゴリ名の補完にも使う */
+  let cats = CAT_FALLBACK.slice();
+
+  /* カテゴリの表示名・アイコン。id は /zaiko の inventory_categories と同じ。
+     マスターに無い（＝公開していない）カテゴリの商品でも、名前だけは出せるようにする */
   const CAT_META = {
     pc:      { icon: 'laptop_mac',      label: 'パソコン' },
-    monitor: { icon: 'desktop_windows', label: 'モニター' },
+    monitor: { icon: 'desktop_windows', label: 'ディスプレイ・モニター' },
     tablet:  { icon: 'tablet_mac',      label: 'タブレット' },
     phone:   { icon: 'smartphone',      label: 'スマートフォン' },
-    network: { icon: 'router',          label: 'ネットワーク機器' },
-    printer: { icon: 'print',           label: 'プリンター' },
+    network: { icon: 'router',          label: '無線LAN・ネットワーク機器' },
+    printer: { icon: 'print',           label: 'プリンター・プロジェクター' },
     other:   { icon: 'devices_other',   label: 'その他IT機器' }
   };
   const TAG_LABEL = { recommend: 'おすすめ', popular: '人気', new: '新着' };
@@ -80,8 +107,15 @@ window.EightCatalog = (function () {
     return { items, error: null };
   }
 
-  function catLabel(id) { return (CAT_META[id] || {}).label || id || ''; }
-  function catIcon(id) { return (CAT_META[id] || {}).icon || 'devices_other'; }
+  const catOf = (id) => cats.find(c => c.id === id) || null;
+  function catLabel(id) {
+    const c = catOf(id);
+    return (c && c.name) || (CAT_META[id] || {}).label || id || '';
+  }
+  function catIcon(id) {
+    const c = catOf(id);
+    return (c && c.icon) || (CAT_META[id] || {}).icon || 'devices_other';
+  }
   function title(it) { return it.name || it.model || ''; }
 
   /* 画像URLとして使えるものだけ通す。http(s) か サイト内の絶対パス。
@@ -153,11 +187,29 @@ window.EightCatalog = (function () {
     return parts.length ? parts.join('／') : (it.spec || '');
   }
 
-  /* カテゴリごとの商品数（機種数）。台数ではない */
+  /* カテゴリーマスターを読む。読めなければ控えの一覧で動かす
+     （カテゴリーが1つも出ない、という見え方にはしない） */
+  async function loadCategories() {
+    const c = client();
+    if (!c) return { cats: cats, error: new Error('接続の初期化に失敗しました') };
+    const { data, error } = await c.from(CAT_VIEW).select('*');
+    if (error || !data || !data.length) return { cats: cats, error: error || null };
+    cats = data.slice()
+      .sort((a, b) => (a.sort_no || 0) - (b.sort_no || 0) || String(a.id).localeCompare(String(b.id)))
+      .map(r => ({ id: r.id, name: r.name, icon: r.icon || 'devices_other' }));
+    return { cats: cats, error: null };
+  }
+  function categories() { return cats.slice(); }
+
+  /* カテゴリーごとの機種数。台数ではない。
+     並びも件数もマスターが決めるので、商品が0件のカテゴリーも count:0 で返る。
+     マスターに無いカテゴリの商品は、ここでは数えない（公開していないため）。 */
   function categoryCounts(items) {
     const counts = {};
-    items.forEach(it => { if (it.category_id) counts[it.category_id] = (counts[it.category_id] || 0) + 1; });
-    return Object.keys(counts).sort((a, b) => counts[b] - counts[a]).map(id => ({ id, label: catLabel(id), icon: catIcon(id), count: counts[id] }));
+    (items || []).forEach(it => {
+      if (it.category_id) counts[it.category_id] = (counts[it.category_id] || 0) + 1;
+    });
+    return cats.map(c => ({ id: c.id, label: c.name, icon: c.icon, count: counts[c.id] || 0 }));
   }
 
   /* 商品詳細の写真。サムネイルは並べず、代表画像を1枚だけ出す
@@ -187,7 +239,7 @@ window.EightCatalog = (function () {
     return /^[A-Z]+-\d+$/i.test(h) ? h : null;
   }
 
-  return { load, images, mainImage, mediaHtml, imgError, fitShot, availTag, availability, rental,
+  return { load, loadCategories, categories, images, mainImage, mediaHtml, imgError, fitShot, availTag, availability, rental,
            specLine, categoryCounts,
            galleryHtml, codeFromUrl, catLabel, catIcon, title, esc, yen, CAT_META, TAG_LABEL, SUPA_URL, SUPA_KEY, client };
 })();

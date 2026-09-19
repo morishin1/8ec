@@ -51,6 +51,43 @@ const CHANNELS = [
   { key: 'notion', label: 'Notion', short: 'No' }
 ];
 const TAB_CHANNELS = CHANNELS.filter(c => c.tab);
+
+/* 価格調査。各モールの検索結果を新しいタブで開くだけのショートカットで、
+   価格を取りに行ったり、DBへ保存したりはしない（相場は人が見て判断する）。
+   検索語は メーカー＋型番、メーカーが無ければ型番だけ。商品名では検索しない
+   （別製品が混ざるため）。URLへ入れるときは必ずエンコードする。 */
+const MARKETS = [
+  { key: 'rakuten', mark: '楽', label: '楽天市場で型番検索',
+    url: (q) => 'https://search.rakuten.co.jp/search/mall/' + encodeURIComponent(q) + '/' },
+  { key: 'amazon',  mark: 'A',  label: 'Amazonで型番検索',
+    url: (q) => 'https://www.amazon.co.jp/s?k=' + encodeURIComponent(q) },
+  { key: 'mercari', mark: 'メ', label: 'メルカリで型番検索',
+    url: (q) => 'https://jp.mercari.com/search?keyword=' + encodeURIComponent(q) }
+];
+/* 検索語。前後の空白を落とし、メーカーと型番のあいだは半角スペース1個にそろえる。
+   個体のシリアル・管理番号・仕入価格・備考は入れない（社内の情報を外へ出さない） */
+function marketQuery(maker, model) {
+  const clean = (v) => String(v == null ? '' : v).trim().replace(/\s+/g, ' ');
+  const m = clean(model);
+  if (!m) return '';
+  const mk = clean(maker);
+  return mk ? mk + ' ' + m : m;
+}
+/* 3モールのボタン。型番が無い商品は押せないようにして、理由をツールチップに出す。
+   行クリック（商品詳細を開く）と二重に反応しないよう、伝播を止める。 */
+function marketBtns(maker, model, compact) {
+  const q = marketQuery(maker, model);
+  const btns = MARKETS.map(k => q
+    ? `<a class="mchk" href="${esc(k.url(q))}" target="_blank" rel="noopener noreferrer"
+         onclick="event.stopPropagation()" title="${esc(k.label + '：' + q)}"
+         aria-label="${esc(k.label + '：' + q)}">${esc(k.mark)}</a>`
+    : `<span class="mchk off" aria-disabled="true" role="img"
+         title="型番を登録すると検索できます"
+         aria-label="${esc(k.label)}（型番を登録すると検索できます）">${esc(k.mark)}</span>`).join('');
+  return compact
+    ? `<div class="mchks sp" onclick="event.stopPropagation()"><span class="lbl">価格調査</span>${btns}</div>`
+    : `<div class="mchks" onclick="event.stopPropagation()">${btns}</div>`;
+}
 /* 8RENTの「おすすめ商品」で使う印 */
 const RENTAL_TAGS = [
   { key: 'recommend', label: 'おすすめ' },
@@ -819,9 +856,12 @@ const chanTab = () => (isChanKey(ui.listMode) || ui.listMode === 'none') ? ui.li
 /* タブの件数。いま掛けている絞り込みのなかで数える。
    タブ自身の絞り込みは外して数えるので、切り替えても数は動かない */
 function tabCounts() {
-  const n = { none: 0 };
+  const n = { none: 0, rental: 0 };
   TAB_CHANNELS.forEach(c => { n[c.key] = 0; });
   unitsFiltered(true).forEach(r => {
+    // 8RENTは販売チャネルではないので、未出品の判定には混ぜない。
+    // 出品先のタブとは別に、同じ行をもう一度数える
+    if (r.kind === 'item' && isRentalOn(r.i)) n.rental++;
     const on = r.kind === 'item' ? liveOn(r.i) : liveOnProd(r.m.code);
     if (!on.length) { n.none++; return; }
     on.forEach(k => { if (n[k] != null) n[k]++; });
@@ -838,6 +878,7 @@ function listTabs() {
     ${b('unit', '個体別')}${b('model', '型番別')}
     <span class="sep"></span>
     ${TAB_CHANNELS.map(c => b(c.key, c.label, n[c.key])).join('')}
+    ${b('rental', '8RENT', n.rental)}
     ${b('none', '未出品', n.none)}
   </div>`;
 }
@@ -851,7 +892,9 @@ function viewList() {
   const makers = [...new Set(db.masters.map(p => p.maker).filter(Boolean))].sort();
   const unit = ui.listMode !== 'model';
   const tab = chanTab();
-  const lead = tab === 'none'
+  const lead = ui.listMode === 'rental'
+    ? '<strong>8RENT（レンタル）に出している個体</strong>だけを出しています。販売サイトへの出品とは別の区分です。'
+    : tab === 'none'
     ? 'どの販売サイトにも出していない在庫です。<strong>ここから出品先を決めていきます。</strong>'
     : tab ? `<strong>${esc(chanLabel(tab))}に出品中</strong>の在庫だけを出しています。ほかのサイトにも出していれば、出品先の欄に並びます。`
     : unit ? '<strong>実物1台＝1行</strong>で並べています。行をクリックすると、その1台の詳細と履歴が見られます。'
@@ -1107,16 +1150,19 @@ function unitsFiltered(ignoreTab) {
   };
   // 販売サイトのタブ。ほかのサイトにも出していれば、行にはそれも並べる（絞るのはここだけ）
   const onTab = (on) => !tab || (tab === 'none' ? !on.length : on.indexOf(tab) >= 0);
+  // 8RENTタブ。販売サイトのタブと同じ見た目で並べるが、判定は出品ではなくレンタル対象
+  const rentTab = !ignoreTab && ui.listMode === 'rental';
   const out = db.items.filter(i => {
     if (ui.fDiff && !isMismatch(i)) return false;
     if (ui.fNoPrice && !isNoPrice(i)) return false;
+    if (rentTab && !isRentalOn(i)) return false;
     return hit(i, prod(i.product_code)) && onTab(liveOn(i));
   }).map(i => ({ kind: 'item', i, m: prod(i.product_code) }));
   // 数量管理は個体を持たない。見えなくならないよう1品目1行で混ぜる
   db.masters.filter(p => p.kind !== 'individual').forEach(p => {
     const fake = { id: p.code, product_code: p.code, category_id: p.category_id, maker: p.maker,
                    model: p.model, name: p.name, location_id: p.location_id, status: '' };
-    if (ui.fSt || ui.fDiff || ui.fNoPrice || ui.fRentEl) return;
+    if (ui.fSt || ui.fDiff || ui.fNoPrice || ui.fRentEl || rentTab) return;
     if (hit(fake, p) && onTab(liveOnProd(p.code))) out.push({ kind: 'qty', i: fake, m: p });
   });
   return out;
@@ -1188,7 +1234,7 @@ function unitsBodyHtml() {
   const live = rows.filter(r => r.kind === 'item' && IN_STOCK.includes(r.i.status)).length;
   const qty = rows.filter(r => r.kind === 'qty').reduce((n, r) => n + (r.m.qty || 0), 0);
   const pick = canEdit();
-  const rentN = rows.filter(r => r.kind === 'item' && r.i.rental_eligible && !GONE.includes(r.i.status)).length;
+  const rentN = rows.filter(r => r.kind === 'item' && isRentalOn(r.i)).length;
   return `<div class="meta" style="margin:12px 0 4px">${rows.length} 件${
       live ? `／うち在庫・出品中 ${live}台` : ''}${rentN ? `／8RENT対象 ${rentN}台` : ''}${qty ? `／数量品 ${qty}` : ''}</div>
     <div class="table-wrap"><table class="t">
@@ -1197,7 +1243,8 @@ function unitsBodyHtml() {
         ${allItemsSelected(rows) ? 'checked' : ''} title="表示中の個体をすべて選ぶ"></th>` : ''}
       <th>管理番号</th><th>型番</th><th>メーカー</th><th>仕入日</th>
       <th style="text-align:right">原価</th><th style="text-align:right">販売予定価格</th>
-      <th>出品先</th><th>保管場所</th><th>状態</th><th>8RENT</th>${canEdit() ? '<th></th>' : ''}
+      <th class="mchk-col">価格調査</th>
+      <th>出品先</th><th>保管場所</th><th>状態</th><th>8RENT</th>
     </tr></thead>
     <tbody>${rows.slice(0, 600).map(r => {
       const { i, m } = r;
@@ -1207,37 +1254,38 @@ function unitsBodyHtml() {
         ${pick ? '<td class="ck"></td>' : ''}
         <td class="meta">—<div class="meta">数量管理</div></td>
         <td class="nowrap">${esc(m.model || titleOf(m))}
-          <div class="meta num">${esc(m.code)}</div></td>
+          <div class="meta num">${esc(m.code)}</div>${marketBtns(m.maker, m.model, true)}</td>
         <td class="nowrap">${esc(m.maker || '')}</td>
         <td class="meta">—</td>
         <td class="num meta r">${yen(m.unit_price)}</td>
         <td class="num meta r">—</td>
+        <td class="mchk-col">${marketBtns(m.maker, m.model)}</td>
         <td class="mall">${listingChips(liveOnProd(m.code))}</td>
         <td class="meta">${esc(locPath(m.location_id))}</td>
         <td>${qtyTag(m)}</td>
         <td class="meta">—</td>
-        ${canEdit() ? `<td class="nowrap ops2" onclick="event.stopPropagation()">
-          <button class="btn sm" onclick="sheetIn('${esc(m.code)}')">入庫</button>
-          <button class="btn sm" onclick="sheetOut('${esc(m.code)}')" ${m.qty > 0 ? '' : 'disabled'}>出庫</button>
-          <button class="btn sm ghost" onclick="sheetCount('${esc(m.code)}')">数を直す</button></td>` : ''}
       </tr>`;
       const cost = costOf(i), plan = planOf(i);
+      // 型番・メーカーは商品マスターを優先。価格調査の検索語にも同じものを使う
+      const mk = { model: (m && m.model) || i.model || '', maker: (m && m.maker) || i.maker || '' };
       return `<tr class="clk${isMismatch(i) ? ' warn' : ''}${ui.selItems[i.id] ? ' on' : ''}" data-item="${esc(i.id)}" onclick="go('item','${esc(i.id)}')">
         ${pick ? `<td class="ck" onclick="event.stopPropagation()">
           <input type="checkbox" ${ui.selItems[i.id] ? 'checked' : ''} onchange="toggleItem('${esc(i.id)}',this.checked)"></td>` : ''}
-        <td class="num" style="font-weight:600">${esc(i.id)}
+        <td class="num" style="font-weight:600">
+          <a class="idlink" href="/zaiko/items/${encodeURIComponent(i.id)}"
+             onclick="event.stopPropagation();event.preventDefault();go('item','${esc(i.id)}')"
+             title="この1台の詳細と履歴">${esc(i.id)}</a>
           ${i.source_id ? `<div class="meta">仕入元 ${esc(i.source_id)}</div>` : ''}</td>
-        <td class="nowrap">${esc((m && m.model) || i.model || '')}</td>
-        <td class="nowrap">${esc((m && m.maker) || i.maker || '')}</td>
+        <td class="nowrap">${esc(mk.model)}${marketBtns(mk.maker, mk.model, true)}</td>
+        <td class="nowrap">${esc(mk.maker)}</td>
         <td class="meta nowrap">${i.purchased_on ? fmtD(i.purchased_on) : '—'}</td>
         <td class="num r">${cost ? yen(cost) : '<span class="meta">—</span>'}</td>
         <td class="num r">${plan == null ? '<span class="meta">—</span>' : yen(plan)}</td>
+        <td class="mchk-col">${marketBtns(mk.maker, mk.model)}</td>
         <td class="mall">${listingChips(liveOn(i))}</td>
         <td class="meta">${esc(locPath(i.location_id))}</td>
         <td>${statusTag(i.status)}</td>
         <td>${rentalTag(i)}</td>
-        ${canEdit() ? `<td class="nowrap ops2" onclick="event.stopPropagation()">
-          <button class="btn sm" onclick="unitMenu('${esc(i.id)}')">操作</button></td>` : ''}
       </tr>`;
     }).join('')}</tbody></table></div>
     ${rows.length > 600 ? '<div class="meta" style="margin-top:8px">先頭600件だけ表示しています。絞り込んでください。</div>' : ''}`;
@@ -1329,6 +1377,11 @@ function toggleAllItems(on) {
   renderListBody();
 }
 function clearItemSel() { ui.selItems = {}; renderListBody(); }
+
+/* 8RENT対象の判定。行の「レンタル対象」表示・上部の件数・タブの件数・
+   タブの絞り込みは、すべてこの1つを通す（表示と件数がずれないように）。
+   売却済・廃棄は手元に無いので対象に数えない。 */
+const isRentalOn = (i) => !!(i && i.rental_eligible) && !GONE.includes(i.status);
 
 /* 8RENT対象かどうかを行に出す。売却済・廃棄は手元に無いので「—」 */
 function rentalTag(i) {

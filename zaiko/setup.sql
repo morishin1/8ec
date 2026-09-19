@@ -147,6 +147,22 @@ create table if not exists public.inventory_categories (
   sort_no     integer default 0
 );
 
+-- 公開画面（8ECトップの「カテゴリーから探す」）で使う情報。
+-- 社内の呼び名（name）を変えずに、公開表記・並び・アイコンだけを別に持つ
+alter table public.inventory_categories add column if not exists public_name   text;
+alter table public.inventory_categories add column if not exists public_icon   text;
+alter table public.inventory_categories add column if not exists public_sort   integer;
+alter table public.inventory_categories add column if not exists public_listed boolean not null default false;
+
+comment on column public.inventory_categories.public_name is
+  '公開画面（8ECトップ）で出す名前。空なら name を使う。社内の呼び名を変えずに公開表記だけ変えるための列。';
+comment on column public.inventory_categories.public_icon is
+  'タイルのアイコン（Material Symbols の名前）。空なら devices_other。';
+comment on column public.inventory_categories.public_sort is
+  '公開画面での並び順。空なら sort_no を使う。';
+comment on column public.inventory_categories.public_listed is
+  'トップの「カテゴリーから探す」に出すかどうか。商品が0件でも出す（扱っていない、と見せないため）。';
+
 create table if not exists public.inventory_locations (
   id         text primary key,                     -- L1, L2 …（棚QRのキー）
   parent_id  text references public.inventory_locations(id) on delete restrict,
@@ -697,6 +713,40 @@ insert into public.inventory_categories (id, name, kind, code_prefix, sort_no) v
   ('consume',  '消耗品',            'quantity',   null,  140),
   ('adapter',  'アダプタ',          'quantity',   null,  150)
 on conflict (id) do nothing;
+
+-- 公開画面に出す12カテゴリーのうち、既存IDで表せないもの。
+-- 「スマホ・タブレットアクセサリ」は機器そのものではなく付属品なので、
+-- tablet／phone には寄せず別IDにしている
+insert into public.inventory_categories (id, name, kind, code_prefix, sort_no) values
+  ('software',   'ソフトウェア',           'quantity',   null,  160),
+  ('storage',    '外付けドライブ・ストレージ', 'individual', 'ST',  80),
+  ('server',     'サーバー関連',           'individual', 'SV',  90),
+  ('parts',      'パソコンパーツ',         'quantity',   null,  170),
+  ('mobile-acc', 'スマホ・タブレットアクセサリ', 'quantity', null,  180),
+  ('ups',        'UPS（無停電電源装置）',   'individual', 'UP',  100)
+on conflict (id) do nothing;
+
+-- 公開する12カテゴリーを、指定された順番・表記で確定させる
+update public.inventory_categories c
+   set public_name   = v.pname,
+       public_icon   = v.picon,
+       public_sort   = v.psort,
+       public_listed = true
+  from (values
+    ('pc',         'パソコン',                     'laptop_mac',        10),
+    ('monitor',    'ディスプレイ・モニター',         'desktop_windows',   20),
+    ('software',   'ソフトウェア',                 'apps',              30),
+    ('consume',    'パソコンサプライ・消耗品',       'inventory_2',       40),
+    ('network',    '無線LAN・ネットワーク機器',      'router',            50),
+    ('printer',    'プリンター・プロジェクター',      'print',             60),
+    ('storage',    '外付けドライブ・ストレージ',      'hard_drive',        70),
+    ('input',      'キーボード・マウス・ウェブカメラ', 'keyboard',          80),
+    ('server',     'サーバー関連',                 'dns',               90),
+    ('parts',      'パソコンパーツ',               'memory',           100),
+    ('mobile-acc', 'スマホ・タブレットアクセサリ',    'smartphone',       110),
+    ('ups',        'UPS（無停電電源装置）',         'battery_charging_full', 120)
+  ) as v(id, pname, picon, psort)
+ where c.id = v.id;
 
 insert into public.inventory_locations (id, parent_id, name, kind, sort_no) values
   ('L1',  null, '本社',     'site',  10),
@@ -3778,6 +3828,21 @@ comment on view public.inv_rental_catalog is
 --                            商品コードから推測生成しない
 --     含めない：シリアル・仕入価格・原価・販売予定価格・利用者・備考・保管場所
 -- ------------------------------------------------------------
+-- 公開画面の「カテゴリーから探す」。商品が0件のカテゴリーも消さないので、
+-- 商品から category_id を逆算するのではなく、マスターをそのまま出す
+create or replace view public.inv_public_categories as
+select c.id,
+       coalesce(nullif(btrim(coalesce(c.public_name, '')), ''), c.name) as name,
+       coalesce(nullif(btrim(coalesce(c.public_icon, '')), ''), 'devices_other') as icon,
+       coalesce(c.public_sort, c.sort_no, 0) as sort_no
+  from public.inventory_categories c
+ where c.public_listed
+ order by coalesce(c.public_sort, c.sort_no, 0), c.id;
+
+comment on view public.inv_public_categories is
+  '公開画面の「カテゴリーから探す」に出すカテゴリー。商品が0件でも消えない。
+   名前は public_name（無ければ name）。並びは public_sort（無ければ sort_no）。';
+
 drop view if exists public.inv_public_catalog;
 create view public.inv_public_catalog as
 with avail as (
@@ -4684,6 +4749,7 @@ grant execute on function public.inv_dashboard_stats(date) to authenticated;
 grant usage on schema public to anon;
 grant select on public.inv_rental_catalog to anon, authenticated;
 grant select on public.inv_public_catalog to anon, authenticated;
+grant select on public.inv_public_categories to anon, authenticated;
 -- 販売チャネルへ送る数量は社内用（anonには出さない）
 grant select on public.inv_channel_stock_feed to authenticated;
 grant select, update on public.inventory_rental_requests to authenticated;
