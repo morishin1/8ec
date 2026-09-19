@@ -795,6 +795,9 @@ function viewList() {
         <button class="btn sm ghost" onclick="openRakutenSync()" ${canAdmin() ? '' : 'disabled'}
           title="${canAdmin() ? '楽天に登録済みの自社商品を取得し、商品マスターの不足情報を補う' : '同期できる権限がありません'}">
           <span class="ms">sync</span>楽天商品を同期</button>
+        <button class="btn sm ghost" onclick="openRakutenOrders()" ${canAdmin() ? '' : 'disabled'}
+          title="${canAdmin() ? '楽天RMSの注文を取り込み、売れた台数を在庫から引く' : '取り込める権限がありません'}">
+          <span class="ms">receipt_long</span>楽天の注文を取り込む</button>
       </div>
     </div>
     ${importHistLine()}
@@ -1828,6 +1831,106 @@ function retryRakutenFailed() {
   const codes = [...new Set(((rakutenLastResult || {}).failures || []).map(f => f.code).filter(Boolean))];
   if (!codes.length) { toast('やり直す商品がありません'); return; }
   runRakutenSync({ codes });
+}
+
+/* ---- 楽天の注文を取り込む ----
+   商品・画像の同期は Rakuten Developers API だが、注文はそちらでは取れない。
+   受注は RMS WEB SERVICE の Order API（Edge Function rakuten-order-sync）で取り、
+   在庫の確保は inv_sale_orders_apply → inv_sale_reserve に任せる。
+   同じ注文を何度取り込んでも、注文番号×明細番号×連番で冪等になっている。 */
+let rakutenOrderResult = null;
+function openRakutenOrders() {
+  if (!canAdmin()) { toast('注文の取り込みは管理者だけができます'); return; }
+  openModal('楽天の注文を取り込む', `
+    <p class="meta" style="margin-bottom:12px">楽天RMSの注文を取り込み、売れた台数だけ在庫を
+      <strong>在庫 → 販売予約</strong>にします。発送済みで届いた注文はそのまま<strong>売却済</strong>まで進めます。
+      同じ注文を何度取り込んでも<strong>在庫は二重に減りません</strong>（注文番号と明細番号で見ています）。
+      8RENTで予約中・貸出中の個体は取りません。</p>
+    <div class="card" style="background:#FFF4E5;margin-bottom:14px">
+      <span class="meta">商品画像の同期（Rakuten Developers API）とは<strong>別のAPI・別の資格情報</strong>です。
+        Edge Function <code>rakuten-order-sync</code> のデプロイと、
+        <code>RAKUTEN_RMS_SERVICE_SECRET</code> / <code>RAKUTEN_RMS_LICENSE_KEY</code> の設定が要ります。</span>
+    </div>
+    <label class="field" style="max-width:240px;margin-bottom:10px"><span>さかのぼる日数</span>
+      <input class="input num" type="number" id="roDays" value="3" min="1" max="31">
+      <span class="meta">注文日でこの日数ぶんを取り込みます。</span></label>
+    <label class="bchk" style="margin-bottom:10px"><input type="checkbox" id="roDry">
+      取り込まずに中身だけ見る（在庫は動かしません）</label>
+    <div id="roResult" style="margin-top:14px"></div>`,
+    [['閉じる', 'closeModal()', 'btn ghost'],
+     ['注文を取り込む', 'runRakutenOrders()', 'btn lime', 'roGoBtn']]);
+}
+async function runRakutenOrders() {
+  const btn = $('roGoBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '取り込み中…'; }
+  const host = $('roResult');
+  host.innerHTML = '<div class="status" style="padding:10px 0"><span class="ms">progress_activity</span> 楽天RMSから注文を取得しています…</div>';
+  let okDone = false;
+  try {
+    const days = Math.max(1, Math.min(31, parseInt(numField('roDays') || 3, 10) || 3));
+    const dry = !!($('roDry') || {}).checked;
+    const { data: { session } } = await sb.auth.getSession();
+    const r = await fetch(SUPA_URL + '/functions/v1/rakuten-order-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: SUPA_KEY, Authorization: 'Bearer ' + (session ? session.access_token : '') },
+      body: JSON.stringify({ days, dry_run: dry })
+    });
+    let out = {};
+    try { out = await r.json(); } catch (_) { out = {}; }
+    if (!r.ok || out.error) {
+      host.innerHTML = `<div class="warnbox"><span class="ms">error</span><div>${esc(out.error || ('HTTP ' + r.status))}
+        ${out.detail ? `<div class="meta" style="margin-top:6px">${esc(out.detail)}</div>` : ''}
+        ${out.rms_response ? `<div class="meta" style="margin-top:6px">楽天RMSの応答：<code>${esc(JSON.stringify(out.rms_response).slice(0, 300))}</code></div>` : ''}
+        </div></div>`;
+      return;
+    }
+    rakutenOrderResult = out;
+    if (!dry) { await loadAll(); render(); }
+    host.innerHTML = rakutenOrderResultHtml(out, dry);
+    okDone = !dry;
+  } catch (e) {
+    host.innerHTML = `<div class="warnbox"><span class="ms">error</span><div>${esc(e && e.message ? e.message : String(e))}</div></div>`;
+  } finally {
+    if (btn) { btn.disabled = okDone; btn.textContent = okDone ? '✓ 取り込み完了' : '注文を取り込む'; }
+  }
+}
+function rakutenOrderResultHtml(out, dry) {
+  if (dry) {
+    return `<div class="card" style="margin-bottom:10px"><strong>中身を見ただけで、在庫は動かしていません。</strong>
+      <div class="meta">注文 ${out.order_count ?? 0}件／明細 ${out.line_count ?? 0}件</div></div>
+      <pre class="pre" style="font-size:12px;max-height:260px;overflow:auto">${esc(JSON.stringify(out.lines || [], null, 2))}</pre>`;
+  }
+  const um = out.unmatched || [], ns = out.no_stock || [];
+  return `
+    <div class="card" style="background:var(--l100);border:1px solid var(--l400);margin-bottom:12px;display:flex;gap:10px;align-items:flex-start">
+      <span class="ms" style="font-size:20px;color:#43530E">check_circle</span>
+      <div><strong>楽天の注文を取り込みました</strong>
+        <div class="meta" style="margin-top:4px">注文 ${out.order_count ?? 0}件／明細 ${out.line_count ?? 0}件を確認しました。</div></div>
+    </div>
+    <div class="prices">
+      <div><div class="lbl">在庫を確保</div><div class="v ${out.reserved ? 'plus' : ''}">${out.reserved ?? 0}台</div></div>
+      <div><div class="lbl">発送済みへ</div><div class="v">${out.shipped ?? 0}台</div></div>
+      <div><div class="lbl">取り込み済み</div><div class="v">${out.already ?? 0}件</div></div>
+      <div><div class="lbl">キャンセル</div><div class="v">${out.cancelled ?? 0}件</div></div>
+      <div><div class="lbl">要確認</div><div class="v ${um.length + ns.length ? 'minus' : ''}">${um.length + ns.length}件</div></div>
+    </div>
+    <p class="meta" style="margin:10px 0">同じ注文をもう一度取り込んでも、在庫は二重に減りません。</p>
+    ${um.length ? `<div class="sec">商品を特定できなかった注文<span class="secn">${um.length}件</span></div>
+      <p class="meta" style="margin-bottom:8px">楽天の商品コードも掲載URLも、登録してある出品情報と一致しませんでした。
+        <strong>在庫は動かしていません。</strong>商品コードを入れて割り当てるか、商品詳細の「楽天」行にURLを登録してください。</p>
+      <div class="plist">${um.map(u => `<div class="p" style="align-items:center">
+        <span class="c">${esc(u.order_number)}</span>
+        <span class="meta" style="flex:1;min-width:0;word-break:break-all">${esc(u.item_code || '')} ${esc(u.item_url || '')}</span>
+      </div>`).join('')}</div>
+      <p class="meta" style="margin-top:8px">割り当ては在庫一覧の「楽天の注文を取り込む」からもう一度行うか、
+        商品詳細で掲載URLを直してから取り込み直してください。</p>` : ''}
+    ${ns.length ? `<div class="sec">在庫が足りなかった注文<span class="secn">${ns.length}件</span></div>
+      <p class="meta" style="margin-bottom:8px">売れたのに、確保できる在庫（status=在庫）がありませんでした。
+        在庫の登録漏れか、すでに別の経路で押さえられています。<strong>仮の個体は作っていません。</strong></p>
+      <div class="plist">${ns.map(u => `<div class="p">
+        <a class="c" href="#" onclick="closeModal();go('prod','${esc(u.product_code)}');return false">${esc(u.product_code)}</a>
+        <span class="meta" style="margin-left:auto">注文 ${esc(u.order_number)}</span>
+      </div>`).join('')}</div>` : ''}`;
 }
 
 /* 掲載URLの更新候補を採用する／そのままにする。

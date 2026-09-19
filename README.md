@@ -332,6 +332,7 @@ Supabase の SQL Editor で `zaiko/setup.sql` を実行します。何度実行�
 | `2026-09-19-rakuten-image-sync.sql` | 楽天の商品画像を `inventory_products.images` へ同期（`inv_rakuten_sync_targets()` を追加、同期は `image_url` を触らない）。あわせて `supabase functions deploy rakuten-product-sync` が必要 |
 | `2026-09-19-listings-from-items.sql` | 個体別の出品情報（`inventory_channels`）から、商品単位の楽天listingを補完。**同じ商品ページに複数台をぶら下げている商品が、画像同期の対象から漏れていたのを直します** |
 | `2026-09-19-rental-by-condition.sql` | 8RENTのレンタルを「個体在庫」から**条件で選ぶ商品**へ。メーカー＋型番で1機種にまとめる `inv_model_key()`、在庫0でも申込を受ける `procurement_available`、条件と台数で申し込む `inv_rental_apply()`（個体の割当はサーバー側）、取り寄せぶんを後から割り当てる `inv_rental_allocate()`。取り込み済み画像の縮小指定（`_ex=`）も元サイズに直します。**冒頭の §32-0 で、このファイルが使う共通関数（`inv_img_hires()` `inv_norm_model()` `inv_norm_url()` ほか）を先に作り直します** — `rakuten-image-sync.sql` は適用後にこのリポジトリ側で追記されており、本番には古い版が当たっているため |
+| `2026-09-19-rakuten-orders.sql` | 楽天の受注を在庫につなぐ。`inventory_sale_orders`（注文番号×明細番号×連番で一意）、`inv_sale_orders_apply()`（在庫→販売予約、発送済みなら売却済）、`inv_sale_order_link()`。**あわせて社内用ビュー `inv_channel_stock_feed` を anon から見えないようにします**（Supabaseの既定権限で公開キーから読めていました）。Edge Function `rakuten-order-sync` のデプロイも必要 |
 
 ### 使う人と権限
 
@@ -1077,14 +1078,37 @@ WKBｾｯﾄ　総数 9　個品ID 00039586573　落札 36,000＋3,600
 
 ### 楽天で売れたとき（販売予約 → 販売済み）
 
-楽天RMSのAPI連携が入るまでは、スタッフが楽天の管理画面で受注を見て、
-`/zaiko` の商品詳細 →「受注を記録」から手で記録します。
+**画像・商品情報の同期（Rakuten Developers API）では注文は取れません。**
+受注は **RMS WEB SERVICE の Order API** という別のAPI・別の資格情報です。
+在庫一覧の **「楽天の注文を取り込む」**（Edge Function `rakuten-order-sync`）で取り込みます。
 
 ```
-楽天で受注  →  /zaiko「受注を記録」（inv_sale_reserve）
-             →  個体が 在庫 → 販売予約（8ECのレンタル可能数から即座に外れる）
-             →  発送  →  個体の操作「売却」→ 売却済（＝販売済み）
-             →  発送前の取り消しは「予約解除」→ 在庫に戻る
+楽天で受注  →  /zaiko「楽天の注文を取り込む」（rakuten-order-sync）
+             →  RMS searchOrder → getOrder で明細を取る
+             →  inv_sale_orders_apply（注文番号×明細番号×連番で冪等）
+             →  inv_sale_reserve → 個体が 在庫 → 販売予約
+                （8ECのレンタル可能数からも楽天の販売可能数量からも即座に外れる）
+             →  発送済みで届いた注文は そのまま 売却済（＝販売済み）
+             →  キャンセルで届いた注文は 販売予約 → 在庫 に戻す
+```
+
+| 決めごと | 中身 |
+|---|---|
+| 冪等 | `inventory_sale_orders` に **注文番号 × 明細番号 × 明細内の連番** で一意制約。同じ注文を何度取り込んでも在庫は一度しか減りません。同時に2回届いても、明細ごとに先に鍵をかけてから在庫を取ります |
+| 二重確保しない | 確保は8RENTの申込と共通の `inv_reserve_available_item`（`for update skip locked`）。**8RENTで予約中・貸出中の個体は `status='在庫'` ではないので、そもそも楽天の受注では取られません** |
+| 商品の特定 | `external_item_code` の一致か、正規化した掲載URLの一致だけ。**URLやSKUから推測しません** |
+| 特定できないとき | 在庫を動かさず `未割当` で記録して知らせます（`inv_sale_order_link()` で人が商品を当てられます） |
+| 在庫が足りないとき | `在庫なし` で記録して知らせます。**仮の個体は作りません** |
+
+手で記録したいときは、これまでどおり商品詳細の「受注を記録」（`inv_sale_reserve`）も使えます。
+
+**必要な設定**
+
+```bash
+supabase functions deploy rakuten-order-sync
+# RMSの「Web APIサービス」で発行する資格情報（画像同期のものとは別）
+RAKUTEN_RMS_SERVICE_SECRET
+RAKUTEN_RMS_LICENSE_KEY
 ```
 
 `inv_sale_reserve()` は商品の掲載（`inventory_channel_listings`）を変更しません。
