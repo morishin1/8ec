@@ -89,9 +89,9 @@ const ui = {
   screen: 'dash', itemId: null, prodId: null, locId: null,
   q: '', fCat: '', fMaker: '', fLoc: '', fStock: '',
   fAction: '', hq: '', regKind: 'ind', made: null, tab: 'info',
-  drafts: {}, labelSel: {}, stScope: '', loaded: false, sel: {}, fBatch: null, doneBatch: null,
+  drafts: {}, labelSel: {}, stScope: '', loaded: false, sel: {}, selItems: {}, fBatch: null, doneBatch: null,
   // 一覧のタブ。individual / model のほかに、販売サイトのキーと 'none'（未出品）を取る
-  listMode: 'unit', fSt: '', fDiff: false, fRental: ''
+  listMode: 'unit', fSt: '', fDiff: false, fRental: '', fRentEl: ''
 };
 
 /* 仕入の置き場所はたいてい柏の倉庫なので、取込の初期値にする。
@@ -699,6 +699,7 @@ function onFilter() {
   ui.fLoc = ($('f-loc') || {}).value || '';
   ui.fStock = ($('f-stock') || {}).value || '';
   ui.fSt = ($('f-st') || {}).value || '';
+  ui.fRentEl = ($('f-rent') || {}).value || '';
   renderListBody();
   paintTabCounts();
 }
@@ -734,7 +735,7 @@ function listFiltered() {
   });
 }
 
-function setListMode(m) { ui.listMode = m; ui.sel = {}; ui.fDiff = false; go('list'); }
+function setListMode(m) { ui.listMode = m; ui.sel = {}; ui.selItems = {}; ui.fDiff = false; go('list'); }
 
 /* いま選んでいるタブが販売サイト（または未出品）なら、そのキーを返す */
 const chanTab = () => (isChanKey(ui.listMode) || ui.listMode === 'none') ? ui.listMode : '';
@@ -816,6 +817,11 @@ function viewList() {
         ? `<select class="input" id="f-st" onchange="onFilter()">
             <option value="">すべての状態</option>
             ${STATUSES.map(s => `<option${ui.fSt === s ? ' selected' : ''}>${esc(s)}</option>`).join('')}
+          </select>
+          <select class="input" id="f-rent" onchange="onFilter()" title="8RENT（レンタル）に出している個体で絞る">
+            <option value="">8RENT すべて</option>
+            <option value="on"${ui.fRentEl === 'on' ? ' selected' : ''}>レンタル対象だけ</option>
+            <option value="off"${ui.fRentEl === 'off' ? ' selected' : ''}>対象外だけ</option>
           </select>`
         : `<select class="input" id="f-stock" onchange="onFilter()">
             <option value="">全在庫状態</option>
@@ -1009,6 +1015,8 @@ function unitsFiltered(ignoreTab) {
     if (ui.fCat && i.category_id !== ui.fCat) return false;
     if (ui.fMaker && ((m && m.maker) || i.maker || '') !== ui.fMaker) return false;
     if (ui.fSt && i.status !== ui.fSt) return false;
+    if (ui.fRentEl === 'on' && !i.rental_eligible) return false;
+    if (ui.fRentEl === 'off' && i.rental_eligible) return false;
     if (inScope && !inScope.includes(i.location_id)) return false;
     if (q) {
       const hay = [i.id, i.serial, i.source_id, (m && m.model) || i.model, (m && m.name) || i.name, i.note]
@@ -1027,7 +1035,7 @@ function unitsFiltered(ignoreTab) {
   db.masters.filter(p => p.kind !== 'individual').forEach(p => {
     const fake = { id: p.code, product_code: p.code, category_id: p.category_id, maker: p.maker,
                    model: p.model, name: p.name, location_id: p.location_id, status: '' };
-    if (ui.fSt || ui.fDiff) return;
+    if (ui.fSt || ui.fDiff || ui.fRentEl) return;
     if (hit(fake, p) && onTab(liveOnProd(p.code))) out.push({ kind: 'qty', i: fake, m: p });
   });
   return out;
@@ -1073,19 +1081,24 @@ function unitsBodyHtml() {
   if (!rows.length) return `<div class="empty" style="margin-top:15px">該当する在庫はありません。</div>`;
   const live = rows.filter(r => r.kind === 'item' && IN_STOCK.includes(r.i.status)).length;
   const qty = rows.filter(r => r.kind === 'qty').reduce((n, r) => n + (r.m.qty || 0), 0);
+  const pick = canEdit();
+  const rentN = rows.filter(r => r.kind === 'item' && r.i.rental_eligible && !GONE.includes(r.i.status)).length;
   return `<div class="meta" style="margin:12px 0 4px">${rows.length} 件${
-      live ? `／うち在庫・出品中 ${live}台` : ''}${qty ? `／数量品 ${qty}` : ''}</div>
+      live ? `／うち在庫・出品中 ${live}台` : ''}${rentN ? `／8RENT対象 ${rentN}台` : ''}${qty ? `／数量品 ${qty}` : ''}</div>
     <div class="table-wrap"><table class="t">
     <thead><tr>
+      ${pick ? `<th class="ck"><input type="checkbox" id="selAllItems" onclick="toggleAllItems(this.checked)"
+        ${allItemsSelected(rows) ? 'checked' : ''} title="表示中の個体をすべて選ぶ"></th>` : ''}
       <th>管理番号</th><th>型番</th><th>メーカー</th><th>仕入日</th>
       <th style="text-align:right">原価</th><th style="text-align:right">販売予定価格</th>
-      <th>出品先</th><th>保管場所</th><th>状態</th>${canEdit() ? '<th></th>' : ''}
+      <th>出品先</th><th>保管場所</th><th>状態</th><th>8RENT</th>${canEdit() ? '<th></th>' : ''}
     </tr></thead>
     <tbody>${rows.slice(0, 600).map(r => {
       const { i, m } = r;
       // 数量管理は現物1台を指す管理番号を持たない。「—」と出し、
       // 状態も「在庫 42」と数で出して、個体管理の行と取り違えないようにする
       if (r.kind === 'qty') return `<tr class="clk qty" onclick="go('prod','${esc(m.code)}')">
+        ${pick ? '<td class="ck"></td>' : ''}
         <td class="meta">—<div class="meta">数量管理</div></td>
         <td class="nowrap">${esc(m.model || titleOf(m))}
           <div class="meta num">${esc(m.code)}</div></td>
@@ -1096,13 +1109,16 @@ function unitsBodyHtml() {
         <td class="mall">${listingChips(liveOnProd(m.code))}</td>
         <td class="meta">${esc(locPath(m.location_id))}</td>
         <td>${qtyTag(m)}</td>
+        <td class="meta">—</td>
         ${canEdit() ? `<td class="nowrap ops2" onclick="event.stopPropagation()">
           <button class="btn sm" onclick="sheetIn('${esc(m.code)}')">入庫</button>
           <button class="btn sm" onclick="sheetOut('${esc(m.code)}')" ${m.qty > 0 ? '' : 'disabled'}>出庫</button>
           <button class="btn sm ghost" onclick="sheetCount('${esc(m.code)}')">数を直す</button></td>` : ''}
       </tr>`;
       const cost = costOf(i), plan = planOf(i);
-      return `<tr class="clk${isMismatch(i) ? ' warn' : ''}" onclick="go('item','${esc(i.id)}')">
+      return `<tr class="clk${isMismatch(i) ? ' warn' : ''}${ui.selItems[i.id] ? ' on' : ''}" data-item="${esc(i.id)}" onclick="go('item','${esc(i.id)}')">
+        ${pick ? `<td class="ck" onclick="event.stopPropagation()">
+          <input type="checkbox" ${ui.selItems[i.id] ? 'checked' : ''} onchange="toggleItem('${esc(i.id)}',this.checked)"></td>` : ''}
         <td class="num" style="font-weight:600">${esc(i.id)}
           ${i.source_id ? `<div class="meta">仕入元 ${esc(i.source_id)}</div>` : ''}</td>
         <td class="nowrap">${esc((m && m.model) || i.model || '')}</td>
@@ -1113,6 +1129,7 @@ function unitsBodyHtml() {
         <td class="mall">${listingChips(liveOn(i))}</td>
         <td class="meta">${esc(locPath(i.location_id))}</td>
         <td>${statusTag(i.status)}</td>
+        <td>${rentalTag(i)}</td>
         ${canEdit() ? `<td class="nowrap ops2" onclick="event.stopPropagation()">
           <button class="btn sm" onclick="unitMenu('${esc(i.id)}')">操作</button></td>` : ''}
       </tr>`;
@@ -1178,19 +1195,298 @@ function toggleAll(on) {
   listFiltered().forEach(p => { if (on) ui.sel[p.code] = true; else delete ui.sel[p.code]; });
   renderListBody(); refreshSelBar();
 }
-function clearSel() { ui.sel = {}; renderListBody(); refreshSelBar(); }
+function clearSel() { ui.sel = {}; renderListBody(); }
 
+/* ---- 個体を選ぶ（在庫一覧・個体別） ----
+   商品（型番別）の選択とは別に持つ。「同じ商品10台のうち3台だけ8RENTに出す」
+   という運用ができるように、選ぶ単位は実物1台にする。 */
+const selItemIds = () => Object.keys(ui.selItems).filter(k => ui.selItems[k]);
+const selItemRows = () => selItemIds().map(id => item(id)).filter(Boolean);
+/* 「全選択」は、いま絞り込みで表示している個体だけを対象にする */
+const shownItemIds = () => unitsFiltered().filter(r => r.kind === 'item').map(r => r.i.id);
+function allItemsSelected(rows) {
+  const ids = rows.filter(r => r.kind === 'item').map(r => r.i.id);
+  return ids.length > 0 && ids.every(id => ui.selItems[id]);
+}
+/* チェックのたびに表を作り直すと（最大600行）重くなるので、
+   その行の見た目と「全選択」「操作バー」だけを直す */
+function toggleItem(id, on) {
+  if (on) ui.selItems[id] = true; else delete ui.selItems[id];
+  const tr = document.querySelector(`#listBody tr[data-item="${(window.CSS && CSS.escape) ? CSS.escape(id) : id}"]`);
+  if (tr) tr.classList.toggle('on', !!on);
+  const all = $('selAllItems');
+  if (all) all.checked = allItemsSelected(unitsFiltered());
+  refreshSelBar();
+}
+function toggleAllItems(on) {
+  shownItemIds().forEach(id => { if (on) ui.selItems[id] = true; else delete ui.selItems[id]; });
+  renderListBody();
+}
+function clearItemSel() { ui.selItems = {}; renderListBody(); }
+
+/* 8RENT対象かどうかを行に出す。売却済・廃棄は手元に無いので「—」 */
+function rentalTag(i) {
+  if (GONE.includes(i.status)) return '<span class="meta">—</span>';
+  return i.rental_eligible
+    ? '<span class="tag rent on"><span class="ms">devices</span>レンタル対象</span>'
+    : '<span class="tag rent">対象外</span>';
+}
+
+/* ---- 画面下の一括操作バー ----
+   個体別のときは個体の操作、型番別のときはこれまでどおり商品の操作を出す。 */
 function refreshSelBar() {
   const bar = $('selbar');
   if (!bar) return;
-  const n = selCodes().length;
-  // 一覧以外の画面に移ったら、選択中でもバーは出さない
-  bar.classList.toggle('on', n > 0 && ui.screen === 'list' && canEdit());
-  $('selDel').style.display = canAdmin() ? '' : 'none';
-  if (!n) return;
-  const units = selCodes().reduce((a, c) => a + itemsOf(c).length, 0);
-  $('selN').textContent = `${n} 商品を選択中（個体 ${units}台）`;
+  const unit = ui.listMode !== 'model';
+  const n = unit ? selItemIds().length : selCodes().length;
+  const on = n > 0 && ui.screen === 'list' && canEdit();
+  bar.classList.toggle('on', on);
+  document.body.classList.toggle('selbar-on', on);
+  if (!on) { bar.innerHTML = ''; return; }
+  bar.innerHTML = unit ? selBarItems(n) : selBarProds(n);
 }
+function selBarItems(n) {
+  const b = (label, icon, fn, cls) =>
+    `<button class="btn sm ${cls || ''}" onclick="${fn}"><span class="ms">${icon}</span>${label}</button>`;
+  return `<span class="n"><span class="ms">check_box</span>${n}件選択中</span>
+    <div class="selops">
+      ${b('8RENTに出す', 'devices', 'openBulkRental()', 'lime')}
+      ${b('8RENTから外す', 'devices_off', 'openBulkRentalOff()')}
+      ${b('貸出', 'assignment_ind', 'openBulkLoan()')}
+      ${b('売却', 'paid', 'openBulkSell()')}
+      ${b('修理', 'build', 'openBulkRepair()')}
+      ${b('棚卸', 'fact_check', 'openBulkCheck()')}
+      ${canAdmin() ? b('廃棄', 'delete', 'openBulkScrap()', 'danger') : ''}
+    </div>
+    <button class="btn sm ghost" onclick="clearItemSel()">選択解除</button>`;
+}
+function selBarProds(n) {
+  const units = selCodes().reduce((a, c) => a + itemsOf(c).length, 0);
+  return `<span class="n">${n} 商品を選択中（個体 ${units}台）</span><span class="sp"></span>
+    <div class="selops">
+      <button class="btn sm" onclick="openBulkEdit()"><span class="ms">edit</span>まとめて直す</button>
+      ${canAdmin() ? '<button class="btn sm danger" onclick="openBulkDelete()"><span class="ms">delete</span>削除</button>' : ''}
+    </div>
+    <button class="btn sm ghost" onclick="clearSel()">選択を解除</button>`;
+}
+
+/* 選んだ個体の内訳。モーダルの説明文に出して、何台が対象外になるかを先に見せる */
+function selBreakdown(skip) {
+  const rows = selItemRows();
+  const ng = rows.filter(i => (skip || []).includes(i.status));
+  const by = {};
+  ng.forEach(i => { by[i.status] = (by[i.status] || 0) + 1; });
+  return { rows, n: rows.length, ng: ng.length, ok: rows.length - ng.length,
+           note: Object.keys(by).map(k => `${k} ${by[k]}台`).join('・') };
+}
+function bulkHead(text, cls) {
+  return `<div class="card" style="${cls === 'warn' ? 'background:#FDECEC;' : ''}margin-bottom:14px">${text}</div>`;
+}
+
+/* ---- 8RENTに出す（個体のレンタル対象） ----
+   商品の「8RENTに掲載するか」（rental_enabled）とは別の設定。
+   ここで選んだ個体だけが、8ECのレンタル可能数に数えられる。
+   最初の1台を対象にしたら、その商品の掲載も自動でONにする。 */
+function openBulkRental() {
+  const b = selBreakdown(GONE);
+  if (!b.n) return;
+  const codes = [...new Set(b.rows.map(i => i.product_code))];
+  const offCodes = codes.filter(c => { const p = prod(c); return p && !p.rental_enabled; });
+  const nowOn = b.rows.filter(i => i.rental_eligible).length;
+  openModal('8RENTに出す', `
+    ${bulkHead(`選んだ <strong>${b.n}台</strong>（${codes.length}商品）をレンタル対象にします。
+      ${nowOn ? `<span class="meta">すでに対象：${nowOn}台</span>` : ''}
+      ${b.ng ? `<div class="meta" style="margin-top:4px">${esc(b.note)} は手元にないので対象にできません。</div>` : ''}`)}
+    <p class="meta" style="margin-bottom:12px">
+      レンタル可能数に数えるのは <strong>状態が「在庫」かつレンタル対象</strong>の個体だけです。
+      レンタル対象にしても、在庫のうちは楽天でも売れます（先に売れたほうに1台が渡ります）。
+      楽天の出品はこの操作では解除しません。</p>
+    ${offCodes.length ? `<p class="meta" style="margin-bottom:12px">
+      <strong>${offCodes.length}商品</strong>がまだ8RENT非掲載です。最初の1台を対象にするので、
+      あわせて商品も8RENTに掲載します（掲載しないと8ECには出ません）。</p>` : ''}
+    <label class="field"><span>メモ（任意・履歴に残ります）</span>
+      <input class="input" id="blNote" placeholder="例 8RENT用に確保"></label>
+  `, [['閉じる', 'closeModal()', 'btn ghost'],
+      ['8RENT対象にする', "doBulk('8RENT対象')", 'btn lime']]);
+}
+
+/* ---- 8RENTから外す（販売用に戻す） ----
+   レンタルの約束が生きている個体（予約中・貸出中）は外せない。
+   商品の掲載設定（rental_enabled）はここでは触らない。対象が0台になった商品は、
+   結果画面で知らせて、掲載を止めるかどうかは人が商品詳細で決める。 */
+function openBulkRentalOff() {
+  const b = selBreakdown(GONE.concat(['予約中', '貸出中']));
+  if (!b.n) return;
+  const rows = b.rows.filter(i => i.rental_eligible && !GONE.includes(i.status));
+  const codes = [...new Set(rows.map(i => i.product_code))];
+  // この操作でレンタル対象が0台になりそうな商品（掲載中のもの）
+  const willEmpty = codes.filter(c => {
+    const off = rows.filter(i => i.product_code === c && !['予約中', '貸出中'].includes(i.status)).length;
+    const p = prod(c);
+    return p && p.rental_enabled && rentalEligibleOf(c) - off <= 0;
+  });
+  openModal('8RENTから外す', `
+    ${bulkHead(`選んだ <strong>${b.n}台</strong>のうち、<strong>${b.ok}台</strong>をレンタル対象から外します。
+      <div class="meta" style="margin-top:4px">外した個体は8ECのレンタル可能数から抜け、販売用として在庫に残ります。</div>
+      ${b.ng ? `<div class="meta" style="margin-top:4px">${esc(b.note)} は外せません（予約中・貸出中はレンタルの約束が残っているため、先にキャンセル・返却してください）。</div>` : ''}`)}
+    ${willEmpty.length ? `<p class="meta" style="margin-bottom:12px">
+      <strong>${willEmpty.map(c => esc(titleOf(prod(c)))).join('・')}</strong> はレンタル対象が0台になります。
+      商品の8RENT掲載はそのままにします（8ECでは「在庫切れ」の表示になります）。
+      掲載自体を止めるときは、商品詳細の「8RENT設定を変える」で非公開にしてください。</p>` : ''}
+    <label class="field"><span>メモ（任意・履歴に残ります）</span>
+      <input class="input" id="blNote" placeholder="例 販売用に戻す"></label>
+  `, [['閉じる', 'closeModal()', 'btn ghost'],
+      ['8RENTから外す', "doBulk('8RENT対象外')", 'btn']]);
+}
+
+/* ---- 貸出（社内・お客様への貸出） ---- */
+function openBulkLoan() {
+  const b = selBreakdown(STATUSES.filter(s => s !== '在庫'));
+  if (!b.n) return;
+  openModal('まとめて貸出', `
+    ${bulkHead(`選んだ <strong>${b.n}台</strong>のうち、<strong>${b.ok}台</strong>を貸出中にします。
+      ${b.ng ? `<div class="meta" style="margin-top:4px">${esc(b.note)} は「在庫」ではないので貸し出せません。</div>` : ''}`)}
+    <label class="field" style="margin-bottom:10px"><span>貸出先・利用者</span>
+      <input class="input" id="blUser" list="uOptsBulk" placeholder="例 佐藤 健 ／ 株式会社◯◯" autocomplete="off">
+      <datalist id="uOptsBulk">${userOptions()}</datalist></label>
+    <label class="field" style="margin-bottom:10px"><span>返却予定日（任意）</span>
+      <input class="input" type="date" id="blDue"></label>
+    <label class="field"><span>メモ（任意）</span>
+      <input class="input" id="blNote" placeholder="例 短期プロジェクトで使用"></label>
+  `, [['閉じる', 'closeModal()', 'btn ghost'], ['貸出にする', "doBulk('貸出')", 'btn lime']]);
+}
+
+/* ---- 売却（販売済みにする） ---- */
+function openBulkSell() {
+  const b = selBreakdown(['予約中', '貸出中', '売却済', '廃棄']);
+  if (!b.n) return;
+  openModal('まとめて売却', `
+    ${bulkHead(`選んだ <strong>${b.n}台</strong>のうち、<strong>${b.ok}台</strong>を売却済（販売済み）にします。
+      <div class="meta" style="margin-top:4px">売却済にすると在庫から外れ、8RENTのレンタル可能数にも数えなくなります。</div>
+      ${b.ng ? `<div class="meta" style="margin-top:4px">${esc(b.note)} はそのまま売却できません（先に返却・キャンセルしてください）。</div>` : ''}`, 'warn')}
+    <label class="field" style="margin-bottom:10px"><span>販売価格（任意・1台あたり）</span>
+      <input class="input num" type="number" min="0" step="100" id="blPrice" placeholder="例 42000">
+      <span class="meta">選んだ台すべてに同じ価格で記録します。1台ずつ違うときは空のままにしてください。</span></label>
+    <label class="field"><span>メモ（任意）</span>
+      <input class="input" id="blNote" placeholder="例 楽天で販売"></label>
+  `, [['閉じる', 'closeModal()', 'btn ghost'], ['売却にする', "doBulk('売却')", 'btn']]);
+}
+
+/* ---- 修理（状態を修理中にする） ---- */
+function openBulkRepair() {
+  const b = selBreakdown(['売却済', '廃棄', '予約中', '販売予約', '修理中']);
+  if (!b.n) return;
+  openModal('まとめて修理中にする', `
+    ${bulkHead(`選んだ <strong>${b.n}台</strong>のうち、<strong>${b.ok}台</strong>を修理中にします。
+      ${b.ng ? `<div class="meta" style="margin-top:4px">${esc(b.note)} は変更できません。</div>` : ''}`)}
+    <label class="field"><span>修理の理由・メモ（任意・履歴に残ります）</span>
+      <input class="input" id="blNote" placeholder="例 キーボード不良／バッテリー交換"></label>
+  `, [['閉じる', 'closeModal()', 'btn ghost'], ['修理中にする', "doBulk('修理')", 'btn lime']]);
+}
+
+/* ---- 棚卸（現物を確認したことを記録する。状態は変えない） ---- */
+function openBulkCheck() {
+  const b = selBreakdown(GONE);
+  if (!b.n) return;
+  openModal('まとめて棚卸（現物確認）', `
+    ${bulkHead(`選んだ <strong>${b.n}台</strong>のうち、<strong>${b.ok}台</strong>を「現物確認済み」として記録します。
+      <div class="meta" style="margin-top:4px">状態は変えません。いつ・誰が・どの個体を確認したかを履歴に残します。</div>
+      ${b.ng ? `<div class="meta" style="margin-top:4px">${esc(b.note)} は手元にないので確認できません。</div>` : ''}`)}
+    <label class="field"><span>メモ（任意）</span>
+      <input class="input" id="blNote" placeholder="例 本社倉庫で確認"></label>
+  `, [['閉じる', 'closeModal()', 'btn ghost'], ['確認済みにする', "doBulk('棚卸')", 'btn lime']]);
+}
+
+/* ---- 廃棄（取り返しがつかないので、確認してからにする） ---- */
+function openBulkScrap() {
+  const b = selBreakdown(['廃棄']);
+  if (!b.n) return;
+  openModal('まとめて廃棄', `
+    ${bulkHead(`選んだ <strong>${b.n}台</strong>のうち、<strong>${b.ok}台</strong>を廃棄にします。
+      <strong>在庫から外れ、元には戻せません。</strong>
+      <div class="meta" style="margin-top:4px">履歴（誰がいつ何を廃棄したか）は残ります。</div>`, 'warn')}
+    <label class="field" style="margin-bottom:10px"><span>廃棄の理由（任意・履歴に残ります）</span>
+      <input class="input" id="blNote" placeholder="例 水濡れで起動しない"></label>
+    <label class="bchk"><input type="checkbox" id="blConfirm"
+      onchange="document.getElementById('blGo').disabled = !this.checked"> 元に戻せないことを確認しました</label>
+  `, [['閉じる', 'closeModal()', 'btn ghost'], ['廃棄にする', "doBulk('廃棄')", 'btn danger', 'blGo']]);
+  const go = $('blGo'); if (go) go.disabled = true;
+}
+
+/* ---- まとめて実行 ----
+   1台ずつの検証・履歴はサーバー側（inv_items_bulk_op → inv_item_op）に任せる。
+   失敗した個体は選択に残して、理由とあわせて出す。 */
+const BULK_LABEL = { '8RENT対象': '8RENT対象', '8RENT対象外': '8RENT対象外', '貸出': '貸出',
+                     '売却': '売却', '修理': '修理', '棚卸': '棚卸', '廃棄': '廃棄' };
+async function doBulk(action) {
+  const ids = selItemIds();
+  if (!ids.length) return;
+  const val = (id) => (($(id) || {}).value || '').trim();
+  if (action === '貸出' && !val('blUser')) { toast('貸出先を入力してください'); return; }
+  const args = {
+    p_ids: ids, p_action: action,
+    p_value: action === '貸出' ? val('blUser') : (action === '売却' ? (val('blPrice') || null) : null),
+    p_note: val('blNote') || null,
+    p_due: action === '貸出' ? (val('blDue') || null) : null,
+    p_enable_product: action === '8RENT対象'   // 最初の1台なら商品の掲載も自動でON
+  };
+  closeModal();
+  toast(`${BULK_LABEL[action]}を実行しています…`);
+  const { data, error } = await sb.rpc('inv_items_bulk_op', args);
+  if (error) { toast('実行できませんでした：' + error.message); return; }
+  ui.selItems = {};
+  ((data && data.ng) || []).forEach(x => { ui.selItems[x.id] = true; });  // 失敗した分は選んだままにする
+  await loadAll();
+  render();
+  showBulkResult(action, data || {});
+}
+
+/* 成功件数・失敗件数・失敗理由を出す。全部成功なら短く1行で伝える */
+function showBulkResult(action, r) {
+  const ok = r.ok || 0, ng = (r.ng || []).length, total = r.total || 0;
+  const extra = r.products_enabled ? `（商品 ${r.products_enabled}件も8RENTに掲載しました）` : '';
+  const empty = (r.products_empty || []);
+  if (!ng && !empty.length) {
+    toast(action === '8RENT対象' ? `8RENT対象に${ok}台追加しました${extra}`
+        : action === '8RENT対象外' ? `${ok}台を8RENT対象から外しました`
+        : `${ok}台を${BULK_LABEL[action]}にしました`);
+    return;
+  }
+  // レンタル対象が0台になった商品は、掲載を落とさずに知らせる（止めるかは人が決める）
+  if (!ng && empty.length) {
+    toast(`${ok}台を8RENT対象から外しました`);
+    openModal('8RENTから外しました', `
+      ${bulkHead(`${ok}台をレンタル対象から外しました。`)}
+      <p class="meta" style="margin-bottom:10px">次の商品は<strong>レンタル対象が0台</strong>になりました。
+        8RENTの掲載設定（公開中）はそのままにしています。8ECでは「在庫切れ」の表示になり、申込はできません。
+        掲載自体を止めるときは、商品詳細の「8RENT設定を変える」で非公開にしてください。</p>
+      <div class="plist">${empty.map(x =>
+        `<div class="p"><span class="c">${esc(x.code)}</span><span>${esc(x.name || '')}</span>
+          <button class="btn sm ghost" style="margin-left:auto"
+            onclick="closeModal();go('prod','${esc(x.code)}')">商品を開く</button></div>`).join('')}</div>
+    `, [['閉じる', 'closeModal()', 'btn ghost']]);
+    return;
+  }
+  const one = ng === 1 ? `${total}台中${ok}台成功・1台は${esc(r.ng[0].reason)}` : `${total}台中${ok}台成功・${ng}台失敗`;
+  toast(one);
+  openModal(`${BULK_LABEL[action]}の結果`, `
+    <div class="sum" style="margin-bottom:14px">
+      <div><div class="lbl">対象</div><div class="v">${total}</div></div>
+      <div><div class="lbl">成功</div><div class="v">${ok}</div></div>
+      <div><div class="lbl">できなかった</div><div class="v err">${ng}</div></div>
+    </div>
+    ${extra ? `<p class="meta" style="margin-bottom:10px">${esc(extra)}</p>` : ''}
+    ${empty.length ? `<p class="meta" style="margin-bottom:10px">
+      ${esc(empty.map(x => x.name || x.code).join('・'))} はレンタル対象が0台になりました。
+      8RENTの掲載はそのままです（8ECでは「在庫切れ」）。止めるときは商品詳細の「8RENT設定を変える」から。</p>` : ''}
+    <div class="table-wrap"><table class="t">
+      <thead><tr><th>管理番号</th><th>理由</th></tr></thead>
+      <tbody>${r.ng.map(x => `<tr><td class="num">${esc(x.id)}</td><td class="meta">${esc(x.reason)}</td></tr>`).join('')}</tbody>
+    </table></div>
+    <p class="meta" style="margin-top:10px">できなかった個体は選んだままにしています。状態を直してからもう一度お試しください。</p>
+  `, [['閉じる', 'closeModal()', 'btn ghost']]);
+}
+
 
 function stockTag(lbl) {
   const cls = { '在庫あり': 'ok', '残りわずか': 'few', '在庫なし': 'none', '要発注': 'few' }[lbl] || 'none';
@@ -1531,7 +1827,7 @@ function showBatch(id, justNow) {
   // 「今回」と言えるのは取り込んだ直後だけ。履歴から過去の回を選んだ時点で終わり
   ui.doneBatch = justNow ? id : null;
   ui.q = ''; ui.fCat = ''; ui.fMaker = ''; ui.fLoc = ''; ui.fStock = ''; ui.fSt = '';
-  ui.fDiff = false; ui.sel = {};
+  ui.fDiff = false; ui.sel = {}; ui.selItems = {};
   // 取り込んだ直後は、いま入れたものが見えないと意味がない。サイト別のタブからは戻す
   if (ui.listMode !== 'model') ui.listMode = 'unit';
   go('list');
@@ -2656,6 +2952,7 @@ function viewItem() {
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <span class="num" style="font-size:19px;font-weight:500">${esc(it.id)}</span>
         ${statusTag(it.status, true)}
+        ${GONE.includes(it.status) ? '' : rentalTag(it)}
         ${isLong(it) ? '<span class="tag" style="background:var(--l200)">長期貸出 ' + daysSince(it.loaned_at) + '日</span>' : ''}
       </div>
       <div class="info">
@@ -2971,27 +3268,54 @@ function prodPrices(p) {
   <p class="meta" style="margin-top:6px">売れたものは実際の販売価格、売れていないものは販売予定価格で見込んでいます。</p>`;
 }
 
-/* 8RENTでのレンタル可能数。在庫の個体数がそのままレンタル可能数になる
-   （貸出中・予約中・修理中などは status = '在庫' ではないので自然に外れる） */
-const rentalAvailable = (code) => itemsOf(code).filter(i => i.status === '在庫').length;
+/* 8EC（レンタル）と楽天（販売）は同じ実在庫を共有する。貸出中・予約中・販売予約・
+   修理中などは status が '在庫' ではないので、どちらの数からも自然に外れる。
+   先に確保したほうにその1台が割り当たる（サーバー側の inv_reserve_available_item）。
+     在庫       … status='在庫' の個体数（楽天へ出せる台数のもと）
+     レンタル可能 … そのうち「8RENTに出す」と選んだ個体（rental_eligible）だけ */
+const inStockOf = (code) => itemsOf(code).filter(i => i.status === '在庫').length;
+const rentalAvailable = (code) => itemsOf(code).filter(i => i.status === '在庫' && i.rental_eligible).length;
+const rentalEligibleOf = (code) => itemsOf(code).filter(i => i.rental_eligible && !GONE.includes(i.status)).length;
+/* 販売サイトへ出してよい数量。掲載（出品状態）とは別に持つ。
+   掲載していなければ0。掲載していれば在庫の台数（＝発送できる台数）。
+   レンタル対象に選んだ個体も、在庫のうちは売れるので数量に含める。
+   8ECで貸し出しても掲載は解除せず、この数量だけが減る。 */
+const saleListed = (code, ch) =>
+  (channelsOf(code).find(v => v.channel === ch) || {}).state === LISTED ||
+  itemsOf(code).some(i => (listingOf(i, ch) || {}).state === LISTED);
+const saleAvailable = (code, ch) => saleListed(code, ch) ? inStockOf(code) : 0;
+/* 在庫にまだ入っていない理由の内訳（販売可能数量に含めない個体） */
+const heldCounts = (code) => {
+  const c = { 予約中: 0, 貸出中: 0, 販売予約: 0, 修理中: 0 };
+  itemsOf(code).forEach(i => { if (c[i.status] != null) c[i.status] += 1; });
+  return c;
+};
 
 /* 商品詳細に出す8RENT設定。/zaikoが基準（source of truth）で、
-   ここでrental_enabledをオンにした商品だけが8RENTに公開される。 */
+   ここでrental_enabledをオンにした商品だけが8EC（トップ・8RENT）に公開される。
+   楽天は販売チャネルなので、レンタル公開にしても楽天の掲載は解除しない
+   （貸し出された1台が、楽天へ出す販売可能数量から外れるだけ）。 */
 function rentalBox(p) {
   const on = !!p.rental_enabled;
   const avail = rentalAvailable(p.code);
+  const elig = rentalEligibleOf(p.code);
   const tags = (p.rental_tags || []).map(t => RENTAL_TAG_LABEL[t] || t);
   return `<div class="prices" style="margin-top:16px">
     <div><div class="lbl">8RENT</div><div class="v ${on ? 'plus' : ''}">${on ? '公開中' : '非公開'}</div></div>
     <div><div class="lbl">月額料金</div><div class="v">${p.rental_price_month ? yen(p.rental_price_month) : '—'}</div></div>
-    <div><div class="lbl">レンタル可能数</div><div class="v">${on ? avail : '—'}</div></div>
+    <div><div class="lbl">レンタル対象の個体</div><div class="v">${elig}<span class="meta"> / ${itemsOf(p.code).filter(i => !GONE.includes(i.status)).length}台</span></div></div>
+    <div><div class="lbl">レンタル可能数</div><div class="v ${on && avail ? 'plus' : ''}">${on ? avail : '—'}</div></div>
     <div><div class="lbl">最低利用期間</div><div class="v">${p.rental_min_months || 1}ヶ月〜</div></div>
     <button class="btn sm ghost" onclick="sheetRentalSet('${esc(p.code)}')" ${dis()}>8RENT設定を変える</button>
   </div>
   ${on ? `<p class="meta" style="margin-top:6px">${[
       p.office_supported ? 'Office対応' : '', p.trial_eligible ? 'お試し対象' : '',
       tags.length ? 'タグ：' + tags.join('・') : ''
-    ].filter(Boolean).join('　')}</p>` : ''}`;
+    ].filter(Boolean).concat([
+      'レンタル可能数は「状態が在庫」かつ「8RENTに出すと選んだ個体」の台数です。個体は在庫一覧で選びます。',
+      '貸し出しても楽天の掲載は解除せず、販売サイトへ出す数量だけが減ります。'
+    ]).join('　')}</p>`
+    : `<p class="meta" style="margin-top:6px">非掲載のあいだは、個体を8RENT対象にしても8ECには出ません。</p>`}`;
 }
 
 /* 商品画像。8ECトップ・8RENTの公開ページは、ここで登録した
@@ -3047,7 +3371,7 @@ function sheetSaleReserve(code) {
   const avail = rentalAvailable(code);
   openSheet({
     title: '受注を記録', subject: code, cta: '在庫を1台確保',
-    hint: `${esc(titleOf(p))}　いま確保できる在庫 ${avail}台。販売サイトで受注が入ったら、発送前にここで在庫を1台「販売予約」にします（8RENTのレンタル予約とも在庫を取り合います）。`,
+    hint: `${esc(titleOf(p))}　いま確保できる在庫 ${avail}台。販売サイトで受注が入ったら、発送前にここで在庫を1台「販売予約」にします。確保した1台は8ECのレンタル可能数からすぐ外れます（商品の掲載は解除しません）。発送したら個体の操作から「売却」で販売済みにしてください。`,
     body: `<label class="field"><span>販売サイト</span>
         <select class="input" id="srChannel">${TAB_CHANNELS.map(c => `<option value="${esc(c.key)}">${esc(c.label)}</option>`).join('')}</select></label>
       <label class="field" style="margin-top:10px"><span>注文番号（任意）</span>
@@ -3171,9 +3495,30 @@ function unitMenu(id) {
         <span class="ms">build</span><span class="t">修理・状態</span></button>
       <button class="btn" onclick="closeModal();sheetSell('${esc(id)}')" ${can(!GONE.includes(it.status))}>
         <span class="ms">paid</span><span class="t">売却</span></button>
+      <button class="btn" onclick="closeModal();toggleItemRental('${esc(id)}')" ${can(!GONE.includes(it.status))}>
+        <span class="ms">devices</span><span class="t">${it.rental_eligible ? '8RENT対象から外す' : '8RENTに出す'}</span></button>
       ${canAdmin() ? `<button class="btn" onclick="closeModal();sheetScrap('${esc(id)}')" ${can(it.status !== '廃棄')}>
         <span class="ms">delete</span><span class="t">廃棄</span></button>` : ''}
     </div>`, [['閉じる', 'closeModal()', 'btn ghost']]);
+}
+
+/* 1台だけ8RENT対象を切り替える。処理と履歴は一括操作と同じ（inv_items_bulk_op）。
+   商品が8RENT非掲載のままだと8ECには出ないので、そのときは続けて知らせる。 */
+async function toggleItemRental(id) {
+  const it = item(id); if (!it) return;
+  const on = !it.rental_eligible;
+  const { data, error } = await sb.rpc('inv_items_bulk_op', {
+    p_ids: [id], p_action: on ? '8RENT対象' : '8RENT対象外', p_enable_product: false
+  });
+  if (error) { toast('変更できませんでした：' + error.message); return; }
+  const ng = ((data || {}).ng || [])[0];
+  if (ng) { toast(ng.reason); return; }
+  await loadAll();
+  render();
+  const p = prod(it.product_code);
+  toast(on
+    ? (p && p.rental_enabled ? `${id} を8RENT対象にしました` : `${id} を8RENT対象にしました（商品が8RENT非掲載のままです）`)
+    : `${id} を8RENT対象から外しました`);
 }
 
 /* --- 販売情報 ---
@@ -3187,16 +3532,19 @@ function tabSales(p) {
     <p class="meta" style="margin-bottom:12px">${ind
       ? '出品は<strong>実物1台ごと</strong>に持ちます。1台ずつの中身は、下の管理番号をクリックしてください。'
       : '数量管理の品目なので、出品情報は品目まるごとで持ちます。'}</p>
+    ${ind ? saleQtyNote(p) : ''}
     <div class="table-wrap"><table class="t">
-      <thead><tr><th>販売サイト</th>${ind ? '<th class="r">出品中</th>' : ''}
+      <thead><tr><th>販売サイト</th>${ind ? '<th class="r">出品中</th><th class="r">販売できる数量</th>' : ''}
         <th>型番まとめての設定</th><th>SKU</th><th class="r">販売価格</th><th>商品URL</th>
         ${canEdit() ? '<th></th>' : ''}</tr></thead>
       <tbody>${CHANNELS.map(c => {
         const x = channelsOf(p.code).find(v => v.channel === c.key) || {};
         const n = units.filter(i => (listingOf(i, c.key) || {}).state === LISTED).length;
+        const q = saleAvailable(p.code, c.key);
         return `<tr>
           <td class="nowrap"><span class="tag ch ${n || x.state === LISTED ? 'on' : ''}">${esc(c.short)}</span> ${esc(c.label)}</td>
-          ${ind ? `<td class="num r${n ? '' : ' meta'}">${n || '—'}</td>` : ''}
+          ${ind ? `<td class="num r${n ? '' : ' meta'}">${n || '—'}</td>
+          <td class="num r${saleListed(p.code, c.key) ? (q ? '' : ' minus') : ' meta'}">${saleListed(p.code, c.key) ? q + '台' : '—'}</td>` : ''}
           <td class="nowrap">${x.state ? `<span class="tag ${x.state === LISTED ? 'ch on' : 'act'}">${esc(x.state)}</span>` : '<span class="meta">—</span>'}</td>
           <td class="num">${esc(x.sku || '') || '<span class="meta">—</span>'}</td>
           <td class="num r">${x.price == null ? '<span class="meta">—</span>' : yen(x.price)}</td>
@@ -3215,6 +3563,20 @@ function tabSales(p) {
             onclick="event.stopPropagation();go('item','${esc(i.id)}')">開く</button></td>
         </tr>`).join('')}</tbody></table></div>`
       : '<div class="empty" style="margin-top:14px">個体がまだ登録されていません。</div>') : ''}`;
+}
+
+/* 販売サイトへ出す数量の説明。「掲載しているか」と「いま売れる数量」は別物、
+   という運用をこの画面で明示する（8ECでレンタル中でも掲載は消さない）。 */
+function saleQtyNote(p) {
+  const avail = rentalAvailable(p.code);
+  const h = heldCounts(p.code);
+  const held = Object.keys(h).filter(k => h[k] > 0).map(k => `${k} ${h[k]}台`);
+  return `<div class="card" style="margin-bottom:12px">
+    <div>販売サイトへ出す数量：<strong>${avail}台</strong>（在庫の台数）
+      ${held.length ? `<span class="meta">　除外：${esc(held.join('・'))}</span>` : ''}</div>
+    <div class="meta" style="margin-top:4px">発送できない個体（予約中・貸出中・販売予約・修理中）は数量に含めません。
+      ${p.rental_enabled ? '8ECでレンタル中でも' : ''}販売サイトの商品ページ（掲載）はそのまま残し、在庫数だけを0にしてください。</div>
+  </div>`;
 }
 
 /* 型番まとめての出品設定。1台ぶんの設定が無い個体に当たる */
@@ -4339,7 +4701,7 @@ function handleCode(raw) {
 }
 
 /* ===== 13. 8RENT申込 =====
-   8RENT（/rental/）から入ったレンタル申込を扱う。個体の割り当ては申込時に
+   8RENT（サイトトップ /）から入ったレンタル申込を扱う。個体の割り当ては申込時に
    inv_rental_request() が自動でやっている（在庫の個体を1台「予約中」にする）ので、
    ここでの操作は状態を進めるだけ：発送する（予約中→貸出中）／返却済みにする（貸出中→在庫）／
    キャンセル（予約中→在庫）。個体の状態と申込の状態は常に連動する。 */
