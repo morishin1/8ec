@@ -1608,32 +1608,83 @@ function pickImport() { $('csvFile').value = ''; $('csvFile').click(); }
    不足情報を補う。実在庫（inventory_items）はここでは作らない。
    候補が複数あって自動で選べないものは「要確認」に出し、人に選んでもらう。 */
 let rakutenLastResult = null;
+/* 楽天商品を同期。
+   8ECの公開ページは楽天APIを呼ばない。ここで取り込んだ商品画像（images）と
+   スペックを商品マスターに保存し、公開ページはそれだけを読む。
+   画像は images に入れ、image_url（人が/zaikoで指定したメイン画像）は同期で触らない。 */
+function rakutenImageStats() {
+  const listed = db.masters.filter(p => (channelsOf(p.code) || []).some(c =>
+    c.channel === 'rakuten' && (c.external_item_code || c.url)));
+  const noImg = listed.filter(p =>
+    !(p.image_url || '').trim() && !(Array.isArray(p.images) ? p.images.filter(Boolean).length : 0));
+  return { listed: listed.length, noImg: noImg.length };
+}
 function openRakutenSync() {
   if (!canAdmin()) { toast('同期は管理者だけができます'); return; }
+  const st = rakutenImageStats();
   openModal('楽天商品を同期', `
-    <p class="meta" style="margin-bottom:14px">楽天に登録済みの自社商品を取得し、商品名・画像・スペック等の
-      不足情報を商品マスターへ補います。すでに人が入力した値は上書きしません。実在庫は増えません。</p>
-    <label class="field" style="margin-bottom:14px"><span>特定の商品だけテストする（任意）</span>
-      <input class="input" type="text" id="rkTargetUrl" placeholder="https://item.rakuten.co.jp/店舗ID/商品番号/ など、既存の掲載URL">
-      <span class="meta">指定すると、その商品1件だけ楽天APIに接続してテストします（まず1件の接続確認に）。空欄なら下の件数ぶん一覧を取得します。</span></label>
-    <label class="field" style="max-width:220px"><span>取得件数（まずは少数でお試しください）</span>
+    <p class="meta" style="margin-bottom:12px">楽天に出品している商品の<strong>写真</strong>と、商品名・スペック等の
+      不足情報を商品マスターへ取り込みます。写真は <code>images</code> に入り、
+      <strong>/zaikoで登録したメイン画像は上書きしません</strong>。8ECの公開ページは商品マスターだけを読みます
+      （表示のたびに楽天APIは呼びません）。実在庫は増えません。</p>
+    <div class="prices" style="margin-bottom:14px">
+      <div><div class="lbl">楽天に掲載中</div><div class="v">${st.listed}商品</div></div>
+      <div><div class="lbl">うち写真が無い</div><div class="v ${st.noImg ? 'minus' : ''}">${st.noImg}商品</div></div>
+    </div>
+    <label class="field" style="margin-bottom:12px"><span>同期する範囲</span>
+      <select class="input" id="rkMode" onchange="syncRakutenMode()">
+        <option value="missing">画像が未取得の商品だけ（${st.noImg}商品）</option>
+        <option value="all">楽天に掲載している商品すべて（${st.listed}商品）</option>
+        <option value="one">1商品だけ（掲載URLを指定）</option>
+        <option value="catalog">楽天の商品一覧から商品マスターを補完（新規登録もする）</option>
+      </select>
+      <span class="meta" id="rkModeHint"></span></label>
+    <div id="rkOneWrap" style="display:none">
+      <label class="field" style="margin-bottom:12px"><span>掲載URL</span>
+        <input class="input" type="text" id="rkTargetUrl" placeholder="https://item.rakuten.co.jp/店舗ID/商品番号/">
+        <span class="meta">商品URLはここに入れた値だけを使い、商品コードから推測はしません。</span></label>
+      <label class="field" style="margin-bottom:12px"><span>反映先の商品コード（任意）</span>
+        <input class="input" type="text" id="rkTargetCode" placeholder="例 P-00432">
+        <span class="meta">入れると、その商品に直接反映します。空なら型番などで自動照合します。</span></label>
+    </div>
+    <label class="field" id="rkLimitWrap" style="max-width:220px;display:none"><span>取得件数</span>
       <input class="input num" type="number" id="rkLimit" value="5" min="1" max="30"></label>
     <div id="rkResult" style="margin-top:16px"></div>`,
     [['閉じる', 'closeModal()', 'btn ghost'],
      ['同期する', 'runRakutenSync()', 'btn lime', 'rkGoBtn']]);
+  syncRakutenMode();
+}
+function syncRakutenMode() {
+  const m = ($('rkMode') || {}).value || 'missing';
+  const show = (id, on) => { const el = $(id); if (el) el.style.display = on ? '' : 'none'; };
+  show('rkOneWrap', m === 'one');
+  show('rkLimitWrap', m === 'catalog');
+  const hint = {
+    missing: '写真がまだ無い商品だけを対象にします。ふだんの取り込みはこれで十分です。',
+    all: '掲載中の商品すべてを見直します。すでに入っている値は上書きしません。',
+    one: '1商品だけ試すとき（接続確認にも）。',
+    catalog: '楽天の商品一覧を取得し、型番などで照合して商品マスターを補完します（該当が無ければ新規登録）。'
+  }[m] || '';
+  const el = $('rkModeHint'); if (el) el.textContent = hint;
 }
 async function runRakutenSync() {
   const btn = $('rkGoBtn'); if (btn) btn.disabled = true;
   const host = $('rkResult');
   host.innerHTML = '<div class="status" style="padding:10px 0"><span class="ms">progress_activity</span> 楽天から取得しています…</div>';
   try {
+    const mode = (($('rkMode') || {}).value || 'missing');
     const limit = Math.max(1, Math.min(30, parseInt(numField('rkLimit') || 5, 10) || 5));
     const targetUrl = (($('rkTargetUrl') || {}).value || '').trim();
+    const targetCode = (($('rkTargetCode') || {}).value || '').trim();
+    if (mode === 'one' && !targetUrl) { host.innerHTML = '<div class="warnbox"><span class="ms">error</span><div>掲載URLを入れてください。</div></div>'; return; }
+    const payload = mode === 'missing' || mode === 'all' ? { mode }
+      : mode === 'one' ? { item_url: targetUrl, code: targetCode || undefined, limit: 1 }
+      : { limit };
     const { data: { session } } = await sb.auth.getSession();
     const res = await fetch(SUPA_URL + '/functions/v1/rakuten-product-sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', apikey: SUPA_KEY, Authorization: 'Bearer ' + (session ? session.access_token : '') },
-      body: JSON.stringify(targetUrl ? { item_url: targetUrl, limit } : { limit })
+      body: JSON.stringify(payload)
     });
     let out = {};
     try { out = await res.json(); } catch (_) { out = {}; }
@@ -1656,6 +1707,30 @@ async function runRakutenSync() {
   }
 }
 function rakutenSyncResultHtml(out) {
+  // まとめ同期（画像が未取得だけ／全部／1商品）の結果
+  if (out.mode) {
+    const nf = out.not_found || [];
+    const shots = (out.details || []).filter(d => d.images_added);
+    return `
+      <div class="prices">
+        <div><div class="lbl">画像取得成功</div><div class="v ${out.images_ok ? 'plus' : ''}">${out.images_ok ?? 0}件</div></div>
+        <div><div class="lbl">商品情報更新</div><div class="v ${out.updated ? 'plus' : ''}">${out.updated ?? 0}件</div></div>
+        <div><div class="lbl">失敗</div><div class="v ${out.failed ? 'minus' : ''}">${out.failed ?? 0}件</div></div>
+      </div>
+      <p class="meta" style="margin:10px 0">対象 ${out.target_count ?? 0}商品／楽天から取得 ${out.fetched_count ?? 0}件${
+        out.pages_read ? `（${out.pages_read}ページ・API ${out.api_requests ?? 0}回）` : ''}${
+        out.unchanged ? `／変更なし ${out.unchanged}件` : ''}</p>
+      ${shots.length ? `<div class="sec">写真が入った商品</div>
+        <div class="plist">${shots.slice(0, 30).map(d =>
+          `<div class="p"><span class="c">${esc(d.code)}</span><span>${esc(d.name || '')}</span>
+            <span class="meta" style="margin-left:auto">${d.image_count}枚</span></div>`).join('')}</div>` : ''}
+      ${nf.length ? `<div class="sec">楽天側で見つからなかった商品</div>
+        <div class="plist">${nf.slice(0, 30).map(d =>
+          `<div class="p"><span class="c">${esc(d.code)}</span><span>${esc(d.name || '')}</span>
+            <span class="meta" style="margin-left:auto">${esc(d.item_code || d.url || '')}</span></div>`).join('')}</div>
+        <p class="meta" style="margin-top:8px">掲載URL・商品コードが正しいか、いま楽天に出品中かをご確認ください。</p>` : ''}
+      <p class="meta" style="margin-top:10px">公開ページ（8ec.jp）は次の読み込みから反映されます。再デプロイは要りません。</p>`;
+  }
   const nums = [
     ['新規登録', out.created_count, 'plus'], ['更新', out.updated_count, 'plus'],
     ['変更なし', out.unchanged_count, ''], ['要確認', out.needs_review_count, out.needs_review_count ? 'minus' : ''],

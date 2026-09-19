@@ -15,6 +15,19 @@
 //   ※ Access Key はこの関数（サーバー側）でしか読みません。ブラウザ側のJSやHTML、
 //     このリポジトリのどこにも直接書きません。
 //
+//   商品画像の流れ（8ECの表示時に楽天APIは呼ばない）:
+//     inventory_channel_listings（channel='rakuten' の itemCode / 掲載URL）
+//       → この関数が楽天APIから商品画像URLを取得
+//       → inventory_products.images に保存（image_url は人が指定したメイン画像
+//          専用なので同期では触らない）
+//       → inv_public_catalog → 8ec.jp が商品マスターから読む
+//     まとめ実行のモード（body.mode）:
+//       'missing' … 写真がまだ1枚も無い掲載商品だけ（既定のまとめ実行）
+//       'all'     … 楽天に掲載している商品すべて
+//       どちらも自社shopCodeの商品一覧をページングして取得し（1req/秒）、
+//       itemCode か掲載URLで商品マスターと突き合わせて1商品ずつ反映する。
+//       商品1件ごとに楽天APIを呼ばないので、呼び出し回数は商品数ではなくページ数。
+//
 //   処理の流れ:
 //     1. 呼び出し元が /zaiko の編集権限を持つか（inventory_members）をJWTで確認
 //     2. Rakuten Developers の商品検索APIを、自社 shopCode を指定して呼ぶ
@@ -76,6 +89,10 @@ const RAKUTEN_ORIGIN = "https://www.8ec.jp";
 // 自社商品は150件前後（hits=30で5ページ程度）なので、余裕を持たせつつ
 // 無限ループにはしない上限（URL一致検索でページングする最大ページ数）。
 const MAX_URL_SEARCH_PAGES = 10;
+
+// まとめ同期（mode=missing/all）で読む最大ページ数。hits=30なので最大600商品。
+// 対象がすべて見つかった時点で早めに切り上げる。
+const MAX_SYNC_PAGES = 20;
 
 // このRakuten Developersアプリの予想QPS登録が「1リクエスト/秒」のため、
 // ページング時は次のリクエストまで必ずこれだけ空ける（1秒に余裕を持たせて1.2秒）。
@@ -334,6 +351,118 @@ function normalizeItem(raw: any): Record<string, unknown> {
   };
 }
 
+/**
+ * まとめ同期（mode='missing' / 'all'）。
+ *   1. inv_rakuten_sync_targets で対象商品（楽天に掲載していて、写真が無い／全部）を取る
+ *   2. 自社shopCodeの商品一覧をページングして取得（1req/秒）。itemCodeと掲載URLで索引を作る
+ *   3. 対象1件ずつ inv_rakuten_apply_one で商品マスターへ反映（画像は images に入る）
+ * 商品ごとに楽天APIを呼ばないので、API呼び出し回数は「商品数」ではなく「ページ数」。
+ */
+async function syncTargets(
+  cfg: { appId: string; accessKey: string; shopCode: string; supabaseUrl: string; anon: string; token: string },
+  scope: "missing" | "all",
+): Promise<Record<string, unknown>> {
+  // ── 1. 対象商品 ──
+  const tres = await fetch(`${cfg.supabaseUrl}/rest/v1/rpc/inv_rakuten_sync_targets`, {
+    method: "POST",
+    headers: { apikey: cfg.anon, Authorization: `Bearer ${cfg.token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ p_scope: scope }),
+  });
+  const targets = await tres.json();
+  if (!tres.ok) {
+    return { error: "同期する商品の一覧を取れませんでした：" + (targets?.message || JSON.stringify(targets)) };
+  }
+  const list: any[] = Array.isArray(targets) ? targets : [];
+  if (list.length === 0) {
+    return {
+      mode: scope, target_count: 0, fetched_count: 0, api_requests: 0,
+      images_ok: 0, updated: 0, unchanged: 0, failed: 0, not_found: [], details: [],
+    };
+  }
+
+  // ── 2. 自社商品一覧をページングして索引を作る ──
+  const wantCodes = new Set(list.map((t) => String(t.item_code || "")).filter(Boolean));
+  const wantUrls = new Set(list.map((t) => (t.url ? normalizeUrlForMatch(String(t.url)) : "")).filter(Boolean));
+  const byCode = new Map<string, any>();
+  const byUrl = new Map<string, any>();
+  let fetched = 0;
+  let apiRequests = 0;
+  let pagesRead = 0;
+
+  for (let page = 1; page <= MAX_SYNC_PAGES; page++) {
+    if (page > 1) await sleep(PAGE_INTERVAL_MS);
+    const rk = await fetchRakutenPage(cfg.appId, cfg.accessKey, cfg.shopCode, page, 30);
+    apiRequests += rk.httpCalls;
+    pagesRead = page;
+    if (!rk.ok) {
+      return { error: "楽天APIの呼び出しに失敗しました（認証情報または仕様をご確認ください）。", status: rk.status, rakuten_response: rk.data };
+    }
+    const items: any[] = Array.isArray(rk.data?.Items) ? rk.data.Items : [];
+    fetched += items.length;
+    for (const raw of items) {
+      const it = raw?.Item || raw;
+      if (it?.itemCode) byCode.set(String(it.itemCode), raw);
+      if (it?.itemUrl) byUrl.set(normalizeUrlForMatch(String(it.itemUrl)), raw);
+    }
+    // 欲しいものが全部そろったら、残りのページは読まない
+    const gotAll = list.every((t) =>
+      (t.item_code && byCode.has(String(t.item_code))) ||
+      (t.url && byUrl.has(normalizeUrlForMatch(String(t.url)))));
+    if (gotAll) break;
+    if (items.length < 30) break;                       // 最後のページまで来た
+    const total = Number(rk.data?.count);
+    if (Number.isFinite(total) && page * 30 >= total) break;
+  }
+  console.log(JSON.stringify({ sync_scope: scope, targets: list.length, pages_read: pagesRead, fetched, api_requests: apiRequests }));
+
+  // ── 3. 1商品ずつ商品マスターへ反映 ──
+  let imagesOk = 0, updated = 0, unchanged = 0, failed = 0;
+  const notFound: any[] = [];
+  const details: any[] = [];
+
+  for (const t of list) {
+    const raw = (t.item_code && byCode.get(String(t.item_code))) ||
+                (t.url && byUrl.get(normalizeUrlForMatch(String(t.url)))) || null;
+    if (!raw) {
+      notFound.push({ code: t.code, name: t.name, item_code: t.item_code || null, url: t.url || null });
+      continue;
+    }
+    const norm = normalizeItem(raw);
+    const res = await fetch(`${cfg.supabaseUrl}/rest/v1/rpc/inv_rakuten_apply_one`, {
+      method: "POST",
+      headers: { apikey: cfg.anon, Authorization: `Bearer ${cfg.token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ p_code: t.code, p_item: norm }),
+    });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) {
+      failed++;
+      details.push({ code: t.code, name: t.name, ok: false, reason: out?.message || `HTTP ${res.status}` });
+      continue;
+    }
+    const imagesAdded = !!out?.images_added;
+    if (imagesAdded) imagesOk++;
+    if (out?.changed) updated++; else unchanged++;
+    details.push({
+      code: t.code, name: t.name, ok: true, images_added: imagesAdded,
+      image_count: out?.image_count ?? 0, changed: !!out?.changed, item_code: norm.item_code,
+    });
+  }
+
+  return {
+    mode: scope,
+    target_count: list.length,
+    fetched_count: fetched,
+    pages_read: pagesRead,
+    api_requests: apiRequests,
+    images_ok: imagesOk,
+    updated,
+    unchanged,
+    failed: failed + notFound.length,
+    not_found: notFound,
+    details,
+  };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
@@ -398,6 +527,18 @@ Deno.serve(async (req: Request) => {
     const page = Math.max(1, Number(body?.page) || 1);
     const targetItemCode: string | null = body?.item_code ? String(body.item_code).trim() : null;
     const targetUrl: string | null = !targetItemCode && body?.item_url ? String(body.item_url).trim() : null;
+    // 商品コードを渡された場合、その商品の不足情報だけを埋める（照合はしない）
+    const targetCode: string | null = body?.code ? String(body.code).trim() : null;
+    const mode: string = String(body?.mode || "").trim();
+
+    // ── まとめ同期（画像が無い商品だけ／楽天掲載の全商品） ──
+    if (mode === "missing" || mode === "all") {
+      const out = await syncTargets({
+        appId: APP_ID, accessKey: ACCESS_KEY, shopCode: SHOP_CODE,
+        supabaseUrl: SUPABASE_URL, anon: SUPABASE_ANON, token,
+      }, mode);
+      return json(out, (out as any)?.error ? 502 : 200);
+    }
 
     // ── 3. 楽天APIを呼ぶ（自社shopCodeだけを対象） ──────────────
     let items: any[];
@@ -461,6 +602,35 @@ Deno.serve(async (req: Request) => {
       items = Array.isArray(rk.data?.Items) ? rk.data.Items.slice(0, limit) : [];
     }
     const normalized = items.map(normalizeItem);
+
+    // 商品コードを指定された1件モードは、照合を挟まずその商品へ直接反映する
+    // （どの商品の写真を取りにきたかが最初から決まっているため）
+    if (targetCode && normalized.length === 1) {
+      const one = await fetch(`${SUPABASE_URL}/rest/v1/rpc/inv_rakuten_apply_one`, {
+        method: "POST",
+        headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ p_code: targetCode, p_item: normalized[0] }),
+      });
+      const oneOut = await one.json().catch(() => null);
+      if (!one.ok) {
+        return json({ error: "商品マスターへの反映に失敗しました：" + (oneOut?.message || JSON.stringify(oneOut)) }, 502);
+      }
+      return json({
+        mode: "one",
+        target_count: 1,
+        fetched_count: 1,
+        images_ok: oneOut?.images_added ? 1 : 0,
+        updated: oneOut?.changed ? 1 : 0,
+        unchanged: oneOut?.changed ? 0 : 1,
+        failed: 0,
+        not_found: [],
+        details: [{
+          code: targetCode, name: normalized[0].name, ok: true,
+          images_added: !!oneOut?.images_added, image_count: oneOut?.image_count ?? 0,
+          changed: !!oneOut?.changed, item_code: normalized[0].item_code,
+        }],
+      });
+    }
 
     // ── 4. 正規化した商品データを、既存の商品マスターと照合・補完するSQL関数へ渡す ──
     const rpcRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/inv_rakuten_sync_apply`, {
