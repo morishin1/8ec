@@ -1193,10 +1193,18 @@ inv_public_catalog → 8ec.jp
 > 例：`P-00536 / PROBOOK445G11` は個体 `00039769953` と `00039770113` が同じ楽天URLを共有。
 > 商品単位の楽天listingが無く、楽天に出ているのに画像が入りませんでした。
 
-`zaiko/migrations/2026-09-19-listings-from-items.sql` が、同じ状況の商品をまとめて埋めます
-（同じURL/SKUは1件にまとめ、すでにある商品は作らず、`url` / `state` / `price`（個体の販売予定価格）/ `sku`
-を引き継ぎ、`external_item_code` は推測せず次の同期で正式値を保存。元の `inventory_channels` は消しません）。
-同じ商品で違うURLが混ざっていたときは、いま手元にある個体で多いほうを採り、実行ログで知らせます。
+`zaiko/migrations/2026-09-19-listings-from-items.sql` が、同じ状況の商品をまとめて埋めます。
+
+| | 動き |
+|---|---|
+| まとめる条件 | 同じ商品で**同じURL・同じSKU**の個体だけ |
+| 違う掲載が混ざっている商品 | **自動で作らず「要確認」に出す**（どれが正しい掲載かは人が決める） |
+| すでに商品単位の楽天listingがある商品 | 作らない（重複させない） |
+| 引き継ぐ値 | `url` / `state` / `sku` と、`price` は **`inventory_channels.price`（モールでの販売価格）**。自社の販売予定価格（`inventory_items.plan_price`）は別概念なので使いません |
+| `external_item_code` | URL・SKUから推測しない（空のまま）。次の楽天API同期でAPIが返す正式値を保存 |
+| `inventory_channels` | 消さない |
+
+何度実行しても安全です（2回目以降は0件）。要確認の商品は migration の末尾の確認クエリで一覧できます。
 
 あとから増えた商品は、`/zaiko` の商品詳細「販売情報」タブに出る**「個体から作る」**ボタン
 （`inv_listing_from_items()`）で1商品ずつ同じ補完ができます。

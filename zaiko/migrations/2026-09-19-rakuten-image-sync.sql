@@ -169,9 +169,17 @@ begin
     -- 画像は images（楽天から取り込んだ写真）にだけ入れる。image_url は
     -- 「人が/zaikoで指定したメイン画像」専用にして、同期では一切触らない。
     -- 公開ページは image_url → images[0] の順に見るので、これで写真は出る
+    -- 縮小指定（?_ex=128x128）が付いていたらここでも外す。Edge Function側でも
+    -- 外しているが、古い版から呼ばれても粗い画像を保存しないための保険
     images            = case when jsonb_array_length(coalesce(images,'[]'::jsonb)) = 0
                               and jsonb_typeof(p_item->'images') = 'array'
-                         then p_item->'images' else images end,
+                         then (select coalesce(jsonb_agg(u order by ord), '[]'::jsonb)
+                                 from (select public.inv_img_hires(x) as u, min(ord) as ord
+                                         from jsonb_array_elements_text(p_item->'images')
+                                              with ordinality t(x, ord)
+                                        where btrim(x) <> ''
+                                        group by 1) q)
+                         else images end,
     cpu               = coalesce(nullif(cpu,''), nullif(ex->>'cpu','')),
     cpu_gen           = coalesce(nullif(cpu_gen,''), nullif(ex->>'cpu_gen','')),
     memory_size       = coalesce(nullif(memory_size,''), nullif(ex->>'memory','')),

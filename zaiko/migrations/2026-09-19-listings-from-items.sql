@@ -13,9 +13,13 @@
 --
 --   この migration は、同じ状況の商品をまとめて埋めます。
 --     ・channel='rakuten' の個体別の行だけを見る
---     ・同じ商品で同じURL/SKUの行は1件にまとめる
+--     ・同じ商品で「同じURL・同じSKU」の行だけを1件にまとめる
+--     ・違う掲載（URL・SKU）が混ざっている商品は【自動で作らず】要確認に出す。
+--       どれが正しい掲載かは人にしか決められないため
 --     ・すでに商品単位の楽天listingがある商品は作らない（重複させない）
---     ・url / state / price / sku を引き継ぐ
+--     ・url / state / sku と、price は inventory_channels.price（モールでの
+--       販売価格）をそのまま引き継ぐ。自社の販売予定価格（plan_price）は
+--       別概念なので使わない
 --     ・external_item_code はURLやSKUから推測しない。次の楽天API同期が
 --       成功したときに、APIが返す正式な itemCode を保存する
 --     ・元の inventory_channels は消さない
@@ -53,52 +57,50 @@ declare
   v_mixed   integer := 0;
   r record;
 begin
-  -- 同じ商品・同じURL/SKUをひとかたまりにする
+  -- 同じ商品・同じURL・同じSKUの行をひとかたまりにする。
+  -- ここで2かたまり以上になる商品（違うURL/SKUが混ざっている）は自動で作らない
   create temporary table if not exists tmp_listing_src (
     product_code text, url text, sku text, state text, price numeric,
-    rows integer, live_rows integer, any_listed boolean, updated_at timestamptz
+    rows integer, any_listed boolean, updated_at timestamptz
   ) on commit drop;
   delete from tmp_listing_src;
 
   insert into tmp_listing_src
-  select g.product_code, g.url, g.sku, g.state, g.price, g.rows, g.live_rows, g.any_listed, g.updated_at
-    from (
-      select c.product_code,
-             nullif(btrim(coalesce(c.url, '')), '') as url,
-             nullif(btrim(coalesce(c.sku, '')), '') as sku,
-             (array_agg(c.state order by (c.state = '出品中') desc nulls last, c.updated_at desc nulls last))[1] as state,
-             -- 個体別の出品情報に価格の欄は無いので、販売予定価格（個体）から引き継ぐ。
-             -- 同じ掲載にぶら下がる個体で値が違うときは、いちばん高い（＝直近に決めた）値を使う
-             max(i.plan_price) as price,
-             count(*)::integer as rows,
-             count(*) filter (where i.id is null or i.status not in ('売却済','廃棄'))::integer as live_rows,
-             bool_or(c.state = '出品中') as any_listed,
-             max(c.updated_at) as updated_at
-        from public.inventory_channels c
-        left join public.inventory_items i on i.id = c.item_id
-       where c.channel = 'rakuten'
-       group by c.product_code,
-                nullif(btrim(coalesce(c.url, '')), ''),
-                nullif(btrim(coalesce(c.sku, '')), '')
-    ) g
-   where g.url is not null or g.sku is not null;   -- URLもSKUも無い行からは作らない
+  select c.product_code,
+         nullif(btrim(coalesce(c.url, '')), '') as url,
+         nullif(btrim(coalesce(c.sku, '')), '') as sku,
+         (array_agg(c.state order by (c.state = '出品中') desc nulls last, c.updated_at desc nulls last))[1] as state,
+         -- 価格はモールでの販売価格（inventory_channels.price）をそのまま引き継ぐ。
+         -- 自社の販売予定価格（inventory_items.plan_price）は別概念なので使わない
+         max(c.price)      as price,
+         count(*)::integer as rows,
+         bool_or(c.state = '出品中') as any_listed,
+         max(c.updated_at) as updated_at
+    from public.inventory_channels c
+   where c.channel = 'rakuten'
+     and (nullif(btrim(coalesce(c.url, '')), '') is not null
+          or nullif(btrim(coalesce(c.sku, '')), '') is not null)
+   group by c.product_code,
+            nullif(btrim(coalesce(c.url, '')), ''),
+            nullif(btrim(coalesce(c.sku, '')), '');
 
-  -- 同じ商品に違うURLが混ざっていないか（混在は人が確認したほうがよい）
+  -- 違うURL/SKUが混ざっている商品は「要確認」。自動では作らない
+  -- （どれが正しい掲載かは人にしか決められないため）
   for r in
-    select product_code, count(*) as n, string_agg(distinct coalesce(url, '(URLなし)'), ' / ') as urls
+    select product_code, count(*) as n,
+           string_agg(distinct coalesce(url, '(URLなし)'), ' / ') as urls
       from tmp_listing_src
      group by product_code having count(*) > 1
   loop
     v_mixed := v_mixed + 1;
-    raise notice '商品 % は個体ごとに違う楽天URLがあります（%）。使う数の多いほうで作ります： %',
+    raise notice '要確認：商品 % は個体ごとに違う楽天の掲載があります（% 種類）。自動では作りません： %',
       r.product_code, r.n, r.urls;
   end loop;
 
-  -- 商品ごとに1件だけ選んで作る（すでに楽天listingがある商品は作らない）
+  -- 1種類にまとまった商品だけ作る（すでに楽天listingがある商品は作らない）
   with pick as (
-    select distinct on (product_code) *
-      from tmp_listing_src
-     order by product_code, live_rows desc, any_listed desc, rows desc, updated_at desc nulls last
+    select t.* from tmp_listing_src t
+     where t.product_code in (select product_code from tmp_listing_src group by product_code having count(*) = 1)
   ), ins as (
     insert into public.inventory_channel_listings
       (product_code, channel, state, sku, price, url, note, created_at, updated_at)
@@ -111,19 +113,20 @@ begin
      where not exists (
        select 1 from public.inventory_channel_listings l
         where l.product_code = p.product_code and l.channel = 'rakuten')
-    returning product_code, url
+    returning product_code, url, price
   ), tx as (
     insert into public.inventory_transactions
       (actor, ref_kind, ref_id, label, action, before_value, after_value)
     select '移行', 'product', i.product_code,
            (select coalesce(name, model) from public.inventory_products where code = i.product_code),
-           '楽天listingを補完', null, i.url
+           '楽天listingを補完', null,
+           coalesce(i.url, '') || coalesce('（' || to_char(i.price, 'FM9,999,999,999') || '円）', '')
       from ins i
     returning 1
   )
   select count(*)::integer into v_created from tx;
 
-  raise notice '個体別の出品情報から、商品単位の楽天listingを % 件つくりました（URL混在 % 商品）',
+  raise notice '個体別の出品情報から、商品単位の楽天listingを % 件つくりました（要確認 % 商品）',
     coalesce(v_created, 0), v_mixed;
 end $$;
 
@@ -141,6 +144,7 @@ language plpgsql security invoker set search_path = public as $$
 declare
   r public.inventory_channel_listings;
   g record;
+  v_groups integer;
 begin
   if not public.inv_can_edit() then
     raise exception '操作する権限がありません（閲覧のみ）';
@@ -150,27 +154,36 @@ begin
     raise exception 'すでに商品単位の出品情報があります（% / %）', p_code, p_channel;
   end if;
 
-  -- 同じURL/SKUの個体をまとめ、いま手元にある個体で多く使われているものを採る
+  -- 同じURL・同じSKUの個体だけをまとめる。違う掲載が混ざっている商品は作らない
+  -- （どれが正しい掲載かは人にしか決められないため）
+  select count(*)::integer into v_groups
+    from (select 1 from public.inventory_channels c
+           where c.channel = p_channel and c.product_code = p_code
+             and (nullif(btrim(coalesce(c.url, '')), '') is not null
+                  or nullif(btrim(coalesce(c.sku, '')), '') is not null)
+           group by nullif(btrim(coalesce(c.url, '')), ''), nullif(btrim(coalesce(c.sku, '')), '')) x;
+
+  if v_groups = 0 then
+    raise exception 'この商品には、個体別の%の出品情報（URLかSKU）がありません', p_channel;
+  end if;
+  if v_groups > 1 then
+    raise exception '個体ごとに違う%の掲載（URL・SKU）が%種類あります。どれを商品の掲載にするかを決めてから、販売サイトの編集で入れてください',
+      p_channel, v_groups;
+  end if;
+
+  -- 価格はモールでの販売価格（inventory_channels.price）をそのまま引き継ぐ
   select nullif(btrim(coalesce(c.url, '')), '')  as url,
          nullif(btrim(coalesce(c.sku, '')), '')  as sku,
          (array_agg(c.state order by (c.state = '出品中') desc nulls last, c.updated_at desc nulls last))[1] as state,
-         max(i.plan_price) as price,
+         max(c.price)      as price,
          count(*)::integer as rows,
-         count(*) filter (where i.id is null or i.status not in ('売却済','廃棄'))::integer as live_rows,
          bool_or(c.state = '出品中') as any_listed
     into g
     from public.inventory_channels c
-    left join public.inventory_items i on i.id = c.item_id
    where c.channel = p_channel and c.product_code = p_code
-   group by nullif(btrim(coalesce(c.url, '')), ''), nullif(btrim(coalesce(c.sku, '')), '')
-  having nullif(btrim(coalesce(c.url, '')), '') is not null
-      or nullif(btrim(coalesce(c.sku, '')), '') is not null
-   order by live_rows desc, any_listed desc, rows desc
-   limit 1;
-
-  if not found then
-    raise exception 'この商品には、個体別の%の出品情報（URLかSKU）がありません', p_channel;
-  end if;
+     and (nullif(btrim(coalesce(c.url, '')), '') is not null
+          or nullif(btrim(coalesce(c.sku, '')), '') is not null)
+   group by nullif(btrim(coalesce(c.url, '')), ''), nullif(btrim(coalesce(c.sku, '')), '');
 
   insert into public.inventory_channel_listings
     (product_code, channel, state, sku, price, url, note, created_at, updated_at)
@@ -205,7 +218,23 @@ select l.product_code, coalesce(p.name, p.model) as 商品, l.state, l.price, l.
  order by l.created_at desc nulls last, l.product_code
  limit 30;
 
--- 2) 画像同期の対象になったか（写真がまだ無い掲載商品）
+-- 2) 要確認：個体ごとに違う楽天の掲載が混ざっていて、自動では作らなかった商品
+--    （どの掲載を商品の掲載にするかを決めて、販売サイトの編集で入れてください）
+select c.product_code, coalesce(p.name, p.model) as 商品,
+       count(*) as 掲載の種類,
+       string_agg(distinct coalesce(nullif(btrim(c.url),''), '(URLなし)'), ' / ') as URL,
+       string_agg(distinct coalesce(nullif(btrim(c.sku),''), '(SKUなし)'), ' / ') as SKU
+  from public.inventory_channels c
+  join public.inventory_products p on p.code = c.product_code
+ where c.channel = 'rakuten'
+   and (nullif(btrim(coalesce(c.url,'')),'') is not null or nullif(btrim(coalesce(c.sku,'')),'') is not null)
+   and not exists (select 1 from public.inventory_channel_listings l
+                    where l.product_code = c.product_code and l.channel = 'rakuten')
+ group by c.product_code, 商品
+having count(distinct (coalesce(nullif(btrim(c.url),''),'') || '｜' || coalesce(nullif(btrim(c.sku),''),''))) > 1
+ order by c.product_code;
+
+-- 3) 画像同期の対象になったか（写真がまだ無い掲載商品）
 select count(*) as "楽天に掲載中",
        count(*) filter (where jsonb_array_length(coalesce(p.images,'[]'::jsonb)) = 0
                          and nullif(p.image_url,'') is null) as "写真なし（同期の対象）"
