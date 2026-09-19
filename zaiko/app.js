@@ -83,7 +83,8 @@ let sb = null;
 let me = { email: '', name: '', role: 'viewer' };
 const db = {
   cats: [], locs: [], masters: [], items: [], channels: [],
-  tx: [], stocktake: null, stChecked: [], stPast: [], members: [], imports: [], rentalReqs: []
+  tx: [], stocktake: null, stChecked: [], stPast: [], members: [], imports: [], rentalReqs: [],
+  chanSettings: []          // 販売サイトごとの管理画面URL（inventory_channel_settings）
 };
 const ui = {
   screen: 'dash', itemId: null, prodId: null, locId: null,
@@ -442,13 +443,15 @@ async function loadAll() {
     sb.from('inventory_channels').select('*').limit(LOAD_LIMIT),
     sb.from('inventory_imports').select('*').order('imported_at', { ascending: false }).limit(100),
     sb.from('inventory_rental_requests').select('*').order('created_at', { ascending: false }).limit(500),
-    sb.from('inventory_channel_listings').select('*').limit(LOAD_LIMIT)
+    sb.from('inventory_channel_listings').select('*').limit(LOAD_LIMIT),
+    sb.from('inventory_channel_settings').select('*')
   ];
-  const [c, l, i, p, t, s, ch, im, rr, cl] = await Promise.all(q);
+  const [c, l, i, p, t, s, ch, im, rr, cl, cs] = await Promise.all(q);
   const bad = [c, l, i, p, t, s, ch, im].find(r => r.error);
   if (bad) { showSetup(bad.error); return false; }
   db.imports = im.data || [];
   db.rentalReqs = rr.error ? [] : (rr.data || []);   // 未実行(setup.sql未更新)でも他が動くよう静かに空にする
+  db.chanSettings = cs.error ? [] : (cs.data || []);
 
   db.cats = c.data || [];
   db.locs = l.data || [];
@@ -3375,7 +3378,7 @@ function itemListings(it) {
       <span class="ms">warning_amber</span>
       <div style="flex:1;min-width:160px">この1台は<strong>${esc(it.status)}</strong>ですが、
         ${esc(own.map(x => chanLabel(x.channel)).join('・'))}に出品中のままです。出品停止を確認してください。</div>
-      <button class="btn sm" onclick="stopListings('${esc(it.id)}')" ${dis()}>出品を止める</button>
+      <button class="btn sm" onclick="stopListings('${esc(it.id)}')" ${dis()}>販売サイト側の対応済み</button>
     </div>` : ''}
     <div class="table-wrap"><table class="t">
       <thead><tr><th>販売サイト</th><th>出品状態</th><th class="r">販売価格</th>
@@ -4110,12 +4113,27 @@ function sheetChannel(code, ch) {
         <input class="input" id="lsSku" value="${esc(x.sku || '')}" placeholder="そのサイトでの商品コード"></label>
       <label class="field" style="margin-bottom:10px"><span>商品URL</span>
         <input class="input" id="lsUrl" value="${esc(x.url || '')}" placeholder="https://…"></label>
+      <label class="field" style="margin-bottom:10px"><span>管理画面URL（任意）</span>
+        <input class="input" id="lsAdmin" value="${esc(x.admin_url || '')}" placeholder="https://…（販売サイトの管理画面で開いたURL）">
+        <span class="meta">売れたあとに在庫を直しにいく先です。<strong>実際に管理画面で開いたURLを貼ってください。</strong>
+          空なら販売サイトごとの設定（管理画面のトップ・ひな形）を使います。</span></label>
       <label class="field"><span>メモ</span>
         <input class="input" id="lsNote" value="${esc(x.note || '')}"></label>`,
-    run: (state) => saveListing(null, code, ch, state, {
-      price: numField('lsPrice'), sku: ($('lsSku') || {}).value,
-      url: ($('lsUrl') || {}).value, note: ($('lsNote') || {}).value
-    })
+    run: async (state) => {
+      await saveListing(null, code, ch, state, {
+        price: numField('lsPrice'), sku: ($('lsSku') || {}).value,
+        url: ($('lsUrl') || {}).value, note: ($('lsNote') || {}).value
+      });
+      // 管理画面URLは出品情報とは別の列なので、専用のRPCで入れ直す
+      const admin = (($('lsAdmin') || {}).value || '').trim();
+      const cur = ((channelsOf(code).find(v => v.channel === ch) || {}).admin_url || '').trim();
+      if (admin !== cur) {
+        const { error } = await sb.rpc('inv_listing_admin_url_set', { p_code: code, p_channel: ch, p_url: admin || null });
+        if (error) { toast('管理画面URLを保存できませんでした：' + error.message); return; }
+        await loadAll();
+        render();
+      }
+    }
   });
 }
 
@@ -4135,23 +4153,145 @@ function tabHist(p) {
   </div>`).join('');
 }
 
+/* ---- 売却先 ----
+   選択式にして打ち間違いを減らす。販売サイトに出しているものは、その個体の
+   出品先をいちばん上に出して初期選択する（たいていそこで売れるため）。
+   「その他」のときだけ自由入力を出す。 */
+const SELL_DESTS = [
+  { key: 'rakuten', label: '楽天', channel: 'rakuten' },
+  { key: 'amazon', label: 'Amazon', channel: 'amazon' },
+  { key: 'mercari', label: 'メルカリ', channel: 'mercari' },
+  { key: 'yahuoku', label: 'ヤフオク', channel: 'yahuoku' },
+  { key: 'yahoo_free', label: 'Yahoo!フリマ', channel: 'yahoo_free' },
+  { key: 'store', label: '8EC / 店頭', channel: null },
+  { key: 'corp', label: '法人販売', channel: null },
+  { key: 'other', label: 'その他', channel: null }
+];
+
+/* 売却価格の候補。出品している各サイトの値段と、自社の販売予定価格を並べる。
+   どれも無ければ手入力だけにする（0円を既定にして事故らせない） */
+function sellPriceOptions(it) {
+  const out = [];
+  CHANNELS.forEach(c => {
+    const x = listingOf(it, c.key);
+    if (x && x.price != null && x.price !== '') {
+      out.push({ key: 'ch:' + c.key, channel: c.key, label: `${c.label} ${yen(x.price)}`, price: Number(x.price) });
+    }
+  });
+  const plan = planOf(it);
+  if (plan != null) out.push({ key: 'plan', channel: null, label: `販売予定価格 ${yen(plan)}`, price: Number(plan) });
+  return out;
+}
+
 function sheetSell(id) {
   const it = item(id); if (!it) return;
-  const cost = costOf(it), plan = planOf(it);
+  const cost = costOf(it);
+  const live = liveOn(it);                       // いま出品しているサイト
+  // 出品しているサイトを上に。並びは変えるが、選べるものは減らさない
+  const dests = SELL_DESTS.slice().sort((a, b) =>
+    (live.indexOf(b.channel) >= 0 ? 1 : 0) - (live.indexOf(a.channel) >= 0 ? 1 : 0));
+  const firstLive = dests.find(d => d.channel && live.indexOf(d.channel) >= 0);
+  const opts = sellPriceOptions(it);
+  const sel = firstLive || dests[0];
   openSheet({
     title: '売却', subject: id, cta: '売却を記録',
-    hint: `${esc(titleOf(prod(it.product_code)) || it.name)} を売却済にします。現在庫からも登録数からも外れますが、履歴は残ります。`,
-    body: `<label class="field"><span>実際の販売価格</span>
-        <input class="input num" type="number" min="0" id="sheetVal"
-               value="${plan == null ? '' : esc(plan)}" oninput="paintSellSheet(${cost})" placeholder="0"></label>
+    hint: `${esc(titleOf(prod(it.product_code)) || it.name)} を売却済にします。現在庫からも登録数からも外れますが、履歴は残ります。${
+      live.length ? `<br><span class="meta">いま ${esc(live.map(chanLabel).join('・'))} に出品中です。</span>` : ''}`,
+    body: `<label class="field" style="margin-bottom:10px"><span>売却先</span>
+        <select class="input" id="slDest" onchange="paintSellSheet('${esc(id)}')">
+          ${dests.map(d => `<option value="${esc(d.key)}"${d.key === sel.key ? ' selected' : ''}>${esc(d.label)}${
+            d.channel && live.indexOf(d.channel) >= 0 ? '（出品中）' : ''}</option>`).join('')}
+        </select></label>
+      <label class="field" id="slOtherWrap" style="margin-bottom:10px;display:none"><span>売却先（自由入力）</span>
+        <input class="input" id="slOther" placeholder="例 リサイクル業者" oninput="paintSellSheet('${esc(id)}')"></label>
+      <label class="field" style="margin-bottom:10px"><span>売却価格</span>
+        <select class="input" id="slPrice" onchange="paintSellSheet('${esc(id)}')">
+          ${opts.map(o => `<option value="${esc(o.key)}" data-price="${o.price}">${esc(o.label)}</option>`).join('')}
+          <option value="manual">手入力</option>
+        </select></label>
+      <label class="field" id="slManualWrap" style="margin-bottom:10px;display:none"><span>販売価格（手入力）</span>
+        <input class="input num" type="number" min="0" id="sheetVal" placeholder="0"
+               oninput="paintSellSheet('${esc(id)}')"></label>
       <div class="prow"><span>原価</span><b class="num">${cost ? yen(cost) : '—'}</b></div>
-      <div class="prow"><span>利益</span><b class="num" id="slGain">${
-        cost && plan != null ? yen(plan - cost) : '—'}</b></div>
+      <div class="prow"><span>売却価格</span><b class="num" id="slShow">—</b></div>
+      <div class="prow"><span>利益</span><b class="num" id="slGain">—</b></div>
       <label class="field" style="margin-top:12px"><span>メモ（任意）</span>
-        <input class="input" id="sellNote" placeholder="例 メルカリで販売"></label>`,
-    run: (v) => itemOp(id, '売却', v, (($('sellNote') || {}).value || '').trim() || null)
+        <input class="input" id="sellNote" placeholder="例 元箱あり・付属品なし"></label>`,
+    validate: () => {
+      const d = SELL_DESTS.find(x => x.key === (($('slDest') || {}).value || '')) || {};
+      if (d.key === 'other' && !((($('slOther') || {}).value || '').trim())) {
+        toast('売却先を入力してください'); return false;
+      }
+      if (sellPick(id).price == null) { toast('売却価格を入れてください'); return false; }
+      return true;
+    },
+    run: () => {
+      const pick = sellPick(id);
+      return sellItem(id, pick.dest, pick.price, (($('sellNote') || {}).value || '').trim() || null);
+    }
   });
+  paintSellSheet(id);
 }
+
+/* いま選ばれている売却先と価格を1か所で決める（表示も保存も同じものを見る） */
+function sellPick(id) {
+  const it = item(id) || {};
+  const dkey = (($('slDest') || {}).value || '');
+  const d = SELL_DESTS.find(x => x.key === dkey) || {};
+  const dest = d.key === 'other' ? ((($('slOther') || {}).value || '').trim() || null) : (d.label || null);
+  const pkey = (($('slPrice') || {}).value || '');
+  let price = null;
+  if (pkey === 'manual') {
+    const v = (($('sheetVal') || {}).value || '').trim();
+    price = v === '' ? null : Number(v);
+  } else {
+    const o = sellPriceOptions(it).find(x => x.key === pkey);
+    price = o ? o.price : null;
+  }
+  return { dest, channel: d.channel || null, price };
+}
+
+/* 売却先を選んだら、そのサイトの値段を初期選択する。原価・売値・利益もここで出す */
+function paintSellSheet(id) {
+  const it = item(id); if (!it) return;
+  const d = SELL_DESTS.find(x => x.key === (($('slDest') || {}).value || '')) || {};
+  const other = $('slOtherWrap'); if (other) other.style.display = d.key === 'other' ? '' : 'none';
+
+  const sel = $('slPrice');
+  if (sel && d.channel && sel.dataset.lastDest !== d.key) {
+    const want = 'ch:' + d.channel;                      // 売却先に対応するサイトの値段
+    if ([...sel.options].some(o => o.value === want)) sel.value = want;
+    else if (sellPriceOptions(it).length === 0) sel.value = 'manual';
+  }
+  if (sel) sel.dataset.lastDest = d.key;
+  const manual = sel && sel.value === 'manual';
+  const mw = $('slManualWrap'); if (mw) mw.style.display = manual ? '' : 'none';
+
+  const { price } = sellPick(id);
+  const cost = costOf(it);
+  const show = $('slShow'); if (show) show.textContent = price == null ? '—' : yen(price);
+  const gain = $('slGain');
+  if (gain) {
+    // 原価が入っていないものは、売値をそのまま利益と書くと嘘になるので出さない
+    gain.textContent = (price == null || !cost) ? '—' : yen(price - cost);
+    gain.classList.toggle('minus', price != null && cost > 0 && price - cost < 0);
+  }
+}
+
+/* 売却の実行。売却先つきで記録し、出品したままのサイトがあれば続けて知らせる */
+async function sellItem(id, dest, price, note) {
+  const { data, error } = await sb.rpc('inv_item_sell', {
+    p_item_id: id, p_channel: dest, p_price: price == null ? null : String(price), p_note: note
+  });
+  if (error) { toast(error.message || '記録できませんでした'); return; }
+  const i = db.items.findIndex(x => x.id === id);
+  if (i >= 0 && data) db.items[i] = data;
+  await refreshTx();
+  render();
+  toast(`${id} を売却済にしました${dest ? `（${dest}）` : ''}`);
+  warnStillListed([id], '売却済');
+}
+
 /* 一覧から「売れた」を記録する。個体管理は在庫の古いものから台数ぶん売却済にする。
    1台ずつどれを売ったか選びたいときは、商品詳細の個体一覧から操作する。 */
 function sheetSellQty(code) {
@@ -4208,14 +4348,6 @@ function paintSellQty(code) {
   const gain = (price == null || !cost) ? null : price * n - cost;
   set('sqGain', gain == null ? '—' : yen(gain), gain != null && gain < 0);
   set('sqIds', picked.map(i => i.id).slice(0, 4).join('、') + (n > 4 ? ` ほか${n - 4}台` : ''));
-}
-
-function paintSellSheet(cost) {
-  const s = (($('sheetVal') || {}).value || '').trim();
-  const g = $('slGain'); if (!g) return;
-  const gain = (s === '' || !cost) ? null : Number(s) - cost;
-  g.textContent = gain == null ? '—' : yen(gain);
-  g.classList.toggle('minus', gain != null && gain < 0);
 }
 
 /* ===== 5・6. 入庫 / 出庫 =====
@@ -4775,6 +4907,8 @@ async function confirmSheet() {
   if (!sheetState) return;
   const fn = sheetState.run;
   const val = (($('sheetVal') || {}).value || '').trim();
+  // 入力が足りないときは閉じない（閉じてから知らせると入れ直しになるため）
+  if (sheetState.validate && !sheetState.validate(val)) return;
   closeSheet();
   await fn(val);
 }
@@ -5014,29 +5148,183 @@ async function itemOp(id, action, value, note) {
   if (GONE.includes((data || {}).status)) warnStillListed([id], data.status);
 }
 
+/* ---- 販売サイトの管理画面 ----
+   売れたあと、そのサイトの在庫を直しにいく導線。モールの管理画面URLは
+   店舗の契約や画面改定で変わるので、コードに直書きせず設定として持つ。
+     1) その商品の直リンク（listing.admin_url）
+     2) チャネルのひな形（{manage} {sku} {item_code} を差し替える）
+     3) 管理画面のトップ（商品は管理番号で探してもらう）
+   どれも無ければ「未設定」と出して、設定画面へ案内する。 */
+const chanSetting = (ch) => db.chanSettings.find(x => x.channel === ch) || {};
+
+/* 管理画面で商品を探す手がかり。どれも登録済みの値から取り、URLは推測しない */
+function manageKeys(x) {
+  const ext = ((x || {}).external_item_code || '').trim();
+  // 楽天の external_item_code は「店舗コード:商品番号」。商品番号だけを取り出す
+  const itemCode = ext.indexOf(':') >= 0 ? ext.split(':').pop() : ext;
+  let manage = '';
+  const u = ((x || {}).url || '').trim();
+  if (u) {
+    const seg = u.split('?')[0].replace(/\/+$/, '').split('/');
+    manage = seg[seg.length - 1] || '';          // 掲載URLの末尾＝商品管理番号
+  }
+  return { manage, sku: ((x || {}).sku || '').trim(), item_code: itemCode };
+}
+function adminUrlOf(x, ch) {
+  const st = chanSetting(ch);
+  const direct = ((x || {}).admin_url || '').trim();
+  if (direct) return { url: direct, kind: 'direct' };
+  const k = manageKeys(x);
+  const tpl = (st.admin_item_url_template || '').trim();
+  if (tpl && (k.manage || k.sku || k.item_code)) {
+    return {
+      url: tpl.replace(/\{manage\}/g, encodeURIComponent(k.manage))
+              .replace(/\{sku\}/g, encodeURIComponent(k.sku))
+              .replace(/\{item_code\}/g, encodeURIComponent(k.item_code)),
+      kind: 'template'
+    };
+  }
+  const home = (st.admin_home_url || '').trim();
+  if (home) return { url: home, kind: 'home' };
+  return { url: null, kind: 'none' };
+}
+function copyText(t, msg) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(t).then(() => toast(msg || 'コピーしました'), () => toast('コピーできませんでした'));
+  } else { toast('コピーできませんでした'); }
+}
+
 /* 手元から出た1台が、まだどこかに出品中のまま残っていたら知らせる。
-   自社在庫が正なので、販売サイト側を止めてもらう */
+   自社在庫が正なので、販売サイト側を直してもらう。
+   管理画面を開いただけでは終わりにせず、直したあとに人が
+   「販売サイト側の対応済み」を押す。 */
 function warnStillListed(ids, action) {
-  const live = ids.filter(id => listingsOf(id).some(x => x.state === LISTED));
+  // 出品情報は「1台ぶん」と「型番まとめて」の2通りある。どちらで出していても
+  // 販売サイトには載ったままなので、一覧と同じ見かた（listingOf）で拾う
+  const liveOf = (id) => {
+    const it = item(id);
+    if (!it) return [];
+    return CHANNELS.map(c => listingOf(it, c.key)).filter(x => x && x.state === LISTED);
+  };
+  const live = ids.filter(id => liveOf(id).length);
   if (!live.length) return;
   const rows = live.map(id => {
-    const on = listingsOf(id).filter(x => x.state === LISTED).map(x => chanLabel(x.channel));
-    return `<div class="p"><span class="c">${esc(id)}</span>
-      <span class="meta">${esc(on.join('・'))}に出品中</span></div>`;
+    const on = liveOf(id);
+    const links = on.map(x => {
+      const a = adminUrlOf(x, x.channel);
+      const k = manageKeys(x);
+      const hint = k.manage || k.item_code || k.sku;
+      return `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px">
+        ${a.url
+          ? `<a class="btn sm" href="${esc(a.url)}" target="_blank" rel="noopener">
+               <span class="ms">open_in_new</span>${esc(chanLabel(x.channel))}管理画面を開く</a>`
+          : `<span class="meta">${esc(chanLabel(x.channel))}の管理画面URLが未設定です</span>
+             ${canAdmin() ? `<button class="btn sm ghost" onclick="openChannelAdminSetup('${esc(x.channel)}')">設定する</button>` : ''}`}
+        ${a.kind === 'home' ? '<span class="meta">（トップが開きます。商品は管理番号で探してください）</span>' : ''}
+        ${hint ? `<span class="meta num" style="word-break:break-all">${esc(hint)}</span>
+          <button class="btn sm ghost" onclick="copyText('${esc(hint)}','商品管理番号をコピーしました')">コピー</button>` : ''}
+        ${x.fromProduct && inStockOf((item(id) || {}).product_code) > 0
+          ? `<span class="meta">この商品はまだ在庫 ${inStockOf((item(id) || {}).product_code)}台。
+               <strong>掲載は残したまま数量だけ</strong>直してください</span>` : ''}
+      </div>`;
+    }).join('');
+    return `<div class="card" style="margin-bottom:8px">
+      <div><span class="c num" style="font-weight:600">${esc(id)}</span>
+        <span class="meta">　${esc(on.map(x => chanLabel(x.channel)).join('・'))}に出品中</span></div>
+      ${links}
+    </div>`;
   }).join('');
   openModal('出品したままです', `
     <div class="card" style="background:#FFF4E5;margin-bottom:14px">
       ${live.length}台が<strong>${esc(action || '在庫から外れた状態')}</strong>ですが、
       販売サイトではまだ<strong>出品中</strong>のままです。<br>
-      <span class="meta">在庫の数は自社のデータが正です。販売サイト側の出品停止を確認してください。</span>
+      <span class="meta">在庫の数は自社のデータが正です。次の順で進めてください。<br>
+        ①管理画面を開く　②販売サイト側の在庫を0（または必要数量）に直す　
+        ③ここへ戻って「販売サイト側の対応済み」を押す</span>
     </div>
-    <div class="plist">${rows}</div>`,
+    ${rows}
+    <p class="meta" style="margin-top:10px">「販売サイト側の対応済み」は、<strong>/zaiko の記録を出品停止にするだけ</strong>です。
+      販売サイト側は自動では変わらないので、先に管理画面で直してください。</p>`,
     [['あとで', 'closeModal()', 'btn ghost'],
-     ['出品を止めたことにする', `closeModal();stopListingsAll(${JSON.stringify(live).replace(/"/g, '&quot;')})`, 'btn lime']]);
+     ['販売サイト側の対応済み', `closeModal();markChannelsHandled(${JSON.stringify(live).replace(/"/g, '&quot;')})`, 'btn lime']]);
 }
-async function stopListingsAll(ids) {
-  for (const id of ids) await stopListings(id);
+
+/* 「販売サイト側の対応済み」。/zaikoの記録を合わせるだけで、販売サイトは触らない。
+     1台ぶんの出品      … その1台を出品停止にする
+     型番まとめての出品 … 在庫が残っているうちは掲載を落とさない。
+                          楽天などは「掲載は維持・数量だけ減らす」考えかたなので、
+                          最後の1台が出たときにだけ出品停止にする */
+async function markChannelsHandled(ids) {
+  let stoppedUnit = 0, stoppedProd = 0, kept = 0;
+  for (const id of ids) {
+    const it = item(id);
+    if (!it) continue;
+    for (const c of CHANNELS) {
+      const x = listingOf(it, c.key);
+      if (!x || x.state !== LISTED) continue;
+      if (!x.fromProduct) {
+        const { error } = await sb.rpc('inv_listing_set', {
+          p_item_id: id, p_code: null, p_channel: c.key, p_state: '出品停止',
+          p_sku: x.sku || null, p_price: x.price == null ? null : x.price,
+          p_url: x.url || null, p_note: x.note || null
+        });
+        if (error) { toast('記録できませんでした：' + error.message); return; }
+        stoppedUnit++;
+      } else if (inStockOf(it.product_code) === 0) {
+        const { error } = await sb.rpc('inv_listing_set', {
+          p_item_id: null, p_code: it.product_code, p_channel: c.key, p_state: '出品停止',
+          p_sku: x.sku || null, p_price: x.price == null ? null : x.price,
+          p_url: x.url || null, p_note: x.note || null
+        });
+        if (error) { toast('記録できませんでした：' + error.message); return; }
+        stoppedProd++;
+      } else {
+        kept++;   // 在庫が残っているので掲載はそのまま（数量だけ直してもらう）
+      }
+    }
+  }
+  await loadAll();
+  render();
+  toast([stoppedUnit + stoppedProd ? `${stoppedUnit + stoppedProd}件を出品停止にしました` : '',
+         kept ? `${kept}件は在庫が残っているので掲載はそのままです（数量だけ直してください）` : '']
+        .filter(Boolean).join('／') || '変更はありませんでした');
 }
+
+/* 販売サイトの管理画面URLを設定する（管理者だけ）。
+   モールごとに画面が違うので、実際のURLを見て入れてもらう。
+   将来モールのAPIで在庫数を直せるようになったら、この設定行に接続情報を足す。 */
+function openChannelAdminSetup(ch) {
+  if (!canAdmin()) { toast('設定は管理者だけができます'); return; }
+  const c = CHANNELS.find(x => x.key === ch) || { key: ch, label: ch };
+  const st = chanSetting(ch);
+  openModal(`${c.label}の管理画面URL`, `
+    <p class="meta" style="margin-bottom:12px">売れたあとに在庫を直しにいく先です。
+      <strong>実際に管理画面で対象商品を開いて、そのURLを貼ってください。</strong>
+      画面の作りは変わることがあるので、コード側では決め打ちにしていません。</p>
+    <label class="field" style="margin-bottom:10px"><span>管理画面のトップ（ログイン先）</span>
+      <input class="input" id="caHome" value="${esc(st.admin_home_url || '')}" placeholder="https://…">
+      <span class="meta">商品ごとのURLが分からないときは、ここが開きます。</span></label>
+    <label class="field" style="margin-bottom:10px"><span>商品ごとのURL（ひな形・任意）</span>
+      <input class="input" id="caTpl" value="${esc(st.admin_item_url_template || '')}" placeholder="https://…?manageNumber={manage}">
+      <span class="meta"><code>{manage}</code>（商品管理番号）<code>{sku}</code><code>{item_code}</code> が差し替わります。
+        1商品だけ確実なURLがあるときは、商品詳細の出品編集で「管理画面URL」に直接入れてください。</span></label>
+    ${st.note ? `<p class="meta">${esc(st.note)}</p>` : ''}`,
+    [['閉じる', 'closeModal()', 'btn ghost'],
+     ['保存', `saveChannelAdmin('${esc(ch)}')`, 'btn lime']]);
+}
+async function saveChannelAdmin(ch) {
+  const { data, error } = await sb.rpc('inv_channel_settings_set', {
+    p_channel: ch,
+    p_home: (($('caHome') || {}).value || '').trim() || null,
+    p_template: (($('caTpl') || {}).value || '').trim() || null
+  });
+  if (error) { toast('保存できませんでした：' + error.message); return; }
+  const i = db.chanSettings.findIndex(x => x.channel === ch);
+  if (data) { if (i >= 0) db.chanSettings[i] = data; else db.chanSettings.push(data); }
+  closeModal();
+  toast(`${chanLabel(ch)}の管理画面URLを保存しました`);
+}
+
 async function productMove(code, delta) {
   const { data, error } = await sb.rpc('inv_product_move', { p_code: code, p_delta: delta, p_note: null });
   if (error) { toast(error.message || '記録できませんでした'); return; }
