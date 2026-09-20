@@ -19,6 +19,14 @@
   ],
   "rewrites": [
     {
+      "source": "/products",
+      "destination": "/products.html"
+    },
+    {
+      "source": "/products/(.*)",
+      "destination": "/products.html"
+    },
+    {
       "source": "/rent",
       "destination": "/rent.html"
     },

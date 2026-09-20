@@ -326,6 +326,33 @@ window.EightCatalog = (function () {
     return p.length >= 4 ? p : '';
   }
 
+  /* ===== 型番ページ（/products/:slug）のURL =====
+     1つの型番＝1ページ。検索の言葉ごとにページを分けない。
+     slug はメーカーと商品名（無ければ型番）から作る。
+       HP ProBook 450 G9 → hp-probook-450-g9
+     日本語や記号しか無い商品は、商品コードをそのまま使う（推測で当てない）。 */
+  function slugOf(m) {
+    const src = [m.maker, m.title || m.name || m.model].filter(Boolean).join(' ');
+    const s = String(src)
+      .replace(/[（(].*?[）)]/g, ' ')        // 括弧書きは落とす
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    return s.length >= 3 ? s : String(m.code || '').toLowerCase();
+  }
+  /* 同じ slug が2つ以上できたときは、型番を足して分ける */
+  function withSlugs(models) {
+    const seen = {};
+    models.forEach(m => { const s = slugOf(m); seen[s] = (seen[s] || 0) + 1; });
+    return models.map(m => {
+      const base = slugOf(m);
+      const extra = String(m.model || m.code || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      m.slug = (seen[base] > 1 && extra && base.indexOf(extra) < 0) ? `${base}-${extra}` : base;
+      return m;
+    });
+  }
+  const productUrl = (m) => '/products/' + (m.slug || slugOf(m));
+
   /* ===== 商品カード（トップ・/rent・/buy で同じもの） =====
      レンタルできる商品にはレンタル欄、販売する商品には購入欄を出す。
      両方対応なら両方、片方だけなら片方だけ。
@@ -391,7 +418,7 @@ window.EightCatalog = (function () {
   }
 
   return { load, loadCategories, categories, children, tree, images, mainImage, mediaHtml, imgError, fitShot, availTag, availability, rental,
-           models, commonName, cardHtml, placeholder,
+           models, commonName, cardHtml, placeholder, slugOf, withSlugs, productUrl,
            specLine, categoryCounts,
            galleryHtml, codeFromUrl, catLabel, catIcon, title, esc, yen, CAT_META, TAG_LABEL, SUPA_URL, SUPA_KEY, client };
 })();
