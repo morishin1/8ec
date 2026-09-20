@@ -19,6 +19,10 @@
   ],
   "rewrites": [
     {
+      "source": "/quote",
+      "destination": "/quote.html"
+    },
+    {
       "source": "/zaiko",
       "destination": "/zaiko/index.html"
     },
@@ -27,7 +31,7 @@
       "destination": "/zaiko/index.html"
     },
     {
-      "source": "/zaiko/(list|in|out|loan|stock|locations|masters|history|register|labels|rental-requests)",
+      "source": "/zaiko/(list|in|out|loan|stock|locations|masters|history|register|labels|deals|rental-requests)",
       "destination": "/zaiko/index.html"
     },
     {
