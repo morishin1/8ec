@@ -113,7 +113,9 @@ function buildSlackPayload(row) {
       type: "header",
       text: {
         type: "plain_text",
-        text: row.want === "購入希望" ? "🛒 商品の購入相談" : "🧾 法人ITまるごと見積のご依頼",
+        text: row.want === "購入希望" ? "🛒 商品の購入相談"
+          : row.want === "レンタル希望" ? "📦 商品のレンタル相談"
+          : "🧾 3分IT調達診断からのご依頼",
         emoji: true,
       },
     },
