@@ -844,23 +844,29 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
 .cat-kid.on .num { color: #C6C7C0; }
 
 </style>
+<link rel="stylesheet" href="/assets/shell.css">
 <link rel="stylesheet" href="/assets/shop.css">
 </head>
 <body>
 <div style="min-height: 100vh; background: rgb(255, 255, 255); padding-bottom: 0px;">
 
-  <div style="position: sticky; top: 0px; z-index: 40; background: rgba(255, 255, 255, 0.97); backdrop-filter: blur(8px); border-bottom: 1px solid var(--color-divider);">
-    <div style="max-width: 1240px; margin: 0px auto; padding: 0px 24px; display: flex; align-items: center; gap: 16px; min-height: 66px; flex-wrap: wrap;">
-      <a href="/rent" style="display: flex; align-items: center; gap: 9px; text-decoration: none; margin-right: auto;"><img src="/assets/8rent-logo.png" alt="8RENT（エイトレント）" decoding="async" style="height: 34px; width: auto; display: block;"><span style="font-size: 12px; font-weight: 700; color: rgb(108, 110, 100); letter-spacing: .04em;">法人ITレンタル</span></a>
-      <div style="display: flex; gap: 4px; align-items: center; position: relative;">
-        <a href="#catalog" style="border: 0px; background: transparent; color: rgb(27, 29, 26); font-weight: 700; font-size: 14px; font-family: inherit; padding: 9px 12px; cursor: pointer; text-decoration: none;">レンタル商品</a><a href="/buy" style="border: 0px; background: transparent; color: rgb(27, 29, 26); font-weight: 700; font-size: 14px; font-family: inherit; padding: 9px 12px; cursor: pointer; text-decoration: none;">購入</a><a href="/pc" style="border: 0px; background: transparent; color: rgb(27, 29, 26); font-weight: 700; font-size: 14px; font-family: inherit; padding: 9px 12px; cursor: pointer; text-decoration: none;">法人PC</a><a href="/" style="border: 0px; background: transparent; color: rgb(27, 29, 26); font-weight: 700; font-size: 14px; font-family: inherit; padding: 9px 12px; cursor: pointer; text-decoration: none;">8ECトップ</a>
+  <!-- SHELL:HEADER:rent -->
+<header class="c-head">
+      <div class="in">
+        <a class="logo" href="/" aria-label="COMMERCE（エイトコマース）トップへ">
+          <img src="/assets/commerce-logo.png" alt="COMMERCE エイトコマース" width="260" height="56" decoding="async">
+        </a>
+        <nav class="c-nav" aria-label="メインナビゲーション">
+        <a href="/rent" aria-current="page">レンタル</a>
+        <a href="/buy">購入</a>
+        <a href="/pc">法人PC</a>
+        <a href="/support">導入支援</a>
+        <a href="/faq">よくある質問</a>
+        </nav>
+        <a class="cta" href="/quote" data-lead="header">3分で無料診断</a>
       </div>
-      <div style="display: flex; gap: 8px; align-items: center; margin-left: auto;">
-        <a href="#contact" class="btn btn-secondary" style="font-size: 13.5px; min-height: 42px; border-color: rgb(27, 29, 26); color: rgb(27, 29, 26);text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;">お問い合わせ</a>
-        <a href="/quote" class="btn btn-primary" style="font-size: 13.5px; min-height: 42px; background: rgb(199, 237, 62); border-color: rgb(199, 237, 62); color: rgb(27, 29, 26); font-weight: 700;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;">まとめて相談</a>
-      </div>
-    </div>
-  </div>
+    </header>
+    <!-- /SHELL:HEADER -->
   <div>
 
     <div style="background: rgb(247, 247, 242); border-bottom: 1px solid var(--color-divider);">
@@ -872,13 +878,15 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
               <span style="background: rgb(27, 29, 26); color: rgb(255, 255, 255); padding: 6px 11px; border-radius: 2px; letter-spacing: 0.04em;">1台・1か月から</span>
               <span style="background: rgb(199, 237, 62); color: rgb(27, 29, 26); padding: 6px 11px; border-radius: 2px; letter-spacing: 0.04em;">お見積り無料</span>
             </div>
+            <div style="font-size: 13px; font-weight: 900; letter-spacing: 0.18em; color: rgb(94, 116, 20); margin-bottom: 10px;">8RENT</div>
             <h1 style="font-size: clamp(34px, 5vw, 62px); line-height: 1.16; letter-spacing: -0.04em; font-weight: 900;">必要な期間・台数だけ、<br>使う。</h1>
-            <p style="font-size: 16px; line-height: 1.85; color: rgb(74, 76, 67); margin: 20px 0px 0px; max-width: 34em; text-wrap: pretty;">8RENTは、法人向けのITレンタルです。PC・モニター・ネットワーク機器を、必要な台数と期間でお貸しします。設定して発送し、返却とデータ消去まで対応します。在庫に無い機種もお取り寄せでご相談いただけます。</p>
+            <p style="font-size: 16px; line-height: 1.85; color: rgb(74, 76, 67); margin: 20px 0px 0px; max-width: 34em; text-wrap: pretty;">法人向けPC・IT機器を、必要な期間だけ。初期設定をした状態でお届けします。返却とデータ消去まで対応し、在庫に無い機種もお取り寄せでご相談いただけます。</p>
             <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 28px;">
-              <a href="#catalog" class="btn btn-primary" style="min-height: 60px; font-size: 17.5px; font-weight: 700; padding-inline: 32px; background: rgb(199, 237, 62); border-color: rgb(199, 237, 62); color: rgb(27, 29, 26); border-radius: 3px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;">レンタル商品を見る</a>
-              <a href="/quote" class="btn btn-secondary" style="min-height: 60px; font-size: 15px; padding-inline: 24px; border-color: rgb(27, 29, 26); color: rgb(27, 29, 26); border-radius: 3px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;">条件をまとめて相談する</a>
-              <a href="/buy" class="btn btn-secondary" style="min-height: 60px; font-size: 15px; padding-inline: 24px; border-color: var(--color-divider); color: rgb(27, 29, 26); border-radius: 3px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;">購入をお考えの方へ</a>
+              <a class="c-cta" href="#catalog" data-lead="rent-hero">レンタル商品を見る</a>
+              <a class="c-cta ghost" href="/quote?purpose=短期プロジェクト" data-lead="rent-hero-quote">3分で無料診断</a>
             </div>
+            <p style="font-size: 13.5px; margin: 16px 0px 0px;">
+              <a href="/buy" style="color: rgb(74, 76, 67); font-weight: 700;">長期間使うなら購入も選べます →</a></p>
             <p style="font-size: 12.5px; color: rgb(108, 110, 100); line-height: 1.8; margin: 22px 0px 0px;">
               ご希望台数をお知らせください。在庫・調達状況を確認してご案内します。お申し込みの時点で機器を押さえることはありません。</p>
           </div>
@@ -907,7 +915,7 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
         <strong style="color: rgb(27, 29, 26);">いま掲載が無いカテゴリーでも、お取り寄せ・調達でご用意できます。</strong>
         8RENTは在庫から選んでいただくサイトではなく、ご希望の機種・台数・期間を伺って、自社在庫と調達を
         組み合わせて用意するサービスです。「取り寄せで相談」と出ているカテゴリーも、
-        <a href="/quote" style="font-weight: 700;">まとめて相談</a>からお気軽にお問い合わせください。</p>
+        <a href="/quote" style="font-weight: 700;">3分で無料診断</a>からお気軽にお問い合わせください。</p>
     </div>
 
     <div style="max-width: 1240px; margin: 0px auto; padding: 52px 24px 0px;">
@@ -916,7 +924,7 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
           <span class="ms" style="font-size: 24px; color: rgb(199, 237, 62);">bolt</span>
           <h2 style="font-size: 26px; letter-spacing: -0.03em; color: rgb(255, 255, 255);">条件を入れると、合う機種が絞り込めます</h2>
         </div>
-        <p style="font-size: 13px; color: rgb(198, 199, 192); margin: 0px 0px 22px;">機種が決まっていなくても構いません。ここに無い条件は<a href="/quote" style="color: rgb(199, 237, 62)">まとめて見積</a>からご相談ください。</p>
+        <p style="font-size: 13px; color: rgb(198, 199, 192); margin: 0px 0px 22px;">機種が決まっていなくても構いません。ここに無い条件は<a href="/quote" style="color: rgb(199, 237, 62)">3分で無料診断</a>からご相談ください。</p>
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; align-items: end;">
           <div>
             <div style="font-size: 11px; color: rgb(154, 155, 144); font-weight: 700; margin-bottom: 6px;">利用目的</div>
@@ -1592,7 +1600,7 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
           <p>利用期間・台数・用途から、最適な調達方法をご提案します。購入がよいか、レンタルがよいか、
             組み合わせるか、決めてこなくて大丈夫です。お見積りは無料で、この時点で費用は発生しません。</p>
         </div>
-        <a href="/quote">まとめて相談する</a>
+        <a href="/quote">3分で無料診断</a>
       </div>
     </div>
     <div id="contact" style="background: rgb(247, 247, 242); border-top: 1px solid var(--color-divider);">
@@ -1679,73 +1687,64 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
 
   
 
-  <div style="border-top: 1px solid var(--color-divider); background: rgb(247, 247, 242);">
-    <div style="max-width: 1240px; margin: 0px auto; padding: 42px 24px 38px; display: flex; gap: 40px; flex-wrap: wrap;">
-      <div style="flex: 1 1 250px;">
-        <img src="/assets/8rent-logo.png" alt="8RENT（エイトレント）" decoding="async" style="height: 40px; width: auto; display: block;">
-        <p style="font-size: 12.5px; color: rgb(108, 110, 100); line-height: 1.8; margin: 12px 0px 0px; max-width: 24em;">法人限定、まず1台のお試しレンタルから。機器・ネットワーク・設定・設置・保守まで。</p>
+  <!-- SHELL:LEAD -->
+<section class="c-lead">
+      <div class="in">
+        <h2>何を選べばいいか分からなくても大丈夫です。</h2>
+        <p>人数・用途・期間を選ぶだけで、購入・レンタル・その組み合わせのどれが合うかをご提案します。
+          入力は3分ほど。お見積りは無料で、この時点で費用は発生しません。</p>
+        <div class="row">
+          <a class="c-cta" href="/quote" data-lead="rent">3分で無料診断</a>
+          <a class="c-cta ghost" href="/rent">レンタル商品を見る</a>
+          <a class="c-cta ghost" href="/buy">購入できる商品を見る</a>
+        </div>
+        <div class="marks"><span>見積無料</span><span>1台から相談OK</span>
+          <span>在庫がなくても調達可能</span><span>購入・レンタルは後から決められる</span></div>
       </div>
-      
-        <div style="flex: 0 1 170px;">
-          <div style="font-size: 11px; letter-spacing: 0.1em; color: rgb(108, 110, 100); font-weight: 700; margin-bottom: 12px;">サービス</div>
-          <div style="display: flex; flex-direction: column; gap: 9px;">
-            
-              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">IT機器を探す</a>
-            
-              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">用途から探す</a>
-            
-              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">eラーニング</a>
-            
-              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">利用の流れ</a>
-            
-          </div>
+    </section>
+    <!-- /SHELL:LEAD -->
+  <!-- SHELL:FOOTER -->
+<footer class="c-foot">
+      <div class="in">
+        <div class="brand">
+          <img src="/assets/commerce-logo.png" alt="COMMERCE エイトコマース" width="260" height="56" decoding="async">
+          <p>法人向けに、IT機器の調達・レンタル・販売・設定をまとめて承ります。
+            PCからネットワーク、セキュリティ、会議室機器まで。1台からご相談いただけます。</p>
         </div>
-      
-        <div style="flex: 0 1 170px;">
-          <div style="font-size: 11px; letter-spacing: 0.1em; color: rgb(108, 110, 100); font-weight: 700; margin-bottom: 12px;">法人のお客様</div>
-          <div style="display: flex; flex-direction: column; gap: 9px;">
-            
-              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">法人利用・大量レンタル</a>
-            
-              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">キッティング</a>
-            
-              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">見積依頼</a>
-            
-              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">導入事例</a>
-            
-          </div>
+        <div class="col">
+          <h3>サービス</h3>
+          <a href="/rent">レンタル（8RENT）</a>
+          <a href="/buy">購入（法人IT販売）</a>
+          <a href="/pc">法人PC</a>
+          <a href="/support">導入支援</a>
+          <a href="/care">8RENT Care</a>
         </div>
-      
-        <div style="flex: 0 1 170px;">
-          <div style="font-size: 11px; letter-spacing: 0.1em; color: rgb(108, 110, 100); font-weight: 700; margin-bottom: 12px;">取り組み</div>
-          <div style="display: flex; flex-direction: column; gap: 9px;">
-            
-              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">Supported Plan</a>
-            
-              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">スポンサー企業の方へ</a>
-            
-              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">自治体連携</a>
-            
-          </div>
+        <div class="col">
+          <h3>探す・知る</h3>
+          <a href="/quote">3分で無料診断</a>
+          <a href="/cases">導入事例</a>
+          <a href="/faq">よくある質問</a>
+          <a href="/column/">コラム</a>
         </div>
-      
-        <div style="flex: 0 1 170px;">
-          <div style="font-size: 11px; letter-spacing: 0.1em; color: rgb(108, 110, 100); font-weight: 700; margin-bottom: 12px;">サポート</div>
-          <div style="display: flex; flex-direction: column; gap: 9px;">
-            
-              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">相談する・お問い合わせ</a>
-            
-              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">よくある質問</a>
-            
-              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">故障・返却について</a>
-            
-              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">8EC（販売）</a>
-            
-          </div>
+        <div class="col">
+          <h3>会社</h3>
+          <a href="/company.html">会社概要</a>
+          <a href="/cloud.html">クラウド情シス</a>
+          <a href="/ai-dev.html">AI・業務システム開発</a>
+          <a href="/#contact">お問い合わせ</a>
         </div>
-      
-    </div>
-  </div>
+      </div>
+      <div class="base">
+        <div class="in">
+          <span>運営会社：株式会社エイト（COMMERCE／8RENT）</span>
+          <a href="/privacy.html">プライバシーポリシー</a>
+          <a href="/terms.html">利用規約</a>
+          <a href="/tokushou.html">特定商取引法に基づく表記</a>
+          <span>© 8 Inc.</span>
+        </div>
+      </div>
+    </footer>
+    <!-- /SHELL:FOOTER -->
 
   
 
