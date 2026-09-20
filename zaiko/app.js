@@ -3458,7 +3458,13 @@ function closeModal() { $('modal').classList.remove('on'); }
 /* ===== 3. 個体の詳細（QRを読んだ直後の画面） ===== */
 function viewItem() {
   const it = item(ui.itemId);
-  if (!it) return `<div class="empty">該当する機器が見つかりません（${esc(ui.itemId || '')}）</div>`;
+  // 削除済みの管理番号のURLを直接開いたときも、ここに来る（参照RLSで読めないため）。
+  // 真っ白にせず、戻る導線を出す
+  if (!it) return `<div class="empty" style="text-align:center">
+    <div style="font-size:17px;font-weight:600;margin-bottom:6px">個体が見つかりません</div>
+    <div class="meta" style="margin-bottom:16px">${esc(ui.itemId || '')} は在庫管理にありません。削除されたか、管理番号が違います。</div>
+    <button class="btn" onclick="go('list')"><span class="ms">list_alt</span><span class="t">在庫一覧へ戻る</span></button>
+  </div>`;
   const url = itemUrl(it.id);
   const m = prod(it.product_code);          // 商品名・型番はマスタ側が正
   const hist = db.tx.filter(t => t.ref_kind === 'item' && t.ref_id === it.id);
@@ -3470,7 +3476,17 @@ function viewItem() {
   <div class="detail">
     <div class="main">
       <div class="kind">${esc(catName((m || it).category_id) || '機器')}</div>
-      <h1>${esc(m ? titleOf(m) : it.name)}</h1>
+      <div class="ttl">
+        <h1>${esc(m ? titleOf(m) : it.name)}</h1>
+        ${canAdmin() ? `<div class="admops">
+          <button class="btn sm ghost" onclick="sheetItemEdit('${esc(it.id)}')"
+            title="この1台の情報を直す（商品マスターは変えません）">
+            <span class="ms">edit</span><span class="t">編集</span></button>
+          <button class="btn sm ghost danger" onclick="sheetItemDelete('${esc(it.id)}')"
+            title="誤って登録した個体を在庫管理から外す（通常は「廃棄」を使います）">
+            <span class="ms">delete_forever</span><span class="t">削除</span></button>
+        </div>` : ''}
+      </div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <span class="num" style="font-size:19px;font-weight:500">${esc(it.id)}</span>
         ${statusTag(it.status, true)}
@@ -3690,6 +3706,248 @@ async function savePrice(id, buy, fee, plan) {
   await refreshTx();
   render();
   toast('値段を保存しました');
+}
+
+/* ===== 3b. 管理者だけの個体編集・削除 =====
+   個体に属する項目だけを直す。商品名・メーカー・型番・スペック・画像は
+   商品マスターのものなので、ここでは写さないし上書きもしない。
+   管理番号・在庫状態・保管場所・利用者・8RENT対象・出品先も対象外で、
+   それぞれ既存の操作（貸出・移動・8RENTに出す・出品先の編集…）を使う。 */
+
+/* 保存・削除の最中かどうか。二重送信を防ぐ（シートは押した時点で閉じるが、
+   Enterの二重発火などでも1回だけになるようにしておく） */
+let itemBusy = false;
+
+/* 編集できる項目。col はDBの列名、arg は関数の引数名 */
+const ITEM_EDIT_FIELDS = [
+  { id: 'ieCode',  col: 'product_code', arg: 'p_product_code', label: '商品', kind: 'code' },
+  { id: 'ieSer',   col: 'serial',       arg: 'p_serial',       label: 'シリアル番号', kind: 'text' },
+  { id: 'ieSrc',   col: 'source_id',    arg: 'p_source_id',    label: '仕入元ID', kind: 'text' },
+  { id: 'ieBuy',   col: 'purchased_on', arg: 'p_purchased_on', label: '仕入日', kind: 'date' },
+  { id: 'iePrice', col: 'price',        arg: 'p_price',        label: '仕入価格', kind: 'money' },
+  { id: 'ieFee',   col: 'purchase_fee', arg: 'p_fee',          label: '諸費用', kind: 'money' },
+  { id: 'iePlan',  col: 'plan_price',   arg: 'p_plan',         label: '販売予定価格', kind: 'money' },
+  { id: 'ieSold',  col: 'sold_price',   arg: 'p_sold',         label: '実際の販売価格', kind: 'money' },
+  { id: 'ieNote',  col: 'note',         arg: 'p_note',         label: '備考', kind: 'area' }
+];
+
+/* 入力の検証は「閉じる前」に通す（openSheet の validate）。
+   ここで false を返すとシートは閉じないので、直して入れ直せる。
+   サーバー側で弾かれたときは、入れた値を持ったまま開き直す（draft）。 */
+let pendingItemEdit = null;
+
+function sheetItemEdit(id, draft) {
+  const it = item(id);
+  if (!it || !canAdmin()) return;
+  const d = draft || {};
+  const v = (x) => (x == null ? '' : String(x));
+  const val = (f, cur) => (f in d ? v(d[f]) : v(cur));
+  const code = 'ieCode' in d ? d.ieCode : it.product_code;
+  const opts = db.masters.filter(p => p.kind === 'individual')
+    .map(p => `<option value="${esc(p.code)}"${p.code === code ? ' selected' : ''}>${
+      esc(p.code + '　' + titleOf(p))}</option>`).join('');
+  openSheet({
+    title: '個体を編集', subject: id, cta: '保存',
+    hint: `この1台だけを直します。<strong>商品名・メーカー・型番・スペック・画像は商品マスターのもの</strong>なので、
+      ここでは変わりません。<br>管理番号・在庫状態・保管場所・利用者・8RENT対象・出品先は、
+      それぞれ既存の操作（貸出・移動・8RENTに出す・出品先の編集）をお使いください。`,
+    body: `
+      <label class="field" style="margin-bottom:10px"><span>商品（マスターとの紐付け）</span>
+        <select class="input" id="ieCode"><option value="">紐付けなし</option>${opts}</select></label>
+      <div class="ie2">
+        <label class="field"><span>シリアル番号</span>
+          <input class="input" id="ieSer" value="${esc(val('ieSer', it.serial))}" autocomplete="off"></label>
+        <label class="field"><span>仕入元ID</span>
+          <input class="input" id="ieSrc" value="${esc(val('ieSrc', it.source_id))}" autocomplete="off"></label>
+      </div>
+      <div class="ie2">
+        <label class="field"><span>仕入日</span>
+          <input class="input" type="date" id="ieBuy" max="${esc(todayStr())}" value="${esc(val('ieBuy', it.purchased_on))}"></label>
+        <label class="field"><span>仕入価格</span>
+          <input class="input num" type="number" min="0" step="1" id="iePrice" value="${esc(val('iePrice', it.price))}"
+                 oninput="paintItemEdit()" placeholder="0"></label>
+      </div>
+      <div class="ie2">
+        <label class="field"><span>諸費用</span>
+          <input class="input num" type="number" min="0" step="1" id="ieFee" value="${esc(val('ieFee', it.purchase_fee))}"
+                 oninput="paintItemEdit()" placeholder="0"></label>
+        <label class="field"><span>販売予定価格</span>
+          <input class="input num" type="number" min="0" step="100" id="iePlan" value="${esc(val('iePlan', it.plan_price))}"
+                 oninput="paintItemEdit()" placeholder="未定"></label>
+      </div>
+      <div class="prow" style="margin:2px 0 10px"><span>原価（仕入価格＋諸費用）</span>
+        <b class="num" id="ieCost">${yen(costOf(it))}</b></div>
+      <label class="field" style="margin-bottom:10px"><span>実際の販売価格</span>
+        <input class="input num" type="number" min="0" step="100" id="ieSold" value="${esc(val('ieSold', it.sold_price))}"
+               placeholder="売れていなければ空のまま"></label>
+      <label class="field" style="margin-bottom:6px"><span>備考</span>
+        <textarea class="input" id="ieNote" rows="3">${esc(val('ieNote', it.note))}</textarea></label>
+      <div class="meta">管理番号 <b class="num">${esc(it.id)}</b> は変更できません（QRコード・URL・履歴の紐付けに使っています）。</div>`,
+    validate: () => validateItemEdit(id),
+    run: () => saveItemEdit(id)
+  });
+  paintItemEdit();
+}
+const todayStr = () => new Date().toISOString().slice(0, 10);
+function paintItemEdit() {
+  const c = $('ieCost');
+  if (c) c.textContent = yen((numField('iePrice') || 0) + (numField('ieFee') || 0));
+}
+
+function validateItemEdit(id) {
+  const it = item(id);
+  if (!it) return false;
+  const args = { p_item_id: id, p_clear: [] };
+  const draft = {};
+  let bad = null;
+  ITEM_EDIT_FIELDS.forEach(f => {
+    const el = $(f.id);
+    if (!el) return;
+    const raw = String(el.value == null ? '' : el.value).trim();
+    draft[f.id] = raw;
+    if (raw === '') {
+      // 空欄は「null にする」。渡さないと「変えない」になってしまうので、消す列として送る
+      if (it[f.col] != null && it[f.col] !== '') args.p_clear.push(f.col);
+      return;
+    }
+    if (f.kind === 'money') {
+      const n = Number(raw);
+      if (!isFinite(n) || n < 0) { bad = bad || `${f.label}は0以上の数値で入れてください。`; return; }
+      args[f.arg] = n;
+    } else if (f.kind === 'date') {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(raw) || isNaN(Date.parse(raw))) {
+        bad = bad || '仕入日が正しい日付ではありません。'; return;
+      }
+      if (raw > todayStr()) { bad = bad || '仕入日に未来の日付は入れられません。'; return; }
+      args[f.arg] = raw;
+    } else if (f.kind === 'code') {
+      if (!db.masters.some(p => p.code === raw)) { bad = bad || '選んだ商品が見つかりません。'; return; }
+      args[f.arg] = raw;
+    } else {
+      args[f.arg] = raw;
+    }
+  });
+  if (bad) { toast(bad); return false; }   // シートは閉じない。直して入れ直せる
+  pendingItemEdit = { id, args, draft };
+  return true;
+}
+
+async function saveItemEdit(id) {
+  if (itemBusy || !pendingItemEdit || pendingItemEdit.id !== id) return;
+  const { args, draft } = pendingItemEdit;
+  itemBusy = true;
+  try {
+    const { error } = await sb.rpc('inv_item_admin_update', args);
+    if (error) {
+      // サーバーで弾かれたときは、入れた値を持ったまま開き直す（入れ直しにならないように）
+      toast(error.message || '保存できませんでした');
+      sheetItemEdit(id, draft);
+      return;
+    }
+    pendingItemEdit = null;
+    // 画面のキャッシュを直すのではなく、詳細を取り直す（ほかの人の変更も拾う）
+    await reloadItem(id);
+    toast('更新しました');
+  } finally {
+    itemBusy = false;
+  }
+}
+
+/* 保存・削除のあと、その1台と履歴を取り直す */
+async function reloadItem(id) {
+  const [r, t] = await Promise.all([
+    sb.from('inventory_items').select('*').eq('id', id).maybeSingle(),
+    sb.from('inventory_transactions').select('*').eq('ref_kind', 'item').eq('ref_id', id)
+      .order('occurred_at', { ascending: false }).limit(50)
+  ]);
+  const i = db.items.findIndex(x => x.id === id);
+  if (r.data) {
+    if (i >= 0) db.items[i] = r.data; else db.items.push(r.data);
+  } else if (i >= 0) {
+    db.items.splice(i, 1);          // 削除された（参照RLSで読めない）
+  }
+  if (!t.error) {
+    db.tx = (t.data || []).concat(db.tx.filter(x => !(x.ref_kind === 'item' && x.ref_id === id)))
+      .sort((a, b) => String(b.occurred_at).localeCompare(String(a.occurred_at)));
+  }
+  render();
+}
+
+/* ---- 削除（誤登録の取り消し） ----
+   既存の「廃棄」は個体を残したまま状態を変える業務操作。こちらは在庫データから外す。
+   押した時点でもう一度サーバーに可否を聞き、だめなら理由をそのまま出す。 */
+async function sheetItemDelete(id) {
+  const it = item(id);
+  if (!it || !canAdmin()) return;
+  const m = prod(it.product_code);
+  const { data, error } = await sb.rpc('inv_item_delete_check', { p_item_id: id });
+  if (error) { toast(error.message || '確認できませんでした'); return; }
+  const chk = data || {};
+  const head = `<div class="delhead">
+      <div class="n">${esc(m ? titleOf(m) : it.name)}</div>
+      <div class="meta"><b class="num">${esc(it.id)}</b>　${esc(it.status)}</div>
+    </div>`;
+
+  if (!chk.ok) {
+    openSheet({
+      title: '個体を削除', subject: id, cta: '閉じる',
+      hint: 'この個体は削除できません。',
+      body: head + `<ul class="delwhy">${(chk.reasons || []).map(r => `<li>${esc(r)}</li>`).join('')}</ul>
+        <div class="meta">使い終わった機器を在庫から外すときは、詳細画面の<b>「廃棄」</b>をお使いください。</div>`,
+      run: () => {}
+    });
+    // 「閉じる」だけにする（削除は押せない）
+    const cta = document.querySelector('#sheetPanel .acts .cta');
+    if (cta) { cta.classList.remove('lime'); cta.classList.add('ghost'); }
+    const cancel = document.querySelector('#sheetPanel .acts .cancel');
+    if (cancel) cancel.style.display = 'none';
+    return;
+  }
+
+  openSheet({
+    title: '個体を削除', subject: id, cta: '完全に削除',
+    hint: `<b class="num">${esc(it.id)}</b> を在庫管理から削除します。<br>
+      <strong>この操作は取り消せません。</strong>通常の廃棄は、詳細画面の「廃棄」を使用してください。`,
+    body: head + `
+      <label class="field" style="margin:14px 0 6px"><span>確認のため管理番号を入力してください</span>
+        <input class="input num" id="sheetVal" autocomplete="off" inputmode="text"
+               oninput="paintItemDelete('${esc(it.id)}')"></label>
+      <div class="meta" id="delHint">管理番号が一致すると「完全に削除」を押せます。</div>`,
+    validate: (v) => v === it.id,
+    run: () => deleteItem(id)
+  });
+  paintItemDelete(it.id);
+}
+function paintItemDelete(id) {
+  const v = (($('sheetVal') || {}).value || '').trim();
+  const ok = v === id;
+  const cta = document.querySelector('#sheetPanel .acts .cta');
+  if (cta) { cta.disabled = !ok; cta.classList.toggle('danger', ok); }
+  const h = $('delHint');
+  if (h) h.textContent = ok ? '管理番号が一致しました。' : '管理番号が一致すると「完全に削除」を押せます。';
+}
+
+async function deleteItem(id) {
+  if (itemBusy) return;
+  itemBusy = true;
+  const cta = document.querySelector('#sheetPanel .acts .cta');
+  if (cta) cta.disabled = true;              // 二重実行を防ぐ
+  try {
+    const { error } = await sb.rpc('inv_item_admin_delete', { p_item_id: id, p_confirm: id });
+    if (error) {
+      if (cta) cta.disabled = false;
+      toast(error.message || '削除できませんでした');
+      return;
+    }
+    const i = db.items.findIndex(x => x.id === id);
+    if (i >= 0) db.items.splice(i, 1);
+    await refreshTx();
+    ui.listMode = 'unit';
+    go('list');
+    toast(`${id} を削除しました`);
+  } finally {
+    itemBusy = false;
+  }
 }
 
 /* ===== 4. 商品詳細（基本情報・個体一覧・販売情報・履歴の4タブ） ===== */

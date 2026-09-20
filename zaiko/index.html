@@ -177,6 +177,28 @@ table.t tr.clk:hover td{background:var(--n100)}
 .detail .qrbox .u{font-size:10px;color:var(--n600);word-break:break-all;max-width:152px;margin-top:6px}
 .kind{font-size:12px;letter-spacing:.1em;color:var(--ink);font-weight:500}
 .detail h1{font-size:36px;margin:4px 0 8px}
+
+/* 見出しの右に管理者だけの操作を並べる。商品名・管理番号・状態が読めることを優先し、
+   狭い画面ではボタンを下へ折り返す */
+.ttl{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.ttl h1{flex:1 1 auto;min-width:0}
+.ttl .admops{display:flex;gap:8px;flex:0 0 auto;margin-top:10px}
+.ttl .admops .btn{min-height:36px;padding:6px 12px}
+@media(max-width:560px){
+  .ttl{gap:6px}
+  .ttl h1{flex:1 1 100%}
+  .ttl .admops{margin-top:2px;flex:1 1 100%}
+  .ttl .admops .btn{flex:1 1 0}
+}
+
+/* 個体編集のシート */
+.ie2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+@media(max-width:480px){.ie2{grid-template-columns:1fr}}
+
+/* 削除の確認 */
+.delhead{border:1px solid var(--line);border-radius:var(--r2);padding:12px 14px;background:var(--n100)}
+.delhead .n{font-size:15px;font-weight:600;line-height:1.4}
+.delwhy{margin:12px 0 10px;padding-left:1.2em;font-size:13px;line-height:1.85;color:#B3261E}
 .info{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px 20px;font-size:14px;margin:20px 0}
 .info .k{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--n600);display:block}
 .ops{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:20px 0}

@@ -201,6 +201,20 @@ create table if not exists public.inventory_items (
   updated_at      timestamptz default now()
 );
 
+-- 論理削除。物理削除はしない（履歴は追記のみの表なので、個体の行だけ消すと
+-- 「誰が何をしたか」は残るのに対象が消え、監査が読めなくなる）
+alter table public.inventory_items add column if not exists deleted_at timestamptz;
+alter table public.inventory_items add column if not exists deleted_by text;
+
+comment on column public.inventory_items.deleted_at is
+  '在庫管理から外した日時（論理削除）。入っている個体は一覧・検索・集計・公開側のどこにも出さない。
+   通常の運用で不要になった機器は status=''廃棄'' を使う。これは誤登録を取り消すための列。';
+comment on column public.inventory_items.deleted_by is
+  '削除を実行した人（inv_actor）。誰が消したかを個体側にも残す。';
+
+create index if not exists inventory_items_live_idx
+  on public.inventory_items (status) where deleted_at is null;
+
 create index if not exists inventory_items_status_idx on public.inventory_items (status, location_id);
 create index if not exists inventory_items_loc_idx    on public.inventory_items (location_id);
 create index if not exists inventory_items_cat_idx    on public.inventory_items (category_id);
@@ -648,7 +662,7 @@ do $$
 declare t text;
 begin
   foreach t in array array['inventory_members','inventory_categories','inventory_locations',
-                           'inventory_items','inventory_products','inventory_transactions',
+                           'inventory_products','inventory_transactions',
                            'inventory_loans','inventory_stocktakes','inventory_stocktake_items',
                            'inventory_counters']
   loop
@@ -669,6 +683,53 @@ begin
                     using (public.inv_can_edit()) with check (public.inv_can_edit())', t, t);
   end loop;
 end $$;
+
+create or replace function public.inv_item_guard()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_catalog
+as $$
+begin
+  -- 管理番号は誰も変えられない。QRのURLと履歴（ref_id）がこれで紐づいている
+  if new.id is distinct from old.id then
+    raise exception '管理番号は変更できません（QR・履歴の紐付けに使っています）';
+  end if;
+
+  if public.inv_is_admin() or public.inv_is_db_session() then
+    return new;
+  end if;
+
+  if new.deleted_at   is distinct from old.deleted_at
+  or new.deleted_by   is distinct from old.deleted_by then
+    raise exception '個体を削除できるのは管理者だけです';
+  end if;
+
+  if new.product_code is distinct from old.product_code
+  or new.serial       is distinct from old.serial
+  or new.source_id    is distinct from old.source_id
+  or new.purchased_on is distinct from old.purchased_on
+  or new.created_at   is distinct from old.created_at then
+    raise exception '個体情報（商品の紐付け・シリアル番号・仕入元ID・仕入日）を編集できるのは管理者だけです';
+  end if;
+
+  return new;
+end $$;
+
+comment on function public.inv_item_guard is
+  '個体の列のうち、既存の操作が書かない（＝今回の管理者編集・削除でしか触らない）ものを守る。
+   管理番号は管理者でも変更不可。判定はサーバー側の inv_is_admin() だけを見る。';
+
+drop trigger if exists inv_item_guard_trg on public.inventory_items;
+create trigger inv_item_guard_trg
+  before update on public.inventory_items
+  for each row execute function public.inv_item_guard();
+
+-- 個体の参照：消していない個体だけ。/zaiko も 8RENT も authenticated として
+-- 読むので、一覧・検索・KPI・在庫数・8RENT集計はこれだけでそろって消える
+drop policy if exists "inventory_items read" on public.inventory_items;
+create policy "inventory_items read" on public.inventory_items
+  for select to authenticated using (deleted_at is null);
 
 -- 個体：更新は一般以上、登録と削除は管理者だけ
 drop policy if exists "inventory_items update" on public.inventory_items;
@@ -898,14 +959,17 @@ select
   p.kind,
   case when p.kind = 'individual'
        then (select count(*) from public.inventory_items i
-              where i.product_code = p.code and i.status in ('在庫','出品中'))
+              where i.product_code = p.code and i.deleted_at is null
+                and i.status in ('在庫','出品中'))
        else p.qty end                                   as in_stock,
   case when p.kind = 'individual'
        then (select count(*) from public.inventory_items i
-              where i.product_code = p.code and i.status not in ('廃棄','売却済'))
+              where i.product_code = p.code and i.deleted_at is null
+                and i.status not in ('廃棄','売却済'))
        else p.qty end                                   as registered,
   case when p.kind = 'individual'
-       then (select count(*) from public.inventory_items i where i.product_code = p.code)
+       then (select count(*) from public.inventory_items i
+              where i.product_code = p.code and i.deleted_at is null)
        else 1 end                                       as total_units
 from public.inventory_products p;
 
@@ -2079,7 +2143,8 @@ begin
   for r in select * from jsonb_array_elements(coalesce(p_rows, '[]'::jsonb)) loop
     v_item := nullif(r->>'item_id', '');
     if v_item is not null then
-      select product_code into v_code from public.inventory_items where id = v_item;
+      select product_code into v_code from public.inventory_items
+       where id = v_item and deleted_at is null;
       if not found then continue; end if;
     else
       v_code := nullif(r->>'product_code', '');
@@ -2420,7 +2485,7 @@ begin
   --   レンタル対象に選んだ個体は後回しにして、販売はまず対象外の個体から取る
   select id into v_item_id
     from public.inventory_items
-   where product_code = p_code and status = '在庫'
+   where product_code = p_code and status = '在庫' and deleted_at is null
      and (not p_rental_only or coalesce(rental_eligible, false))
    order by case when coalesce(rental_eligible, false) then 1 else 0 end, id
    limit 1
@@ -2762,7 +2827,8 @@ select
   count(i.id) filter (where i.status not in ('売却済','廃棄'))     as total_owned,
   p.updated_at
 from public.inventory_products p
-left join public.inventory_items i on i.product_code = p.code
+left join public.inventory_items i
+       on i.product_code = p.code and i.deleted_at is null
 where p.rental_enabled = true
 group by p.code;
 
@@ -3780,7 +3846,8 @@ select
   count(i.id) filter (where i.status not in ('売却済','廃棄'))     as total_owned,
   p.updated_at
 from public.inventory_products p
-left join public.inventory_items i on i.product_code = p.code
+left join public.inventory_items i
+       on i.product_code = p.code and i.deleted_at is null
 where p.rental_enabled = true
 group by p.code;
 
@@ -3850,6 +3917,7 @@ with avail as (
          count(*) filter (where status = '在庫'
                             and coalesce(rental_eligible, false)) as rental_available
     from public.inventory_items
+   where deleted_at is null
    group by product_code
 )
 select
@@ -3975,6 +4043,7 @@ with cnt as (
          count(*) filter (where status in ('修理中','故障','紛失')) as unusable,
          count(*) filter (where status not in ('売却済','廃棄')) as total_owned
     from public.inventory_items
+   where deleted_at is null
    group by product_code
 )
 select
@@ -4777,6 +4846,356 @@ drop policy if exists "inventory_rental_requests update" on public.inventory_ren
 create policy "inventory_rental_requests update" on public.inventory_rental_requests
   for update to authenticated
   using (public.inv_can_edit()) with check (public.inv_can_edit());
+
+
+-- ============================================================
+-- 個体詳細の管理者操作（編集・削除）
+-- ============================================================
+
+-- ------------------------------------------------------------
+-- 42-6) 管理者だけの個体編集
+--
+--     商品マスターに属する情報（商品名・メーカー・型番・スペック・画像）は
+--     ここでは触らない。個体に属する項目だけを直す。
+--     管理番号・在庫状態・保管場所・利用者・8RENT対象・出品先も対象外で、
+--     それぞれ既存の操作（貸出・移動・8RENTに出す・出品先の編集…）を使う。
+--
+--     渡さなかった（null の）項目は「変えない」。空にしたいときは
+--     p_clear に列名を入れてもらう（''（空文字）と「未指定」を区別するため）。
+-- ------------------------------------------------------------
+create or replace function public.inv_item_admin_update(
+  p_item_id      text,
+  p_product_code text default null,
+  p_serial       text default null,
+  p_source_id    text default null,
+  p_purchased_on date default null,
+  p_price        numeric default null,
+  p_fee          numeric default null,
+  p_plan         numeric default null,
+  p_sold         numeric default null,
+  p_note         text default null,
+  p_clear        text[] default '{}'
+) returns public.inventory_items
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  it      public.inventory_items;
+  nw      public.inventory_items;
+  cl      text[] := coalesce(p_clear, '{}');
+  chg     text[] := '{}';
+  bef     text[] := '{}';
+  aft     text[] := '{}';
+  fmt     constant text := 'FM9,999,999,999';
+  v_code  text;
+  v_ser   text;
+  v_src   text;
+  v_buy   date;
+  v_prc   numeric;
+  v_fee   numeric;
+  v_plan  numeric;
+  v_sold  numeric;
+  v_note  text;
+begin
+  if not public.inv_is_admin() then
+    raise exception '個体情報を編集できるのは管理者だけです';
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id for update;
+  if not found then
+    raise exception '個体が見つかりません（%）', p_item_id;
+  end if;
+
+  v_code := case when 'product_code' = any(cl) then null
+                 else coalesce(nullif(btrim(coalesce(p_product_code,'')),''), it.product_code) end;
+  v_ser  := case when 'serial'       = any(cl) then null
+                 else coalesce(nullif(btrim(coalesce(p_serial,'')),''), it.serial) end;
+  v_src  := case when 'source_id'    = any(cl) then null
+                 else coalesce(nullif(btrim(coalesce(p_source_id,'')),''), it.source_id) end;
+  v_buy  := case when 'purchased_on' = any(cl) then null else coalesce(p_purchased_on, it.purchased_on) end;
+  v_prc  := case when 'price'        = any(cl) then null else coalesce(p_price, it.price) end;
+  v_fee  := case when 'purchase_fee' = any(cl) then null else coalesce(p_fee,   it.purchase_fee) end;
+  v_plan := case when 'plan_price'   = any(cl) then null else coalesce(p_plan,  it.plan_price) end;
+  v_sold := case when 'sold_price'   = any(cl) then null else coalesce(p_sold,  it.sold_price) end;
+  v_note := case when 'note'         = any(cl) then null
+                 else coalesce(nullif(btrim(coalesce(p_note,'')),''), it.note) end;
+
+  -- 入力の決まり
+  if coalesce(v_prc,0) < 0 or coalesce(v_fee,0) < 0
+  or coalesce(v_plan,0) < 0 or coalesce(v_sold,0) < 0 then
+    raise exception 'マイナスの金額は入れられません';
+  end if;
+  if v_buy is not null and v_buy > current_date + 1 then
+    raise exception '仕入日に未来の日付は入れられません（%）', to_char(v_buy, 'YYYY-MM-DD');
+  end if;
+  if v_code is not null and not exists (select 1 from public.inventory_products where code = v_code) then
+    raise exception '商品が見つかりません（%）。一覧にある商品から選んでください', v_code;
+  end if;
+
+  -- 変わった項目だけを履歴に残す（変更項目・変更前・変更後が読めるように）
+  if v_code is distinct from it.product_code then
+    chg := chg || '商品'::text; bef := bef || ('商品 ' || coalesce(it.product_code,'—'));
+    aft := aft || ('商品 ' || coalesce(v_code,'—'));
+  end if;
+  if v_ser is distinct from it.serial then
+    chg := chg || 'シリアル番号'::text; bef := bef || ('シリアル ' || coalesce(it.serial,'—'));
+    aft := aft || ('シリアル ' || coalesce(v_ser,'—'));
+  end if;
+  if v_src is distinct from it.source_id then
+    chg := chg || '仕入元ID'::text; bef := bef || ('仕入元 ' || coalesce(it.source_id,'—'));
+    aft := aft || ('仕入元 ' || coalesce(v_src,'—'));
+  end if;
+  if v_buy is distinct from it.purchased_on then
+    chg := chg || '仕入日'::text;
+    bef := bef || ('仕入日 ' || coalesce(to_char(it.purchased_on,'YYYY/MM/DD'),'—'));
+    aft := aft || ('仕入日 ' || coalesce(to_char(v_buy,'YYYY/MM/DD'),'—'));
+  end if;
+  if v_prc is distinct from it.price then
+    chg := chg || '仕入価格'::text;
+    bef := bef || ('仕入 ' || coalesce(to_char(it.price,fmt)||'円','—'));
+    aft := aft || ('仕入 ' || coalesce(to_char(v_prc,fmt)||'円','—'));
+  end if;
+  if v_fee is distinct from it.purchase_fee then
+    chg := chg || '諸費用'::text;
+    bef := bef || ('諸費用 ' || coalesce(to_char(it.purchase_fee,fmt)||'円','—'));
+    aft := aft || ('諸費用 ' || coalesce(to_char(v_fee,fmt)||'円','—'));
+  end if;
+  if v_plan is distinct from it.plan_price then
+    chg := chg || '販売予定価格'::text;
+    bef := bef || ('予定 ' || coalesce(to_char(it.plan_price,fmt)||'円','未定'));
+    aft := aft || ('予定 ' || coalesce(to_char(v_plan,fmt)||'円','未定'));
+  end if;
+  if v_sold is distinct from it.sold_price then
+    chg := chg || '実際の販売価格'::text;
+    bef := bef || ('実売 ' || coalesce(to_char(it.sold_price,fmt)||'円','—'));
+    aft := aft || ('実売 ' || coalesce(to_char(v_sold,fmt)||'円','—'));
+  end if;
+  if v_note is distinct from it.note then
+    chg := chg || '備考'::text;
+    bef := bef || ('備考 ' || coalesce(nullif(left(coalesce(it.note,''),40),''),'—'));
+    aft := aft || ('備考 ' || coalesce(nullif(left(coalesce(v_note,''),40),''),'—'));
+  end if;
+
+  if array_length(chg,1) is null then
+    return it;                              -- 何も変わっていないなら履歴も残さない
+  end if;
+
+  update public.inventory_items
+     set product_code = v_code, serial = v_ser, source_id = v_src,
+         purchased_on = v_buy, price = v_prc, purchase_fee = v_fee,
+         plan_price = v_plan, sold_price = v_sold, note = v_note,
+         updated_at = now()
+   where id = p_item_id
+  returning * into nw;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values
+    (public.inv_actor(), 'item', p_item_id, nw.name, '個体編集',
+     array_to_string(bef, '／'),
+     array_to_string(aft, '／') || '（変更項目：' || array_to_string(chg, '・') || '）');
+
+  return nw;
+end $$;
+
+comment on function public.inv_item_admin_update is
+  '管理者だけが個体の情報（商品の紐付け・シリアル・仕入元・仕入日・仕入価格・諸費用・
+   販売予定価格・実売価格・備考）を直す。管理番号・在庫状態・保管場所・利用者・8RENT対象・
+   出品先は対象外で、既存の操作を使う。変わった項目だけを inventory_transactions に残す。';
+
+-- ------------------------------------------------------------
+-- 42-7) 削除してよいかの判定
+--
+--     「削除」は誤登録を取り消すための操作。通常の運用で不要になった機器は
+--     status='廃棄'（既存の操作）を使う。だから、業務が動いた形跡のある個体は
+--     削除させない。理由と、代わりに何をすればよいかを返す。
+--
+--     判定は画面と削除処理の両方から呼ぶ。実際に消すときは
+--     inv_item_admin_delete が同じ取引の中でもう一度これを通す
+--     （画面で確認してから押すまでのあいだに状態が変わることがあるため）。
+-- ------------------------------------------------------------
+create or replace function public.inv_item_delete_check(p_item_id text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  it      public.inventory_items;
+  reasons jsonb := '[]'::jsonb;
+  add     constant text := '';
+  n       integer;
+  v_chan  text;
+begin
+  select * into it from public.inventory_items where id = p_item_id;
+  if not found then
+    return jsonb_build_object('ok', false, 'found', false,
+      'reasons', jsonb_build_array('この管理番号の個体は見つかりません。'::text));
+  end if;
+  if it.deleted_at is not null then
+    return jsonb_build_object('ok', false, 'found', true, 'deleted', true,
+      'reasons', jsonb_build_array('この個体はすでに削除されています。'::text));
+  end if;
+
+  -- 1) 進行中の業務状態
+  if it.status in ('貸出中','予約中','販売予約','修理中','故障','社内使用') then
+    reasons := reasons || to_jsonb((it.status || 'のため削除できません。先に返却・解除などで「在庫」に戻してから操作してください。')::text);
+  end if;
+
+  -- 2) 会計・売上集計に使われている
+  if it.status = '売却済' or it.sold_price is not null then
+    reasons := reasons || to_jsonb(('売却の記録があるため削除できません。売上・粗利の集計に使っています。')::text);
+  end if;
+
+  -- 3) 出品中の販売サイト
+  select string_agg(distinct channel, '・') into v_chan
+    from public.inventory_channels
+   where item_id = p_item_id and state = '出品中';
+  if v_chan is not null then
+    reasons := reasons || to_jsonb((v_chan || 'で出品中のため削除できません。出品を終了してから再度操作してください。')::text);
+  end if;
+
+  -- 4) 8RENTの申込・契約との紐付け（キャンセル済み以外）
+  select count(*) into n from public.inventory_rental_requests r
+   where (r.item_id = p_item_id or p_item_id = any(r.item_ids))
+     and r.status <> 'キャンセル';
+  if n > 0 then
+    reasons := reasons || to_jsonb(('8RENTの申込 ' || n || '件と紐づいているため削除できません。申込を取り消してから操作してください。')::text);
+  end if;
+
+  -- 5) 販売サイトの受注（キャンセル済み以外）
+  select count(*) into n from public.inventory_sale_orders o
+   where o.item_id = p_item_id and o.status <> 'キャンセル';
+  if n > 0 then
+    reasons := reasons || to_jsonb(('受注 ' || n || '件と紐づいているため削除できません。')::text);
+  end if;
+
+  -- 6) 貸出の履歴
+  select count(*) into n from public.inventory_loans where item_id = p_item_id;
+  if n > 0 then
+    reasons := reasons || to_jsonb(('貸出の履歴があるため削除できません。「廃棄」をお使いください。')::text);
+  end if;
+
+  -- 7) 棚卸で現物を確認した記録
+  select count(*) into n from public.inventory_stocktake_items
+   where item_id = p_item_id and checked_at is not null;
+  if n > 0 then
+    reasons := reasons || to_jsonb(('棚卸で確認した記録があるため削除できません。「廃棄」をお使いください。')::text);
+  end if;
+
+  -- 8) 登録・編集より後の業務履歴（移動・貸出・売却・棚卸確認など）
+  select count(*) into n from public.inventory_transactions
+   where ref_kind = 'item' and ref_id = p_item_id
+     and action not in ('登録','個体編集');
+  if n > 0 then
+    reasons := reasons || to_jsonb(('操作履歴が ' || n || '件あるため削除できません。削除は誤って登録した直後の個体だけに使えます。'
+      || '使い終わった機器は「廃棄」をお使いください。')::text);
+  end if;
+
+  return jsonb_build_object(
+    'ok',      jsonb_array_length(reasons) = 0,
+    'found',   true,
+    'deleted', false,
+    'item_id', it.id,
+    'name',    it.name,
+    'status',  it.status,
+    'reasons', reasons);
+end $$;
+
+comment on function public.inv_item_delete_check is
+  '個体を削除してよいかを返す。だめなときは理由と、代わりにどうすればよいかを日本語で返す。
+   読むだけなので security definer でよい（消した個体も「すでに削除されています」と答えられる）。';
+
+-- ------------------------------------------------------------
+-- 42-8) 管理者だけの論理削除
+--
+--     物理削除はしない。履歴は追記のみの表なので、個体の行を消すと
+--     「誰が何をしたか」だけが残って対象が消え、監査が読めなくなる。
+--     deleted_at / deleted_by を入れて見えなくし、消す直前の個体の内容を
+--     履歴にスナップショットとして残す。
+--
+--     商品マスター・共通の商品画像・同じ商品の別個体には一切触らない。
+--
+--     参照RLSが「deleted_at is null」なので、更新して returning すると
+--     invoker 権限では自分が入れた行を読み返せない。ここは security definer
+--     にして、関数の中の inv_is_admin() だけを入口にする。
+-- ------------------------------------------------------------
+create or replace function public.inv_item_admin_delete(
+  p_item_id text,
+  p_confirm text
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  it   public.inventory_items;
+  chk  jsonb;
+  snap text;
+  fmt  constant text := 'FM9,999,999,999';
+begin
+  if not public.inv_is_admin() then
+    raise exception '個体を削除できるのは管理者だけです';
+  end if;
+  if btrim(coalesce(p_confirm,'')) <> p_item_id then
+    raise exception '確認のため、管理番号（%）をそのまま入力してください', p_item_id;
+  end if;
+
+  -- 行を押さえてから、同じ取引の中でもう一度判定する。
+  -- 画面で確認してから押すまでのあいだに、貸出や出品が起きていることがある
+  select * into it from public.inventory_items where id = p_item_id for update;
+  if not found then
+    raise exception '個体が見つかりません（%）', p_item_id;
+  end if;
+  if it.deleted_at is not null then
+    raise exception 'この個体はすでに削除されています（%）', p_item_id;
+  end if;
+
+  chk := public.inv_item_delete_check(p_item_id);
+  if not (chk ->> 'ok')::boolean then
+    raise exception '%', (select string_agg(value, ' ') from jsonb_array_elements_text(chk -> 'reasons'));
+  end if;
+
+  -- 消す前の内容を履歴に残す（個体の行は見えなくなるので、ここが唯一の記録になる）
+  snap := concat_ws('／',
+    '商品 ' || coalesce(it.product_code, '—'),
+    '名前 ' || coalesce(it.name, '—'),
+    '状態 ' || coalesce(it.status, '—'),
+    '保管 ' || coalesce(public.inv_location_path(it.location_id), '—'),
+    'S/N ' || coalesce(it.serial, '—'),
+    '仕入元 ' || coalesce(it.source_id, '—'),
+    '仕入日 ' || coalesce(to_char(it.purchased_on, 'YYYY/MM/DD'), '—'),
+    '仕入 ' || coalesce(to_char(it.price, fmt) || '円', '—'),
+    '諸費用 ' || coalesce(to_char(it.purchase_fee, fmt) || '円', '—'),
+    '予定 ' || coalesce(to_char(it.plan_price, fmt) || '円', '未定'),
+    '備考 ' || coalesce(nullif(left(coalesce(it.note, ''), 60), ''), '—'));
+
+  update public.inventory_items
+     set deleted_at = now(), deleted_by = public.inv_actor(), updated_at = now()
+   where id = p_item_id;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values
+    (public.inv_actor(), 'item', p_item_id, it.name, '個体削除', snap,
+     '在庫管理から削除（誤登録の取り消し）');
+
+  return jsonb_build_object('ok', true, 'item_id', p_item_id, 'name', it.name);
+end $$;
+
+comment on function public.inv_item_admin_delete is
+  '管理者だけが誤登録の個体を在庫管理から外す（論理削除）。確認のため管理番号の入力を求め、
+   同じ取引の中で inv_item_delete_check をもう一度通す。消す前の内容は履歴に残す。
+   通常の運用で不要になった機器は status=''廃棄''（既存の操作）を使う。';
+
+revoke all on function public.inv_item_admin_update(text,text,text,text,date,numeric,numeric,numeric,numeric,text,text[]) from public;
+revoke all on function public.inv_item_delete_check(text) from public;
+revoke all on function public.inv_item_admin_delete(text,text) from public;
+grant execute on function public.inv_item_admin_update(text,text,text,text,date,numeric,numeric,numeric,numeric,text,text[]) to authenticated;
+grant execute on function public.inv_item_delete_check(text) to authenticated;
+grant execute on function public.inv_item_admin_delete(text,text) to authenticated;
 
 
 -- ============================================================
