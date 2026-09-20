@@ -347,6 +347,7 @@ Supabase の SQL Editor で `zaiko/setup.sql` を実行します。何度実行�
 | `2026-09-20-master-management.sql` | 保管場所とカテゴリーを**管理者が画面から直せる**ようにする。拠点 `SB C&S`、保管場所とカテゴリーの有効/無効、カテゴリーの親子（`parent_id`）と別名（`aliases`）、`パソコン` の子 `notebook-pc` / `desktop-pc`、`PC`→`パソコン` の表記統一、`inv_location_save/delete_check/delete`・`inv_category_save/delete_check/delete`・`inv_category_resolve`、公開ビュー `inv_public_categories` を親子つきで作り直す |
 | `2026-09-21-deals.sql` | 公開側の**法人ITまるごと見積**（`/quote`）を受ける `inventory_deals`。用途・人数・台数・開始希望日・期間・PCの希望（`spec`）・あわせて依頼する作業（`services`）・方針（`grade`）をまとめて1件の案件として保存し、`/zaiko` の「案件」画面で状態（希望受付→在庫・調達確認→見積→顧客承認→契約／ご縁なし）を進める。**この時点では決済も個体予約もしません**（Stripe用の列は後続Phase向けに空で用意するだけ）。匿名から呼べるのは `inv_deal_create()` だけで、案件の閲覧はログイン済みに限ります |
 | `2026-09-21-sale-catalog.sql` | 同じ商品マスタで**販売（8EC BUY）とレンタル（8RENT）の両方**を扱えるようにする。`inventory_products` に `sale_enabled` / `sale_price` / `sale_condition` / `sale_procurement_available`、公開ビュー `inv_public_products`（レンタルぶんだけ返す `inv_public_catalog` は互換で残す）、`inv_product_sale_set()`、案件に `product_code` / `want`（商品からの購入相談）。**`sale_enabled` の既定は false なので、流しただけでは1件も販売公開されません** |
+| `2026-09-21-rakuten-order-sync.sql` | 楽天の受注取り込みを**実際に動く権限**にする。`inventory_sale_orders` は authenticated に select しか渡していないのに `inv_sale_orders_apply()` が security invoker だったため、取り込みが `permission denied` で止まっていました。関数を **security definer**（権限の確認は中の `inv_can_edit()`）にして、表は読み取り専用のまま書けるようにします。あわせて発送済みまで進めたときに**売却先（`sold_channel`）が空**だったのを直します（`inv_item_sell` を通す） |
 
 ### 使う人と権限
 
@@ -1560,9 +1561,18 @@ anon や一般ユーザーからは迂回できません
              →  inv_sale_orders_apply（注文番号×明細番号×連番で冪等）
              →  inv_sale_reserve → 個体が 在庫 → 販売予約
                 （8ECのレンタル可能数からも楽天の販売可能数量からも即座に外れる）
-             →  発送済みで届いた注文は そのまま 売却済（＝販売済み）
              →  キャンセルで届いた注文は 販売予約 → 在庫 に戻す
 ```
+
+**注文を取り込んだだけでは売却済みにしません。**
+楽天側が発送完了でも、既定では**販売予約で止めます**。売却済みまで進めるのは、
+画面の「発送済みの注文は売却済まで進める」（Edge Function には `{"ship": true}`）を
+明示的に選んだときだけです。取り込んだ時点の楽天側の発送状況は `raw.rms_shipped` に残ります。
+
+**はじめての確認は、注文番号を1つ入れて1件だけ試します。**
+画面の「注文番号（1件だけ試すとき）」に入れると、その注文だけを取りに行きます
+（Edge Function には `{"order_numbers": ["…"]}`）。
+「取り込まずに中身だけ見る」を付けたままなら、**在庫は1台も動かさず、どの商品に当たるかの照合結果だけ**が出ます。
 
 | 決めごと | 中身 |
 |---|---|
@@ -1578,10 +1588,26 @@ anon や一般ユーザーからは迂回できません
 
 ```bash
 supabase functions deploy rakuten-order-sync
-# RMSの「Web APIサービス」で発行する資格情報（画像同期のものとは別）
-RAKUTEN_RMS_SERVICE_SECRET
-RAKUTEN_RMS_LICENSE_KEY
 ```
+
+| Secret | 要否 | 中身 |
+|---|:--:|---|
+| `RAKUTEN_RMS_SERVICE_SECRET` | 必須 | RMS の「Web APIサービス」で発行（**画像同期の Rakuten Developers API とは別物**） |
+| `RAKUTEN_RMS_LICENSE_KEY` | 必須 | 同上 |
+| `RAKUTEN_SHOP_CODE` | 任意 | 店舗コード（`8commerce` など）。**未設定でも動きます**。登録済みの楽天出品（`external_item_code` の前半、または掲載URL）から推測します |
+
+資格情報は `Authorization: ESA <base64>` を組み立てるときにしか使わず、
+**ログにも応答にも出しません**（ログに残るのは件数と条件だけです）。
+
+呼び出しの形（Supabase Dashboard の Test からも同じJSONで試せます）：
+
+| 送るJSON | 何が起きるか |
+|---|---|
+| `{"days":3,"dryRun":true}` | 3日ぶんを取得して照合するだけ。**在庫は動きません** |
+| `{"order_numbers":["…"],"dryRun":true}` | その注文だけを取得して照合。最初の確認はこれ |
+| `{"order_numbers":["…"]}` | その注文だけ在庫へ反映（在庫 → 販売予約） |
+| `{"days":3}` | 3日ぶんを在庫へ反映（販売予約まで） |
+| `{"days":3,"ship":true}` | 発送済みの注文は売却済みまで進める |
 
 `inv_sale_reserve()` は商品の掲載（`inventory_channel_listings`）を変更しません。
 **受注が入っても楽天の商品ページは残し、減らすのは数量だけ**という考え方です。

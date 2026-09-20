@@ -2096,7 +2096,7 @@ function openRakutenOrders() {
   if (!canAdmin()) { toast('注文の取り込みは管理者だけができます'); return; }
   openModal('楽天の注文を取り込む', `
     <p class="meta" style="margin-bottom:12px">楽天RMSの注文を取り込み、売れた台数だけ在庫を
-      <strong>在庫 → 販売予約</strong>にします。発送済みで届いた注文はそのまま<strong>売却済</strong>まで進めます。
+      <strong>在庫 → 販売予約</strong>にします。
       同じ注文を何度取り込んでも<strong>在庫は二重に減りません</strong>（注文番号と明細番号で見ています）。
       8RENTで予約中・貸出中の個体は取りません。</p>
     <div class="card" style="background:#FFF4E5;margin-bottom:14px">
@@ -2107,8 +2107,16 @@ function openRakutenOrders() {
     <label class="field" style="max-width:240px;margin-bottom:10px"><span>さかのぼる日数</span>
       <input class="input num" type="number" id="roDays" value="3" min="1" max="31">
       <span class="meta">注文日でこの日数ぶんを取り込みます。</span></label>
-    <label class="bchk" style="margin-bottom:10px"><input type="checkbox" id="roDry">
+    <label class="field" style="margin-bottom:10px"><span>注文番号（1件だけ試すとき）</span>
+      <input class="input" id="roOrder" placeholder="123456-20260920-0000000001">
+      <span class="meta">入れると、その注文だけを取り込みます（日数は使いません）。
+        はじめての確認はこれで1件だけ試してください。</span></label>
+    <label class="bchk" style="margin-bottom:8px"><input type="checkbox" id="roDry" checked>
       取り込まずに中身だけ見る（在庫は動かしません）</label>
+    <label class="bchk" style="margin-bottom:10px"><input type="checkbox" id="roShip">
+      発送済みの注文は<strong>売却済</strong>まで進める</label>
+    <p class="meta" style="margin:-4px 0 10px">既定では、注文を取り込んでも<strong>販売予約で止めます</strong>。
+      楽天側が発送完了でも、こちらのチェックを入れないかぎり売却済みにはしません。</p>
     <div id="roResult" style="margin-top:14px"></div>`,
     [['閉じる', 'closeModal()', 'btn ghost'],
      ['注文を取り込む', 'runRakutenOrders()', 'btn lime', 'roGoBtn']]);
@@ -2122,11 +2130,15 @@ async function runRakutenOrders() {
   try {
     const days = Math.max(1, Math.min(31, parseInt(numField('roDays') || 3, 10) || 3));
     const dry = !!($('roDry') || {}).checked;
+    const ship = !!($('roShip') || {}).checked;
+    const one = (($('roOrder') || {}).value || '').trim();
     const { data: { session } } = await sb.auth.getSession();
     const r = await fetch(SUPA_URL + '/functions/v1/rakuten-order-sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', apikey: SUPA_KEY, Authorization: 'Bearer ' + (session ? session.access_token : '') },
-      body: JSON.stringify({ days, dry_run: dry })
+      body: JSON.stringify(one
+        ? { order_numbers: [one], dryRun: dry, ship }
+        : { days, dryRun: dry, ship })
     });
     let out = {};
     try { out = await r.json(); } catch (_) { out = {}; }
@@ -2149,9 +2161,25 @@ async function runRakutenOrders() {
 }
 function rakutenOrderResultHtml(out, dry) {
   if (dry) {
+    const lines = out.lines || [];
     return `<div class="card" style="margin-bottom:10px"><strong>中身を見ただけで、在庫は動かしていません。</strong>
-      <div class="meta">注文 ${out.order_count ?? 0}件／明細 ${out.line_count ?? 0}件</div></div>
-      <pre class="pre" style="font-size:12px;max-height:260px;overflow:auto">${esc(JSON.stringify(out.lines || [], null, 2))}</pre>`;
+      <div class="meta">注文 ${out.order_count ?? 0}件／明細 ${out.line_count ?? 0}件　
+        商品が当たった ${out.matched ?? 0}件／当たらなかった ${out.unmatched ?? 0}件
+        ${out.shop_code ? '　店舗コード ' + esc(out.shop_code) : ''}</div></div>
+      ${lines.length ? `<table class="t"><thead><tr>
+          <th>注文番号</th><th>明細</th><th>楽天の商品コード</th><th>数量</th>
+          <th>商品</th><th>発送</th></tr></thead><tbody>${lines.map(l => `<tr>
+          <td class="num">${esc(l.order_number)}</td>
+          <td class="num">${esc(l.line_number)}</td>
+          <td class="meta" style="word-break:break-all">${esc(l.item_code || l.item_url || '—')}</td>
+          <td class="num">${l.qty}</td>
+          <td>${l.product_code
+                ? `<span class="tag st-在庫">${esc(l.product_code)}</span>`
+                : '<span class="tag act">当たりません</span>'}</td>
+          <td class="meta">${l.cancelled ? 'キャンセル' : (l.shipped ? '発送済として渡す' : '販売予約で止める')}</td>
+        </tr>`).join('')}</tbody></table>` : ''}
+      <p class="meta" style="margin-top:8px">${esc(out.note || '')}
+        「当たりません」の行は、商品詳細の「楽天」出品に商品コードか掲載URLを登録してから取り込んでください。</p>`;
   }
   const um = out.unmatched || [], ns = out.no_stock || [];
   return `
