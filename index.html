@@ -831,6 +831,18 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
 @media (max-width: 860px) { #catTiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 430px) { #catTiles { grid-template-columns: 1fr; } }
 
+/* パソコンを選んだときに出る、ノートパソコン／デスクトップパソコンの絞り込み */
+#catKids:empty { display: none; }
+#catKids { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px;
+  padding: 12px 14px; border: 1px solid var(--color-divider); border-radius: 3px; background: #FBFDF3; }
+#catKids .lbl { font-size: 12px; color: #6C6E64; font-weight: 700; margin-right: 2px; }
+.cat-kid { border: 1px solid var(--color-divider); background: #fff; border-radius: 2px;
+  padding: 8px 14px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.cat-kid:hover { border-color: var(--lime); }
+.cat-kid .num { color: #6C6E64; font-weight: 500; font-size: 11.5px; }
+.cat-kid.on { border-color: var(--charcoal); background: var(--charcoal); color: #fff; }
+.cat-kid.on .num { color: #C6C7C0; }
+
 </style>
 </head>
 <body>
@@ -1254,6 +1266,7 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
         <div id="catPicked" style="font-size: 13px; color: rgb(108, 110, 100);"></div>
       </div>
       <div id="catTiles"></div>
+      <div id="catKids"></div>
     </div>
 
     <div style="max-width: 1240px; margin: 0px auto; padding: 52px 24px 0px;">
@@ -2570,7 +2583,7 @@ function renderCatTiles() {
   const cats = C.categoryCounts(models);
   if (!cats.length) { host.innerHTML = '<div class="state" style="grid-column:1/-1">カテゴリーを読み込めませんでした。</div>'; return; }
   host.innerHTML = cats.map(c => {
-    const on = activeCat === c.id;
+    const on = activeCat === c.id || (c.kids || []).some(k => k.id === activeCat);
     return `<button type="button" class="cat-tile${on ? ' on' : ''}${c.count ? '' : ' zero'}"
       aria-pressed="${on ? 'true' : 'false'}" onclick="setCat('${esc(c.id)}')">
       <span class="ms">${esc(c.icon)}</span>
@@ -2580,13 +2593,33 @@ function renderCatTiles() {
       </span>
     </button>`;
   }).join('');
+  paintCatKids(cats);
   paintCatPicked(cats);
 }
+/* 親（パソコン）を選んだら、その下にノートパソコン／デスクトップパソコンを出す。
+   子を持たないカテゴリーでは何も出さない */
+function paintCatKids(cats) {
+  const host = $('catKids');
+  if (!host) return;
+  const list = cats || C.categoryCounts(models);
+  const parent = list.find(c => c.id === activeCat || (c.kids || []).some(k => k.id === activeCat));
+  const kids = parent ? (parent.kids || []) : [];
+  if (!parent || !kids.length) { host.innerHTML = ''; return; }
+  const btn = (id, label, count, on) =>
+    `<button type="button" class="cat-kid${on ? ' on' : ''}" aria-pressed="${on ? 'true' : 'false'}"
+       onclick="setCat('${esc(id)}')">${esc(label)}${count == null ? '' : ` <span class="num">${count}</span>`}</button>`;
+  host.innerHTML = `<span class="lbl">${esc(parent.label)}の中で絞り込む</span>` +
+    btn(parent.id, 'すべて', parent.count, activeCat === parent.id) +
+    kids.map(k => btn(k.id, k.label, k.count, activeCat === k.id)).join('');
+}
+
 /* 見出しの横に、いま選んでいるカテゴリーを出す（タイルの選択状態と同じ） */
 function paintCatPicked(cats) {
   const el = $('catPicked');
   if (!el) return;
-  const c = (cats || C.categoryCounts(models)).find(x => x.id === activeCat);
+  const list = cats || C.categoryCounts(models);
+  const c = list.find(x => x.id === activeCat)
+    || list.reduce((hit, p) => hit || (p.kids || []).find(k => k.id === activeCat), null);
   el.innerHTML = c
     ? `<b style="color:rgb(27,29,26)">${esc(c.label)}</b> で絞り込み中　` +
       `<button type="button" onclick="setCat('')" style="border:0;background:transparent;font:inherit;` +
@@ -2755,13 +2788,14 @@ function renderRecommend() {
   if (recTab === 'pc') list = models.filter(m => m.category_id === 'pc' && rec(m));
   else if (recTab === 'other') list = models.filter(m => m.category_id !== 'pc' && rec(m));
   else list = models.filter(m => m.availability === 'ご案内可能');
-  if (activeCat) list = list.filter(m => m.category_id === activeCat);
+  if (activeCat) { const t = C.tree(activeCat); list = list.filter(m => t.indexOf(m.category_id) >= 0); }
   if (!list.length && recTab !== 'now') list = models.filter(m =>
-    (recTab === 'pc' ? m.category_id === 'pc' : m.category_id !== 'pc') && (!activeCat || m.category_id === activeCat));
+    (recTab === 'pc' ? m.category_id === 'pc' : m.category_id !== 'pc')
+    && (!activeCat || C.tree(activeCat).indexOf(m.category_id) >= 0));
   if (!list.length) {
     // カテゴリーを選んでいて、そのカテゴリーに公開中の商品が1件も無いとき。
     // 「扱っていない」ではなく「いまは載せていない」と伝え、相談へつなぐ
-    const catEmpty = activeCat && !models.some(m => m.category_id === activeCat);
+    const catEmpty = activeCat && !models.some(m => C.tree(activeCat).indexOf(m.category_id) >= 0);
     host.innerHTML = `<div class="state" style="grid-column:1/-1">${
       catEmpty
         ? `<b>${esc(C.catLabel(activeCat))}</b> は現在掲載できる商品はありません。` +

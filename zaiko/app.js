@@ -113,7 +113,9 @@ const MENU = [
   ['hist', 'history', '履歴', '/history'],
   ['reg', 'add_box', '商品登録', '/register'],
   ['labels', 'qr_code_2', 'QRラベル', '/labels'],
-  ['rental', 'car_rental', '8RENT申込', '/rental-requests']
+  ['rental', 'car_rental', '8RENT申込', '/rental-requests'],
+  // マスター管理はメニューにも管理者だけ出す（画面側でも権限を見る）
+  ['master', 'tune', 'マスター管理', '/masters', 'admin']
 ];
 
 let sb = null;
@@ -130,7 +132,8 @@ const ui = {
   fAction: '', hq: '', regKind: 'ind', made: null, tab: 'info',
   drafts: {}, labelSel: {}, stScope: '', loaded: false, sel: {}, selItems: {}, fBatch: null, doneBatch: null,
   // 一覧のタブ。individual / model のほかに、販売サイトのキーと 'none'（未出品）を取る
-  listMode: 'unit', fSt: '', fDiff: false, fNoPrice: false, fRental: '', fRentEl: ''
+  listMode: 'unit', fSt: '', fDiff: false, fNoPrice: false, fRental: '', fRentEl: '',
+  mTab: 'loc'                // マスター管理のタブ（保管場所／カテゴリー）
 };
 
 /* 仕入の置き場所はたいてい柏の倉庫なので、取込の初期値にする。
@@ -189,6 +192,47 @@ const prod = (code) => db.masters.find(p => p.code === code);
 const loc = (id) => db.locs.find(l => l.id === id);
 const cat = (id) => db.cats.find(c => c.id === id);
 const catName = (id) => (cat(id) || {}).name || '';
+
+/* ---- カテゴリーのマスター（inventory_categories が正） ----
+   公開側（inv_public_categories）も同じ表を見る。/zaiko だけ別の名前、
+   ということにならないよう、表示名は常に name を出す。 */
+const catLive = (c) => !c || c.enabled !== false;
+/* 親→子の順。同じ親の中は表示順→名前 */
+function catsOrdered(kind) {
+  const out = [];
+  const seen = new Set();              // 同じものを二度たどらない（輪になっていても止まる）
+  const walk = (parent) => {
+    db.cats.filter(c => (c.parent_id || null) === parent && (!kind || c.kind === kind) && !seen.has(c.id))
+      .sort((a, b) => ((a.sort_no || 0) - (b.sort_no || 0)) || String(a.name).localeCompare(String(b.name), 'ja'))
+      .forEach(c => { seen.add(c.id); out.push(c); walk(c.id); });
+  };
+  walk(null);
+  // 親が別の管理方式で落ちた子も拾う（迷子にしない）
+  db.cats.filter(c => (!kind || c.kind === kind) && !out.includes(c)).forEach(c => out.push(c));
+  return out;
+}
+const catDepth = (id) => {
+  let d = 0, c = cat(id);
+  const seen = new Set([id]);
+  while (c && c.parent_id && d < 8 && !seen.has(c.parent_id)) { seen.add(c.parent_id); d++; c = cat(c.parent_id); }
+  return d;
+};
+/* 選択肢に出す名前。子は親の下にぶら下げて見せる */
+const catOptLabel = (c) => '\u3000'.repeat(catDepth(c.id)) + c.name + (catLive(c) ? '' : '（無効）');
+/* 新規登録で選べるカテゴリー。無効は出さない（いま選ばれているものは残す） */
+const catsFor = (kind, keep) => catsOrdered(kind).filter(c => catLive(c) || c.id === keep);
+/* このカテゴリーに子があるか。ある場合は、新規登録で子まで選んでもらう */
+const catHasKids = (id) => db.cats.some(c => c.parent_id === id && catLive(c));
+/* 自分と自分の子孫（在庫一覧の「パソコン（すべて）」で使う） */
+function catTree(id) {
+  const out = [id];
+  let added = true;
+  while (added) {
+    added = false;
+    db.cats.forEach(c => { if (c.parent_id && out.includes(c.parent_id) && !out.includes(c.id)) { out.push(c.id); added = true; } });
+  }
+  return out;
+}
 
 /* 商品マスタまわり。商品名が空の型番が多いので、名前は型番で代用する */
 const titleOf = (p) => (p && (p.name || p.model)) || '';
@@ -269,8 +313,13 @@ function touchedAt(p) {
 
 function locPath(id) {
   const out = [];
+  const seen = new Set();
   let cur = loc(id), guard = 0;
-  while (cur && guard++ < 8) { out.unshift(cur.name); cur = cur.parent_id ? loc(cur.parent_id) : null; }
+  while (cur && guard++ < 8 && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    out.unshift(cur.name);
+    cur = cur.parent_id ? loc(cur.parent_id) : null;
+  }
   return out.join(' / ');
 }
 function locTree(id) {
@@ -284,18 +333,32 @@ function locTree(id) {
 }
 function locDepth(id) {
   let d = 0, cur = loc(id);
-  while (cur && cur.parent_id && d < 8) { d++; cur = loc(cur.parent_id); }
+  const seen = new Set([id]);
+  while (cur && cur.parent_id && d < 8 && !seen.has(cur.parent_id)) { seen.add(cur.parent_id); d++; cur = loc(cur.parent_id); }
   return d;
 }
+/* 使える保管場所かどうか。無効にした場所は新規登録・移動の候補に出さない。
+   すでに置いてあるものの表示には出す（名前が消えると履歴が読めなくなるため） */
+const locLive = (l) => !l || l.enabled !== false;
+/* 選択肢に出す名前。同じ「倉庫」が拠点ごとにあるので、フルパスで区別する */
+const locLabel = (id) => {
+  const l = loc(id);
+  if (!l) return id || '';
+  return locPath(id) + (locLive(l) ? '' : '（無効）');
+};
+
 /* 親→子の順に並べた保管場所（ツリー表示と選択肢の順序に使う） */
 function locsOrdered() {
   const out = [];
+  const seen = new Set();              // 同じものを二度たどらない（輪になっていても止まる）
   const walk = (parent) => {
-    db.locs.filter(l => (l.parent_id || null) === parent)
+    db.locs.filter(l => (l.parent_id || null) === parent && !seen.has(l.id))
       .sort((a, b) => (a.sort_no - b.sort_no) || a.name.localeCompare(b.name, 'ja'))
-      .forEach(l => { out.push(l); walk(l.id); });
+      .forEach(l => { seen.add(l.id); out.push(l); walk(l.id); });
   };
   walk(null);
+  // 親が見つからない場所も拾う（マスターの途中でおかしくなっても見えなくならないように）
+  db.locs.filter(l => !seen.has(l.id)).forEach(l => out.push(l));
   return out;
 }
 /* 価格は「仕入 → 原価 → 売値 → 利益」の流れだけ。項目は増やさない。
@@ -538,7 +601,8 @@ function parsePath() {
   if (seg[0] === 'items' && seg[1]) return { screen: 'item', itemId: decodeURIComponent(seg[1]) };
   if (seg[0] === 'products' && seg[1]) return { screen: 'prod', prodId: decodeURIComponent(seg[1]) };
   if (seg[0] === 'locations' && seg[1]) return { screen: 'loc', locId: decodeURIComponent(seg[1]) };
-  const byPath = { list: 'list', in: 'in', out: 'out', loan: 'loan', stock: 'stock', locations: 'locs', history: 'hist', register: 'reg', labels: 'labels', 'rental-requests': 'rental' };
+  const byPath = { list: 'list', in: 'in', out: 'out', loan: 'loan', stock: 'stock', locations: 'locs',
+                   masters: 'master', history: 'hist', register: 'reg', labels: 'labels', 'rental-requests': 'rental' };
   const screen = byPath[seg[0]] || 'dash';
   return screen === 'list' ? { screen, listMode: modeFromQuery() } : { screen };
 }
@@ -564,6 +628,7 @@ function listQuery() {
 function pathFor(screen, id) {
   if (screen === 'item') return BASE + '/items/' + encodeURIComponent(id);
   if (screen === 'prod') return BASE + '/products/' + encodeURIComponent(id);
+  if (screen === 'master') return BASE + '/masters';
   if (screen === 'loc') return BASE + '/locations/' + encodeURIComponent(id);
   const m = MENU.find(x => x[0] === screen);
   return BASE + (m ? m[3] : '') + (screen === 'list' ? listQuery() : '');
@@ -646,7 +711,7 @@ async function loadOne(r) {
 
 /* ---------------------------------------------------------------- メニュー */
 function renderMenu() {
-  $('menu').innerHTML = MENU.map(([key, icon, label]) =>
+  $('menu').innerHTML = MENU.filter(([, , , , need]) => need !== 'admin' || canAdmin()).map(([key, icon, label]) =>
     `<button class="${ui.screen === key ? 'on' : ''}" onclick="go('${key}')"><span class="ms">${icon}</span>${esc(label)}</button>`
   ).join('');
   $('siteName').textContent = db.locs.length ? (locsOrdered().find(l => l.kind === 'site') || {}).name || '' : '';
@@ -658,7 +723,8 @@ function render() {
   const v = $('view');
   const fn = {
     dash: viewDash, list: viewList, item: viewItem, prod: viewProd, in: viewIn, out: viewOut,
-    loan: viewLoan, stock: viewStock, locs: viewLocs, loc: viewLoc, hist: viewHist, reg: viewReg, labels: viewLabels,
+    loan: viewLoan, stock: viewStock, locs: viewLocs, loc: viewLoc, master: viewMaster,
+    hist: viewHist, reg: viewReg, labels: viewLabels,
     rental: viewRentalRequests
   }[ui.screen] || viewDash;
   v.innerHTML = fn();
@@ -817,8 +883,11 @@ function onFilter() {
   paintTabCounts();
 }
 function locOptions(sel, allLabel) {
-  return `<option value="">${esc(allLabel)}</option>` + locsOrdered().map(l =>
-    `<option value="${esc(l.id)}"${sel === l.id ? ' selected' : ''}>${'\u3000'.repeat(locDepth(l.id))}${esc(l.name)}</option>`).join('');
+  // 同じ名前の「倉庫」が拠点ごとにあるので、フルパス（柏 / 倉庫）で出して区別できるようにする。
+  // 無効にした場所は候補に出さないが、いま入っているものだけは消さずに残す
+  return `<option value="">${esc(allLabel)}</option>` + locsOrdered()
+    .filter(l => locLive(l) || sel === l.id)
+    .map(l => `<option value="${esc(l.id)}"${sel === l.id ? ' selected' : ''}>${esc(locLabel(l.id))}</option>`).join('');
 }
 
 function listFiltered() {
@@ -828,7 +897,7 @@ function listFiltered() {
   const only = batch ? (batch.product_codes || []) : null;
   return db.masters.filter(p => {
     if (only && only.indexOf(p.code) < 0) return false;
-    if (ui.fCat && p.category_id !== ui.fCat) return false;
+    if (!catFilterHit(p.category_id)) return false;
     if (ui.fMaker && (p.maker || '') !== ui.fMaker) return false;
     if (ui.fStock && stockLabel(p) !== ui.fStock) return false;
     if (inScope) {
@@ -929,7 +998,7 @@ function viewList() {
              placeholder="${unit ? '管理番号・型番・S/N…' : '型番・商品名・管理番号…'}">
       <select class="input" id="f-cat" onchange="onFilter()">
         <option value="">全カテゴリ</option>
-        ${db.cats.map(c => `<option value="${esc(c.id)}"${ui.fCat === c.id ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}
+        ${catFilterOptions(ui.fCat)}
       </select>
       <select class="input" id="f-maker" onchange="onFilter()">
         <option value="">全メーカー</option>
@@ -978,7 +1047,8 @@ function openBulkEdit() {
   openModal(`${codes.length}商品をまとめて直す`, `
     <p class="meta" style="margin-bottom:14px">チェックを入れた項目だけを変えます。入れていない項目はそのままです。</p>
     ${row('cat', 'カテゴリ', `<select class="input" id="bv-cat">
-      ${db.cats.map(c => `<option value="${esc(c.id)}">${esc(c.name)}（${c.kind === 'individual' ? '個体' : '数量'}）</option>`).join('')}
+      ${catsFor().map(c => `<option value="${esc(c.id)}"${catHasKids(c.id) ? ' disabled' : ''}>${
+        esc(catOptLabel(c))}（${c.kind === 'individual' ? '個体' : '数量'}）</option>`).join('')}
     </select>`)}
     ${row('maker', 'メーカー', `<input class="input" id="bv-maker" placeholder="例 Lenovo">`)}
     ${row('loc', '保管場所', `<select class="input" id="bv-loc">${locOptions('', '選択してください')}</select>
@@ -1135,7 +1205,7 @@ function unitsFiltered(ignoreTab) {
   const tab = ignoreTab ? '' : chanTab();
   const hit = (i, m) => {
     if (only && only.indexOf(i.product_code) < 0) return false;
-    if (ui.fCat && i.category_id !== ui.fCat) return false;
+    if (!catFilterHit(i.category_id)) return false;
     if (ui.fMaker && ((m && m.maker) || i.maker || '') !== ui.fMaker) return false;
     if (ui.fSt && i.status !== ui.fSt) return false;
     if (ui.fRentEl === 'on' && !i.rental_eligible) return false;
@@ -1726,18 +1796,37 @@ function exportInventoryCsv() {
 /* カテゴリ名 → ID。表計算では名前で書くほうが扱いやすいので名前で受ける */
 /* カテゴリ名 → ID。なぜ引けなかったかまで返す（取り込み画面で理由を出すため）。
    読み替え（impMap）が指定されていればそれを優先する */
+/* CSVに書かれた値がこのカテゴリーを指しているか。
+   カテゴリーID・表示名・別名（aliases）のどれでも受ける。
+   表示名を「PC」から「パソコン」に変えても、昔のCSVが取り込めるようにするため。 */
+const catMatches = (c, n) =>
+  c.id.toLowerCase() === n.toLowerCase() || c.name === n ||
+  (c.aliases || []).some(a => String(a).trim() === n);
+
 function findCat(name, kind) {
   const n = String(name || '').trim();
   if (!n) return { id: null, reason: 'cat-empty', why: 'カテゴリが空です' };
   if (impMap.cat[n]) return { id: impMap.cat[n] };
-  const hit = db.cats.filter(c => c.kind === kind && c.name === n);
-  if (hit.length === 1) return { id: hit[0].id };
-  const other = db.cats.filter(c => c.name === n);
+  // 正確な一致から順に見る（別名がぶつかっても取り違えないように）
+  const pick = (list) => list.find(c => c.id.toLowerCase() === n.toLowerCase())
+                      || list.find(c => c.name === n)
+                      || list.find(c => (c.aliases || []).some(a => String(a).trim() === n));
+  const same = catsFor(kind).filter(c => catMatches(c, n));
+  const hit = pick(same);
+  if (hit) return { id: hit.id };
+  const other = db.cats.filter(c => catMatches(c, n));
   if (other.length) {
-    const forWhat = other[0].kind === 'quantity' ? '数量管理' : '個体管理';
+    const o = pick(other) || other[0];
+    if (!catLive(o)) {
+      return { id: null, reason: 'cat-off', value: n, kind,
+               why: `カテゴリ「${n}」は無効にされています` };
+    }
+    const forWhat = o.kind === 'quantity' ? '数量管理' : '個体管理';
     return { id: null, reason: 'cat-kind', value: n, kind,
              why: `カテゴリ「${n}」は${forWhat}用として登録されています` };
   }
+  // 知らないカテゴリーを勝手に作らない。エラー一覧に出して、
+  // マスター管理で足してもらってから取り込み直す
   return { id: null, reason: 'cat-missing', value: n, kind, why: `カテゴリ「${n}」がありません` };
 }
 
@@ -2285,7 +2374,7 @@ function importCsvBody() {
    （regFieldsBody を共用）。個体管理／数量管理の切り替えはこのタブだけを描き直す */
 function importOneBody() {
   const ind = ui.regKind === 'ind';
-  const cats = db.cats.filter(c => c.kind === (ind ? 'individual' : 'quantity'));
+  const cats = catsFor(ind ? 'individual' : 'quantity');
   return `
     <p class="meta" style="margin-bottom:2px">CSVに無いものを、この場で1件だけ登録します。</p>
     ${regFieldsBody(ind, cats, 'setQuickKind')}
@@ -3019,6 +3108,7 @@ const REASON_LABEL = {
   'loc-ambiguous': '保管場所の名前が複数ある',
   'loc-empty': '保管場所が空',
   'cat-missing': 'カテゴリが未登録',
+  'cat-off': 'カテゴリが無効',
   'cat-kind': 'カテゴリの管理方式が違う',
   'cat-empty': 'カテゴリが空',
   'no-name': '商品名も型番も空',
@@ -3043,14 +3133,37 @@ function badGroups(bad) {
   return REASON_ORDER.filter(r => g[r]).map(r => g[r]);
 }
 
+/* ---- 在庫一覧のカテゴリー絞り込み ----
+   子を持つカテゴリー（パソコン）は3通り選べるようにする。
+     pc           パソコン（すべて）… 親と子をまとめて
+     pc:only      パソコン（未分類）… 親に直接ぶら下がっているものだけ
+     notebook-pc  ノートパソコン
+   既存のPC商品は親のまま残しているので、「未分類」で拾えるようにしておく。 */
+function catFilterOptions(sel) {
+  return catsOrdered().map(c => {
+    const kids = catHasKids(c.id);
+    const pad = '\u3000'.repeat(catDepth(c.id));
+    const one = (v, label) => `<option value="${esc(v)}"${sel === v ? ' selected' : ''}>${esc(pad + label)}</option>`;
+    if (!kids) return one(c.id, c.name + (catLive(c) ? '' : '（無効）'));
+    return one(c.id, c.name + '（すべて）') + one(c.id + ':only', c.name + '（未分類）');
+  }).join('');
+}
+function catFilterHit(id) {
+  const f = ui.fCat;
+  if (!f) return true;
+  if (f.endsWith(':only')) return id === f.slice(0, -5);
+  return catTree(f).includes(id);
+}
+
 /* 未登録の値に対する読み替えの選択肢 */
 function fixSelect(reason, value, kind) {
   const isLoc = reason.indexOf('loc') === 0;
   const cur = isLoc ? impMap.loc[value] : impMap.cat[value];
   const opts = isLoc
-    ? locsOrdered().map(l => `<option value="${esc(l.id)}"${cur === l.id ? ' selected' : ''}>${'　'.repeat(locDepth(l.id))}${esc(l.name)}</option>`).join('')
-    : db.cats.filter(c => c.kind === (kind || 'individual'))
-        .map(c => `<option value="${esc(c.id)}"${cur === c.id ? ' selected' : ''}>${esc(c.name)}</option>`).join('');
+    ? locsOrdered().filter(l => locLive(l) || cur === l.id)
+        .map(l => `<option value="${esc(l.id)}"${cur === l.id ? ' selected' : ''}>${esc(locLabel(l.id))}</option>`).join('')
+    : catsFor(kind || 'individual', cur)
+        .map(c => `<option value="${esc(c.id)}"${cur === c.id ? ' selected' : ''}>${esc(catOptLabel(c))}</option>`).join('');
   return `<select class="input fixsel" onchange="setImpMap('${isLoc ? 'loc' : 'cat'}','${esc(value)}',this.value)">
     <option value="">読み替えない</option>${opts}</select>`;
 }
@@ -3205,7 +3318,8 @@ function showImportPreview() {
       保管場所は<strong>${esc(DEFAULT_IMPORT_LOC)}</strong>を初期値にしています。
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:12px">
         <label class="field"><span>カテゴリ *</span><select class="input" id="impCat">
-          ${db.cats.filter(c => c.kind === 'individual').map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
+          ${catsFor('individual').map(c => `<option value="${esc(c.id)}"${catHasKids(c.id) ? ' disabled' : ''}>${
+            esc(catOptLabel(c))}</option>`).join('')}
         </select></label>
         <label class="field"><span>保管場所 *</span>
           <select class="input" id="impLoc">${locOptions(defaultImportLoc(), '選択してください')}</select></label>
@@ -3260,7 +3374,8 @@ function showImportPreview() {
       ${dropped ? `<br>・重複していた管理番号 <strong>${dropped}件</strong> は1台だけ取り込み、残りは旧データ備考に書きます。` : ''}
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:12px">
         <label class="field"><span>カテゴリ *</span><select class="input" id="impCat">
-          ${db.cats.filter(c => c.kind === 'individual').map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
+          ${catsFor('individual').map(c => `<option value="${esc(c.id)}"${catHasKids(c.id) ? ' disabled' : ''}>${
+            esc(catOptLabel(c))}</option>`).join('')}
         </select></label>
         <label class="field"><span>保管場所 *</span><select class="input" id="impLoc">${locOptions('', '選択してください')}</select></label>
       </div></div>` : ''}
@@ -4708,7 +4823,8 @@ function viewStock() {
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;max-width:620px">
         <select class="input" style="flex:1 1 220px" onchange="ui.stScope=this.value;render()">
           <option value="">すべて</option>
-          ${locsOrdered().map(l => `<option value="${esc(l.id)}"${scope === l.id ? ' selected' : ''}>${'　'.repeat(locDepth(l.id))}${esc(l.name)}</option>`).join('')}
+          ${locsOrdered().filter(l => locLive(l) || scope === l.id)
+              .map(l => `<option value="${esc(l.id)}"${scope === l.id ? ' selected' : ''}>${esc(locLabel(l.id))}</option>`).join('')}
         </select>
       </div>
       <button class="btn lime" style="min-height:56px;margin-top:12px" onclick="startStocktake()" ${dis()}>
@@ -4781,8 +4897,12 @@ async function closeStocktake() {
 function viewLocs() {
   const rows = locsOrdered();
   if (!rows.length) return '<h1>保管場所</h1><div class="empty" style="margin-top:20px">保管場所が登録されていません。</div>';
-  const icon = { site: 'apartment', room: 'warehouse', shelf: 'shelves' };
-  return `<h1>保管場所</h1>
+  const icon = { site: 'apartment', room: 'warehouse', shelf: 'shelves', other: 'inventory_2' };
+  return `<div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap">
+      <h1>保管場所</h1>
+      ${canAdmin() ? `<button class="btn sm ghost" onclick="go('master')" style="margin-left:auto">
+        <span class="ms">tune</span>保管場所を管理</button>` : ''}
+    </div>
     <div class="loctree" style="margin-top:15px">${rows.map(l => {
       const d = locDepth(l.id);
       const tree = locTree(l.id);
@@ -4799,6 +4919,383 @@ function viewLocs() {
           ${l.kind === 'shelf' ? `<button class="btn sm ghost" onclick="go('loc','${esc(l.id)}')">棚QR</button>` : ''}
         </div></div>`;
     }).join('')}</div>`;
+}
+
+/* ===== 9b. マスター管理（保管場所・カテゴリー） =====
+   これまで保管場所もカテゴリーも、最初に入れたきりで画面から増やせなかった。
+   拠点が増えても、カテゴリーを分けたくても、SQLを書くしかない。
+   管理者だけがここから直せるようにする。
+
+   公開側（8ECトップの「カテゴリーから探す」）も同じ inventory_categories を
+   見ているので、ここで直したものがそのまま公開側にも出る。
+   公開用の別マスターは持たない（二重に持つと必ずずれる）。 */
+
+/* 保存・削除の最中かどうか。二重送信を防ぐ */
+let masterBusy = false;
+
+const MASTER_TABS = [['loc', 'warehouse', '保管場所'], ['cat', 'category', 'カテゴリー']];
+const LOC_KINDS = [['site', '拠点'], ['room', '倉庫・部屋'], ['shelf', '棚'], ['other', 'その他']];
+const LOC_KIND_LABEL = (k) => (LOC_KINDS.find(x => x[0] === k) || [k, k])[1];
+const LOC_ICON = { site: 'apartment', room: 'warehouse', shelf: 'shelves', other: 'inventory_2' };
+
+function viewMaster() {
+  if (!canAdmin()) {
+    return `<h1>マスター管理</h1>
+      <div class="card" style="margin-top:15px">保管場所とカテゴリーを直せるのは管理者だけです。
+        <span class="meta">閲覧は <button class="btn sm ghost" onclick="go('locs')">保管場所</button> からできます。</span></div>`;
+  }
+  const tab = ui.mTab === 'cat' ? 'cat' : 'loc';
+  return `<h1>マスター管理</h1>
+    <p class="meta" style="margin:12px 0 0">保管場所とカテゴリーは、在庫一覧・商品登録・個体編集・移動・
+      <strong>8ECトップの「カテゴリーから探す」</strong>が同じものを見ています。ここで直すと全部に反映されます。</p>
+    <div class="seg" style="margin:16px 0 4px">
+      ${MASTER_TABS.map(([k, ic, label]) =>
+        `<button class="${tab === k ? 'on' : ''}" onclick="setMasterTab('${k}')">
+          <span class="ms">${ic}</span>${esc(label)}</button>`).join('')}
+    </div>
+    ${tab === 'loc' ? masterLocBody() : masterCatBody()}`;
+}
+function setMasterTab(t) { ui.mTab = t; render(); }
+
+/* ---- 保管場所 ---- */
+function masterLocBody() {
+  const rows = locsOrdered();
+  return `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:14px 0 6px">
+      <p class="meta" style="flex:1 1 240px;margin:0">拠点 → 倉庫 → 棚 の順に並べています。
+        使い終わった場所は<strong>消さずに無効</strong>にしてください（消すと移動や棚卸の履歴が読めなくなります）。</p>
+      <button class="btn sm lime" onclick="sheetLocEdit(null)"><span class="ms">add</span>保管場所を足す</button>
+    </div>
+    <div class="mtree">${rows.map(l => {
+      const d = locDepth(l.id);
+      const tree = locTree(l.id);
+      const ni = db.items.filter(i => tree.includes(i.location_id) && i.status !== '廃棄').length;
+      const np = db.masters.filter(p => p.kind !== 'individual' && tree.includes(p.location_id)).length;
+      return `<div class="r${locLive(l) ? '' : ' off'}" style="padding-left:${12 + d * 20}px">
+        <span class="ms">${LOC_ICON[l.kind] || 'shelves'}</span>
+        <div style="min-width:0;flex:1 1 auto">
+          <div class="n">${esc(l.name)}${locLive(l) ? '' : '<span class="tag off">無効</span>'}</div>
+          <div class="c">${esc(LOC_KIND_LABEL(l.kind))}　個体 ${ni}件／数量品 ${np}種　<span class="num">並び ${l.sort_no || 0}</span></div>
+        </div>
+        <div class="ops">
+          <button class="btn sm ghost" onclick="moveMasterLoc('${esc(l.id)}',-1)" title="上へ"><span class="ms">arrow_upward</span></button>
+          <button class="btn sm ghost" onclick="moveMasterLoc('${esc(l.id)}',1)" title="下へ"><span class="ms">arrow_downward</span></button>
+          <button class="btn sm ghost" onclick="sheetLocEdit('${esc(l.id)}')">編集</button>
+          <button class="btn sm ghost" onclick="toggleLoc('${esc(l.id)}')">${locLive(l) ? '無効にする' : '有効に戻す'}</button>
+          <button class="btn sm ghost danger" onclick="sheetLocDelete('${esc(l.id)}')">削除</button>
+        </div></div>`;
+    }).join('')}</div>`;
+}
+
+function locParentOptions(sel, selfId) {
+  // 自分自身と自分の子孫は親にできない（入れ子が輪になる）
+  const ban = selfId ? locTree(selfId) : [];
+  return `<option value="">（拠点：親なし）</option>` + locsOrdered()
+    .filter(l => !ban.includes(l.id))
+    .map(l => `<option value="${esc(l.id)}"${sel === l.id ? ' selected' : ''}>${esc(locPath(l.id))}</option>`).join('');
+}
+
+function sheetLocEdit(id) {
+  const l = id ? loc(id) : null;
+  openSheet({
+    title: l ? '保管場所を直す' : '保管場所を足す', subject: l ? l.id : '新規', cta: '保存',
+    hint: l ? '名前を変えても、置いてあるものとの紐付けは切れません（IDで紐づいています）。'
+            : '拠点を足すときは「親」を空のままにします。倉庫や棚は、その上の場所を親に選んでください。',
+    body: `
+      <label class="field" style="margin-bottom:10px"><span>名称</span>
+        <input class="input" id="mlName" value="${esc(l ? l.name : '')}" autocomplete="off" placeholder="例 SB C&S"></label>
+      <div class="ie2">
+        <label class="field"><span>種別</span>
+          <select class="input" id="mlKind">${LOC_KINDS.map(([k, t]) =>
+            `<option value="${k}"${(l ? l.kind : 'site') === k ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
+        <label class="field"><span>表示順</span>
+          <input class="input num" type="number" id="mlSort" value="${esc(l ? (l.sort_no || 0) : '')}" placeholder="空なら最後"></label>
+      </div>
+      <label class="field" style="margin-bottom:10px"><span>親の保管場所</span>
+        <select class="input" id="mlParent">${locParentOptions(l ? l.parent_id : null, id)}</select></label>
+      <label class="chk"><input type="checkbox" id="mlOn" ${!l || locLive(l) ? 'checked' : ''}>
+        <span>使える状態にする（外すと新規登録・移動の候補に出なくなります）</span></label>`,
+    validate: () => {
+      if (!(($('mlName') || {}).value || '').trim()) { toast('名称を入れてください'); return false; }
+      return true;
+    },
+    run: () => saveMasterLoc(id)
+  });
+}
+async function saveMasterLoc(id) {
+  if (masterBusy) return;
+  masterBusy = true;
+  try {
+    const sort = (($('mlSort') || {}).value || '').trim();
+    const { error } = await sb.rpc('inv_location_save', {
+      p_id: id || null,
+      p_name: (($('mlName') || {}).value || '').trim(),
+      p_kind: ($('mlKind') || {}).value || 'shelf',
+      p_parent: ($('mlParent') || {}).value || null,
+      p_sort: sort === '' ? null : Number(sort),
+      p_enabled: !!(($('mlOn') || {}).checked)
+    });
+    if (error) { toast(error.message || '保存できませんでした'); return; }
+    await reloadMasters();
+    toast(id ? '保管場所を直しました' : '保管場所を足しました');
+  } finally { masterBusy = false; }
+}
+async function toggleLoc(id) {
+  const l = loc(id); if (!l) return;
+  const { error } = await sb.rpc('inv_location_save', {
+    p_id: id, p_name: l.name, p_kind: l.kind, p_parent: l.parent_id || null,
+    p_sort: l.sort_no, p_enabled: !locLive(l)
+  });
+  if (error) { toast(error.message || '変えられませんでした'); return; }
+  await reloadMasters();
+  toast(locLive(loc(id)) ? '有効に戻しました' : '無効にしました');
+}
+/* 並べ替え。同じ親の中で、ひとつ上（下）の場所と表示順を入れ替える */
+async function moveMasterLoc(id, dir) {
+  const l = loc(id); if (!l) return;
+  const sibs = db.locs.filter(x => (x.parent_id || null) === (l.parent_id || null))
+    .sort((a, b) => ((a.sort_no || 0) - (b.sort_no || 0)) || String(a.name).localeCompare(String(b.name), 'ja'));
+  const i = sibs.findIndex(x => x.id === id);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= sibs.length) return;
+  const other = sibs[j];
+  const a = (l.sort_no || 0), b = (other.sort_no || 0);
+  const send = (x, sort) => sb.rpc('inv_location_save',
+    { p_id: x.id, p_name: x.name, p_kind: x.kind, p_parent: x.parent_id || null, p_sort: sort, p_enabled: x.enabled !== false });
+  const r1 = await send(l, b === a ? a + dir * 10 : b);
+  if (r1.error) { toast(r1.error.message); return; }
+  const r2 = await send(other, b === a ? a : a);
+  if (r2.error) { toast(r2.error.message); return; }
+  await reloadMasters();
+}
+
+async function sheetLocDelete(id) {
+  const l = loc(id); if (!l) return;
+  const { data, error } = await sb.rpc('inv_location_delete_check', { p_id: id });
+  if (error) { toast(error.message || '確認できませんでした'); return; }
+  const chk = data || {};
+  const head = `<div class="delhead"><div class="n">${esc(l.name)}</div>
+    <div class="meta">${esc(locPath(id))}　${esc(LOC_KIND_LABEL(l.kind))}</div></div>`;
+  if (!chk.ok) {
+    openSheet({
+      title: '保管場所を削除', subject: id, cta: '閉じる',
+      hint: 'この保管場所は削除できません。',
+      body: head + `<ul class="delwhy">${(chk.reasons || []).map(r => `<li>${esc(r)}</li>`).join('')}</ul>
+        <div class="meta">使い終わった場所は、削除ではなく<b>無効</b>にすると履歴が残ります。</div>`,
+      run: () => {}
+    });
+    lockDeleteSheet();
+    return;
+  }
+  openSheet({
+    title: '保管場所を削除', subject: id, cta: '削除する',
+    hint: `<b>${esc(l.name)}</b> を消します。中身が無く、履歴にも出てこない場所なので消せます。`,
+    body: head,
+    run: () => delMasterLoc(id)
+  });
+}
+async function delMasterLoc(id) {
+  if (masterBusy) return;
+  masterBusy = true;
+  try {
+    const { data, error } = await sb.rpc('inv_location_delete', { p_id: id });
+    if (error) { toast(error.message || '削除できませんでした'); return; }
+    await reloadMasters();
+    toast(`${(data && data.name) || id} を削除しました`);
+  } finally { masterBusy = false; }
+}
+
+/* ---- カテゴリー ---- */
+function masterCatBody() {
+  const rows = catsOrdered();
+  return `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:14px 0 6px">
+      <p class="meta" style="flex:1 1 240px;margin:0">ここが<strong>唯一のカテゴリーマスター</strong>です。
+        /zaiko も 8ECトップも同じものを見ています。<strong>公開</strong>の印が付いたものが
+        トップの「カテゴリーから探す」に出ます（商品が0件でも出ます）。</p>
+      <button class="btn sm lime" onclick="sheetCatEdit(null)"><span class="ms">add</span>カテゴリーを足す</button>
+    </div>
+    <div class="mtree">${rows.map(c => {
+      const tree = catTree(c.id);
+      const np = db.masters.filter(p => tree.includes(p.category_id)).length;
+      const own = db.masters.filter(p => p.category_id === c.id).length;
+      return `<div class="r${catLive(c) ? '' : ' off'}" style="padding-left:${12 + catDepth(c.id) * 20}px">
+        <span class="ms">${esc(c.public_icon || 'category')}</span>
+        <div style="min-width:0;flex:1 1 auto">
+          <div class="n">${esc(c.name)}
+            ${catLive(c) ? '' : '<span class="tag off">無効</span>'}
+            ${c.public_listed ? '<span class="tag pub">公開</span>' : ''}</div>
+          <div class="c"><span class="num">${esc(c.id)}</span>　${c.kind === 'individual' ? '個体管理' : '数量管理'}　商品 ${
+            catHasKids(c.id) ? `${np}件（直下 ${own}件）` : `${own}件`}　<span class="num">並び ${c.sort_no || 0}</span></div>
+        </div>
+        <div class="ops">
+          <button class="btn sm ghost" onclick="moveMasterCat('${esc(c.id)}',-1)" title="上へ"><span class="ms">arrow_upward</span></button>
+          <button class="btn sm ghost" onclick="moveMasterCat('${esc(c.id)}',1)" title="下へ"><span class="ms">arrow_downward</span></button>
+          <button class="btn sm ghost" onclick="sheetCatEdit('${esc(c.id)}')">編集</button>
+          <button class="btn sm ghost" onclick="toggleCat('${esc(c.id)}')">${catLive(c) ? '無効にする' : '有効に戻す'}</button>
+          <button class="btn sm ghost danger" onclick="sheetCatDelete('${esc(c.id)}')">削除</button>
+        </div></div>`;
+    }).join('')}</div>`;
+}
+
+function catParentOptions(sel, selfId) {
+  const ban = selfId ? catTree(selfId) : [];
+  return `<option value="">（いちばん上：親なし）</option>` + catsOrdered()
+    .filter(c => !ban.includes(c.id))
+    .map(c => `<option value="${esc(c.id)}"${sel === c.id ? ' selected' : ''}>${esc(catOptLabel(c))}</option>`).join('');
+}
+
+function sheetCatEdit(id) {
+  const c = id ? cat(id) : null;
+  openSheet({
+    title: c ? 'カテゴリーを直す' : 'カテゴリーを足す', subject: c ? c.id : '新規', cta: '保存',
+    hint: c
+      ? `<b class="num">${esc(c.id)}</b> は変えられません。商品はこのIDで紐づいているので、
+         <strong>表示名を変えても紐付けは切れません</strong>。`
+      : 'IDは名前から作ります（英数字とハイフン）。日本語だけの名前のときは自動で番号を振ります。作ったあとIDは変えられません。',
+    body: `
+      <label class="field" style="margin-bottom:10px"><span>表示名</span>
+        <input class="input" id="mcName" value="${esc(c ? c.name : '')}" autocomplete="off" placeholder="例 ノートパソコン"></label>
+      <div class="ie2">
+        <label class="field"><span>管理方式</span>
+          <select class="input" id="mcKind">
+            <option value="individual"${!c || c.kind === 'individual' ? ' selected' : ''}>個体管理（1台ずつ）</option>
+            <option value="quantity"${c && c.kind === 'quantity' ? ' selected' : ''}>数量管理（数が増減）</option>
+          </select></label>
+        <label class="field"><span>表示順</span>
+          <input class="input num" type="number" id="mcSort" value="${esc(c ? (c.sort_no || 0) : '')}" placeholder="空なら最後"></label>
+      </div>
+      <label class="field" style="margin-bottom:10px"><span>親カテゴリー</span>
+        <select class="input" id="mcParent">${catParentOptions(c ? c.parent_id : null, id)}</select></label>
+      <div class="ie2">
+        <label class="field"><span>アイコン（Material Symbols）</span>
+          <input class="input" id="mcIcon" value="${esc(c ? (c.public_icon || '') : '')}" autocomplete="off" placeholder="laptop_mac"></label>
+        <label class="field"><span>管理番号の記号</span>
+          <input class="input" id="mcPrefix" value="${esc(c ? (c.code_prefix || '') : '')}" autocomplete="off" placeholder="PC"></label>
+      </div>
+      ${c ? '' : `<label class="field" style="margin-bottom:10px"><span>カテゴリーID（空なら名前から作ります）</span>
+        <input class="input num" id="mcId" autocomplete="off" placeholder="notebook-pc"></label>`}
+      <label class="chk"><input type="checkbox" id="mcOn" ${!c || catLive(c) ? 'checked' : ''}>
+        <span>使える状態にする（外すと新規登録の候補に出なくなります）</span></label>
+      <label class="chk"><input type="checkbox" id="mcPub" ${c && c.public_listed ? 'checked' : ''}>
+        <span>公開サイトに表示する（8ECトップの「カテゴリーから探す」に出ます）</span></label>`,
+    validate: () => {
+      if (!(($('mcName') || {}).value || '').trim()) { toast('表示名を入れてください'); return false; }
+      return true;
+    },
+    run: () => saveMasterCat(id)
+  });
+}
+async function saveMasterCat(id) {
+  if (masterBusy) return;
+  masterBusy = true;
+  try {
+    const sort = (($('mcSort') || {}).value || '').trim();
+    const { error } = await sb.rpc('inv_category_save', {
+      p_id: id || (($('mcId') || {}).value || '').trim() || null,
+      p_name: (($('mcName') || {}).value || '').trim(),
+      p_kind: ($('mcKind') || {}).value || 'individual',
+      p_parent: ($('mcParent') || {}).value || null,
+      p_icon: (($('mcIcon') || {}).value || '').trim() || null,
+      p_sort: sort === '' ? null : Number(sort),
+      p_enabled: !!(($('mcOn') || {}).checked),
+      p_public: !!(($('mcPub') || {}).checked),
+      p_prefix: (($('mcPrefix') || {}).value || '').trim() || null
+    });
+    if (error) { toast(error.message || '保存できませんでした'); return; }
+    await reloadMasters();
+    toast(id ? 'カテゴリーを直しました' : 'カテゴリーを足しました');
+  } finally { masterBusy = false; }
+}
+async function toggleCat(id) {
+  const c = cat(id); if (!c) return;
+  const { error } = await sb.rpc('inv_category_save', {
+    p_id: id, p_name: c.name, p_kind: c.kind, p_parent: c.parent_id || null,
+    p_icon: c.public_icon || null, p_sort: c.sort_no,
+    p_enabled: !catLive(c), p_public: !!c.public_listed, p_prefix: c.code_prefix || null
+  });
+  if (error) { toast(error.message || '変えられませんでした'); return; }
+  await reloadMasters();
+  toast(catLive(cat(id)) ? '有効に戻しました' : '無効にしました');
+}
+async function moveMasterCat(id, dir) {
+  const c = cat(id); if (!c) return;
+  const sibs = db.cats.filter(x => (x.parent_id || null) === (c.parent_id || null))
+    .sort((a, b) => ((a.sort_no || 0) - (b.sort_no || 0)) || String(a.name).localeCompare(String(b.name), 'ja'));
+  const i = sibs.findIndex(x => x.id === id);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= sibs.length) return;
+  const other = sibs[j];
+  const a = (c.sort_no || 0), b = (other.sort_no || 0);
+  const send = (x, sort) => sb.rpc('inv_category_save',
+    { p_id: x.id, p_name: x.name, p_kind: x.kind, p_parent: x.parent_id || null,
+      p_icon: x.public_icon || null, p_sort: sort, p_enabled: x.enabled !== false,
+      p_public: !!x.public_listed, p_prefix: x.code_prefix || null });
+  const r1 = await send(c, b === a ? a + dir * 10 : b);
+  if (r1.error) { toast(r1.error.message); return; }
+  const r2 = await send(other, a);
+  if (r2.error) { toast(r2.error.message); return; }
+  await reloadMasters();
+}
+
+async function sheetCatDelete(id) {
+  const c = cat(id); if (!c) return;
+  const { data, error } = await sb.rpc('inv_category_delete_check', { p_id: id });
+  if (error) { toast(error.message || '確認できませんでした'); return; }
+  const chk = data || {};
+  const head = `<div class="delhead"><div class="n">${esc(c.name)}</div>
+    <div class="meta"><span class="num">${esc(c.id)}</span>　${c.kind === 'individual' ? '個体管理' : '数量管理'}</div></div>`;
+  if (!chk.ok) {
+    const n = Number(chk.products || 0);
+    openSheet({
+      title: 'カテゴリーを削除', subject: id, cta: '閉じる',
+      hint: 'このカテゴリーは削除できません。',
+      body: head + `<ul class="delwhy">${(chk.reasons || []).map(r => `<li>${esc(r)}</li>`).join('')}</ul>
+        ${n ? `<div class="meta" style="margin-bottom:8px">紐付いている商品を別のカテゴリーへ移すには、
+          <button class="btn sm ghost" onclick="closeSheet();ui.fCat='${esc(id)}';go('list')">この ${n}件を一覧で開く</button>
+          → 選んで「まとめて直す」から変えられます。</div>` : ''}
+        <div class="meta">使い終わったカテゴリーは、削除ではなく<b>無効</b>にすると商品の表示が保てます。</div>`,
+      run: () => {}
+    });
+    lockDeleteSheet();
+    return;
+  }
+  openSheet({
+    title: 'カテゴリーを削除', subject: id, cta: '削除する',
+    hint: `<b>${esc(c.name)}</b> を消します。ぶら下がる商品も子カテゴリーも無いので消せます。`,
+    body: head,
+    run: () => delMasterCat(id)
+  });
+}
+async function delMasterCat(id) {
+  if (masterBusy) return;
+  masterBusy = true;
+  try {
+    const { data, error } = await sb.rpc('inv_category_delete', { p_id: id });
+    if (error) { toast(error.message || '削除できませんでした'); return; }
+    await reloadMasters();
+    toast(`${(data && data.name) || id} を削除しました`);
+  } finally { masterBusy = false; }
+}
+
+/* 削除できないときのシート。押せるのは「閉じる」だけにする */
+function lockDeleteSheet() {
+  const cta = document.querySelector('#sheetPanel .acts .cta');
+  if (cta) { cta.classList.remove('lime'); cta.classList.add('ghost'); }
+  const cancel = document.querySelector('#sheetPanel .acts .cancel');
+  if (cancel) cancel.style.display = 'none';
+}
+
+/* マスターを取り直して描き直す。商品・個体の件数表示にも効くので、
+   画面のキャッシュを直すのではなくDBから読み直す */
+async function reloadMasters() {
+  const [c, l] = await Promise.all([
+    sb.from('inventory_categories').select('*').order('sort_no'),
+    sb.from('inventory_locations').select('*').order('sort_no')
+  ]);
+  if (!c.error) db.cats = c.data || [];
+  if (!l.error) db.locs = l.data || [];
+  render();
 }
 
 function viewLoc() {
@@ -4931,7 +5428,7 @@ function viewReg() {
       <button class="btn" style="margin-top:15px" onclick="ui.made=null;render()">続けて登録する</button>`;
   }
   const ind = ui.regKind === 'ind';
-  const cats = db.cats.filter(c => c.kind === (ind ? 'individual' : 'quantity'));
+  const cats = catsFor(ind ? 'individual' : 'quantity');
 
   return `<h1>商品登録</h1>
     ${canAdmin() ? '' : '<div class="card" style="margin:15px 0">商品の登録は管理者だけができます。</div>'}
@@ -4968,7 +5465,9 @@ function regFieldsBody(ind, cats, kindFn) {
     <div class="fields">
       ${regField('name', '商品名 *')}
       <label class="field"><span>カテゴリ *</span><select class="input" id="r-cat" onchange="previewId()">
-        ${cats.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select></label>
+        <option value="">選択してください</option>
+        ${cats.map(c => `<option value="${esc(c.id)}"${catHasKids(c.id) ? ' disabled' : ''}>${
+          esc(catOptLabel(c))}${catHasKids(c.id) ? '（下から選んでください）' : ''}</option>`).join('')}</select></label>
       <label class="field"><span>保管場所 *</span><select class="input" id="r-loc">${locOptions('', '選択してください')}</select></label>
       ${regField('maker', 'メーカー')}
       ${regField('model', '型番')}
