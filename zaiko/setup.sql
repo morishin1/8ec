@@ -147,6 +147,35 @@ create table if not exists public.inventory_categories (
   sort_no     integer default 0
 );
 
+alter table public.inventory_categories add column if not exists parent_id text;
+alter table public.inventory_categories add column if not exists enabled   boolean not null default true;
+alter table public.inventory_categories add column if not exists aliases   text[]  not null default '{}';
+
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'inventory_categories_parent_fk') then
+    alter table public.inventory_categories
+      add constraint inventory_categories_parent_fk
+      foreign key (parent_id) references public.inventory_categories(id) on delete restrict;
+  end if;
+end $$;
+
+comment on column public.inventory_categories.parent_id is
+  '親カテゴリー。パソコン → ノートパソコン / デスクトップパソコン のような入れ子に使う。';
+comment on column public.inventory_categories.enabled is
+  '使えるかどうか。false は新規登録の候補に出さない。既存商品では名前を出し「無効」の印をつける。';
+comment on column public.inventory_categories.aliases is
+  'CSV取込などで受け付ける別名。表示名を変えても取込が壊れないようにするためのもの。';
+comment on column public.inventory_categories.name is
+  'カテゴリー名。/zaiko も公開側もこれを出す（1つのマスターを正とする）。
+   公開側だけ別の名前にしたいときだけ public_name を入れる。';
+create index if not exists inventory_categories_parent_idx
+  on public.inventory_categories (parent_id, sort_no);
+
+-- 同じ親の下に同じ名前を作らせない
+create unique index if not exists inventory_categories_uniq_name
+  on public.inventory_categories (coalesce(parent_id, ''), name);
+
 -- 公開画面（8ECトップの「カテゴリーから探す」）で使う情報。
 -- 社内の呼び名（name）を変えずに、公開表記・並び・アイコンだけを別に持つ
 alter table public.inventory_categories add column if not exists public_name   text;
@@ -155,11 +184,12 @@ alter table public.inventory_categories add column if not exists public_sort   i
 alter table public.inventory_categories add column if not exists public_listed boolean not null default false;
 
 comment on column public.inventory_categories.public_name is
-  '公開画面（8ECトップ）で出す名前。空なら name を使う。社内の呼び名を変えずに公開表記だけ変えるための列。';
+  '公開側だけ別名にしたいときの上書き。空なら name を使う。通常は空
+   （/zaiko と公開側は同じ name を出す＝1つのマスターを正とする）。';
 comment on column public.inventory_categories.public_icon is
   'タイルのアイコン（Material Symbols の名前）。空なら devices_other。';
 comment on column public.inventory_categories.public_sort is
-  '公開画面での並び順。空なら sort_no を使う。';
+  '公開側だけ並びを変えたいときの上書き。空なら sort_no を使う。通常は空。';
 comment on column public.inventory_categories.public_listed is
   'トップの「カテゴリーから探す」に出すかどうか。商品が0件でも出す（扱っていない、と見せないため）。';
 
@@ -174,6 +204,18 @@ create table if not exists public.inventory_locations (
 
 comment on table public.inventory_locations is
   '保管場所。拠点 → 部屋 → 棚 の3階層を想定。棚にQRを貼ると「この棚へまとめて移動」ができる。';
+
+alter table public.inventory_locations add column if not exists enabled boolean not null default true;
+
+comment on column public.inventory_locations.enabled is
+  '使えるかどうか。false は新規登録・移動の選択肢に出さない。
+   すでに置いてあるものの表示には出す（名前が消えると履歴が読めなくなるため）。';
+comment on column public.inventory_locations.kind is
+  'site(拠点) / room(倉庫・部屋) / shelf(棚) / other(その他)';
+
+-- 同じ親の下に同じ名前を作らせない。別の拠点に同名の「倉庫」があるのは許す
+create unique index if not exists inventory_locations_uniq_name
+  on public.inventory_locations (coalesce(parent_id, ''), name);
 
 create index if not exists inventory_locations_parent_idx on public.inventory_locations (parent_id, sort_no);
 
@@ -748,6 +790,53 @@ update public.inventory_categories c
   ) as v(id, pname, picon, psort)
  where c.id = v.id;
 
+update public.inventory_categories c
+   set aliases = (
+         select array_agg(distinct a) from unnest(
+           c.aliases || array[c.name, btrim(coalesce(c.public_name, ''))]) a
+          where btrim(coalesce(a, '')) <> ''
+             and btrim(a) is distinct from btrim(coalesce(nullif(btrim(coalesce(c.public_name,'')),''), c.name)))
+ where btrim(coalesce(c.public_name, '')) <> ''
+   and btrim(c.public_name) is distinct from c.name;
+
+update public.inventory_categories
+   set name = btrim(public_name),
+       public_name = null
+ where btrim(coalesce(public_name, '')) <> ''
+   and btrim(public_name) is distinct from name;
+
+-- 並びも1つにする（public_sort は「公開だけ変えたいとき」の上書きに戻す）
+update public.inventory_categories
+   set sort_no = public_sort, public_sort = null
+ where public_sort is not null and public_sort is distinct from sort_no;
+
+-- CSVで昔から使われている表記を、パソコンの別名として受け付ける。
+-- 'ノートPC' 'デスクトップPC' はここには入れない（子カテゴリーの別名なので、
+-- 親に付けると どちらに寄せるか決まらなくなる）
+update public.inventory_categories
+   set aliases = (select array_agg(distinct a)
+                    from unnest(aliases || array['PC','ＰＣ','パソコン']) a
+                   where btrim(coalesce(a,'')) <> '' and btrim(a) <> name)
+ where id = 'pc';
+
+insert into public.inventory_categories
+  (id, name, kind, code_prefix, sort_no, parent_id, enabled, public_listed, public_icon, aliases)
+values
+  ('notebook-pc', 'ノートパソコン',       'individual', 'PC', 11, 'pc', true, true, 'laptop_mac',      array['ノートPC','ノート','notebook']),
+  ('desktop-pc',  'デスクトップパソコン', 'individual', 'PC', 12, 'pc', true, true, 'desktop_windows', array['デスクトップPC','デスクトップ','desktop'])
+on conflict (id) do nothing;
+
+-- すでに入っているときも、親と並びだけはこの通りにそろえる
+update public.inventory_categories
+   set parent_id = 'pc', public_listed = true, enabled = true
+ where id in ('notebook-pc', 'desktop-pc');
+
+-- 商品とカテゴリーの紐付けは触りません。category_id は inventory_categories(id) への
+-- 外部キーなので 'PC' という値はそもそも入らず、商品はもとからIDで紐づいています。
+-- 画面に 'PC' と出ていたのは表示名（name）が 'PC' だったためで、上で 'パソコン' に
+-- そろえたので、紐付けを触らずにすべての画面の表記が変わります。
+
+
 insert into public.inventory_locations (id, parent_id, name, kind, sort_no) values
   ('L1',  null, '本社',     'site',  10),
   ('L2',  'L1', '倉庫',     'room',  10),
@@ -763,6 +852,11 @@ insert into public.inventory_locations (id, parent_id, name, kind, sort_no) valu
   ('L21', 'L20','倉庫',     'room',  10),
   ('L22', 'L21','棚I-01',   'shelf', 10)
 on conflict (id) do nothing;
+
+insert into public.inventory_locations (id, parent_id, name, kind, sort_no, enabled)
+values ('L30', null, 'SB C&S', 'site', 40, true)
+on conflict (id) do nothing;
+
 
 
 -- ============================================================
@@ -3830,18 +3924,30 @@ comment on view public.inv_rental_catalog is
 -- ------------------------------------------------------------
 -- 公開画面の「カテゴリーから探す」。商品が0件のカテゴリーも消さないので、
 -- 商品から category_id を逆算するのではなく、マスターをそのまま出す
-create or replace view public.inv_public_categories as
-select c.id,
-       coalesce(nullif(btrim(coalesce(c.public_name, '')), ''), c.name) as name,
-       coalesce(nullif(btrim(coalesce(c.public_icon, '')), ''), 'devices_other') as icon,
-       coalesce(c.public_sort, c.sort_no, 0) as sort_no
-  from public.inventory_categories c
- where c.public_listed
- order by coalesce(c.public_sort, c.sort_no, 0), c.id;
+drop view if exists public.inv_public_categories;
+create view public.inv_public_categories as
+with live as (
+  -- 列は名前で並べる（表に列を足した順で定義が変わらないように）
+  select c.id, c.name, c.parent_id, c.sort_no,
+         c.public_name, c.public_icon, c.public_sort
+    from public.inventory_categories c
+   where c.enabled and c.public_listed
+)
+select l.id,
+       coalesce(nullif(btrim(coalesce(l.public_name, '')), ''), l.name)            as name,
+       coalesce(nullif(btrim(coalesce(l.public_icon, '')), ''), 'devices_other')   as icon,
+       coalesce(l.public_sort, l.sort_no, 0)                                       as sort_no,
+       l.parent_id
+  from live l
+ where l.parent_id is null
+    or exists (select 1 from live p where p.id = l.parent_id)
+ order by coalesce(l.public_sort, l.sort_no, 0), l.id;
 
 comment on view public.inv_public_categories is
-  '公開画面の「カテゴリーから探す」に出すカテゴリー。商品が0件でも消えない。
-   名前は public_name（無ければ name）。並びは public_sort（無ければ sort_no）。';
+  '公開画面の「カテゴリーから探す」に出すカテゴリー。/zaiko と同じ1つのマスターから出す。
+   商品が0件でも消えない。無効・非公開は返さない。親が出ていない子も返さない。
+   parent_id が入っている行は子カテゴリーで、トップのタイルではなく親を選んだあとの
+   絞り込みに使う。';
 
 drop view if exists public.inv_public_catalog;
 create view public.inv_public_catalog as
@@ -4777,6 +4883,417 @@ drop policy if exists "inventory_rental_requests update" on public.inventory_ren
 create policy "inventory_rental_requests update" on public.inventory_rental_requests
   for update to authenticated
   using (public.inv_can_edit()) with check (public.inv_can_edit());
+
+
+-- ============================================================
+-- 保管場所・カテゴリーのマスター管理（管理者だけ）
+-- ============================================================
+
+create or replace function public.inv_location_save(
+  p_id      text default null,
+  p_name    text default null,
+  p_kind    text default 'shelf',
+  p_parent  text default null,
+  p_sort    integer default null,
+  p_enabled boolean default true
+) returns public.inventory_locations
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  r      public.inventory_locations;
+  v_id   text := nullif(btrim(coalesce(p_id, '')), '');
+  v_name text := nullif(btrim(coalesce(p_name, '')), '');
+  v_par  text := nullif(btrim(coalesce(p_parent, '')), '');
+  v_cur  text;
+  n      integer;
+begin
+  if not public.inv_is_admin() then
+    raise exception '保管場所を直せるのは管理者だけです';
+  end if;
+  if v_name is null then
+    raise exception '名称を入れてください';
+  end if;
+  if p_kind not in ('site', 'room', 'shelf', 'other') then
+    raise exception '種別は 拠点・倉庫・棚・その他 のどれかです（%）', p_kind;
+  end if;
+  if v_par is not null and not exists (select 1 from public.inventory_locations where id = v_par) then
+    raise exception '親の保管場所が見つかりません（%）', v_par;
+  end if;
+
+  -- 自分自身・自分の子孫を親にしない（親をたどって自分に戻らないか見る）
+  if v_id is not null and v_par is not null then
+    if v_par = v_id then
+      raise exception '自分自身を親にはできません';
+    end if;
+    v_cur := v_par;
+    for n in 1..50 loop
+      select parent_id into v_cur from public.inventory_locations where id = v_cur;
+      exit when v_cur is null;
+      if v_cur = v_id then
+        raise exception '自分の下にある場所を親にはできません（入れ子が輪になります）';
+      end if;
+    end loop;
+  end if;
+
+  if exists (select 1 from public.inventory_locations
+              where name = v_name
+                and coalesce(parent_id, '') = coalesce(v_par, '')
+                and (v_id is null or id <> v_id)) then
+    raise exception '同じ場所の下に「%」がすでにあります', v_name;
+  end if;
+
+  if v_id is null then
+    -- L1, L2 … と同じ形で採番する（棚QRのURLに入るキーなので短く保つ）
+    select 'L' || (coalesce(max(nullif(regexp_replace(id, '^L', ''), '')::integer), 0) + 1)::text
+      into v_id
+      from public.inventory_locations
+     where id ~ '^L[0-9]+$';
+    insert into public.inventory_locations (id, parent_id, name, kind, sort_no, enabled)
+    values (v_id, v_par, v_name, p_kind,
+            coalesce(p_sort, (select coalesce(max(sort_no), 0) + 10 from public.inventory_locations
+                               where coalesce(parent_id, '') = coalesce(v_par, ''))),
+            coalesce(p_enabled, true))
+    returning * into r;
+  else
+    update public.inventory_locations
+       set name = v_name, kind = p_kind, parent_id = v_par,
+           sort_no = coalesce(p_sort, sort_no), enabled = coalesce(p_enabled, enabled)
+     where id = v_id
+    returning * into r;
+    if not found then
+      raise exception '保管場所が見つかりません（%）', v_id;
+    end if;
+  end if;
+  return r;
+end $$;
+
+comment on function public.inv_location_save is
+  '保管場所を足す・直す（管理者だけ）。IDを渡さなければ新規、渡せば更新。
+   自分自身や自分の子孫は親にできない。同じ親の下に同じ名前は作れない。';
+
+create or replace function public.inv_location_delete_check(p_id text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  l       public.inventory_locations;
+  reasons jsonb := '[]'::jsonb;
+  n       integer;
+  v_path  text;
+begin
+  select * into l from public.inventory_locations where id = p_id;
+  if not found then
+    return jsonb_build_object('ok', false, 'found', false,
+      'reasons', jsonb_build_array('この保管場所は見つかりません。'::text));
+  end if;
+
+  select count(*) into n from public.inventory_locations where parent_id = p_id;
+  if n > 0 then
+    reasons := reasons || to_jsonb(('この下に保管場所が ' || n || '件あります。別の保管場所へ移動するか、無効にしてください。')::text);
+  end if;
+
+  -- 個体の論理削除（deleted_at）は別のブランチで入る列なので、あっても無くても
+  -- 同じように数えられる形にしている（列が無ければ to_jsonb に出てこない＝null）
+  select count(*) into n from public.inventory_items i
+   where i.location_id = p_id and (to_jsonb(i) ->> 'deleted_at') is null;
+  if n > 0 then
+    reasons := reasons || to_jsonb(('個体が ' || n || '台置かれています。別の保管場所へ移動するか、無効にしてください。')::text);
+  end if;
+
+  select count(*) into n from public.inventory_products where location_id = p_id;
+  if n > 0 then
+    reasons := reasons || to_jsonb(('数量管理の品目が ' || n || '件置かれています。別の保管場所へ移動するか、無効にしてください。')::text);
+  end if;
+
+  -- 移動の履歴。inv_item_op('移動') は保管場所をフルパスの文字列で残すので、
+  -- そのパスで引き当てる（履歴の表に保管場所IDを持たせていないため）
+  v_path := public.inv_location_path(p_id);
+  if coalesce(v_path, '') <> '' then
+    select count(*) into n from public.inventory_transactions
+     where ref_kind = 'item' and action = '移動'
+       and (before_value = v_path or after_value = v_path or after_value like v_path || '／%');
+    if n > 0 then
+      reasons := reasons || to_jsonb(('移動の履歴が ' || n || '件あります。別の保管場所へ移動するか、無効にしてください。')::text);
+    end if;
+  end if;
+
+  select count(*) into n from public.inventory_stocktakes where scope_location_id = p_id;
+  if n > 0 then
+    reasons := reasons || to_jsonb(('棚卸の記録が ' || n || '件あります。別の保管場所へ移動するか、無効にしてください。')::text);
+  end if;
+
+  return jsonb_build_object('ok', jsonb_array_length(reasons) = 0, 'found', true,
+    'id', l.id, 'name', l.name, 'reasons', reasons);
+end $$;
+
+comment on function public.inv_location_delete_check is
+  '保管場所を消してよいかを返す。だめなときは件数と「別の保管場所へ移動するか、無効にしてください」を返す。';
+
+create or replace function public.inv_location_delete(p_id text)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  l   public.inventory_locations;
+  chk jsonb;
+begin
+  if not public.inv_is_admin() then
+    raise exception '保管場所を消せるのは管理者だけです';
+  end if;
+  select * into l from public.inventory_locations where id = p_id for update;
+  if not found then
+    raise exception '保管場所が見つかりません（%）', p_id;
+  end if;
+  -- 押すまでのあいだに物が置かれていることがあるので、ここでもう一度見る
+  chk := public.inv_location_delete_check(p_id);
+  if not (chk ->> 'ok')::boolean then
+    raise exception '%', (select string_agg(value, ' ') from jsonb_array_elements_text(chk -> 'reasons'));
+  end if;
+  delete from public.inventory_locations where id = p_id;
+  return jsonb_build_object('ok', true, 'id', p_id, 'name', l.name);
+end $$;
+
+comment on function public.inv_location_delete is
+  '空で使われていない保管場所を消す（管理者だけ）。関連データは道連れにしない。';
+
+create or replace function public.inv_category_save(
+  p_id      text default null,
+  p_name    text default null,
+  p_kind    text default 'individual',
+  p_parent  text default null,
+  p_icon    text default null,
+  p_sort    integer default null,
+  p_enabled boolean default true,
+  p_public  boolean default false,
+  p_prefix  text default null
+) returns public.inventory_categories
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  r      public.inventory_categories;
+  v_id   text := nullif(btrim(lower(coalesce(p_id, ''))), '');
+  v_name text := nullif(btrim(coalesce(p_name, '')), '');
+  v_par  text := nullif(btrim(coalesce(p_parent, '')), '');
+  v_cur  text;
+  v_base text;
+  n      integer;
+begin
+  if not public.inv_is_admin() then
+    raise exception 'カテゴリーを直せるのは管理者だけです';
+  end if;
+  if v_name is null then
+    raise exception '表示名を入れてください';
+  end if;
+  if p_kind not in ('individual', 'quantity') then
+    raise exception '管理方式は 個体管理 か 数量管理 です（%）', p_kind;
+  end if;
+  if v_par is not null and not exists (select 1 from public.inventory_categories where id = v_par) then
+    raise exception '親カテゴリーが見つかりません（%）', v_par;
+  end if;
+
+  if v_id is not null and v_par is not null then
+    if v_par = v_id then
+      raise exception '自分自身を親にはできません';
+    end if;
+    v_cur := v_par;
+    for n in 1..50 loop
+      select parent_id into v_cur from public.inventory_categories where id = v_cur;
+      exit when v_cur is null;
+      if v_cur = v_id then
+        raise exception '自分の下にあるカテゴリーを親にはできません（入れ子が輪になります）';
+      end if;
+    end loop;
+  end if;
+
+  if exists (select 1 from public.inventory_categories
+              where name = v_name
+                and coalesce(parent_id, '') = coalesce(v_par, '')
+                and (v_id is null or id <> v_id)) then
+    raise exception '同じ場所に「%」がすでにあります', v_name;
+  end if;
+
+  if v_id is null or not exists (select 1 from public.inventory_categories where id = v_id) then
+    -- 新規。IDは英数字とハイフンだけにする（URL・公開ビューに出るため）
+    -- 名前からIDを作るのは、名前が英数字だけのときに限る。
+    -- 「タブレットPC」から 'pc' を作ると、中身と合わない紛らわしいIDになるため。
+    -- 日本語が混じる名前は cat-1, cat-2 … にする（IDはURLと公開ビューに出るので英数字だけにする）
+    if v_id is null and v_name ~ '^[A-Za-z0-9][A-Za-z0-9 ._-]*$' then
+      v_id := btrim(regexp_replace(lower(v_name), '[^a-z0-9]+', '-', 'g'), '-');
+    end if;
+    v_id := btrim(regexp_replace(coalesce(v_id, ''), '[^a-z0-9-]+', '-', 'g'), '-');
+    if v_id = '' or v_id !~ '^[a-z0-9][a-z0-9-]*$' then
+      select 'cat-' || (coalesce(max(nullif(regexp_replace(id, '^cat-', ''), '')::integer), 0) + 1)::text
+        into v_id
+        from public.inventory_categories
+       where id ~ '^cat-[0-9]+$';
+    end if;
+    -- 名前から作ったIDが埋まっていたら、末尾に番号を足す
+    -- （「タブレットPC」→ pc が埋まっている → pc-2）。
+    -- IDを人が指定したときだけは、黙って別のIDにせずエラーにする
+    if exists (select 1 from public.inventory_categories where id = v_id) then
+      if nullif(btrim(lower(coalesce(p_id, ''))), '') is not null then
+        raise exception 'カテゴリーID「%」はすでに使われています。別のIDを指定してください', v_id;
+      end if;
+      v_base := v_id;
+      for n in 2..99 loop
+        v_id := v_base || '-' || n::text;
+        exit when not exists (select 1 from public.inventory_categories where id = v_id);
+      end loop;
+      if exists (select 1 from public.inventory_categories where id = v_id) then
+        raise exception 'カテゴリーIDを決められませんでした。IDを指定してください';
+      end if;
+    end if;
+    insert into public.inventory_categories
+      (id, name, kind, code_prefix, sort_no, parent_id, enabled, public_listed, public_icon)
+    values
+      (v_id, v_name, p_kind, nullif(btrim(coalesce(p_prefix, '')), ''),
+       coalesce(p_sort, (select coalesce(max(sort_no), 0) + 10 from public.inventory_categories
+                          where coalesce(parent_id, '') = coalesce(v_par, ''))),
+       v_par, coalesce(p_enabled, true), coalesce(p_public, false),
+       nullif(btrim(coalesce(p_icon, '')), ''))
+    returning * into r;
+  else
+    update public.inventory_categories
+       set name = v_name, kind = p_kind, parent_id = v_par,
+           code_prefix = coalesce(nullif(btrim(coalesce(p_prefix, '')), ''), code_prefix),
+           sort_no = coalesce(p_sort, sort_no),
+           enabled = coalesce(p_enabled, enabled),
+           public_listed = coalesce(p_public, public_listed),
+           public_icon = coalesce(nullif(btrim(coalesce(p_icon, '')), ''), public_icon)
+     where id = v_id
+    returning * into r;
+  end if;
+  return r;
+end $$;
+
+comment on function public.inv_category_save is
+  'カテゴリーを足す・直す（管理者だけ）。IDは作るときだけ決まり、あとから変えられない
+   （変えると商品・個体・URL・公開側の紐付けが一斉に切れるため）。表示名を変えても
+   商品はIDで紐づいているので切れない。';
+
+create or replace function public.inv_category_delete_check(p_id text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  c       public.inventory_categories;
+  reasons jsonb := '[]'::jsonb;
+  n       integer;
+  n_pub   integer;
+begin
+  select * into c from public.inventory_categories where id = p_id;
+  if not found then
+    return jsonb_build_object('ok', false, 'found', false,
+      'reasons', jsonb_build_array('このカテゴリーは見つかりません。'::text));
+  end if;
+
+  select count(*) into n from public.inventory_categories where parent_id = p_id;
+  if n > 0 then
+    reasons := reasons || to_jsonb(('この下にカテゴリーが ' || n || '件あります。先に付け替えるか、無効にしてください。')::text);
+  end if;
+
+  select count(*) into n from public.inventory_products where category_id = p_id;
+  select count(*) into n_pub from public.inventory_products
+   where category_id = p_id and coalesce(rental_enabled, false);
+  if n_pub > 0 then
+    reasons := reasons || to_jsonb(('公開中・8RENT対象の商品が ' || n_pub || '件あります。別のカテゴリーへ移すか、無効にしてください。')::text);
+  elsif n > 0 then
+    reasons := reasons || to_jsonb(('商品が ' || n || '件ぶら下がっています。別のカテゴリーへ移すか、無効にしてください。')::text);
+  end if;
+
+  select count(*) into n from public.inventory_items i
+   where i.category_id = p_id and (to_jsonb(i) ->> 'deleted_at') is null;
+  if n > 0 then
+    reasons := reasons || to_jsonb(('個体が ' || n || '台ぶら下がっています。別のカテゴリーへ移すか、無効にしてください。')::text);
+  end if;
+
+  return jsonb_build_object('ok', jsonb_array_length(reasons) = 0, 'found', true,
+    'id', c.id, 'name', c.name,
+    'products', (select count(*) from public.inventory_products where category_id = p_id),
+    'reasons', reasons);
+end $$;
+
+comment on function public.inv_category_delete_check is
+  'カテゴリーを消してよいかを返す。だめなときは紐付いている件数と、移し替えを促す文を返す。';
+
+create or replace function public.inv_category_delete(p_id text)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  c   public.inventory_categories;
+  chk jsonb;
+begin
+  if not public.inv_is_admin() then
+    raise exception 'カテゴリーを消せるのは管理者だけです';
+  end if;
+  select * into c from public.inventory_categories where id = p_id for update;
+  if not found then
+    raise exception 'カテゴリーが見つかりません（%）', p_id;
+  end if;
+  chk := public.inv_category_delete_check(p_id);
+  if not (chk ->> 'ok')::boolean then
+    raise exception '%', (select string_agg(value, ' ') from jsonb_array_elements_text(chk -> 'reasons'));
+  end if;
+  delete from public.inventory_categories where id = p_id;
+  return jsonb_build_object('ok', true, 'id', p_id, 'name', c.name);
+end $$;
+
+comment on function public.inv_category_delete is
+  '空で使われていないカテゴリーを消す（管理者だけ）。商品や個体は道連れにしない。';
+
+create or replace function public.inv_category_resolve(p_value text, p_kind text default null)
+returns text
+language sql
+stable
+security definer
+set search_path = public, pg_catalog
+as $$
+  with v as (select btrim(coalesce(p_value, '')) as t)
+  select c.id
+    from public.inventory_categories c, v
+   where v.t <> ''
+     and (p_kind is null or c.kind = p_kind)
+     and (lower(c.id) = lower(v.t)
+          or c.name = v.t
+          or exists (select 1 from unnest(c.aliases) a where btrim(a) = v.t))
+   order by (lower(c.id) = lower(v.t)) desc, (c.name = v.t) desc, c.sort_no
+   limit 1;
+$$;
+
+comment on function public.inv_category_resolve is
+  'CSVなどに書かれたカテゴリーの値（ID・表示名・別名）をカテゴリーIDへ寄せる。
+   見つからなければ null。知らないカテゴリーを自動で作ることはしない。';
+
+revoke all on function public.inv_location_save(text,text,text,text,integer,boolean) from public;
+revoke all on function public.inv_location_delete_check(text) from public;
+revoke all on function public.inv_location_delete(text) from public;
+revoke all on function public.inv_category_save(text,text,text,text,text,integer,boolean,boolean,text) from public;
+revoke all on function public.inv_category_delete_check(text) from public;
+revoke all on function public.inv_category_delete(text) from public;
+revoke all on function public.inv_category_resolve(text,text) from public;
+
+grant execute on function public.inv_location_save(text,text,text,text,integer,boolean) to authenticated;
+grant execute on function public.inv_location_delete_check(text) to authenticated;
+grant execute on function public.inv_location_delete(text) to authenticated;
+grant execute on function public.inv_category_save(text,text,text,text,text,integer,boolean,boolean,text) to authenticated;
+grant execute on function public.inv_category_delete_check(text) to authenticated;
+grant execute on function public.inv_category_delete(text) to authenticated;
+grant execute on function public.inv_category_resolve(text,text) to authenticated;
 
 
 -- ============================================================

@@ -196,10 +196,24 @@ window.EightCatalog = (function () {
     if (error || !data || !data.length) return { cats: cats, error: error || null };
     cats = data.slice()
       .sort((a, b) => (a.sort_no || 0) - (b.sort_no || 0) || String(a.id).localeCompare(String(b.id)))
-      .map(r => ({ id: r.id, name: r.name, icon: r.icon || 'devices_other' }));
+      .map(r => ({ id: r.id, name: r.name, icon: r.icon || 'devices_other',
+                   parent_id: r.parent_id || null }));
     return { cats: cats, error: null };
   }
   function categories() { return cats.slice(); }
+  /* 子カテゴリー（パソコン → ノートパソコン / デスクトップパソコン）。
+     トップのタイルには親だけを出し、親を選んだあとの絞り込みに子を使う */
+  const children = (id) => cats.filter(c => c.parent_id === id);
+  /* 自分と自分の子孫。親の件数は子を足した数にする */
+  function tree(id) {
+    const out = [id];
+    let added = true;
+    while (added) {
+      added = false;
+      cats.forEach(c => { if (c.parent_id && out.indexOf(c.parent_id) >= 0 && out.indexOf(c.id) < 0) { out.push(c.id); added = true; } });
+    }
+    return out;
+  }
 
   /* カテゴリーごとの機種数。台数ではない。
      並びも件数もマスターが決めるので、商品が0件のカテゴリーも count:0 で返る。
@@ -209,7 +223,13 @@ window.EightCatalog = (function () {
     (items || []).forEach(it => {
       if (it.category_id) counts[it.category_id] = (counts[it.category_id] || 0) + 1;
     });
-    return cats.map(c => ({ id: c.id, label: c.name, icon: c.icon, count: counts[c.id] || 0 }));
+    // トップに出すのは親だけ。件数は子（ノートパソコン・デスクトップパソコン）と
+    // 親に直接ぶら下がっているもの（未分類）を足した数にする
+    return cats.filter(c => !c.parent_id).map(c => ({
+      id: c.id, label: c.name, icon: c.icon,
+      count: tree(c.id).reduce((n, id) => n + (counts[id] || 0), 0),
+      kids: children(c.id).map(k => ({ id: k.id, label: k.name, icon: k.icon, count: counts[k.id] || 0 }))
+    }));
   }
 
   /* 商品詳細の写真。サムネイルは並べず、代表画像を1枚だけ出す
@@ -239,7 +259,7 @@ window.EightCatalog = (function () {
     return /^[A-Z]+-\d+$/i.test(h) ? h : null;
   }
 
-  return { load, loadCategories, categories, images, mainImage, mediaHtml, imgError, fitShot, availTag, availability, rental,
+  return { load, loadCategories, categories, children, tree, images, mainImage, mediaHtml, imgError, fitShot, availTag, availability, rental,
            specLine, categoryCounts,
            galleryHtml, codeFromUrl, catLabel, catIcon, title, esc, yen, CAT_META, TAG_LABEL, SUPA_URL, SUPA_KEY, client };
 })();

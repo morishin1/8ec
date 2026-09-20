@@ -421,6 +421,30 @@ table.t td.nos{font-size:11.5px;line-height:1.5;white-space:nowrap;font-variant-
 table.t td.ops2{display:flex;gap:6px;align-items:center;padding-top:9px}
 table.t td.ops2 .btn{min-height:32px;padding:5px 11px;font-size:12.5px}
 
+/* ---- マスター管理（保管場所・カテゴリー） ----
+   親子がひと目で分かるよう、左の余白で段を付ける。行の右に操作をまとめる。 */
+.mtree{border:1px solid var(--line);border-radius:var(--r2);overflow:hidden;margin-top:6px}
+.mtree .r{display:flex;align-items:center;gap:12px;padding:11px 14px 11px 12px;
+  border-bottom:1px solid var(--rule);background:#fff}
+.mtree .r:last-child{border-bottom:0}
+.mtree .r:hover{background:var(--n100)}
+.mtree .r.off{background:var(--n100)}
+.mtree .r.off .n,.mtree .r.off .ms{color:var(--n500)}
+.mtree .r > .ms{font-size:21px;color:var(--n600);flex:none}
+.mtree .n{font-size:15px;font-weight:600;line-height:1.35;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.mtree .c{font-size:11.5px;color:var(--n600);margin-top:3px}
+.mtree .ops{display:flex;gap:5px;flex:none;flex-wrap:wrap;justify-content:flex-end}
+.mtree .ops .btn{min-height:30px;padding:4px 9px;font-size:12px}
+.mtree .ops .btn .ms{font-size:16px}
+.tag.off{background:var(--n200);color:var(--n600);font-size:10.5px}
+.tag.pub{background:var(--l200);color:#43530E;font-size:10.5px}
+.chk{display:flex;align-items:flex-start;gap:9px;font-size:13px;line-height:1.6;margin-top:8px;cursor:pointer}
+.chk input{margin-top:2px;width:16px;height:16px;accent-color:var(--ink);flex:none}
+@media(max-width:700px){
+  .mtree .r{flex-wrap:wrap}
+  .mtree .ops{flex:1 1 100%;justify-content:flex-start;margin-top:8px}
+}
+
 /* ---- 価格調査（楽天・Amazon・メルカリの検索結果を開くだけ） ----
    出品先の欄は「実際にどこへ出しているか」、こちらは外部検索のボタン。
    役割が違うので、見た目もはっきり分ける（角の丸い枠付きの小さなボタン）。 */
