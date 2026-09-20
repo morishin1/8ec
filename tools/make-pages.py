@@ -98,6 +98,7 @@ TAIL = '''</main>
   <!-- /SHELL:LEAD -->
   <!-- SHELL:FOOTER -->
   <!-- /SHELL:FOOTER -->
+<script src="/assets/lead.js" defer></script>
 </body>
 </html>
 '''
