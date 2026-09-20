@@ -8,16 +8,28 @@
   "redirects": [
     {
       "source": "/rental",
-      "destination": "/",
+      "destination": "/rent",
       "permanent": true
     },
     {
       "source": "/rental/(.*)",
-      "destination": "/",
+      "destination": "/rent",
       "permanent": true
     }
   ],
   "rewrites": [
+    {
+      "source": "/rent",
+      "destination": "/rent.html"
+    },
+    {
+      "source": "/buy",
+      "destination": "/buy.html"
+    },
+    {
+      "source": "/pc",
+      "destination": "/pc.html"
+    },
     {
       "source": "/quote",
       "destination": "/quote.html"

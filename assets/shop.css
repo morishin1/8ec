@@ -1,0 +1,111 @@
+/* ===================================================================
+   商品カードと、レンタル／購入／相談の3分岐。
+   トップ（/）・8RENT（/rent）・法人IT販売（/buy）が同じ見た目になるよう、
+   この1枚にまとめている（ページごとに書き分けない）。
+
+   決めていること
+     ・レンタルの台数は出さない（「ご希望台数をお知らせください」と書く）
+     ・販売は 在庫あり／取り寄せ可能 の言葉だけ。残り何台かは出さない
+     ・料金・価格が未設定なら「お見積り」。金額は推測しない
+     ・画像が無ければ「画像準備中」。枠は崩さない
+   =================================================================== */
+.shop{
+  --s-lime:#C7ED3E; --s-lime-d:#5E7414; --s-lime-l:#F6FCE2;
+  --s-ink:#1B1D1A; --s-body:#4A4C43; --s-meta:#6C6E64; --s-line:#DEDED7; --s-bg:#F7F7F2;
+}
+
+/* ---- 商品カード ---- */
+.p-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(258px,1fr));gap:16px}
+.p-card{display:flex;flex-direction:column;background:#fff;border:1px solid var(--s-line,#DEDED7);
+  border-radius:3px;overflow:hidden}
+.p-card .c-shot{display:block;aspect-ratio:4/3;background:var(--s-bg,#F7F7F2);display:flex;
+  align-items:center;justify-content:center;padding:14px}
+.p-card .c-shot img{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;display:block}
+.p-card .ph{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
+  color:var(--s-meta,#6C6E64);font-size:11.5px}
+.p-card .ph .ms{font-size:26px;opacity:.55}
+.p-card .c-body{display:flex;flex-direction:column;gap:7px;padding:14px 16px 16px;flex:1 1 auto}
+.p-card .c-tags{display:flex;gap:5px;flex-wrap:wrap}
+.p-card .c-tag{font-size:10.5px;font-weight:700;padding:3px 7px;border-radius:2px;
+  background:#F1F1EE;color:var(--s-body,#4A4C43)}
+.p-card .c-tag.on{background:var(--s-lime-l,#F6FCE2);color:#43530E}
+.p-card .c-maker{font-size:11px;color:var(--s-meta,#6C6E64)}
+.p-card .c-name{font-size:16px;font-weight:700;line-height:1.4;letter-spacing:-.01em;color:var(--s-ink,#1B1D1A)}
+.p-card .c-link{text-decoration:none;color:inherit}
+.p-card .c-link:hover .c-name{text-decoration:underline}
+.p-card .c-spec{font-size:12px;color:var(--s-body,#4A4C43);line-height:1.7}
+.p-card .c-offers{display:flex;flex-direction:column;gap:10px;margin-top:auto;padding-top:10px}
+.p-card .c-offer{border-top:1px solid var(--s-line,#DEDED7);padding-top:10px}
+.p-card .c-offers .c-offer:first-child{border-top:0;padding-top:0}
+.p-card .c-kind{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.06em;
+  padding:2px 7px;border-radius:2px;margin-bottom:5px}
+.p-card .c-kind.rent{background:var(--s-ink,#1B1D1A);color:#fff}
+.p-card .c-kind.buy{background:var(--s-lime,#C7ED3E);color:var(--s-ink,#1B1D1A)}
+.p-card .c-price{display:flex;align-items:baseline;gap:4px;flex-wrap:wrap}
+.p-card .c-price .num{font-size:30px;font-weight:900;letter-spacing:-.02em;color:var(--s-ink,#1B1D1A);
+  font-feature-settings:"tnum" 1}
+.p-card .c-price .u{font-size:12px;font-weight:700}
+.p-card .c-price .ask{font-size:14px;font-weight:700;color:var(--s-ink,#1B1D1A)}
+.p-card .c-note{font-size:11.5px;color:var(--s-meta,#6C6E64);line-height:1.65;margin-top:3px}
+.p-card .c-cta{display:flex;align-items:center;justify-content:center;min-height:42px;margin-top:9px;
+  border-radius:3px;font-size:12.5px;font-weight:700;text-decoration:none;padding:0 12px;text-align:center}
+.p-card .c-cta.lime{background:var(--s-lime,#C7ED3E);color:var(--s-ink,#1B1D1A);border:1px solid var(--s-lime,#C7ED3E)}
+.p-card .c-cta.lime:hover{background:#BCE22E}
+.p-card .c-cta.ghost{background:#fff;color:var(--s-ink,#1B1D1A);border:1px solid var(--s-ink,#1B1D1A)}
+.p-card .c-cta.ghost:hover{background:var(--s-bg,#F7F7F2)}
+.p-card .c-cta:focus-visible{outline:2px solid var(--s-lime-d,#5E7414);outline-offset:2px}
+
+/* ---- カテゴリーのタブ（商品があるカテゴリーだけ出す） ---- */
+.c-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+.c-tabs button{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--s-line,#DEDED7);
+  background:#fff;color:var(--s-ink,#1B1D1A);font:inherit;font-size:13px;font-weight:700;
+  padding:9px 14px;border-radius:3px;cursor:pointer;min-height:40px}
+.c-tabs button:hover{border-color:var(--s-lime-d,#5E7414)}
+.c-tabs button.on{background:var(--s-ink,#1B1D1A);color:#fff;border-color:var(--s-ink,#1B1D1A)}
+.c-tabs button .n{font-size:11px;font-weight:500;color:var(--s-meta,#6C6E64)}
+.c-tabs button.on .n{color:#C6C7C0}
+
+/* ---- レンタル／購入／まとめて相談の3分岐 ---- */
+.ways{display:grid;grid-template-columns:repeat(auto-fit,minmax(272px,1fr));gap:16px}
+.way{display:flex;flex-direction:column;background:#fff;border:1px solid var(--s-line,#DEDED7);
+  border-radius:3px;padding:26px 24px 24px}
+.way.pick{border-color:var(--s-ink,#1B1D1A);box-shadow:0 0 0 1px var(--s-ink,#1B1D1A) inset}
+.way .kd{font-size:11px;font-weight:700;letter-spacing:.14em;color:var(--s-lime-d,#5E7414);margin-bottom:8px}
+.way h3{margin:0;font-size:26px;font-weight:700;letter-spacing:-.03em;line-height:1.25;color:var(--s-ink,#1B1D1A)}
+.way p{margin:10px 0 0;font-size:13.5px;line-height:1.85;color:var(--s-body,#4A4C43);text-wrap:pretty}
+.way ul{margin:12px 0 0;padding:0;list-style:none;display:grid;gap:5px}
+.way li{font-size:12.5px;color:var(--s-meta,#6C6E64);line-height:1.65;padding-left:14px;position:relative}
+.way li::before{content:"";position:absolute;left:0;top:7px;width:6px;height:6px;border-radius:50%;
+  background:var(--s-lime,#C7ED3E)}
+.way .go{display:flex;align-items:center;justify-content:center;min-height:52px;margin-top:20px;
+  border-radius:3px;font-size:15px;font-weight:700;text-decoration:none;padding:0 14px;text-align:center}
+.way .go.dark{background:var(--s-ink,#1B1D1A);color:#fff;border:1px solid var(--s-ink,#1B1D1A)}
+.way .go.lime{background:var(--s-lime,#C7ED3E);color:var(--s-ink,#1B1D1A);border:1px solid var(--s-lime,#C7ED3E)}
+.way .go.ghost{background:#fff;color:var(--s-ink,#1B1D1A);border:1px solid var(--s-ink,#1B1D1A)}
+.way .go:hover{opacity:.9}
+.way .go:focus-visible{outline:2px solid var(--s-lime-d,#5E7414);outline-offset:2px}
+
+/* ---- 「買うか借りるか迷っていますか？」 ---- */
+.wonder{display:flex;gap:26px;align-items:center;flex-wrap:wrap;border:1px solid var(--s-lime,#C7ED3E);
+  background:var(--s-lime-l,#F6FCE2);border-radius:4px;padding:28px 30px}
+.wonder .t{flex:1 1 380px;min-width:260px}
+.wonder h2{margin:0;font-size:27px;font-weight:700;letter-spacing:-.03em;line-height:1.3;color:var(--s-ink,#1B1D1A)}
+.wonder p{margin:10px 0 0;font-size:14px;line-height:1.85;color:var(--s-body,#4A4C43);text-wrap:pretty}
+.wonder a{display:inline-flex;align-items:center;justify-content:center;min-height:54px;padding:0 26px;
+  background:var(--s-ink,#1B1D1A);color:#fff;border-radius:3px;font-size:15px;font-weight:700;text-decoration:none}
+.wonder a:hover{opacity:.88}
+.wonder a:focus-visible{outline:2px solid var(--s-lime-d,#5E7414);outline-offset:2px}
+
+/* ---- 読み込み中・エラー・0件 ---- */
+.p-state{grid-column:1/-1;border:1px dashed var(--s-line,#DEDED7);border-radius:3px;padding:26px 20px;
+  text-align:center;font-size:13.5px;line-height:1.85;color:var(--s-meta,#6C6E64);background:#fff}
+.p-state.err{border-color:#E7B4B4;background:#FDF6F6;color:#8A2F2F}
+.p-state a{color:var(--s-ink,#1B1D1A);font-weight:700}
+
+@media (max-width:560px){
+  .p-grid{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+  .way{padding:22px 20px 20px}
+  .way h3{font-size:23px}
+  .wonder{padding:22px 20px}
+  .wonder h2{font-size:23px}
+}

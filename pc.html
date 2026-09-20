@@ -7,13 +7,13 @@
 <meta name="description" content="法人向けPCの調達・レンタル・購入・キッティング。新入社員の一斉入社、短期プロジェクト、複数台のまとめ調達に対応。新品も整備済みも1台から。Office・アカウント・セキュリティの設定を済ませてお届けします。お見積もり無料。">
 <meta name="robots" content="index,follow">
 <meta name="theme-color" content="#007f9e">
-<link rel="canonical" href="https://8ec.jp/pc.html">
+<link rel="canonical" href="https://8ec.jp/pc">
 <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="株式会社エイト">
 <meta property="og:title" content="法人PCレンタル・購入・キッティング | 新品も整備済みも1台から | 株式会社エイト">
 <meta property="og:description" content="新入社員・短期プロジェクト・複数台調達に。新品も整備済みも1台から。Office・キッティング・セキュリティまで。">
-<meta property="og:url" content="https://8ec.jp/pc.html">
+<meta property="og:url" content="https://8ec.jp/pc">
 <meta property="og:locale" content="ja_JP">
 <meta property="og:image" content="https://8ec.jp/assets/training-jp.jpg">
 <meta name="twitter:card" content="summary_large_image">
@@ -31,6 +31,10 @@
   .media-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:18px; margin-top:42px; }
   .media-card { display:flex; flex-direction:column; overflow:hidden; border:1px solid var(--line); border-radius:var(--radius); background:var(--white); box-shadow:0 8px 22px rgba(25,70,82,.055); }
   .media-card img { width:100%; aspect-ratio:16/10; object-fit:cover; border-bottom:1px solid var(--line); }
+  /* 画像が枠から出ないようにする（スマホで横スクロールが出ていた） */
+  img { max-width:100%; height:auto; }
+  .hero-visual { position:relative; max-width:100%; }
+  .hero-visual img { width:100%; height:auto; border-radius:4px; display:block; }
   .media-body { padding:20px 22px; display:flex; flex-direction:column; flex:1; }
   .media-body h3 { font-size:17px; margin-bottom:7px; }
   .media-body p { margin:0 0 14px; color:var(--ink-soft); font-size:13.5px; flex:1; }
@@ -72,11 +76,11 @@
     <div class="container nav">
       <a class="brand" href="/" aria-label="株式会社エイト トップへ">株式会社エイト<small>EIGHT INC.</small></a>
       <nav class="nav-links" aria-label="メインナビゲーション">
-        <a href="/">8RENT トップ</a>
-        <a href="#pc-uses">こんなときに</a>
+        <a href="/">8EC トップ</a>
+        <a href="/rent">レンタル</a>
+        <a href="/buy">購入</a>
         <a href="#pc-setup">設定・キッティング</a>
-        <a href="/cloud.html">クラウド情シス</a>
-        <a class="btn btn-primary btn-small" href="/quote">まとめて見積</a>
+        <a class="btn btn-primary btn-small" href="/quote">まとめて相談</a>
       </nav>
     </div>
   </header>

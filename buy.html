@@ -1,0 +1,1340 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>法人IT機器の販売 8EC｜新品・整備済みPCとIT機器を法人向けに</title>
+<meta name="description" content="新品・整備済みのIT機器を法人向けに販売します。ノートPC・デスクトップ・モニター・ネットワーク機器。在庫に無いものは国内大手ITディストリビューターの商品から幅広くお取り寄せできます。キッティング・初期設定もあわせて承ります。請求書払いに対応。">
+<meta name="theme-color" content="#1B1D1A">
+<meta name="robots" content="index,follow,max-image-preview:large">
+<link rel="canonical" href="https://www.8ec.jp/buy">
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="8EC">
+<meta property="og:title" content="法人IT機器の販売 8EC">
+<meta property="og:description" content="新品・整備済みのIT機器を法人向けに販売します。お取り寄せもご相談ください。">
+<meta property="og:url" content="https://www.8ec.jp/buy">
+<meta property="og:locale" content="ja_JP">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Inter:wght@400;500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,300,0,0&display=block">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/assets/catalog.js"></script>
+<style>
+/* ===================================================================
+   トップ（/）＝ 8RENT。
+   見た目はデザインZIPの「8RENT 法人PCレンタル」を正とし、その描画結果の
+   デザイントークン（色・角丸・余白・字送り）とコンポーネントCSSをそのまま使う。
+   レイアウトは各要素のインラインスタイルで、デザイン側と1対1に対応させている。
+   商品・写真・在庫・料金は /zaiko の実データ（inv_public_catalog）から描く。
+   =================================================================== */
+.sc-host.sc-has-error { position: relative; }
+@media print {
+  @page { margin: 0.5cm; }
+  figure, table { break-inside: avoid; }
+  #dc-root, #dc-root > .sc-host { height: auto; }
+  *, ::before, ::after { print-color-adjust: exact; backdrop-filter: none !important; animation-delay: -99s !important; animation-duration: 0.001s !important; animation-iteration-count: 1 !important; animation-fill-mode: both !important; animation-play-state: running !important; transition-duration: 0s !important; }
+}
+
+x-dc { display: none !important; }
+
+.scp0:hover { background: rgb(239, 239, 233) !important; }
+.scp1:hover { background: rgb(178, 217, 44) !important; }
+.scp2:hover { background: rgb(246, 252, 226) !important; }
+.scp3:hover { border-color: rgb(199, 237, 62) !important; background: rgb(246, 252, 226) !important; }
+.scp4:hover { border-color: rgb(199, 237, 62) !important; }
+
+html, body { height: 100%; margin: 0px; }
+#dc-root, #dc-root > .sc-host { height: 100%; }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+:root { --color-bg: #f3f2f2; --color-surface: #eae9e9; --color-text: #201e1d; --color-accent: #0088b0; --color-accent-2: #d6006c; --color-divider: color-mix(in srgb, #201e1d 16%, transparent); --color-neutral-100: #f8f4f4; --color-neutral-200: #eae7e7; --color-neutral-300: #d7d3d3; --color-neutral-400: #bab6b6; --color-neutral-500: #9b9797; --color-neutral-600: #7d7979; --color-neutral-700: #605d5d; --color-neutral-800: #444141; --color-neutral-900: #2d2b2b; --color-accent-100: #e9f8ff; --color-accent-200: #cbeeff; --color-accent-300: #99e0ff; --color-accent-400: #62c5ee; --color-accent-500: #38a6cf; --color-accent-600: #1186ac; --color-accent-700: #006786; --color-accent-800: #004961; --color-accent-900: #0a303e; --color-accent-2-100: #fff1f4; --color-accent-2-200: #ffdee6; --color-accent-2-300: #ffc0d0; --color-accent-2-400: #ff90b1; --color-accent-2-500: #ff458e; --color-accent-2-600: #d82071; --color-accent-2-700: #aa0b56; --color-accent-2-800: #790e3d; --color-accent-2-900: #4b1528; --color-process-yellow: #edbb00; --font-heading: "Source Serif 4", system-ui, sans-serif; --font-heading-weight: 600; --font-body: "Source Serif 4", system-ui, sans-serif; --space-1: 5.0px; --space-2: 10.0px; --space-3: 15.0px; --space-4: 20.0px; --space-6: 30.0px; --space-8: 40.0px; --radius-sm: 1px; --radius-md: 2px; --radius-lg: 4px; --shadow-sm: 0 1px 2px color-mix(in srgb, #2d2b2b 14%, transparent); --shadow-md: 0 3px 10px color-mix(in srgb, #2d2b2b 16%, transparent); --shadow-lg: 0 12px 32px color-mix(in srgb, #2d2b2b 22%, transparent); }
+body { background: var(--color-bg); color: var(--color-text); font-family: var(--font-body); }
+h1, h2, h3, h4 { font-family: var(--font-heading); font-weight: var(--font-heading-weight); }
+.halftone { position: relative; filter: grayscale(0.35) contrast(1.15); overflow: hidden; }
+.halftone::after { content: ""; position: absolute; inset: 0px; pointer-events: none; background-image: radial-gradient(circle, rgba(0, 0, 0, 0.22) 30%, transparent 32%); background-size: 3px 3px; mix-blend-mode: multiply; }
+.cmyk { position: relative; overflow: hidden; background: var(--color-bg); }
+.cmyk img:first-child { opacity: 0; }
+.cmyk img + img { position: absolute; inset: 0px; width: 100%; height: 100%; object-fit: cover; mix-blend-mode: multiply; }
+.cmyk .sep-c { filter: url("#sep-c"); }
+.cmyk .sep-m { filter: url("#sep-m"); }
+.cmyk .sep-y { filter: url("#sep-y"); }
+.cmyk .sep-k { filter: url("#sep-k"); }
+.cmyk::after { content: ""; position: absolute; inset: 0px; pointer-events: none; background-image: radial-gradient(circle, rgba(0, 0, 0, 0.22) 30%, transparent 32%); background-size: 3px 3px; mix-blend-mode: multiply; }
+.cmyk .print { position: relative; width: 100%; filter: url("#sep-all"); }
+@media (prefers-reduced-motion: reduce), (hover: none), (pointer: coarse) {
+  .cmyk .print:hover { filter: none; }
+}
+.cmyk .print image-slot { width: 100%; height: 100%; display: block; }
+.cmyk-num { --cmyk-num-ground: var(--color-bg); position: relative; width: fit-content; line-height: 0.9; font-feature-settings: "pnum"; background: var(--cmyk-num-ground); padding: 0.12em; margin: -0.12em; }
+.cmyk-num .paper { color: var(--color-bg); text-shadow: 0.036em 0.025em 0 var(--color-bg),-0.031em -0.023em 0 var(--color-bg); }
+.cmyk-num .plate { position: absolute; inset: 0.12em; mix-blend-mode: multiply; text-box: cap alphabetic; }
+.cmyk-num .plate-c { color: var(--color-accent); }
+.cmyk-head { position: relative; }
+.cmyk-head .paper { color: var(--color-bg); text-shadow: 0.027em 0.0185em 0 var(--color-bg),-0.0245em -0.0175em 0 var(--color-bg); }
+.cmyk-head .plate { position: absolute; inset: 0px; mix-blend-mode: multiply; pointer-events: none; user-select: none; text-box: cap alphabetic; }
+.cmyk-head .plate-c { color: var(--color-accent); }
+.cmyk-head .plate-m { color: var(--color-accent-2); translate: calc(0.018em + 0.009em*var(--press-nx, 0)) calc(0.0125em + 0.006em*var(--press-ny, 0)); }
+.cmyk-head .plate-y { color: var(--color-process-yellow); translate: calc(-0.0155em + 0.009em*var(--press-nx, 0)) calc(-0.0115em + 0.006em*var(--press-ny, 0)); }
+.cmyk-num .plate-m { color: var(--color-accent-2); translate: calc(0.036em + 0.018em*var(--press-nx, 0)) calc(0.025em + 0.0125em*var(--press-ny, 0)); }
+.cmyk-num .plate-y { color: var(--color-process-yellow); translate: calc(-0.031em + 0.018em*var(--press-nx, 0)) calc(-0.023em + 0.0125em*var(--press-ny, 0)); }
+*, ::before, ::after { box-sizing: border-box; }
+body { margin: 0px; font-size: 15px; line-height: 1.55; font-weight: 400; }
+h1, h2, h3, h4, h5, h6 { font-family: var(--font-heading); font-weight: var(--font-heading-weight); line-height: 1.12; letter-spacing: -0.015em; margin: 0 0 var(--space-2); }
+h1 { font-size: 42px; }
+h2 { font-size: 32px; }
+h3 { font-size: 25px; }
+h4 { font-size: 20px; }
+h5 { font-size: 16px; }
+h6 { font-size: 13px; }
+h6 { letter-spacing: 0.08em; text-transform: uppercase; }
+p { margin: 0 0 var(--space-3); }
+a { color: var(--color-accent); text-underline-offset: 3px; }
+img { display: block; max-width: 100%; }
+figure { margin: 0px; }
+figcaption { font-size: 11px; margin-top: var(--space-1); color: color-mix(in srgb, var(--color-text) 55%, transparent); }
+.text-muted { color: color-mix(in srgb, var(--color-text) 55%, transparent); }
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+::selection { background: color-mix(in srgb, var(--color-accent) 30%, transparent); }
+.hr { height: 1px; border: 0px; margin: var(--space-4) 0; background: var(--color-divider); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; text-decoration: none; font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 14px; line-height: 1.2; color: var(--color-text); background: transparent; border: 1px solid transparent; padding: var(--space-2) calc(var(--space-3) * 1.2); border-radius: var(--radius-md); }
+.btn svg { display: block; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-primary { background: var(--color-accent); color: var(--color-bg); }
+.btn-primary:hover { background: var(--color-accent-600); }
+.btn-primary:active { background: var(--color-accent-700); }
+.btn-secondary { border-color: var(--color-divider); }
+.btn-secondary:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+.btn-secondary:active { background: color-mix(in srgb, var(--color-text) 14%, transparent); }
+.btn-ghost { color: var(--color-accent); padding-inline: var(--space-1); }
+.btn-ghost:hover { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+.btn-ghost:active { background: color-mix(in srgb, var(--color-accent) 18%, transparent); }
+.btn-icon { width: 36px; height: 36px; padding: 0px; }
+.btn-block { width: 100%; margin-top: var(--space-2); }
+.field > label { display: block; font-size: 12px; margin-bottom: 5px; color: color-mix(in srgb, var(--color-text) 70%, transparent); }
+.input { width: 100%; min-height: 36px; padding: 6px 10px; font-style: inherit; font-variant: inherit; font-weight: inherit; font-stretch: inherit; line-height: inherit; font-family: inherit; font-optical-sizing: inherit; font-size-adjust: inherit; font-kerning: inherit; font-feature-settings: inherit; font-variation-settings: inherit; font-size: 14px; color: var(--color-text); caret-color: var(--color-accent); background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: var(--radius-md); }
+.input::placeholder { color: color-mix(in srgb, var(--color-text) 65%, transparent); opacity: 1; }
+.input:hover { border-color: color-mix(in srgb, var(--color-text) 45%, transparent); }
+.input:focus-visible { border-color: var(--color-accent); outline-offset: 0px; }
+textarea.input { min-height: 90px; resize: vertical; }
+.radio { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; }
+.radio input, .seg-opt input { position: absolute; opacity: 0; width: 0px; height: 0px; pointer-events: none; }
+.radio .dot { width: 16px; height: 16px; flex: 0 0 auto; border-radius: 50%; border: 1.5px solid var(--color-divider); }
+.radio:hover .dot { border-color: var(--color-accent); }
+.radio input:checked + .dot { border-color: var(--color-accent); background: var(--color-accent); box-shadow: inset 0 0 0 4px var(--color-bg); }
+.radio input:focus-visible + .dot { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.seg { display: inline-flex; overflow: hidden; border: 1px solid var(--color-divider); border-radius: var(--radius-md); }
+.seg-opt { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; font-size: 13px; cursor: pointer; }
+.seg-opt + .seg-opt { border-left: 1px solid var(--color-divider); }
+.seg-opt:has(input:checked) { background: var(--color-accent); color: var(--color-bg); }
+.seg-opt:not(:has(input:checked)):hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+.seg-opt:has(input:focus-visible) { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.card { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border-radius: var(--radius-md); background: var(--color-surface); }
+.card-kicker { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent); }
+.card-title { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 17px; line-height: 1.2; }
+.card-body { margin: 0px; font-size: 13px; opacity: 0.8; flex: 1 1 0%; }
+.card-meta { display: flex; align-items: center; gap: 6px; font-size: 11px; color: color-mix(in srgb, var(--color-text) 50%, transparent); }
+.elev-sm { box-shadow: var(--shadow-sm); }
+.elev-md { box-shadow: var(--shadow-md); }
+.elev-lg { box-shadow: var(--shadow-lg); }
+.tag { display: inline-flex; align-items: center; font-size: 11px; letter-spacing: 0.02em; padding: 3px 10px; border-radius: calc(var(--radius-md) * 0.75); }
+.tag-accent { background: var(--color-accent-100); color: var(--color-accent-800); }
+.tag-accent-2 { background: var(--color-accent-2-100); color: var(--color-accent-2-800); }
+.tag-neutral { background: var(--color-neutral-100); color: var(--color-neutral-800); }
+.tag-outline { border: 1px solid var(--color-accent); color: var(--color-accent); }
+.nav { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-3) var(--space-4); border-bottom: none; }
+.nav-brand { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 18px; margin-right: auto; }
+.nav a { color: inherit; text-decoration: none; font-size: 14px; }
+.nav a:hover, .nav a[aria-current="page"] { color: var(--color-accent); }
+.table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.table th { text-align: left; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: color-mix(in srgb, var(--color-text) 60%, transparent); padding: var(--space-2); border-bottom: 1px solid var(--color-divider); }
+.table td { padding: var(--space-2); border-bottom: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent); }
+.table tbody tr:hover { background: color-mix(in srgb, var(--color-text) 4%, transparent); }
+.dialog-backdrop { position: fixed; inset: 0px; display: grid; place-items: center; padding: var(--space-4); background: color-mix(in srgb, var(--color-neutral-900) 50%, transparent); }
+.dialog { width: min(440px, 100%); display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: var(--shadow-lg); }
+.dialog-title { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 20px; }
+.dialog-body { font-size: 14px; opacity: 0.85; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+.material-symbols-outlined { font-family: "Material Symbols Outlined"; font-weight: normal; font-style: normal; font-size: 24px; line-height: 1; letter-spacing: normal; text-transform: none; display: inline-block; white-space: nowrap; overflow-wrap: normal; direction: ltr; font-feature-settings: "liga"; -webkit-font-smoothing: antialiased; }
+
+:root { --font-heading: 'Zen Kaku Gothic New', sans-serif; --font-body: 'Zen Kaku Gothic New', sans-serif; --color-bg: #FFFFFF; --color-surface: #F7F7F2; --color-text: #1B1D1A; --color-divider: color-mix(in srgb, #1B1D1A 13%, transparent); --lime: #C7ED3E; --lime-press: #B2D92C; --charcoal: #1B1D1A; --color-accent: #C7ED3E; --color-accent-100: #F6FCE2; --color-accent-200: #EDF9C4; --color-accent-300: #DCF48C; --color-accent-400: #C7ED3E; --color-accent-500: #A6C92A; --color-accent-600: #7E9B1C; --color-accent-700: #5E7414; --color-accent-800: #43530E; --color-accent-900: #2C3709; --color-accent-2: #1B1D1A; --color-accent-2-100: #F1F1EE; --color-accent-2-200: #E3E3DE; --color-accent-2-300: #C6C7C0; --color-accent-2-400: #8C8E86; --color-accent-2-500: #55574F; --color-accent-2-600: #3A3C35; --color-accent-2-700: #2A2C26; --color-accent-2-800: #1B1D1A; --color-accent-2-900: #111210; --color-neutral-100: #F7F7F2; --color-neutral-200: #EFEFE9; --color-neutral-300: #E0E0D8; --color-neutral-400: #C4C5BB; --color-neutral-500: #9A9B90; --color-neutral-600: #6C6E64; --color-neutral-700: #4A4C43; --color-neutral-800: #2A2C26; --color-neutral-900: #1B1D1A; }
+body { margin: 0px; background: rgb(255, 255, 255); color: rgb(27, 29, 26); font-family: "Zen Kaku Gothic New", sans-serif; text-size-adjust: 100%; }
+h1, h2, h3, h4 { font-family: "Zen Kaku Gothic New", sans-serif; font-weight: 700; letter-spacing: -0.025em; line-height: 1.22; margin: 0px; }
+a { color: rgb(94, 116, 20); text-decoration: none; }
+a:hover { color: rgb(67, 83, 14); text-decoration: underline; }
+.num { font-family: Inter, sans-serif; font-feature-settings: "tnum"; letter-spacing: -0.035em; }
+.ms { font-family: "Material Symbols Outlined"; font-weight: 300; line-height: 1; font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24; }
+table.table th { font-size: 11px; letter-spacing: 0.04em; color: rgb(108, 110, 100); font-weight: 700; white-space: nowrap; }
+image-slot { --is-bg: #EFEFE9; }
+
+/* ==== 実データ表示のために足したぶん ==== */
+
+/* ---- アイコン -------------------------------------------------------- */
+/* アイコンフォントが読めなかったときに合字の文字列がそのまま出て横幅を
+   押し広げないよう、字面の幅を1文字ぶんに固定しておく */
+.ms { display: inline-block; width: 1em; overflow: hidden; }
+
+/* ---- 写真枠 ---------------------------------------------------------- */
+/* ヒーロー・事例は枠いっぱい（cover）、商品写真は機器全体を見せる（contain） */
+.ph-fill { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ph-none { width: 100%; height: 100%; display: grid; place-items: center; gap: 6px;
+  background: var(--color-surface); color: #9A9B90; font-size: 11.5px; font-weight: 700; }
+.ph-none .ms { font-size: 26px; }
+/* 商品写真の枠。白地・中央寄せ・機器の全体が入る大きさ（contain）。
+   元画像より大きくは出さない（max-width/height だけを指定し、幅は auto のまま） */
+.pbox { width: 100%; aspect-ratio: 4 / 3; box-sizing: border-box; padding: 10px;
+  background: #fff; display: grid; place-items: center; overflow: hidden; }
+.pimg { max-width: 100%; max-height: 100%; width: auto; height: auto;
+  object-fit: contain; display: block; }
+
+/* ---- 状態表示 -------------------------------------------------------- */
+.state { padding: 40px 0; text-align: center; color: #6C6E64; font-size: 13.5px; }
+.state.err { color: #B3261E; font-weight: 700; }
+
+/* ---- 商品詳細モーダル ------------------------------------------------ */
+#dlgOv { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 16px;
+  background: rgba(27,29,26,.55); opacity: 0; visibility: hidden; transition: opacity .18s, visibility .18s; }
+#dlgOv.open { opacity: 1; visibility: visible; }
+.dlg { width: min(680px, 100%); max-height: 92vh; overflow-y: auto; background: #fff; border-radius: 4px;
+  box-shadow: 0 30px 80px rgba(27,29,26,.4); }
+.dlg-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: flex-start; gap: 12px;
+  padding: 20px 22px 14px; background: #fff; border-bottom: 1px solid var(--color-divider); }
+.dlg-head h3 { font-size: 19px; line-height: 1.35; margin: 0; }
+.dlg-head .x { margin-left: auto; width: 34px; height: 34px; flex: none; border: 1px solid var(--color-divider);
+  background: #fff; border-radius: 2px; cursor: pointer; font-size: 17px; line-height: 1; }
+.dlg-body { padding: 18px 22px 26px; }
+/* 代表画像1枚。元画像より大きく引き伸ばさない（上限はJSが自然サイズで付ける） */
+.dlg-media { display: grid; place-items: center; min-height: 200px; padding: 10px 0; margin-bottom: 16px;
+  background: #fff; border: 1px solid var(--color-divider); border-radius: 3px; }
+.dlg-media img { max-width: 100%; max-height: 420px; width: auto; height: auto; object-fit: contain; }
+.dt-specs { display: grid; grid-template-columns: 104px 1fr; gap: 8px 14px; font-size: 13px; margin: 0 0 16px;
+  padding: 14px 16px; background: var(--color-surface); border-radius: 3px; }
+.dt-specs dt { color: #6C6E64; }
+.dt-specs dd { margin: 0; }
+.dt-buy { display: flex; align-items: center; gap: 8px; margin-top: 16px; padding-top: 14px;
+  border-top: 1px solid var(--color-divider); font-size: 12.5px; color: #4A4C43; }
+
+/* ---- 申込・相談フォーム ---------------------------------------------- */
+.f-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.f-row { margin-bottom: 12px; }
+.f-row > span { display: block; font-size: 11px; font-weight: 700; color: #6C6E64; margin-bottom: 6px; }
+.f-row .req { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 2px;
+  background: var(--charcoal); color: #fff; font-size: 9.5px; }
+textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
+.hp { position: absolute; left: -9999px; }
+.alert { margin-bottom: 12px; padding: 11px 13px; border-radius: 3px; background: #FDECEA; color: #B3261E;
+  font-size: 12.5px; font-weight: 700; }
+.input.bad { border-color: #B3261E; }
+.done { text-align: center; padding: 26px 10px; }
+.done .ic { width: 50px; height: 50px; margin: 0 auto 12px; display: grid; place-items: center;
+  border-radius: 50%; background: var(--lime); font-size: 23px; font-weight: 800; }
+.privacy { margin-top: 10px; font-size: 11px; color: #9A9B90; text-align: center; }
+#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(10px); z-index: 120;
+  padding: 11px 18px; border-radius: 3px; background: var(--charcoal); color: #fff; font-size: 13px;
+  opacity: 0; visibility: hidden; transition: .2s; }
+#toast.on { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
+
+/* ---- スマートフォン -------------------------------------------------- */
+@media (max-width: 720px) {
+  .f-grid { grid-template-columns: 1fr; }
+  .dt-specs { grid-template-columns: 88px 1fr; }
+}
+
+/* ---- 申込フォームの「仕様を選ぶ」 -------------------------------------- */
+.spec-list { display: grid; gap: 6px; margin-top: 6px; }
+.spec-opt { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer;
+  border: 1px solid var(--color-divider); border-radius: 3px; background: #fff; font-size: 13px; }
+.spec-opt:hover { border-color: var(--lime); background: #F6FCE2; }
+.spec-opt input { accent-color: #7E9B1C; flex: none; }
+.spec-opt > span { display: flex; flex: 1 1 auto; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.spec-opt .n { margin-left: auto; font-size: 11.5px; font-weight: 700; color: #6C6E64; white-space: nowrap; }
+
+/* いま何台出せるか。条件を変えるたびに出し直す */
+.avail-note { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 14px; padding: 11px 13px;
+  border-radius: 3px; font-size: 12.5px; line-height: 1.7; }
+.avail-note .ms { font-size: 17px; flex: none; }
+.avail-note.now { background: #F6FCE2; color: #43530E; }
+.avail-note.order { background: #FFF4E5; color: #7A4E00; }
+.avail-note.none { background: #FDECEC; color: #8C1D18; }
+
+/* ---- 企業向けパッケージ：現地作業は基本料金に含まない ------------------
+   「対応できる」と「表示価格に含まれる」を混同させないための注記と、
+   含むものから外したぶんを出す有料オプション枠 */
+.pack-note { font-size: 11.5px; line-height: 1.7; color: #6C6E64; }
+.pack-opt { margin-top: 10px; padding: 10px 12px; border: 1px dashed var(--color-divider);
+  border-radius: 3px; background: #FAFAF7; font-size: 12px; line-height: 1.65; color: #4A4C43; }
+.pack-opt .h { font-size: 10.5px; letter-spacing: .1em; font-weight: 700; color: #7A4E00; margin-bottom: 4px; }
+
+/* ---- カテゴリーから探す ----------------------------------------------
+   カテゴリーマスターの全件を、省略せず最初から出す。横スクロール・
+   「もっと見る」で隠さない。PCは3列、スマートフォンは2列（狭い端末は1列）。 */
+#catTiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.cat-tile { display: flex; align-items: center; gap: 12px; text-align: left; width: 100%;
+  border: 1px solid var(--color-divider); background: #fff; border-radius: 3px;
+  padding: 15px 16px; cursor: pointer; font: inherit; }
+.cat-tile:hover { border-color: var(--lime); background: #FBFDF3; }
+.cat-tile .ms { font-size: 26px; color: var(--charcoal); flex: none; }
+.cat-tile .t { font-size: 13.5px; font-weight: 700; line-height: 1.4; }
+.cat-tile .n { font-size: 11px; color: #6C6E64; margin-top: 2px; }
+.cat-tile.on { border-color: var(--charcoal); background: #F6FCE2; }
+.cat-tile.on .n { color: #43530E; }
+.cat-tile.zero .t, .cat-tile.zero .ms { color: #6C6E64; }
+@media (max-width: 860px) { #catTiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 430px) { #catTiles { grid-template-columns: 1fr; } }
+
+/* パソコンを選んだときに出る、ノートパソコン／デスクトップパソコンの絞り込み */
+#catKids:empty { display: none; }
+#catKids { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px;
+  padding: 12px 14px; border: 1px solid var(--color-divider); border-radius: 3px; background: #FBFDF3; }
+#catKids .lbl { font-size: 12px; color: #6C6E64; font-weight: 700; margin-right: 2px; }
+.cat-kid { border: 1px solid var(--color-divider); background: #fff; border-radius: 2px;
+  padding: 8px 14px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.cat-kid:hover { border-color: var(--lime); }
+.cat-kid .num { color: #6C6E64; font-weight: 500; font-size: 11.5px; }
+.cat-kid.on { border-color: var(--charcoal); background: var(--charcoal); color: #fff; }
+.cat-kid.on .num { color: #C6C7C0; }
+
+</style>
+<link rel="stylesheet" href="/assets/shop.css">
+</head>
+<body>
+<div style="min-height: 100vh; background: rgb(255, 255, 255); padding-bottom: 0px;">
+
+  <div style="position: sticky; top: 0px; z-index: 40; background: rgba(255, 255, 255, 0.97); backdrop-filter: blur(8px); border-bottom: 1px solid var(--color-divider);">
+    <div style="max-width: 1240px; margin: 0px auto; padding: 0px 24px; display: flex; align-items: center; gap: 16px; min-height: 66px; flex-wrap: wrap;">
+      <a href="/" style="display: flex; align-items: center; gap: 9px; text-decoration: none; margin-right: auto;"><img src="/assets/eight-logo.svg" alt="8EC（エイトイーシー）" decoding="async" style="height: 30px; width: auto; display: block;"><span style="font-size: 12px; font-weight: 700; color: rgb(108, 110, 100); letter-spacing: .04em;">法人IT調達</span></a>
+      <div style="display: flex; gap: 4px; align-items: center; position: relative;">
+        <a href="#catalog" style="border: 0px; background: transparent; color: rgb(27, 29, 26); font-weight: 700; font-size: 14px; font-family: inherit; padding: 9px 12px; cursor: pointer; text-decoration: none;">販売商品</a><a href="/rent" style="border: 0px; background: transparent; color: rgb(27, 29, 26); font-weight: 700; font-size: 14px; font-family: inherit; padding: 9px 12px; cursor: pointer; text-decoration: none;">レンタル</a><a href="/pc" style="border: 0px; background: transparent; color: rgb(27, 29, 26); font-weight: 700; font-size: 14px; font-family: inherit; padding: 9px 12px; cursor: pointer; text-decoration: none;">法人PC</a><a href="/" style="border: 0px; background: transparent; color: rgb(27, 29, 26); font-weight: 700; font-size: 14px; font-family: inherit; padding: 9px 12px; cursor: pointer; text-decoration: none;">8ECトップ</a>
+      </div>
+      <div style="display: flex; gap: 8px; align-items: center; margin-left: auto;">
+        <a href="#contact" class="btn btn-secondary" style="font-size: 13.5px; min-height: 42px; border-color: rgb(27, 29, 26); color: rgb(27, 29, 26);text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;">お問い合わせ</a>
+        <a href="/quote" class="btn btn-primary" style="font-size: 13.5px; min-height: 42px; background: rgb(199, 237, 62); border-color: rgb(199, 237, 62); color: rgb(27, 29, 26); font-weight: 700;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;">まとめて相談</a>
+      </div>
+    </div>
+  </div>
+  <div>
+
+    <div style="background: rgb(247, 247, 242); border-bottom: 1px solid var(--color-divider);">
+      <div style="max-width: 1240px; margin: 0px auto; padding: 0px 24px;">
+        <div style="display: flex; gap: 30px; flex-wrap: wrap; align-items: center; padding: 60px 0px 54px;">
+          <div style="flex: 1 1 52%; min-width: 280px;">
+            <div style="display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11.5px; font-weight: 700; margin-bottom: 22px;">
+              <span style="background: rgb(27, 29, 26); color: rgb(255, 255, 255); padding: 6px 11px; border-radius: 2px; letter-spacing: 0.04em;">法人向け販売</span>
+              <span style="background: rgb(27, 29, 26); color: rgb(255, 255, 255); padding: 6px 11px; border-radius: 2px; letter-spacing: 0.04em;">新品・整備済み</span>
+              <span style="background: rgb(199, 237, 62); color: rgb(27, 29, 26); padding: 6px 11px; border-radius: 2px; letter-spacing: 0.04em;">請求書払い可</span>
+            </div>
+            <h1 style="font-size: clamp(34px, 5vw, 62px); line-height: 1.16; letter-spacing: -0.04em; font-weight: 900;">買って使う、<br>という選び方。</h1>
+            <p style="font-size: 16px; line-height: 1.85; color: rgb(74, 76, 67); margin: 20px 0px 0px; max-width: 34em; text-wrap: pretty;">長く使う機器は購入がお得なこともあります。新品・整備済みのIT機器を法人向けに販売します。在庫に無いものは、国内大手ITディストリビューターの商品から幅広くお取り寄せできます。キッティングや初期設定もあわせてご依頼いただけます。</p>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 28px;">
+              <a href="#catalog" class="btn btn-primary" style="min-height: 60px; font-size: 17.5px; font-weight: 700; padding-inline: 32px; background: rgb(199, 237, 62); border-color: rgb(199, 237, 62); color: rgb(27, 29, 26); border-radius: 3px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;">購入できる商品を見る</a>
+              <a href="/quote" class="btn btn-secondary" style="min-height: 60px; font-size: 15px; padding-inline: 24px; border-color: rgb(27, 29, 26); color: rgb(27, 29, 26); border-radius: 3px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;">台数・構成を相談する</a>
+              <a href="/rent" class="btn btn-secondary" style="min-height: 60px; font-size: 15px; padding-inline: 24px; border-color: var(--color-divider); color: rgb(27, 29, 26); border-radius: 3px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;">レンタルをお考えの方へ</a>
+            </div>
+            <p style="font-size: 12.5px; color: rgb(108, 110, 100); line-height: 1.8; margin: 22px 0px 0px;">
+              この画面での即時決済はまだ承っていません。ご希望の商品と台数をお知らせいただくと、お見積りと納期をご案内します。</p>
+          </div>
+          <div style="flex: 1 1 38%; min-width: 260px;">
+            <div style="position: relative; width: 100%; aspect-ratio: 4 / 3; border-radius: 4px; overflow: hidden;">
+              <img src="/assets/8ec-hero.webp" alt="オフィスに並ぶノートPCとモニター" class="ph-fill" width="996" height="672" fetchpriority="high" decoding="async">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- ===== 販売商品 =====
+         販売はレンタルと逆で、価格・状態・在庫ありかどうかまで出す。
+         ただし「残り何台か」は出さない（数量は社内管理の数字）。 -->
+    <div id="catalog" class="shop" style="max-width: 1240px; margin: 0px auto; padding: 56px 24px 0px;">
+      <div id="buyDetail"></div>
+      <div id="buyList">
+        <div style="display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 8px;">
+          <div>
+            <div style="font-size: 11.5px; letter-spacing: 0.14em; color: rgb(94, 116, 20); font-weight: 700; margin-bottom: 8px;">PRODUCTS</div>
+            <h2 style="font-size: 34px; letter-spacing: -0.035em;">購入できる商品</h2>
+          </div>
+          <p style="font-size: 13px; color: rgb(108, 110, 100); line-height: 1.8; margin: 0px 0px 6px; flex: 1 1 320px;">
+            価格は税抜・1台あたりです。<strong>複数台のお見積りはご相談ください</strong>。
+            価格が未設定の商品は、構成を伺ってからお見積りします。</p>
+        </div>
+        <div class="c-tabs" id="catTabs"></div>
+        <div class="p-grid" id="productGrid">
+          <div class="p-state">商品を読み込んでいます…</div>
+        </div>
+        <p style="font-size: 12.5px; color: rgb(108, 110, 100); line-height: 1.85; margin: 18px 0px 0px;">
+          「在庫あり」はすぐに手配できる商品、「取り寄せ可能」はお取り寄せでご用意する商品です。
+          納期は台数と構成によって変わりますので、お見積り時にご案内します。</p>
+      </div>
+    </div>
+    <!-- ===== 購入の流れ ===== -->
+    <div class="shop" style="max-width: 1240px; margin: 0px auto; padding: 60px 24px 0px;">
+      <div style="font-size: 11.5px; letter-spacing: 0.14em; color: rgb(94, 116, 20); font-weight: 700; margin-bottom: 8px;">FLOW</div>
+      <h2 style="font-size: 34px; letter-spacing: -0.035em;">購入の流れ</h2>
+      <p style="font-size: 14.5px; color: rgb(74, 76, 67); margin: 10px 0px 22px; max-width: 42em; line-height: 1.85;">
+        この画面での即時決済はまだ承っていません。ご希望の商品と台数をお知らせいただき、お見積りと納期をご案内してからのご注文になります。</p>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px;">
+        <div style="border: 1px solid var(--color-divider); border-radius: 3px; padding: 20px 20px 18px; background: rgb(255,255,255);">
+          <div style="font-size: 11px; font-weight: 700; color: rgb(126, 155, 28); letter-spacing: .1em;">STEP 1</div>
+          <div style="font-size: 17px; font-weight: 700; margin: 6px 0px 6px;">ご相談</div>
+          <p style="font-size: 13px; color: rgb(74, 76, 67); line-height: 1.8; margin: 0px;">商品ページの［この商品を購入相談する］から、台数と希望納期をお知らせください。機種が決まっていなければ、用途だけでも構いません。</p>
+        </div>
+        <div style="border: 1px solid var(--color-divider); border-radius: 3px; padding: 20px 20px 18px; background: rgb(255,255,255);">
+          <div style="font-size: 11px; font-weight: 700; color: rgb(126, 155, 28); letter-spacing: .1em;">STEP 2</div>
+          <div style="font-size: 17px; font-weight: 700; margin: 6px 0px 6px;">お見積り</div>
+          <p style="font-size: 13px; color: rgb(74, 76, 67); line-height: 1.8; margin: 0px;">在庫と調達状況を確認し、1〜2営業日以内にお見積りと納期をお送りします。キッティングや設定が必要なら、あわせてお見積りします。</p>
+        </div>
+        <div style="border: 1px solid var(--color-divider); border-radius: 3px; padding: 20px 20px 18px; background: rgb(255,255,255);">
+          <div style="font-size: 11px; font-weight: 700; color: rgb(126, 155, 28); letter-spacing: .1em;">STEP 3</div>
+          <div style="font-size: 17px; font-weight: 700; margin: 6px 0px 6px;">ご注文・納品</div>
+          <p style="font-size: 13px; color: rgb(74, 76, 67); line-height: 1.8; margin: 0px;">お見積りにご承諾いただいてからのご注文です。お支払いは請求書払い（月末締め翌月末払い）に対応しています。設定して発送することもできます。</p>
+        </div>
+      </div>
+    </div>
+    <!-- ===== 新品調達 =====
+         「在庫に無ければ終わり」ではないことを、商品数ではなく
+         「探して揃えられる」という形で伝える。
+         取引先の社名・ロゴは、表記の許可が確認できるまで出さない。 -->
+    <div style="max-width: 1240px; margin: 0px auto; padding: 56px 24px 0px;">
+      <div style="background: rgb(27, 29, 26); border-radius: 4px; padding: 36px 32px 32px; color: rgb(255, 255, 255);">
+        <div style="font-size: 11.5px; letter-spacing: 0.14em; color: rgb(199, 237, 62); font-weight: 700; margin-bottom: 8px;">SOURCING</div>
+        <h2 style="font-size: 30px; letter-spacing: -0.035em; color: rgb(255, 255, 255);">在庫に無いものも、お探しします。</h2>
+        <p style="font-size: 14.5px; line-height: 1.9; color: rgb(198, 199, 192); margin: 14px 0px 0px; max-width: 44em; text-wrap: pretty;">自社の整備済み在庫に加えて、<strong style="color: rgb(255, 255, 255);">国内大手ITディストリビューターの商品を幅広く調達できます。</strong>「在庫が無いので出せません」で終わらせず、必要な台数を組み立ててご用意します。</p>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 26px;">
+          <div style="border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 3px; padding: 18px 16px; background: rgba(255, 255, 255, 0.05);">
+            <div class="num" style="font-size: 11px; font-weight: 900; color: rgb(199, 237, 62); letter-spacing: 0.08em;">01</div>
+            <div style="font-size: 15px; font-weight: 700; margin-top: 8px; color: rgb(255, 255, 255);">自社在庫</div>
+            <div style="font-size: 12px; color: rgb(198, 199, 192); line-height: 1.7; margin-top: 4px;">すぐ出せる整備済みの機器。急ぎのときはここから。</div>
+          </div>
+          <div style="border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 3px; padding: 18px 16px; background: rgba(255, 255, 255, 0.05);">
+            <div class="num" style="font-size: 11px; font-weight: 900; color: rgb(199, 237, 62); letter-spacing: 0.08em;">02</div>
+            <div style="font-size: 15px; font-weight: 700; margin-top: 8px; color: rgb(255, 255, 255);">整備済み機器の手配</div>
+            <div style="font-size: 12px; color: rgb(198, 199, 192); line-height: 1.7; margin-top: 4px;">費用を抑えたいとき。動作確認とクリーニングを済ませてお渡しします。</div>
+          </div>
+          <div style="border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 3px; padding: 18px 16px; background: rgba(255, 255, 255, 0.05);">
+            <div class="num" style="font-size: 11px; font-weight: 900; color: rgb(199, 237, 62); letter-spacing: 0.08em;">03</div>
+            <div style="font-size: 15px; font-weight: 700; margin-top: 8px; color: rgb(255, 255, 255);">新品の調達</div>
+            <div style="font-size: 12px; color: rgb(198, 199, 192); line-height: 1.7; margin-top: 4px;">最新モデルや、まとまった台数が要るとき。複数メーカーから比べてご提案します。</div>
+          </div>
+        </div>
+        <p style="font-size: 13px; color: rgb(198, 199, 192); margin: 22px 0px 0px;">どれを使うかはこちらで組み立てます。お客様に選んでいただく必要はありません。</p>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px;">
+          <a href="/quote" class="btn btn-primary" style="min-height: 54px; font-size: 15.5px; font-weight: 700; padding-inline: 26px; background: rgb(199, 237, 62); border-color: rgb(199, 237, 62); color: rgb(27, 29, 26); border-radius: 3px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;">探してほしいものを伝える</a>
+        </div>
+      </div>
+    </div>
+    <!-- ===== 買うか借りるか迷っている方へ =====
+         ここで二択を迫らない。用途・期間・台数を伺って、こちらが提案する。 -->
+    <div class="shop" style="max-width: 1240px; margin: 0px auto; padding: 60px 24px 0px;">
+      <div class="wonder">
+        <div class="t">
+          <h2>買うか借りるか迷っていますか？</h2>
+          <p>利用期間・台数・用途から、最適な調達方法をご提案します。購入がよいか、レンタルがよいか、
+            組み合わせるか、決めてこなくて大丈夫です。お見積りは無料で、この時点で費用は発生しません。</p>
+        </div>
+        <a href="/quote">まとめて相談する</a>
+      </div>
+    </div>
+    <div id="faq" class="shop" style="max-width: 1240px; margin: 0px auto; padding: 60px 24px 0px;">
+      <div style="font-size: 11.5px; letter-spacing: 0.14em; color: rgb(94, 116, 20); font-weight: 700; margin-bottom: 8px;">FAQ</div>
+      <h2 style="font-size: 34px; letter-spacing: -0.035em;">購入についてよくある質問</h2>
+      <div style="display: grid; gap: 10px; margin-top: 20px;">
+        <details style="border: 1px solid var(--color-divider); border-radius: 3px; background: rgb(255,255,255); padding: 14px 18px;">
+          <summary style="font-size: 15px; font-weight: 700; cursor: pointer;">新品と整備済みの違いは何ですか</summary>
+          <p style="font-size: 13.5px; color: rgb(74, 76, 67); line-height: 1.9; margin: 10px 0px 0px;">新品はメーカー出荷状態の商品です。整備済みは、動作確認・清掃・初期化を済ませた中古品で、価格を抑えたい場合に向いています。どちらも法人向けにご用意できますので、ご予算と使い方に合わせてご提案します。</p>
+        </details>
+        <details style="border: 1px solid var(--color-divider); border-radius: 3px; background: rgb(255,255,255); padding: 14px 18px;">
+          <summary style="font-size: 15px; font-weight: 700; cursor: pointer;">ここに無い機種も買えますか</summary>
+          <p style="font-size: 13.5px; color: rgb(74, 76, 67); line-height: 1.9; margin: 10px 0px 0px;">国内大手ITディストリビューターの商品を幅広くお取り寄せできます。型番が決まっていなくても、用途と台数をお知らせいただければ構成からご提案します。</p>
+        </details>
+        <details style="border: 1px solid var(--color-divider); border-radius: 3px; background: rgb(255,255,255); padding: 14px 18px;">
+          <summary style="font-size: 15px; font-weight: 700; cursor: pointer;">支払い方法と納期を教えてください</summary>
+          <p style="font-size: 13.5px; color: rgb(74, 76, 67); line-height: 1.9; margin: 10px 0px 0px;">請求書払い（月末締め翌月末払い）に対応しています。納期は在庫があるものは数営業日、お取り寄せは商品によって変わりますので、お見積り時にご案内します。</p>
+        </details>
+        <details style="border: 1px solid var(--color-divider); border-radius: 3px; background: rgb(255,255,255); padding: 14px 18px;">
+          <summary style="font-size: 15px; font-weight: 700; cursor: pointer;">買うのとレンタルはどちらが得ですか</summary>
+          <p style="font-size: 13.5px; color: rgb(74, 76, 67); line-height: 1.9; margin: 10px 0px 0px;">長く使う機器は購入、期間が決まっている・台数が変わる可能性がある場合はレンタルが向いています。迷われる場合は、利用期間と台数をお知らせいただければ、購入・レンタル・組み合わせのどれがよいかを含めてご提案します。</p>
+        </details>
+      </div>
+    </div>
+    <div id="contact" style="background: rgb(247, 247, 242); border-top: 1px solid var(--color-divider);">
+    <div style="max-width: 1240px; margin: 0px auto; padding: 64px 24px;">
+      <div style="font-size: 11.5px; font-weight: 700; letter-spacing: 0.12em; color: rgb(126, 155, 28); margin-bottom: 10px;">CONTACT</div>
+      <h2 style="font-size: 34px; letter-spacing: -0.035em;">レンタル・お試し・導入のご相談は無料です。</h2>
+      <p style="font-size: 14.5px; color: rgb(74, 76, 67); line-height: 1.85; margin: 12px 0px 28px; max-width: 42em;">機種が決まっていなくても大丈夫です。用途・台数・ご利用期間を伺い、お試しレンタル・通常レンタル・キッティング・ネットワークまでまとめてご提案します。1〜2営業日以内にご回答します。</p>
+      <div style="display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start;">
+        <div style="flex: 1 1 280px; min-width: 260px; background: rgb(27, 29, 26); color: rgb(255, 255, 255); border-radius: 4px; padding: 28px 24px;">
+          <div style="font-size: 15px; font-weight: 700; margin-bottom: 14px;">こんなご相談に</div>
+          <ul style="list-style: none; margin: 0px 0px 18px; padding: 0px; display: flex; flex-direction: column; gap: 10px; font-size: 13.5px; color: rgb(198, 199, 192);">
+            <li>1台からのお試しレンタル・台数の相談</li>
+            <li>長期レンタル・大量導入のお見積もり</li>
+            <li>キッティング・ネットワーク構築・移転</li>
+            <li>在庫にない機種・型番の調達</li>
+            <li>Supported Plan・スポンサー参加</li>
+            <li>レンタルではなく購入をご希望の場合</li>
+          </ul>
+          <p style="font-size: 12.5px; color: rgb(198, 199, 192); line-height: 1.9; margin: 0px;">お急ぎの場合は <a href="tel:0364335025" style="color: rgb(255, 255, 255); font-weight: 700;">03-6433-5025</a>（平日10:00〜18:00）<br>メール <a href="mailto:nw@8grp.co.jp" style="color: rgb(255, 255, 255); font-weight: 700;">nw@8grp.co.jp</a></p>
+        </div>
+        <div style="flex: 2 1 460px; min-width: 300px; background: rgb(255, 255, 255); border: 1px solid var(--color-divider); border-radius: 4px; padding: 26px;">
+          <div id="formHost">
+            <form id="quoteForm" novalidate aria-label="レンタル・お問い合わせ">
+              <div class="f-grid">
+                <label class="f-row"><span>会社名<span class="req">必須</span></span>
+                  <input class="input" id="fCompany" name="company" autocomplete="organization" placeholder="株式会社エイト"></label>
+                <label class="f-row"><span>お名前<span class="req">必須</span></span>
+                  <input class="input" id="fName" name="name" autocomplete="name" placeholder="山田 太郎"></label>
+              </div>
+              <div class="f-grid">
+                <label class="f-row"><span>メールアドレス<span class="req">必須</span></span>
+                  <input class="input" id="fEmail" name="email" type="email" autocomplete="email" placeholder="taro@example.co.jp"></label>
+                <label class="f-row"><span>電話番号</span>
+                  <input class="input" id="fTel" name="phone" autocomplete="tel" inputmode="tel" placeholder="03-0000-0000"></label>
+              </div>
+              <div class="f-grid">
+                <label class="f-row"><span>ご相談種別</span>
+                  <select class="input" id="fType" name="inquiry_type">
+                    <option>お試しレンタル</option><option>通常レンタル</option><option>大量・長期レンタル</option>
+                    <option>キッティング・設置</option><option>ネットワーク・IT環境</option><option>AIシステム構築</option><option>購入について</option><option>その他</option>
+                  </select></label>
+                <label class="f-row"><span>希望時期</span>
+                  <select class="input" id="fDue" name="due">
+                    <option>できるだけ早く</option><option>1ヶ月以内</option><option>3ヶ月以内</option><option>未定・検討中</option>
+                  </select></label>
+              </div>
+              <label class="f-row"><span>ご相談内容</span>
+                <textarea class="input" id="fBody" name="message" placeholder="用途・台数・ご希望の機種・ご利用期間など、わかる範囲でご記入ください。"></textarea></label>
+              <div class="hp" aria-hidden="true"><label>Webサイト<input name="website" type="text" tabindex="-1" autocomplete="off"></label></div>
+              <div id="alertHost"></div>
+              <button class="btn btn-primary" type="submit" style="width: 100%; min-height: 54px; font-size: 15.5px; font-weight: 700; background: rgb(199, 237, 62); border-color: rgb(199, 237, 62); color: rgb(27, 29, 26); border-radius: 3px;">相談・見積もりを依頼する</button>
+              <p class="privacy">送信により<a href="/privacy.html" target="_blank" rel="noopener">プライバシーポリシー</a>に同意したものとみなします。</p>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div><div style="max-width: 1240px; margin: 0px auto; padding: 60px 24px 80px;">
+      <div style="background: rgb(27, 29, 26); border-radius: 4px; padding: 48px 36px; text-align: center;">
+        <h2 style="font-size: 34px; letter-spacing: -0.035em; color: rgb(255, 255, 255);">まず1台、お試しから。</h2>
+        <p style="font-size: 14.5px; color: rgb(198, 199, 192); margin: 14px auto 28px; max-width: 34em; line-height: 1.85; text-wrap: pretty;">法人限定でノートPCを1台からお試しいただけます。台数が増えたときも、ネットワークまで同じ窓口で対応します。</p>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
+          <a href="#contact" class="btn btn-primary" style="min-height: 58px; font-size: 17px; font-weight: 700; padding-inline: 30px; background: rgb(199, 237, 62); border-color: rgb(199, 237, 62); color: rgb(27, 29, 26); border-radius: 3px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;">お試しレンタルを申し込む</a>
+          <a href="#catalog" class="btn btn-secondary" style="min-height: 58px; font-size: 15px; padding-inline: 24px; background: transparent; border-color: rgba(255, 255, 255, 0.5); color: rgb(255, 255, 255); border-radius: 3px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;">通常のレンタルを見る</a>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  <div style="border-top: 1px solid var(--color-divider); background: rgb(247, 247, 242);">
+    <div style="max-width: 1240px; margin: 0px auto; padding: 42px 24px 38px; display: flex; gap: 40px; flex-wrap: wrap;">
+      <div style="flex: 1 1 250px;">
+        <img src="/assets/8rent-logo.png" alt="8RENT（エイトレント）" decoding="async" style="height: 40px; width: auto; display: block;">
+        <p style="font-size: 12.5px; color: rgb(108, 110, 100); line-height: 1.8; margin: 12px 0px 0px; max-width: 24em;">法人限定、まず1台のお試しレンタルから。機器・ネットワーク・設定・設置・保守まで。</p>
+      </div>
+      
+        <div style="flex: 0 1 170px;">
+          <div style="font-size: 11px; letter-spacing: 0.1em; color: rgb(108, 110, 100); font-weight: 700; margin-bottom: 12px;">サービス</div>
+          <div style="display: flex; flex-direction: column; gap: 9px;">
+            
+              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">IT機器を探す</a>
+            
+              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">用途から探す</a>
+            
+              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">eラーニング</a>
+            
+              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">利用の流れ</a>
+            
+          </div>
+        </div>
+      
+        <div style="flex: 0 1 170px;">
+          <div style="font-size: 11px; letter-spacing: 0.1em; color: rgb(108, 110, 100); font-weight: 700; margin-bottom: 12px;">法人のお客様</div>
+          <div style="display: flex; flex-direction: column; gap: 9px;">
+            
+              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">法人利用・大量レンタル</a>
+            
+              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">キッティング</a>
+            
+              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">見積依頼</a>
+            
+              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">導入事例</a>
+            
+          </div>
+        </div>
+      
+        <div style="flex: 0 1 170px;">
+          <div style="font-size: 11px; letter-spacing: 0.1em; color: rgb(108, 110, 100); font-weight: 700; margin-bottom: 12px;">取り組み</div>
+          <div style="display: flex; flex-direction: column; gap: 9px;">
+            
+              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">Supported Plan</a>
+            
+              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">スポンサー企業の方へ</a>
+            
+              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">自治体連携</a>
+            
+          </div>
+        </div>
+      
+        <div style="flex: 0 1 170px;">
+          <div style="font-size: 11px; letter-spacing: 0.1em; color: rgb(108, 110, 100); font-weight: 700; margin-bottom: 12px;">サポート</div>
+          <div style="display: flex; flex-direction: column; gap: 9px;">
+            
+              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">相談する・お問い合わせ</a>
+            
+              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">よくある質問</a>
+            
+              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">故障・返却について</a>
+            
+              <a href="#" style="font-size: 13px; color: rgb(27, 29, 26);">8EC（販売）</a>
+            
+          </div>
+        </div>
+      
+    </div>
+  </div>
+
+  
+
+<div id="toast"><span id="toastMsg"></span></div></div>
+<script>
+/* ===================================================================
+   /buy ＝ 8EC 法人IT販売。
+
+   レンタル（/rent）とは逆に、ここでは
+     販売価格・新品/整備済み・在庫あり/取り寄せ可能
+   まではっきり出す。ただし「残り何台か」は出さない（数量は社内の数字）。
+
+   商品は /zaiko の同じ商品マスターから読む（inv_public_products）。
+   販売用の別マスターは持たない。sale_enabled = true にした商品だけが出る。
+
+   この画面では決済をしない（Stripeはまだ入れていない）。
+   ［この商品を購入相談する］は /quote?mode=buy&code=… を開き、
+   案件（inventory_deals）として受ける。在庫は押さえない。
+   =================================================================== */
+const C = window.EightCatalog;
+const $ = (id) => document.getElementById(id);
+const esc = C ? C.esc : (s) => String(s == null ? '' : s);
+const yen = (n) => Number(n || 0).toLocaleString('ja-JP');
+
+let models = [];
+let activeCat = '';
+
+(function init() {
+  const tabs = $('catTabs');
+  if (tabs) tabs.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-cat]');
+    if (!b) return;
+    activeCat = b.dataset.cat;
+    renderTabs(); renderGrid();
+  });
+  const qf = $('quoteForm');
+  if (qf) qf.addEventListener('submit', onQuoteSubmit);
+  window.addEventListener('popstate', showFromUrl);
+  loadCatalog();
+})();
+
+async function loadCatalog() {
+  const grid = $('productGrid');
+  if (!C || !C.client()) {
+    if (grid) grid.innerHTML = '<div class="p-state err">接続の初期化に失敗しました。時間をおいて再読み込みしてください。</div>';
+    return;
+  }
+  await C.loadCategories();
+  const { items, error } = await C.load({ sale: true });
+  if (error) {
+    if (grid) grid.innerHTML = '<div class="p-state err">商品の読み込みに失敗しました。時間をおいて再読み込みしてください。'
+      + '（' + esc(error.message || error) + '）</div>';
+    return;
+  }
+  models = C.models(items);
+  renderTabs();
+  renderGrid();
+  showFromUrl();
+}
+
+/* 商品が0件のカテゴリーはタブに出さない */
+function renderTabs() {
+  const host = $('catTabs');
+  if (!host) return;
+  const counts = {};
+  models.forEach(m => { if (m.category_id) counts[m.category_id] = (counts[m.category_id] || 0) + 1; });
+  const live = C.categories().filter(c => !c.parent_id)
+    .map(c => ({ id: c.id, label: c.name, n: C.tree(c.id).reduce((n, id) => n + (counts[id] || 0), 0) }))
+    .filter(c => c.n > 0);
+  if (!live.length) { host.innerHTML = ''; return; }
+  const btn = (id, label, n) => `<button type="button" data-cat="${esc(id)}" class="${activeCat === id ? 'on' : ''}">`
+    + esc(label) + `<span class="n">${n}</span></button>`;
+  host.innerHTML = btn('', 'すべて', models.length) + live.map(c => btn(c.id, c.label, c.n)).join('');
+}
+
+function renderGrid() {
+  const host = $('productGrid');
+  if (!host) return;
+  let list = models;
+  if (activeCat) { const t = C.tree(activeCat); list = list.filter(m => t.indexOf(m.category_id) >= 0); }
+  if (!list.length) {
+    host.innerHTML = models.length
+      ? '<div class="p-state">このカテゴリーで販売中の商品はありません。'
+        + 'お取り寄せでご用意できる場合がありますので、<a href="/quote">ご相談ください</a>。</div>'
+      : '<div class="p-state">販売商品を準備しています。ご希望の機種・台数をお知らせいただければ、'
+        + '<a href="/quote">お取り寄せでご案内</a>できます。</div>';
+    return;
+  }
+  // 販売のページだが、同じ機種をレンタルもできるなら、そちらの行も出す
+  // （「買うか借りるか」で迷っている人を取りこぼさないため）
+  host.innerHTML = list.map(m => C.cardHtml(m, { href: '/buy' })).join('');
+}
+
+/* ?code=P-00424 で来たときは、その商品だけを出す（一覧の上に差し替える）。
+   以前のトップの商品URL（/?code=…）からの転送先にもなる */
+function showFromUrl() {
+  const code = C.codeFromUrl();
+  const host = $('buyDetail');
+  const list = $('buyList');
+  if (!host || !list) return;
+  const m = code && models.find(x => x.variants.some(v => v.code === code));
+  if (!m) { host.innerHTML = ''; list.style.display = ''; return; }
+  list.style.display = 'none';
+  const it = m.rep;
+  const rows = [
+    ['型番', m.model], ['メーカー', m.maker],
+    ['CPU', [it.cpu, it.cpu_gen].filter(Boolean).join(' ')],
+    ['メモリ', it.memory_size], ['ストレージ', [it.storage_capacity, it.storage_type].filter(Boolean).join(' ')],
+    ['画面', it.screen_size], ['OS', it.os], ['付属品', it.accessories],
+    ['状態', m.saleCondition || it.condition_note]
+  ].filter(r => r[1]);
+  host.innerHTML = `<a href="/buy" style="font-size: 13px; font-weight: 700; color: rgb(74, 76, 67);">← 購入できる商品の一覧へ</a>
+    <div style="display: flex; gap: 28px; flex-wrap: wrap; margin-top: 16px;">
+      <div style="flex: 1 1 320px; min-width: 260px;">${C.galleryHtml(it, 'general')}</div>
+      <div style="flex: 1 1 380px; min-width: 280px;">
+        <div class="c-tags" style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px">
+          ${m.category_name ? `<span class="c-tag">${esc(m.category_name)}</span>` : ''}
+          ${m.saleCondition ? `<span class="c-tag on">${esc(m.saleCondition)}</span>` : ''}
+          ${m.saleAvailability ? `<span class="c-tag on">${esc(m.saleAvailability)}</span>` : ''}
+        </div>
+        <h2 style="font-size: 30px; letter-spacing: -0.03em; line-height: 1.25;">${esc(m.title)}</h2>
+        <div style="display: flex; align-items: baseline; gap: 6px; margin: 16px 0px 4px;">
+          ${m.salePrice
+            ? `<span class="num" style="font-size: 46px; font-weight: 900;">${yen(m.salePrice)}</span>
+               <span style="font-size: 14px; font-weight: 700;">円（税抜）</span>`
+            : '<span style="font-size: 20px; font-weight: 700;">販売価格はお見積り</span>'}
+        </div>
+        <p style="font-size: 12.5px; color: rgb(108, 110, 100); line-height: 1.8; margin: 0px 0px 18px;">
+          1台あたりの価格です。複数台・キッティング込みのお見積りもご相談ください。</p>
+        <a href="/quote?mode=buy&amp;code=${encodeURIComponent(m.code)}" class="btn btn-primary"
+           style="min-height: 56px; font-size: 16px; font-weight: 700; padding-inline: 28px; background: rgb(199, 237, 62); border-color: rgb(199, 237, 62); color: rgb(27, 29, 26); border-radius: 3px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;">この商品を購入相談する</a>
+        ${m.rental ? `<a href="/quote?mode=rent&amp;code=${encodeURIComponent(m.code)}" class="btn btn-secondary"
+           style="min-height: 56px; font-size: 14.5px; padding-inline: 20px; margin-left: 8px; border-color: rgb(27, 29, 26); color: rgb(27, 29, 26); border-radius: 3px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;">レンタルで相談する</a>` : ''}
+        <dl style="display: grid; grid-template-columns: 7em 1fr; gap: 8px 14px; margin: 24px 0px 0px; font-size: 13.5px;">
+          ${rows.map(([k, v]) => `<dt style="color: rgb(108, 110, 100);">${esc(k)}</dt><dd style="margin: 0px;">${esc(v)}</dd>`).join('')}
+        </dl>
+      </div>
+    </div>`;
+  window.scrollTo({ top: 0, behavior: 'auto' });
+}
+
+/* ===== 相談・お見積り（#contact）。送信先はこれまでどおり /api/contact ===== */
+/* ===== 相談・お見積り（#contact）。送信先はこれまでどおり /api/contact ===== */
+async function onQuoteSubmit(e) {
+  e.preventDefault();
+  const company = $('fCompany'), name = $('fName'), email = $('fEmail');
+  const bad = [];
+  [company, name].forEach((el) => { const ng = !el.value.trim(); el.classList.toggle('bad', ng); if (ng) bad.push(el); });
+  const emailNg = !/.+@.+\..+/.test(email.value.trim());
+  email.classList.toggle('bad', emailNg);
+  if (emailNg) bad.push(email);
+  if (bad.length) {
+    $('alertHost').innerHTML = '<div class="alert">必須項目（会社名・お名前・メールアドレス）をご確認ください。</div>';
+    bad[0].focus(); return;
+  }
+  $('alertHost').innerHTML = '';
+  const btn = e.target.querySelector('button[type=submit]');
+  const original = btn.innerHTML;
+  btn.disabled = true; btn.textContent = '送信中…';
+  const message = [$('fBody').value.trim(), '希望時期：' + $('fDue').value].filter(Boolean).join('\n\n');
+  try {
+    const res = await fetch('/api/contact', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        source: 'buy', name: name.value.trim(), company: company.value.trim(), email: email.value.trim(),
+        phone: $('fTel').value.trim(), inquiry_type: $('fType').value, message, website: $('quoteForm').website.value
+      })
+    });
+    let out = {};
+    try { out = await res.json(); } catch (_) { /* JSONでない応答はステータスで判断する */ }
+    if (!res.ok || out.error) throw new Error(out.error || ('HTTP ' + res.status));
+    $('formHost').innerHTML = '<div class="done"><div class="ic">✓</div><b style="display:block;font-size:17px;margin-bottom:6px">ご相談を受け付けました</b>' +
+      '<p style="color:#4A4C43;font-size:13.5px">担当より1〜2営業日以内にご連絡します。<br>お急ぎの場合は 03-6433-5025 までお電話ください。</p>' +
+      '<button class="btn btn-secondary" type="button" style="margin-top:16px;border-color:rgb(27,29,26);border-radius:3px" onclick="location.reload()">続けて依頼する</button></div>';
+  } catch (_) {
+    $('alertHost').innerHTML = '<div class="alert">送信に失敗しました。お手数ですがメール nw@8grp.co.jp ／ 電話 03-6433-5025 へご連絡ください。</div>';
+    btn.disabled = false; btn.innerHTML = original;
+  }
+}
+
+</script>
+</body>
+</html>

@@ -64,6 +64,16 @@ const SERVICES = [
   "ネットワーク・Wi-Fi", "セキュリティ", "現地設置", "AI研修", "Office研修",
   "データ消去・証明書", "故障時の交換対応",
 ];
+/** お客様の希望。購入相談（/buy の商品カードから）とレンタル相談を見分ける。
+    どちらで用意するかを決めるのは担当者なので、ここでは「希望」としてだけ持つ */
+const WANTS = ["購入希望", "レンタル希望", "未定"];
+
+/** 商品コードの形だけ見る（P-00424 など）。実在するかはDB側で確かめる */
+function productCode(value) {
+  const s = String(value == null ? "" : value).trim().toUpperCase();
+  return /^[A-Z]{1,4}-[A-Z0-9-]{1,20}$/.test(s) ? s : null;
+}
+
 const PURPOSES = [
   "新入社員・中途入社", "短期プロジェクト", "オフィス開設・移転", "研修・イベント",
   "PC入替", "増員", "故障・緊急代替", "その他",
@@ -80,6 +90,13 @@ function buildSlackPayload(row) {
   if (row.email) fields.push({ type: "mrkdwn", text: "*メール*\n" + slackEscape(row.email) });
   if (row.phone) fields.push({ type: "mrkdwn", text: "*電話*\n" + slackEscape(row.phone) });
   fields.push({ type: "mrkdwn", text: "*用途*\n" + slackEscape(row.purpose || "未選択") });
+  if (row.want) fields.push({ type: "mrkdwn", text: "*ご希望*\n" + slackEscape(row.want) });
+  if (row.product_code) {
+    fields.push({
+      type: "mrkdwn",
+      text: "*ご覧の商品*\n" + slackEscape(row.product_code + (row.product_name ? "　" + row.product_name : "")),
+    });
+  }
 
   const size = [
     row.headcount == null ? null : row.headcount + "名",
@@ -91,7 +108,14 @@ function buildSlackPayload(row) {
   if (row.grade) fields.push({ type: "mrkdwn", text: "*ご希望の方針*\n" + slackEscape(GRADE_LABEL[row.grade] || row.grade) });
 
   const blocks = [
-    { type: "header", text: { type: "plain_text", text: "🧾 法人ITまるごと見積のご依頼", emoji: true } },
+    {
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: row.want === "購入希望" ? "🛒 商品の購入相談" : "🧾 法人ITまるごと見積のご依頼",
+        emoji: true,
+      },
+    },
     { type: "section", fields },
   ];
   if (row.services.length) {
@@ -120,7 +144,13 @@ function buildSlackPayload(row) {
       }],
     },
   );
-  return { text: "まるごと見積：" + slackEscape(row.name) + " 様" + (row.company ? "（" + slackEscape(row.company) + "）" : ""), blocks };
+  const head = row.want === "購入希望" ? "購入相談" : "まるごと見積";
+  return {
+    text: head + "：" + slackEscape(row.name) + " 様"
+      + (row.company ? "（" + slackEscape(row.company) + "）" : "")
+      + (row.product_code ? "　" + slackEscape(row.product_name || row.product_code) : ""),
+    blocks,
+  };
 }
 
 module.exports = async (req, res) => {
@@ -155,6 +185,10 @@ module.exports = async (req, res) => {
     services: pickList(body.services, SERVICES, 20),
     message: clean(body.message, 4000),
     source: clean(body.source, 40) || "quote",
+    // 商品から始まった相談（/buy の［この商品を購入相談する］）
+    product_code: productCode(body.product_code),
+    product_name: clean(body.product_name, 160),
+    want: WANTS.indexOf(clean(body.want, 20)) >= 0 ? clean(body.want, 20) : null,
   };
   if (!row.name) return res.status(400).json({ error: "ご担当者名を入力してください" });
 
@@ -172,6 +206,7 @@ module.exports = async (req, res) => {
         p_purpose: row.purpose, p_headcount: row.headcount, p_qty: row.qty,
         p_start: row.start_date, p_months: row.months, p_grade: row.grade,
         p_spec: row.spec, p_services: row.services, p_message: row.message, p_source: row.source,
+        p_product_code: row.product_code, p_want: row.want,
       }),
     });
     if (!r.ok) {

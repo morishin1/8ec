@@ -3,19 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>8RENT｜法人向けPCレンタル（トップへ移動します）</title>
+<title>8RENT｜法人向けITレンタル（レンタルのページへ移動します）</title>
 <meta name="robots" content="noindex,follow">
-<link rel="canonical" href="https://8ec.jp/">
-<!-- 8RENTのページは、サイトのトップ（/）そのものになりました。
-     通常は vercel.json の redirects が /rental/ → / を 308 で返すので、このHTMLは
+<link rel="canonical" href="https://8ec.jp/rent">
+<!-- 8RENTのページは /rent になりました（トップ / は8ECの入口です）。
+     通常は vercel.json の redirects が /rental/ → /rent を 308 で返すので、このHTMLは
      その設定が効かない環境（ローカル確認・別ホスティング）のための控えです。
      ?code=P-00001 のような商品指定はそのまま引き継ぎます。 -->
 <script>
   (function () {
-    location.replace('/' + (location.search || '') + (location.hash || ''));
+    location.replace('/rent' + (location.search || '') + (location.hash || ''));
   })();
 </script>
-<meta http-equiv="refresh" content="0; url=/">
+<meta http-equiv="refresh" content="0; url=/rent">
 <style>
   body { margin: 0; display: grid; place-items: center; min-height: 100vh; background: #F7F7F4; color: #1B1D1A;
     font-family: "Zen Kaku Gothic New", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif; text-align: center; padding: 24px; }
@@ -24,7 +24,7 @@
 </head>
 <body>
   <div>
-    <p>8RENT のページは <a href="/">https://www.8ec.jp/</a> に移りました。</p>
+    <p>8RENT のページは <a href="/rent">https://www.8ec.jp/rent</a> に移りました。</p>
     <p>自動で移動しない場合は、上のリンクを開いてください。</p>
   </div>
 </body>

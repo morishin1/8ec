@@ -40,7 +40,11 @@ window.EightCatalog = (function () {
 
   const SUPA_URL = "https://htglvascsuqkixpmclwr.supabase.co";
   const SUPA_KEY = "sb_publishable_yZCcrwdqjuf0u_5WBWlHIw_AxdvteEV";
-  const VIEW = 'inv_public_catalog';
+  /* 公開カタログ。レンタル（8RENT）と販売（8EC BUY）の両方が1つのビューに入る。
+     販売の列を足す前のDB（migration未適用）では読めないので、
+     そのときは以前のビューへ落として「レンタルだけのサイト」として動かす。 */
+  const VIEW = 'inv_public_products';
+  const VIEW_FALLBACK = 'inv_public_catalog';
   const CAT_VIEW = 'inv_public_categories';
 
   /* 「カテゴリーから探す」に出すカテゴリー。
@@ -99,10 +103,17 @@ window.EightCatalog = (function () {
   async function load(opts) {
     const c = client();
     if (!c) return { items: [], error: new Error('接続の初期化に失敗しました') };
-    const { data, error } = await c.from(VIEW).select('*');
-    if (error) return { items: [], error };
+    let { data, error } = await c.from(VIEW).select('*');
+    if (error) {
+      // 販売の列がまだ無いDB。レンタルぶんだけで動かす
+      const alt = await c.from(VIEW_FALLBACK).select('*');
+      if (alt.error) return { items: [], error };
+      data = (alt.data || []).map(x => Object.assign({ sale_enabled: false, sale_price: null,
+        sale_condition: null, sale_procurement_available: false, sale_availability: null }, x));
+    }
     let items = (data || []).slice();
     if (opts && opts.rental) items = items.filter(it => it.rental_enabled);
+    if (opts && opts.sale) items = items.filter(it => it.sale_enabled);
     items.sort((a, b) => String(a.name || a.model || '').localeCompare(String(b.name || b.model || ''), 'ja'));
     return { items, error: null };
   }
@@ -251,6 +262,126 @@ window.EightCatalog = (function () {
     img.style.margin = '0 auto';
   }
 
+  /* ===== 機種にまとめる =====
+     同じメーカー＋型番の枝番（メモリ違い・Office有無）はカードを分けず、
+     1つの機種として持つ。レンタルと販売はここで別々に集計するので、
+       レンタルだけ / 販売だけ / 両方
+     のどれでもカード1枚で出せる。 */
+  function models(list) {
+    const map = new Map();
+    (list || []).forEach(it => {
+      const key = it.model_key || it.code;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(it);
+    });
+    const rank = (x) => x.availability === 'ご案内可能' ? 0 : (x.availability === '取り寄せ可能' ? 1 : 2);
+    return [...map.entries()].map(([key, v]) => {
+      const rep = v.slice().sort((a, b) =>
+        (rank(a) - rank(b)) ||
+        ((a.rental_price_month || Infinity) - (b.rental_price_month || Infinity)))[0];
+      const rPrices = v.filter(x => x.rental_enabled).map(x => x.rental_price_month).filter(x => x > 0);
+      const sPrices = v.filter(x => x.sale_enabled).map(x => x.sale_price).filter(x => x > 0);
+      const saleV = v.filter(x => x.sale_enabled);
+      const saleAvail = saleV.some(x => x.sale_availability === '在庫あり') ? '在庫あり'
+        : (saleV.some(x => x.sale_availability === '取り寄せ可能') ? '取り寄せ可能'
+        : (saleV.length ? 'ご相談ください' : null));
+      return {
+        key, rep, variants: v,
+        maker: rep.maker, model: rep.model, code: rep.code,
+        category_id: rep.category_id, category_name: rep.category_name,
+        title: commonName(v.map(x => title(x))) || title(rep),
+        image: v.map(x => mainImage(x, 'rental')).find(Boolean) || null,
+        imageOf: v.find(x => mainImage(x, 'rental')) || rep,
+        // レンタル。台数は持たない（台数はお客様から伺う）
+        rental: v.some(x => x.rental_enabled),
+        availability: v.some(x => x.availability === 'ご案内可能') ? 'ご案内可能'
+          : (v.some(x => x.availability === '取り寄せ可能') ? '取り寄せ可能' : 'ご相談ください'),
+        procurement: v.some(x => x.procurement_available),
+        office: v.some(x => x.office_supported),
+        price: rPrices.length ? Math.min.apply(null, rPrices) : null,
+        minMonths: Math.min.apply(null, v.map(x => x.rental_min_months || 1)),
+        tags: [...new Set(v.reduce((a, x) => a.concat(x.rental_tags || []), []))],
+        // 販売。こちらは「在庫あり／取り寄せ可能」までは出す（数量は出さない）
+        sale: saleV.length > 0,
+        salePrice: sPrices.length ? Math.min.apply(null, sPrices) : null,
+        saleCondition: (saleV.find(x => x.sale_condition) || {}).sale_condition || null,
+        saleAvailability: saleAvail
+      };
+    }).sort((a, b) => (({ 'ご案内可能': 0, '取り寄せ可能': 1 }[a.availability] ?? 2)
+                     - ({ 'ご案内可能': 0, '取り寄せ可能': 1 }[b.availability] ?? 2))
+                    || ((a.price || a.salePrice || Infinity) - (b.price || b.salePrice || Infinity)));
+  }
+
+  /* 枝番の名前の共通部分を機種名にする
+     （「ProBook 450 G9 8GB」「…16GB」→「ProBook 450 G9」） */
+  function commonName(names) {
+    if (!names.length) return '';
+    let p = names[0];
+    names.slice(1).forEach(n => {
+      let i = 0;
+      while (i < p.length && i < n.length && p[i] === n[i]) i++;
+      p = p.slice(0, i);
+    });
+    p = p.replace(/[\s　/・（(\-－—]+$/, '').trim();
+    return p.length >= 4 ? p : '';
+  }
+
+  /* ===== 商品カード（トップ・/rent・/buy で同じもの） =====
+     レンタルできる商品にはレンタル欄、販売する商品には購入欄を出す。
+     両方対応なら両方、片方だけなら片方だけ。
+       ・レンタルは台数を出さない（「ご希望台数をお知らせください」と書く）
+       ・販売は 在庫あり／取り寄せ可能 の言葉だけ（残り何台かは出さない）
+       ・料金・価格が未設定なら「お見積り」と書き、金額を推測しない
+     opts.href … カードの見出しから開く詳細ページ（/rent?code=… など）
+     opts.show … 'both'（既定）／'rent'／'buy' */
+  function cardHtml(m, opts) {
+    const o = opts || {};
+    const show = o.show || 'both';
+    const showRent = m.rental && show !== 'buy';
+    const showBuy = m.sale && show !== 'rent';
+    const href = o.href ? o.href + (o.href.indexOf('?') >= 0 ? '&' : '?') + 'code=' + encodeURIComponent(m.code) : null;
+    const spec = specLine(m.rep);
+    const tag = (t, accent) => `<span class="c-tag${accent ? ' on' : ''}">${esc(t)}</span>`;
+    const head = `<div class="c-name">${esc(m.title)}</div>`;
+    return `<article class="p-card">
+      <${href ? `a class="c-shot" href="${esc(href)}"` : 'div class="c-shot"'}>
+        ${m.image
+          ? `<img src="${esc(m.image)}" alt="${esc(m.title)}" loading="lazy" decoding="async" width="400" height="300"
+                  data-alt="${esc(images(m.imageOf, 'rental').slice(1).join('|'))}" onerror="EightCatalog.imgError(this)">`
+          : placeholder()}
+      </${href ? 'a' : 'div'}>
+      <div class="c-body">
+        <div class="c-tags">
+          ${m.category_name || catLabel(m.category_id) ? tag(m.category_name || catLabel(m.category_id)) : ''}
+          ${m.office && showRent ? tag('Office対応', true) : ''}
+          ${showBuy && m.saleCondition ? tag(m.saleCondition, true) : ''}
+        </div>
+        <div class="c-maker">${esc([m.maker, m.model].filter(Boolean).join('　'))}</div>
+        ${href ? `<a class="c-link" href="${esc(href)}">${head}</a>` : head}
+        ${spec ? `<div class="c-spec">${esc(spec)}</div>` : ''}
+        <div class="c-offers">
+          ${showRent ? `<div class="c-offer">
+            <div class="c-kind rent">レンタル</div>
+            <div class="c-price">${m.price
+              ? `<span class="num">${yen(m.price)}</span><span class="u">円／月〜</span>`
+              : '<span class="ask">月額はお見積り</span>'}</div>
+            <div class="c-note">ご希望台数をお知らせください。在庫・調達状況を確認してご案内します。</div>
+            <a class="c-cta ghost" href="/quote?mode=rent&amp;code=${encodeURIComponent(m.code)}">レンタルを相談する</a>
+          </div>` : ''}
+          ${showBuy ? `<div class="c-offer">
+            <div class="c-kind buy">購入</div>
+            <div class="c-price">${m.salePrice
+              ? `<span class="num">${yen(m.salePrice)}</span><span class="u">円（税抜）</span>`
+              : '<span class="ask">販売価格はお見積り</span>'}</div>
+            <div class="c-note">${esc(m.saleAvailability || 'ご相談ください')}${
+              m.saleAvailability === '取り寄せ可能' ? '（お取り寄せでご用意します）' : ''}</div>
+            <a class="c-cta lime" href="/quote?mode=buy&amp;code=${encodeURIComponent(m.code)}">この商品を購入相談する</a>
+          </div>` : ''}
+        </div>
+      </div>
+    </article>`;
+  }
+
   /* URL の ?code= / #code から商品コードを取る（別ページからの遷移用） */
   function codeFromUrl() {
     const p = new URLSearchParams(location.search).get('code');
@@ -260,6 +391,7 @@ window.EightCatalog = (function () {
   }
 
   return { load, loadCategories, categories, children, tree, images, mainImage, mediaHtml, imgError, fitShot, availTag, availability, rental,
+           models, commonName, cardHtml, placeholder,
            specLine, categoryCounts,
            galleryHtml, codeFromUrl, catLabel, catIcon, title, esc, yen, CAT_META, TAG_LABEL, SUPA_URL, SUPA_KEY, client };
 })();
