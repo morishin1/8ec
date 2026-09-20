@@ -147,7 +147,8 @@ function buildSlackPayload(row) {
       }],
     },
   );
-  const head = row.want === "購入希望" ? "購入相談" : "まるごと見積";
+  const head = row.want === "購入希望" ? "購入相談"
+    : row.want === "レンタル希望" ? "レンタル相談" : "IT調達診断";
   return {
     text: head + "：" + slackEscape(row.name) + " 様"
       + (row.company ? "（" + slackEscape(row.company) + "）" : "")
