@@ -366,7 +366,12 @@ window.EightCatalog = (function () {
     const show = o.show || 'both';
     const showRent = m.rental && show !== 'buy';
     const showBuy = m.sale && show !== 'rent';
-    const href = o.href ? o.href + (o.href.indexOf('?') >= 0 ? '&' : '?') + 'code=' + encodeURIComponent(m.code) : null;
+    // 型番ページ（/products/:slug）は slug だけで商品が決まるので、?code= は付けない
+    // （同じページが2つのURLで見えると、検索側で重複になるため）
+    const href = !o.href ? null
+      : (o.href.indexOf('/products') === 0
+          ? o.href
+          : o.href + (o.href.indexOf('?') >= 0 ? '&' : '?') + 'code=' + encodeURIComponent(m.code));
     const spec = specLine(m.rep);
     const tag = (t, accent) => `<span class="c-tag${accent ? ' on' : ''}">${esc(t)}</span>`;
     const head = `<div class="c-name">${esc(m.title)}</div>`;

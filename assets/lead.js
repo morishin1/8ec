@@ -22,7 +22,7 @@
   }
 
   // どのページを見ているか（型番ページは slug も）
-  var path = location.pathname.replace(/\.html$/, '');
+  var path = location.pathname.replace(/\.html$/, '').replace(/\/index$/, '/');
   push({ event: 'page_view_type', page_type: path === '/' ? 'top'
     : path.indexOf('/products') === 0 ? 'product'
     : path.indexOf('/packs') === 0 ? 'pack'

@@ -2032,7 +2032,7 @@ async function loadCatalog() {
       + '（' + esc(error.message || error) + '）</div>';
     return;
   }
-  models = C.models(items);
+  models = C.withSlugs(C.models(items));
   renderTabs();
   renderGrid();
   forwardOldProductUrl();
@@ -2078,7 +2078,7 @@ function renderGrid() {
     return;
   }
   host.innerHTML = list.slice(0, TOP_MAX)
-    .map(m => C.cardHtml(m, { href: m.rental ? '/rent' : '/buy' })).join('');
+    .map(m => C.cardHtml(m, { href: C.productUrl(m) })).join('');
 }
 
 /* 用途タイル。トップでは条件検索まではせず、カテゴリーを合わせて商品へ送る

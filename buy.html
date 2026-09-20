@@ -1207,7 +1207,7 @@ async function loadCatalog() {
       + '（' + esc(error.message || error) + '）</div>';
     return;
   }
-  models = C.models(items);
+  models = C.withSlugs(C.models(items));
   renderTabs();
   renderGrid();
   showFromUrl();
@@ -1243,7 +1243,7 @@ function renderGrid() {
   }
   // 販売のページだが、同じ機種をレンタルもできるなら、そちらの行も出す
   // （「買うか借りるか」で迷っている人を取りこぼさないため）
-  host.innerHTML = list.map(m => C.cardHtml(m, { href: '/buy' })).join('');
+  host.innerHTML = list.map(m => C.cardHtml(m, { href: C.productUrl(m) })).join('');
 }
 
 /* ?code=P-00424 で来たときは、その商品だけを出す（一覧の上に差し替える）。

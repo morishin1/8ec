@@ -1865,7 +1865,7 @@ function buildModels(list) {
   // まとめかたは assets/catalog.js に1か所だけ置く（トップ・/buy と同じ結果にする）。
   // レンタルだけでなく販売の情報（sale_price など）も入るので、
   // 同じ機種を買うこともできる場合はカードに購入の行も出せる。
-  return C.models(list);
+  return C.withSlugs(C.models(list));
 }
 /* ===== カテゴリーから探す =====
    出すのはカテゴリーマスター（inv_public_categories）の全件。
@@ -2139,7 +2139,7 @@ function cardHtml(m, c) {
         </div>` : ''}
       </div>
       <div style="display: flex; gap: 7px; margin-top: 10px;">
-        <button type="button" class="btn btn-secondary" onclick="openDlg('${esc(m.key)}')" style="flex: 1 1 auto; font-size: 12.5px; min-height: 42px; border-color: rgb(27,29,26); border-radius: 3px;">詳細を見る</button>
+        <a href="${esc(C.productUrl(m))}" class="btn btn-secondary" style="flex: 1 1 auto; font-size: 12.5px; min-height: 42px; border-color: rgb(27,29,26); border-radius: 3px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;">詳細を見る</a>
         <button type="button" class="btn btn-primary" onclick="openDlg('${esc(m.key)}')" style="flex: 1 1 auto; font-size: 12.5px; min-height: 42px; background: rgb(199, 237, 62); border-color: rgb(199, 237, 62); color: rgb(27, 29, 26); font-weight: 700; border-radius: 3px;">希望を送る</button>
       </div>
     </div>
