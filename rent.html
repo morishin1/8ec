@@ -903,6 +903,11 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
       </div>
       <div id="catTiles"></div>
       <div id="catKids"></div>
+      <p style="font-size: 12.5px; color: rgb(108, 110, 100); line-height: 1.85; margin: 14px 0px 0px;">
+        <strong style="color: rgb(27, 29, 26);">いま掲載が無いカテゴリーでも、お取り寄せ・調達でご用意できます。</strong>
+        8RENTは在庫から選んでいただくサイトではなく、ご希望の機種・台数・期間を伺って、自社在庫と調達を
+        組み合わせて用意するサービスです。「取り寄せで相談」と出ているカテゴリーも、
+        <a href="/quote" style="font-weight: 700;">まとめて相談</a>からお気軽にお問い合わせください。</p>
     </div>
 
     <div style="max-width: 1240px; margin: 0px auto; padding: 52px 24px 0px;">
@@ -1881,7 +1886,7 @@ function renderCatTiles() {
       <span class="ms">${esc(c.icon)}</span>
       <span style="min-width:0">
         <span class="t" style="display:block">${esc(c.label)}</span>
-        <span class="n num" style="display:block">${c.count ? c.count + ' 機種' : '掲載準備中'}</span>
+        <span class="n num" style="display:block">${c.count ? c.count + ' 機種' : '取り寄せで相談'}</span>
       </span>
     </button>`;
   }).join('');
