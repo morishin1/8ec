@@ -398,7 +398,7 @@ window.EightCatalog = (function () {
               ? `<span class="num">${yen(m.price)}</span><span class="u">円／月〜</span>`
               : '<span class="ask">月額はお見積り</span>'}</div>
             <div class="c-note">ご希望台数をお知らせください。在庫・調達状況を確認してご案内します。</div>
-            <a class="c-cta ghost" href="/quote?mode=rent&amp;code=${encodeURIComponent(m.code)}">レンタルを相談する</a>
+            <a class="c-cta ghost" href="/quote?mode=rent&amp;code=${encodeURIComponent(m.code)}&amp;from=${encodeURIComponent(o.from || 'card')}">レンタルを相談する</a>
           </div>` : ''}
           ${showBuy ? `<div class="c-offer">
             <div class="c-kind buy">購入</div>
@@ -407,7 +407,7 @@ window.EightCatalog = (function () {
               : '<span class="ask">販売価格はお見積り</span>'}</div>
             <div class="c-note">${esc(m.saleAvailability || 'ご相談ください')}${
               m.saleAvailability === '取り寄せ可能' ? '（お取り寄せでご用意します）' : ''}</div>
-            <a class="c-cta lime" href="/quote?mode=buy&amp;code=${encodeURIComponent(m.code)}">この商品を購入相談する</a>
+            <a class="c-cta lime" href="/quote?mode=buy&amp;code=${encodeURIComponent(m.code)}&amp;from=${encodeURIComponent(o.from || 'card')}">この商品を購入相談する</a>
           </div>` : ''}
         </div>
       </div>

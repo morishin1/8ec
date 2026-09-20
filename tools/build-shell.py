@@ -88,7 +88,7 @@ FOOTER = '''<footer class="c-foot">
         <div class="col">
           <h3>探す・知る</h3>
           <a href="/quote">3分で無料診断</a>
-          <a href="/cases">導入事例</a>
+          <a href="/cases">活用例・導入イメージ</a>
           <a href="/faq">よくある質問</a>
           <a href="/column/">コラム</a>
         </div>

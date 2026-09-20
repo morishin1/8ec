@@ -1520,7 +1520,10 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
     </div>
 
     <div style="max-width: 1240px; margin: 0px auto; padding: 60px 24px 0px;">
-      <h2 style="font-size: 34px; letter-spacing: -0.035em;">導入事例</h2>
+      <h2 style="font-size: 34px; letter-spacing: -0.035em;">活用例・導入イメージ</h2>
+      <p class="c-lede"><strong>特定企業の導入実績ではありません。</strong>
+        ご相談の多い場面について、当社で対応できる進め方・台数・期間の目安を整理したものです。
+        数字は一例で、実際の内容はご相談により変わります。</p>
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(268px, 1fr)); gap: 16px; margin-top: 26px;">
         
           <div style="border: 1px solid var(--color-divider); border-radius: 3px; overflow: hidden; background: rgb(255, 255, 255);">
@@ -1750,7 +1753,7 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
       </div>
     </div>
     <div class="c-wrap" style="margin-top: 18px;">
-      <a class="c-cta ghost sm" href="/cases" data-lead="cases">導入事例をすべて見る</a>
+      <a class="c-cta ghost sm" href="/cases" data-lead="cases">活用例をすべて見る</a>
     </div>
     <div id="faq" style="max-width: 1240px; margin: 0px auto; padding: 60px 24px 0px;">
       <h2 style="font-size: 30px; letter-spacing: -0.035em; margin-bottom: 20px;">よくある質問</h2>
@@ -1946,7 +1949,7 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
         <div class="col">
           <h3>探す・知る</h3>
           <a href="/quote">3分で無料診断</a>
-          <a href="/cases">導入事例</a>
+          <a href="/cases">活用例・導入イメージ</a>
           <a href="/faq">よくある質問</a>
           <a href="/column/">コラム</a>
         </div>
@@ -2078,7 +2081,7 @@ function renderGrid() {
     return;
   }
   host.innerHTML = list.slice(0, TOP_MAX)
-    .map(m => C.cardHtml(m, { href: C.productUrl(m) })).join('');
+    .map(m => C.cardHtml(m, { href: C.productUrl(m), from: 'top-card' })).join('');
 }
 
 /* 用途タイル。トップでは条件検索まではせず、カテゴリーを合わせて商品へ送る
