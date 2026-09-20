@@ -882,7 +882,7 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
             <p style="font-size: 16px; line-height: 1.85; color: rgb(74, 76, 67); margin: 20px 0px 0px; max-width: 34em; text-wrap: pretty;">新品・整備済みのPCやIT機器を法人向けに販売します。在庫にない商品もお取り寄せできます。キッティングや初期設定もあわせてご依頼いただけます。</p>
             <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 28px;">
               <a class="c-cta" href="#catalog" data-lead="buy-hero">購入できる商品を見る</a>
-              <a class="c-cta ghost" href="/quote?purpose=増員" data-lead="buy-hero-quote">3分で無料診断</a>
+              <a class="c-cta ghost" href="/quote?mode=buy&amp;from=buy" data-lead="buy-hero-quote">3分で無料診断</a>
             </div>
             <p style="font-size: 13.5px; margin: 16px 0px 0px;">
               <a href="/rent" style="color: rgb(74, 76, 67); font-weight: 700;">短期間ならレンタルも選べます →</a></p>
@@ -1130,7 +1130,7 @@ textarea.input { min-height: 96px; resize: vertical; font-family: inherit; }
         <div class="col">
           <h3>探す・知る</h3>
           <a href="/quote">3分で無料診断</a>
-          <a href="/cases">導入事例</a>
+          <a href="/cases">活用例・導入イメージ</a>
           <a href="/faq">よくある質問</a>
           <a href="/column/">コラム</a>
         </div>
@@ -1243,7 +1243,7 @@ function renderGrid() {
   }
   // 販売のページだが、同じ機種をレンタルもできるなら、そちらの行も出す
   // （「買うか借りるか」で迷っている人を取りこぼさないため）
-  host.innerHTML = list.map(m => C.cardHtml(m, { href: C.productUrl(m) })).join('');
+  host.innerHTML = list.map(m => C.cardHtml(m, { href: C.productUrl(m), from: 'buy-card' })).join('');
 }
 
 /* ?code=P-00424 で来たときは、その商品だけを出す（一覧の上に差し替える）。

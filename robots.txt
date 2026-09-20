@@ -3,6 +3,7 @@ Allow: /
 Disallow: /assets/uploads/
 Disallow: /admin/
 Disallow: /zaiko/
+Disallow: /q/
 
 Sitemap: https://8ec.jp/sitemap.xml
 Sitemap: https://8ec.jp/api/sitemap-products

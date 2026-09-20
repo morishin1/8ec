@@ -210,9 +210,12 @@
                 + esc(m.sale ? (m.saleAvailability || 'ご相談ください') : m.availability) + '</div></div>'
           + '</div>'
           + '<div class="pt-cta">'
-            + (m.sale ? '<a class="c-cta sm" href="/quote?mode=buy&code=' + encodeURIComponent(m.code) + '" data-lead="product-buy">購入を相談する</a>' : '')
-            + (m.rental ? '<a class="c-cta sm ghost" href="/quote?mode=rent&code=' + encodeURIComponent(m.code) + '" data-lead="product-rent">レンタルを相談する</a>' : '')
-            + '<a class="c-cta sm ghost" href="/quote" data-lead="product-diagnosis">3分で無料診断</a>'
+            + (m.sale ? '<a class="c-cta sm" href="/quote?mode=buy&code=' + encodeURIComponent(m.code)
+                + '&from=' + encodeURIComponent('product:' + (m.slug || '')) + '" data-lead="product-buy">購入を相談する</a>' : '')
+            + (m.rental ? '<a class="c-cta sm ghost" href="/quote?mode=rent&code=' + encodeURIComponent(m.code)
+                + '&from=' + encodeURIComponent('product:' + (m.slug || '')) + '" data-lead="product-rent">レンタルを相談する</a>' : '')
+            + '<a class="c-cta sm ghost" href="/quote?code=' + encodeURIComponent(m.code)
+              + '&from=' + encodeURIComponent('product:' + (m.slug || '')) + '" data-lead="product-diagnosis">3分で無料診断</a>'
           + '</div>'
           + '<p class="pt-note">価格は1台あたり・税抜です。台数・構成・納期によって変わるため、'
             + 'お見積りで正式にご案内します。最安値をうたうことはしていません。</p>'
@@ -261,7 +264,8 @@
           + '<h2>この型番でなくても大丈夫です。</h2>'
           + '<p>台数がまとまらない、納期が合わない、といった場合でも、同等スペックの機種を含めてお探しします。'
             + '新品のお取り寄せもご相談いただけます。ご希望の台数と時期をお知らせください。</p>'
-          + '<a class="c-cta" href="/quote?purpose=増員" data-lead="product-similar">同等スペックも含めて探してもらう</a>'
+          + '<a class="c-cta" href="/quote?from=' + encodeURIComponent('product:' + (m.slug || ''))
+            + '" data-lead="product-similar">同等スペックも含めて探してもらう</a>'
         + '</div>'
       + '</div>'
       + '</div>';

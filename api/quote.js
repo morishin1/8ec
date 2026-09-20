@@ -194,7 +194,18 @@ module.exports = async (req, res) => {
     product_name: clean(body.product_name, 160),
     want: WANTS.indexOf(clean(body.want, 20)) >= 0 ? clean(body.want, 20) : null,
   };
-  if (!row.name) return res.status(400).json({ error: "ご担当者名を入力してください" });
+  // 連絡できないリードを作らない。会社名・ご担当者名・メールはサーバー側でも必須にする
+  //（ブラウザ側の検証だけだと、直接POSTされたときに素通りするため）
+  const missing = [];
+  if (!row.company) missing.push("会社名");
+  if (!row.name) missing.push("ご担当者名");
+  if (!row.email) missing.push("メールアドレス");
+  if (missing.length) {
+    return res.status(400).json({ error: missing.join("・") + "を入力してください" });
+  }
+  if (!/.+@.+\..+/.test(row.email)) {
+    return res.status(400).json({ error: "メールアドレスの形式をご確認ください" });
+  }
 
   // ── 1) Supabase に保存（ここが失敗したら送信失敗として返す） ──
   try {
