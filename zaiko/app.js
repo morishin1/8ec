@@ -113,6 +113,7 @@ const MENU = [
   ['hist', 'history', '履歴', '/history'],
   ['reg', 'add_box', '商品登録', '/register'],
   ['labels', 'qr_code_2', 'QRラベル', '/labels'],
+  ['deals', 'request_quote', '案件', '/deals'],
   ['rental', 'car_rental', '8RENT申込', '/rental-requests'],
   // マスター管理はメニューにも管理者だけ出す（画面側でも権限を見る）
   ['master', 'tune', 'マスター管理', '/masters', 'admin']
@@ -124,6 +125,7 @@ const db = {
   cats: [], locs: [], masters: [], items: [], channels: [],
   tx: [], stocktake: null, stChecked: [], stPast: [], members: [], imports: [], rentalReqs: [],
   chanSettings: [],         // 販売サイトごとの管理画面URL（inventory_channel_settings）
+  deals: [],                // 法人ITまるごと見積（/quote）から届いた案件
   stats: null               // 今月の経営数値（inv_dashboard_stats）
 };
 const ui = {
@@ -133,7 +135,8 @@ const ui = {
   drafts: {}, labelSel: {}, stScope: '', loaded: false, sel: {}, selItems: {}, fBatch: null, doneBatch: null,
   // 一覧のタブ。individual / model のほかに、販売サイトのキーと 'none'（未出品）を取る
   listMode: 'unit', fSt: '', fDiff: false, fNoPrice: false, fRental: '', fRentEl: '',
-  mTab: 'loc'                // マスター管理のタブ（保管場所／カテゴリー）
+  mTab: 'loc',               // マスター管理のタブ（保管場所／カテゴリー）
+  fDeal: ''                  // 案件の状態の絞り込み
 };
 
 /* 仕入の置き場所はたいてい柏の倉庫なので、取込の初期値にする。
@@ -546,9 +549,10 @@ async function loadAll() {
     sb.from('inventory_rental_requests').select('*').order('created_at', { ascending: false }).limit(500),
     sb.from('inventory_channel_listings').select('*').limit(LOAD_LIMIT),
     sb.from('inventory_channel_settings').select('*'),
-    sb.rpc('inv_dashboard_stats')
+    sb.rpc('inv_dashboard_stats'),
+    sb.from('inventory_deals').select('*').order('created_at', { ascending: false }).limit(300)
   ];
-  const [c, l, i, p, t, s, ch, im, rr, cl, cs, ds] = await Promise.all(q);
+  const [c, l, i, p, t, s, ch, im, rr, cl, cs, ds, dl] = await Promise.all(q);
   const bad = [c, l, i, p, t, s, ch, im].find(r => r.error);
   if (bad) { showSetup(bad.error); return false; }
   db.imports = im.data || [];
@@ -556,6 +560,8 @@ async function loadAll() {
   db.chanSettings = cs.error ? [] : (cs.data || []);
   // 経営数値。migration未適用でも他の画面が動くよう、取れなければnullにする
   db.stats = ds.error ? null : (ds.data || null);
+  // 案件。migration未適用でも他の画面が動くよう、取れなければ空にする
+  db.deals = dl.error ? [] : (dl.data || []);
 
   db.cats = c.data || [];
   db.locs = l.data || [];
@@ -602,7 +608,8 @@ function parsePath() {
   if (seg[0] === 'products' && seg[1]) return { screen: 'prod', prodId: decodeURIComponent(seg[1]) };
   if (seg[0] === 'locations' && seg[1]) return { screen: 'loc', locId: decodeURIComponent(seg[1]) };
   const byPath = { list: 'list', in: 'in', out: 'out', loan: 'loan', stock: 'stock', locations: 'locs',
-                   masters: 'master', history: 'hist', register: 'reg', labels: 'labels', 'rental-requests': 'rental' };
+                   masters: 'master', history: 'hist', register: 'reg', labels: 'labels',
+                   deals: 'deals', 'rental-requests': 'rental' };
   const screen = byPath[seg[0]] || 'dash';
   return screen === 'list' ? { screen, listMode: modeFromQuery() } : { screen };
 }
@@ -629,6 +636,7 @@ function pathFor(screen, id) {
   if (screen === 'item') return BASE + '/items/' + encodeURIComponent(id);
   if (screen === 'prod') return BASE + '/products/' + encodeURIComponent(id);
   if (screen === 'master') return BASE + '/masters';
+  if (screen === 'deals') return BASE + '/deals';
   if (screen === 'loc') return BASE + '/locations/' + encodeURIComponent(id);
   const m = MENU.find(x => x[0] === screen);
   return BASE + (m ? m[3] : '') + (screen === 'list' ? listQuery() : '');
@@ -725,7 +733,7 @@ function render() {
     dash: viewDash, list: viewList, item: viewItem, prod: viewProd, in: viewIn, out: viewOut,
     loan: viewLoan, stock: viewStock, locs: viewLocs, loc: viewLoc, master: viewMaster,
     hist: viewHist, reg: viewReg, labels: viewLabels,
-    rental: viewRentalRequests
+    deals: viewDeals, rental: viewRentalRequests
   }[ui.screen] || viewDash;
   v.innerHTML = fn();
   if (ui.screen === 'labels') bindLabelPicks();
@@ -5554,6 +5562,127 @@ async function logRegister(kind, id, label, after) {
   await sb.from('inventory_transactions').insert({
     actor: me.name, ref_kind: kind, ref_id: id, label, action: '登録', before_value: '—', after_value: after
   });
+}
+
+/* ===== 14. 案件（法人ITまるごと見積） =====
+   公開側の /quote から届く「こういうものが要る」というご希望。
+   商品も台数も決まっていないことがある。機種を指定した申込
+   （8RENT申込）とは別の入口で、こちらのほうが手前の段階。
+
+   この画面でできるのは、中身を見る・状態を進める・メモを書くまで。
+   見積の明細と契約・請求は、まだ作っていない（Phase 2以降）。 */
+
+const DEAL_STATES = ['希望受付', '在庫・調達確認', '見積', '顧客承認', '契約', 'ご縁なし'];
+const GRADE_LABEL = {
+  budget: 'コスト重視（整備済み中心）', standard: '標準', latest: '最新・高性能（新品）', any: 'おまかせ'
+};
+const SPEC_LABEL = { cpu: 'CPU', memory: 'メモリ', storage: 'ストレージ',
+                     screen: '画面', office: 'Office', webcam: 'カメラ・テンキー', numpad: 'テンキー' };
+
+function viewDeals() {
+  const open = db.deals.filter(d => d.status === '希望受付').length;
+  const doing = db.deals.filter(d => ['在庫・調達確認', '見積', '顧客承認'].includes(d.status)).length;
+  return `<h1>案件</h1>
+    <p class="sub" style="margin:8px 0 15px">公開サイトの<strong>「法人ITまるごと見積」</strong>（/quote）から届いたご希望です。
+      商品も台数も決まっていないことがあります。<br>
+      <strong>この時点では在庫を押さえていませんし、お支払いも発生していません。</strong>
+      中身を見て、購入・レンタル・組み合わせのどれにするかを決めてから、お見積りをお送りしてください。<br>
+      機種を指定した申込は <button class="btn sm ghost" onclick="go('rental')">8RENT申込</button> にあります。</p>
+    ${open || doing ? `<div class="card" style="background:#FFF4E5;margin-bottom:15px;display:flex;align-items:center;gap:10px">
+      <span class="ms" style="font-size:20px;color:#B26A00">notifications_active</span>
+      <div>${[open ? `未対応のご希望が <b>${open}件</b>` : '', doing ? `対応中が <b>${doing}件</b>` : '']
+        .filter(Boolean).join('、')} あります。</div>
+    </div>` : ''}
+    <div style="max-width:260px;margin-bottom:12px">
+      <select class="input" id="df-status" onchange="ui.fDeal=this.value;renderDealBody()">
+        <option value="">すべての状態</option>
+        ${DEAL_STATES.map(s => `<option${ui.fDeal === s ? ' selected' : ''}>${esc(s)}</option>`).join('')}
+      </select>
+    </div>
+    <div id="dealBody">${dealBodyHtml()}</div>`;
+}
+function renderDealBody() {
+  const el = $('dealBody');
+  if (el) el.innerHTML = dealBodyHtml();
+}
+const dealStatusTag = (s) => {
+  const cls = { '希望受付': 'few', '在庫・調達確認': 'few', '見積': 'few',
+                '顧客承認': 'ok', '契約': 'ok', 'ご縁なし': 'none' }[s] || 'none';
+  return `<span class="tag stk-${cls}">${esc(s)}</span>`;
+};
+/* お客様が書いた規模を1行にする。空の項目は出さない（「—名 —台」を並べない） */
+function dealSizeText(d) {
+  return [d.purpose, d.headcount ? d.headcount + '名' : '', d.qty ? d.qty + '台' : '',
+          d.months == null ? '' : (d.months === 0 ? '買い切り希望' : d.months + 'ヶ月'),
+          d.start_date ? fmtD(d.start_date) + '開始' : '']
+    .filter(Boolean).join('　') || '規模の指定なし';
+}
+function dealSpecText(d) {
+  const sp = d.spec || {};
+  return Object.keys(sp).map(k => `${SPEC_LABEL[k] || k} ${sp[k]}`).join('／');
+}
+
+function dealBodyHtml() {
+  const rows = db.deals.filter(d => !ui.fDeal || d.status === ui.fDeal);
+  if (!rows.length) return `<div class="empty" style="margin-top:15px">${
+    ui.fDeal ? 'この状態の案件はありません。' : 'まだ案件は届いていません。'}</div>`;
+  return `<div class="meta" style="margin:12px 0 4px">${rows.length} 件</div>` + rows.map(d => `
+    <div class="card" style="margin-bottom:12px">
+      <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+        <span class="num meta">#${d.id}</span>
+        <b style="font-size:16px">${esc(d.company || d.customer_name)}</b>
+        ${d.company ? `<span class="meta">${esc(d.customer_name)} 様</span>` : ''}
+        ${dealStatusTag(d.status)}
+        <span class="meta" style="margin-left:auto">${fmtDT(d.created_at)}</span>
+      </div>
+      <div style="margin-top:8px;font-size:14px">${esc(dealSizeText(d))}</div>
+      ${d.grade ? `<div class="meta" style="margin-top:4px">ご希望の方針：${esc(GRADE_LABEL[d.grade] || d.grade)}</div>` : ''}
+      ${dealSpecText(d) ? `<div class="meta" style="margin-top:4px">スペック：${esc(dealSpecText(d))}</div>` : ''}
+      ${(d.services || []).length ? `<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px">${
+        d.services.map(x => `<span class="tag">${esc(x)}</span>`).join('')}</div>` : ''}
+      ${d.message ? `<div class="pre" style="margin-top:10px">${esc(d.message)}</div>` : ''}
+      <div class="meta" style="margin-top:10px">
+        ${[d.email ? `<a href="mailto:${esc(d.email)}">${esc(d.email)}</a>` : '',
+           d.phone ? esc(d.phone) : ''].filter(Boolean).join('　') || '連絡先の記入なし'}
+      </div>
+      ${d.note ? `<div class="card" style="margin-top:10px;background:var(--n100)">
+        <div class="meta" style="margin-bottom:3px">社内メモ${d.actor ? '（' + esc(d.actor) + '）' : ''}</div>
+        <div style="font-size:13.5px;white-space:pre-wrap">${esc(d.note)}</div></div>` : ''}
+      ${canEdit() ? `<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:12px">
+        ${DEAL_STATES.filter(x => x !== d.status).map(x =>
+          `<button class="btn sm ghost" onclick="setDealStatus(${d.id},'${esc(x)}')">${esc(x)}にする</button>`).join('')}
+        <button class="btn sm ghost" onclick="sheetDealNote(${d.id})">メモ</button>
+      </div>` : ''}
+    </div>`).join('');
+}
+
+async function setDealStatus(id, status) {
+  const { data, error } = await sb.rpc('inv_deal_set_status', { p_id: id, p_status: status });
+  if (error) { toast(error.message || '変えられませんでした'); return; }
+  const i = db.deals.findIndex(d => d.id === id);
+  if (i >= 0 && data) db.deals[i] = data;
+  renderDealBody();
+  toast(`${status} にしました`);
+}
+function sheetDealNote(id) {
+  const d = db.deals.find(x => x.id === id);
+  if (!d) return;
+  openSheet({
+    title: '社内メモ', subject: '#' + id, cta: '保存',
+    hint: 'お客様には見えません。在庫と調達の確認結果や、お見積りの方針を書いておくところです。',
+    body: `<label class="field"><span>メモ</span>
+      <textarea class="input" id="sheetVal" rows="5" style="line-height:1.8"
+        placeholder="例）11月開始。整備済み15台＋新品5台で手当てできる見込み。現地設置は別途見積。">${esc(d.note || '')}</textarea></label>`,
+    run: (v) => saveDealNote(id, v)
+  });
+}
+async function saveDealNote(id, note) {
+  const { data, error } = await sb.rpc('inv_deal_note', { p_id: id, p_note: note });
+  if (error) { toast(error.message || '保存できませんでした'); return; }
+  const i = db.deals.findIndex(d => d.id === id);
+  if (i >= 0 && data) db.deals[i] = data;
+  renderDealBody();
+  toast('メモを保存しました');
 }
 
 /* ===== 12. QRラベル印刷 ===== */

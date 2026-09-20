@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>法人ITまるごと見積 | 8RENT</title>
+<meta name="description" content="何を用意すればいいか分からなくても大丈夫。人数・台数・期間・用途をお知らせいただければ、自社在庫・整備済み機器・新品調達を組み合わせて最適な構成をご提案します。購入・レンタル・組み合わせのどれがよいかもこちらで判断します。">
+<meta name="robots" content="index,follow">
+<link rel="canonical" href="https://www.8ec.jp/quote">
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="8RENT">
+<meta property="og:title" content="法人ITまるごと見積 | 8RENT">
+<meta property="og:description" content="何を用意すればいいか分からなくても大丈夫。必要な台数・期間・用途をお知らせください。">
+<meta property="og:url" content="https://www.8ec.jp/quote">
+<meta property="og:locale" content="ja_JP">
+<meta name="format-detection" content="telephone=no">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+/* ===================================================================
+   法人ITまるごと見積（/quote）
+
+   ここは「商品を選ぶ画面」ではありません。お客様が何を用意すべきか
+   分からなくても送れるように、用途と規模だけで受けられる形にしています。
+
+   この画面では 決済もしませんし、個体（実物1台）も押さえません。
+   送られた内容は案件（inventory_deals）として保存され、担当者が中身を見て
+   購入・レンタル・組み合わせのどれにするかを決めます。
+
+   色・字送りはトップ（8RENT）に合わせています。
+   =================================================================== */
+:root{
+  --lime:#C7ED3E; --lime-d:#5E7414; --lime-l:#F6FCE2;
+  --ink:#1B1D1A; --body:#4A4C43; --meta:#6C6E64; --line:#DEDED7;
+  --bg:#F7F7F2; --white:#fff;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--white);color:var(--ink);
+  font-family:"Noto Sans JP",system-ui,-apple-system,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
+  font-size:15px;line-height:1.75;letter-spacing:.01em}
+a{color:inherit}
+.wrap{max-width:900px;margin:0 auto;padding:0 24px}
+.bar{border-bottom:1px solid var(--line);background:var(--white);position:sticky;top:0;z-index:20}
+.bar .wrap{max-width:1240px;display:flex;align-items:center;gap:16px;min-height:60px}
+.bar .brand{font-weight:900;font-size:17px;letter-spacing:-.02em;text-decoration:none}
+.bar .brand span{color:var(--lime-d)}
+.bar nav{margin-left:auto;display:flex;gap:4px;flex-wrap:wrap}
+.bar nav a{font-size:13px;font-weight:700;text-decoration:none;padding:8px 12px;border-radius:2px}
+.bar nav a:hover{background:var(--bg)}
+
+.hero{background:var(--ink);color:var(--white);padding:52px 0 44px}
+.hero .eyebrow{font-size:11.5px;letter-spacing:.14em;color:var(--lime);font-weight:700;margin:0 0 10px}
+.hero h1{font-size:clamp(28px,4.6vw,40px);letter-spacing:-.035em;line-height:1.3;margin:0 0 14px}
+.hero p{font-size:15px;line-height:1.9;color:#C6C7C0;margin:0;max-width:40em;text-wrap:pretty}
+.hero .pts{display:flex;gap:8px;flex-wrap:wrap;margin-top:22px}
+.hero .pts span{font-size:12.5px;font-weight:700;border:1px solid rgba(255,255,255,.28);border-radius:2px;padding:7px 12px}
+
+main{padding:38px 0 70px}
+.note{background:var(--lime-l);border:1px solid var(--lime);border-radius:3px;padding:16px 18px;
+  font-size:13.5px;line-height:1.85;color:#43530E;margin-bottom:30px}
+.note b{display:block;font-size:15px;margin-bottom:4px;color:var(--ink)}
+
+fieldset{border:0;padding:0;margin:0 0 34px}
+legend{padding:0;margin-bottom:4px;font-size:20px;font-weight:700;letter-spacing:-.02em}
+.lead{font-size:13px;color:var(--meta);margin:0 0 16px;line-height:1.8}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px}
+.f{display:block}
+.f > span{display:block;font-size:12px;font-weight:700;color:var(--body);margin-bottom:6px}
+.f .req{color:#B3261E;font-size:10.5px;margin-left:6px;font-weight:700}
+.f .hint{font-weight:400;color:var(--meta);font-size:11px;margin-left:6px}
+.input{width:100%;min-height:46px;padding:10px 12px;font:inherit;font-size:15px;color:var(--ink);
+  background:var(--white);border:1px solid var(--line);border-radius:3px}
+.input:focus{outline:2px solid var(--lime-d);outline-offset:1px;border-color:var(--lime-d)}
+.input.bad{border-color:#B3261E;background:#FDECEC}
+textarea.input{min-height:110px;line-height:1.8;resize:vertical}
+select.input{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--meta) 50%),linear-gradient(135deg,var(--meta) 50%,transparent 50%);
+  background-position:calc(100% - 18px) 21px,calc(100% - 13px) 21px;background-size:5px 5px;background-repeat:no-repeat;padding-right:38px}
+
+.chips{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:9px}
+.chip{display:flex;align-items:flex-start;gap:10px;border:1px solid var(--line);border-radius:3px;
+  padding:12px 14px;cursor:pointer;background:var(--white);font-size:14px;line-height:1.55}
+.chip:hover{border-color:var(--lime-d);background:var(--lime-l)}
+.chip input{margin:2px 0 0;width:17px;height:17px;accent-color:var(--lime-d);flex:none}
+.chip small{display:block;font-size:11.5px;color:var(--meta);margin-top:2px;line-height:1.6}
+.chip:has(input:checked){border-color:var(--ink);background:var(--lime-l)}
+.chip:has(input:focus-visible){outline:2px solid var(--lime-d);outline-offset:1px}
+
+.hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+.acts{border-top:1px solid var(--line);padding-top:24px;margin-top:6px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:56px;
+  padding:0 30px;border:1px solid var(--ink);border-radius:3px;background:var(--ink);color:var(--white);
+  font:inherit;font-size:16px;font-weight:700;cursor:pointer;text-decoration:none}
+.btn.lime{background:var(--lime);border-color:var(--lime);color:var(--ink)}
+.btn.lime:hover{background:#B2D92C;border-color:#B2D92C}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn:disabled{opacity:.55;cursor:default}
+.privacy{font-size:11.5px;color:var(--meta);margin-top:12px;line-height:1.8}
+.alert{background:#FDECEC;color:#8C1D18;border-radius:3px;padding:12px 14px;font-size:13.5px;margin-bottom:14px}
+.done{text-align:center;padding:48px 24px;border:1px solid var(--line);border-radius:4px;background:var(--bg)}
+.done .ic{width:52px;height:52px;border-radius:50%;background:var(--lime);color:var(--ink);
+  display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:900;margin:0 auto 16px}
+.done h2{font-size:21px;margin:0 0 10px;letter-spacing:-.02em}
+.done p{font-size:14px;color:var(--body);line-height:1.9;margin:0 auto;max-width:34em}
+
+.after{margin-top:50px;border:1px solid var(--line);border-radius:4px;padding:26px 24px;background:var(--bg)}
+.after h2{font-size:19px;margin:0 0 16px;letter-spacing:-.02em}
+.after ol{margin:0;padding-left:1.3em;font-size:14px;line-height:2}
+.after ol b{font-weight:700}
+
+footer{border-top:1px solid var(--line);padding:30px 0;font-size:12.5px;color:var(--meta)}
+footer .wrap{max-width:1240px;display:flex;gap:16px;flex-wrap:wrap;align-items:center}
+footer a{text-decoration:none}
+footer a:hover{text-decoration:underline}
+@media(max-width:560px){
+  .wrap{padding:0 16px}
+  .hero{padding:38px 0 34px}
+  .btn{width:100%}
+}
+</style>
+</head>
+<body>
+
+<div class="bar"><div class="wrap">
+  <a class="brand" href="/">8<span>RENT</span></a>
+  <nav>
+    <a href="/#catalog">商品から探す</a>
+    <a href="/pc.html">法人PCレンタル</a>
+    <a href="/cloud.html">クラウド情シス</a>
+    <a href="/#contact">お問い合わせ</a>
+  </nav>
+</div></div>
+
+<div class="hero"><div class="wrap">
+  <p class="eyebrow">ESTIMATE</p>
+  <h1>何を用意すればいいか<br>分からなくても大丈夫。</h1>
+  <p>必要な台数・期間・用途をお知らせください。自社の在庫・整備済み機器・新品の調達を組み合わせて、
+    最適な構成をご用意します。購入がよいか、レンタルがよいか、組み合わせるかも、こちらで判断してご提案します。</p>
+  <div class="pts">
+    <span>1台から相談できます</span><span>1か月の短期もご相談ください</span>
+    <span>在庫に無いものも調達します</span><span>お見積りは無料です</span>
+  </div>
+</div></div>
+
+<main><div class="wrap">
+  <div id="formHost">
+    <div class="note">
+      <b>この画面で契約は発生しません。</b>
+      いただいた内容は「ご希望」としてお預かりします。台数や構成を確認したうえで、
+      担当者から1〜2営業日以内にご連絡します。この時点でお支払いは発生しませんし、機器も押さえません。
+    </div>
+
+    <form id="qForm" novalidate>
+      <fieldset>
+        <legend>1. どんな場面でお使いですか</legend>
+        <p class="lead">分かる範囲で構いません。空欄のままでも送れます。</p>
+        <div class="grid">
+          <label class="f"><span>利用目的</span>
+            <select class="input" id="qPurpose" name="purpose"></select></label>
+          <label class="f"><span>ご利用人数<span class="hint">名</span></span>
+            <input class="input" type="number" min="0" max="5000" id="qHead" inputmode="numeric" placeholder="20"></label>
+          <label class="f"><span>ご希望台数<span class="hint">台</span></span>
+            <input class="input" type="number" min="0" max="5000" id="qQty" inputmode="numeric" placeholder="20"></label>
+          <label class="f"><span>ご利用開始の希望日</span>
+            <input class="input" type="date" id="qStart"></label>
+          <label class="f"><span>ご利用期間</span>
+            <select class="input" id="qMonths">
+              <option value="">未定・相談したい</option>
+              <option value="1">1ヶ月</option><option value="3">3ヶ月</option>
+              <option value="6">6ヶ月</option><option value="12">12ヶ月</option>
+              <option value="24">24ヶ月</option><option value="36">36ヶ月</option>
+              <option value="0">買い切りたい</option>
+            </select></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>2. ご希望の方針</legend>
+        <p class="lead">新品か中古かを最初から決めていただく必要はありません。方針だけ伺えば、
+          自社在庫・整備済み機器・新品調達を組み合わせてご提案します。</p>
+        <div class="chips" id="qGrade"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>3. PCのご希望（分かる範囲で）</legend>
+        <p class="lead">分からない項目は空欄のままで構いません。用途からこちらで選定します。</p>
+        <div class="grid">
+          <label class="f"><span>CPU</span>
+            <select class="input" id="sCpu"><option value="">おまかせ</option>
+              <option>Core i3 相当</option><option>Core i5 相当</option>
+              <option>Core i7 以上</option><option>Apple M シリーズ</option></select></label>
+          <label class="f"><span>メモリ</span>
+            <select class="input" id="sMemory"><option value="">おまかせ</option>
+              <option>8GB以上</option><option>16GB以上</option><option>32GB以上</option></select></label>
+          <label class="f"><span>ストレージ</span>
+            <select class="input" id="sStorage"><option value="">おまかせ</option>
+              <option>256GB以上</option><option>512GB以上</option><option>1TB以上</option></select></label>
+          <label class="f"><span>画面サイズ</span>
+            <select class="input" id="sScreen"><option value="">おまかせ</option>
+              <option>13型以下（持ち運び重視）</option><option>14型前後</option>
+              <option>15型以上（大画面）</option><option>デスクトップ＋モニター</option></select></label>
+          <label class="f"><span>Office</span>
+            <select class="input" id="sOffice"><option value="">相談したい</option>
+              <option>必要</option><option>不要</option><option>Microsoft 365 も含めて相談</option></select></label>
+          <label class="f"><span>カメラ・テンキー</span>
+            <select class="input" id="sWebcam"><option value="">指定なし</option>
+              <option>カメラ必須</option><option>テンキー必須</option><option>どちらも必須</option></select></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>4. あわせてご依頼いただけること</legend>
+        <p class="lead">機器を貸すだけではなく、社員の方が仕事を始められる状態までご用意できます。
+          必要なものを選んでください（あとから増やせます）。</p>
+        <div class="chips" id="qServices"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>5. ご連絡先</legend>
+        <p class="lead">お見積りの結果をお送りします。</p>
+        <div class="grid">
+          <label class="f"><span>会社名</span>
+            <input class="input" id="qCompany" autocomplete="organization" placeholder="株式会社エイト"></label>
+          <label class="f"><span>ご担当者名<span class="req">必須</span></span>
+            <input class="input" id="qName" autocomplete="name" placeholder="山田 太郎"></label>
+          <label class="f"><span>メールアドレス</span>
+            <input class="input" id="qEmail" type="email" autocomplete="email" placeholder="taro@example.co.jp"></label>
+          <label class="f"><span>お電話番号</span>
+            <input class="input" id="qTel" autocomplete="tel" inputmode="tel" placeholder="03-0000-0000"></label>
+        </div>
+        <label class="f" style="margin-top:14px"><span>その他のご希望・お困りごと</span>
+          <textarea class="input" id="qMessage" placeholder="例）4月入社の20名ぶんです。会議室にモニターとWeb会議機器も入れたいのですが、何が必要か分かっていません。"></textarea></label>
+        <div class="hp" aria-hidden="true"><label>Webサイト<input id="qHp" type="text" tabindex="-1" autocomplete="off"></label></div>
+      </fieldset>
+
+      <div class="acts">
+        <div id="alertHost"></div>
+        <button class="btn lime" type="submit" id="qSubmit">この内容で見積を依頼する</button>
+        <p class="privacy">送信により<a href="/privacy.html" target="_blank" rel="noopener">プライバシーポリシー</a>に同意したものとみなします。<br>
+          お急ぎの場合は 03-6433-5025（平日9:00〜18:00）までお電話ください。</p>
+      </div>
+    </form>
+  </div>
+
+  <div class="after">
+    <h2>お送りいただいたあとの流れ</h2>
+    <ol>
+      <li><b>ご希望の確認</b>　担当者が内容を確認します。不明な点はこちらからお伺いします。</li>
+      <li><b>在庫と調達の確認</b>　自社在庫・整備済み機器・新品の調達先から、必要な台数を確保できるか確認します。</li>
+      <li><b>ご提案とお見積り</b>　購入・レンタル・組み合わせのうち、いちばん無理のない形でご提案します。</li>
+      <li><b>ご承認・ご契約</b>　内容にご納得いただいてからのご契約です。</li>
+      <li><b>設定してお届け</b>　キッティング・Office・アカウント・セキュリティまで済ませてお届けします。</li>
+    </ol>
+  </div>
+</div></main>
+
+<footer><div class="wrap">
+  <span>© 株式会社エイト</span>
+  <a href="/">8RENT トップ</a>
+  <a href="/pc.html">法人PCレンタル</a>
+  <a href="/privacy.html">プライバシーポリシー</a>
+  <a href="/tokushou.html">特定商取引法に基づく表記</a>
+</div></footer>
+
+<script>
+/* 選択肢はサーバー（/api/quote）が受け付けるものと同じにする。
+   ここで作った値以外は、サーバー側で落とされる。 */
+const PURPOSES = ['新入社員・中途入社', '短期プロジェクト', 'オフィス開設・移転', '研修・イベント',
+  'PC入替', '増員', '故障・緊急代替', 'その他'];
+const GRADES = [
+  ['budget',   'コスト重視',       '整備済みの機器を中心にご提案します。費用を抑えたいとき。'],
+  ['standard', '標準',             '価格と性能のバランスを見て選びます。迷ったらこちら。'],
+  ['latest',   '最新・高性能',     '新品・最新モデルを調達します。開発や設計など負荷の高い用途に。'],
+  ['any',      'おまかせ',         '用途を伺って、こちらで選びます。']
+];
+const SERVICES = [
+  ['初期設定・キッティング', '届いたその日から使える状態にします'],
+  ['Office / Microsoft 365', 'ライセンスの手配から設定まで'],
+  ['アカウント設定', '社員ごとのアカウント・メールの設定'],
+  ['ネットワーク・Wi-Fi', 'LAN配線の設計・ルーター/APの設定'],
+  ['セキュリティ', 'ウイルス対策・VPN・端末管理'],
+  ['現地設置', '搬入・配線・接続確認（別途お見積り）'],
+  ['AI研修', '生成AIを業務で使えるようにする研修'],
+  ['Office研修', 'Excel・Word・PowerPointの基礎から'],
+  ['データ消去・証明書', '返却・入替時のデータ消去と証明書の発行'],
+  ['故障時の交換対応', '故障時に代替機をお送りします']
+];
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+$('qPurpose').innerHTML = '<option value="">選択してください</option>' +
+  PURPOSES.map(p => `<option>${esc(p)}</option>`).join('');
+$('qGrade').innerHTML = GRADES.map(([v, t, d]) =>
+  `<label class="chip"><input type="radio" name="grade" value="${esc(v)}">
+    <span><b>${esc(t)}</b><small>${esc(d)}</small></span></label>`).join('');
+$('qServices').innerHTML = SERVICES.map(([t, d]) =>
+  `<label class="chip"><input type="checkbox" name="svc" value="${esc(t)}">
+    <span><b>${esc(t)}</b><small>${esc(d)}</small></span></label>`).join('');
+
+/* 別のページから「このパックで相談する」で来たときに、用途を選んだ状態にする。
+   例：/quote?purpose=新入社員・中途入社 */
+(function preset() {
+  const q = new URLSearchParams(location.search);
+  const p = q.get('purpose');
+  if (p && PURPOSES.indexOf(p) >= 0) $('qPurpose').value = p;
+  (q.get('services') || '').split(',').map(s => s.trim()).filter(Boolean).forEach(s => {
+    const el = [...document.querySelectorAll('input[name=svc]')].find(x => x.value === s);
+    if (el) el.checked = true;
+  });
+  const g = q.get('grade');
+  if (g) { const el = document.querySelector(`input[name=grade][value="${CSS.escape(g)}"]`); if (el) el.checked = true; }
+})();
+
+const numOrNull = (el) => {
+  const s = (el.value || '').trim();
+  if (s === '') return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? Math.round(n) : null;
+};
+
+$('qForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = $('qName');
+  const ng = !name.value.trim();
+  name.classList.toggle('bad', ng);
+  if (ng) {
+    $('alertHost').innerHTML = '<div class="alert">ご担当者名を入力してください。</div>';
+    name.focus();
+    return;
+  }
+  $('alertHost').innerHTML = '';
+  const btn = $('qSubmit');
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = '送信中…';
+
+  const spec = {};
+  [['cpu', 'sCpu'], ['memory', 'sMemory'], ['storage', 'sStorage'],
+   ['screen', 'sScreen'], ['office', 'sOffice'], ['webcam', 'sWebcam']].forEach(([k, id]) => {
+    const v = ($(id).value || '').trim();
+    if (v) spec[k] = v;
+  });
+  const months = $('qMonths').value;
+  const body = {
+    source: 'quote',
+    name: name.value.trim(),
+    company: $('qCompany').value.trim(),
+    email: $('qEmail').value.trim(),
+    phone: $('qTel').value.trim(),
+    purpose: $('qPurpose').value || null,
+    headcount: numOrNull($('qHead')),
+    qty: numOrNull($('qQty')),
+    start_date: $('qStart').value || null,
+    months: months === '' ? null : Number(months),
+    grade: (document.querySelector('input[name=grade]:checked') || {}).value || null,
+    spec,
+    services: [...document.querySelectorAll('input[name=svc]:checked')].map(x => x.value),
+    message: $('qMessage').value.trim(),
+    website: $('qHp').value
+  };
+
+  try {
+    const res = await fetch('/api/quote', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    });
+    let out = {};
+    try { out = await res.json(); } catch (_) { /* JSONでない応答はステータスで判断する */ }
+    if (!res.ok || out.error) throw new Error(out.error || ('HTTP ' + res.status));
+    $('formHost').innerHTML = `<div class="done">
+      <div class="ic">✓</div>
+      <h2>ご希望をお預かりしました</h2>
+      <p>担当者が内容を確認し、1〜2営業日以内にご連絡します。<br>
+        この時点でお支払いは発生していません。機器も押さえていませんので、内容の変更もお気軽にどうぞ。<br>
+        お急ぎの場合は 03-6433-5025 までお電話ください。</p>
+      <p style="margin-top:20px"><a class="btn ghost" href="/">8RENT トップへ戻る</a></p>
+    </div>`;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  } catch (err) {
+    $('alertHost').innerHTML = '<div class="alert">送信できませんでした（' + esc(err.message) +
+      '）。お手数ですが時間をおいてお試しいただくか、03-6433-5025 までお電話ください。</div>';
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+});
+</script>
+</body>
+</html>
