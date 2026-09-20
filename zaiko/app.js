@@ -2163,9 +2163,10 @@ function rakutenOrderResultHtml(out, dry) {
   if (dry) {
     const lines = out.lines || [];
     return `<div class="card" style="margin-bottom:10px"><strong>中身を見ただけで、在庫は動かしていません。</strong>
-      <div class="meta">注文 ${out.order_count ?? 0}件／明細 ${out.line_count ?? 0}件　
-        商品が当たった ${out.matched ?? 0}件／当たらなかった ${out.unmatched ?? 0}件
+      <div class="meta">注文 ${out.order_count ?? 0}件／明細 ${out.line_count ?? 0}件${
+        out.matched == null ? '' : `　商品が当たった ${out.matched}件／当たらなかった ${out.unmatched ?? 0}件`}
         ${out.shop_code ? '　店舗コード ' + esc(out.shop_code) : ''}</div></div>
+      ${out.warning ? `<div class="warnbox" style="margin-bottom:10px"><span class="ms">info</span><div>${esc(out.warning)}</div></div>` : ''}
       ${lines.length ? `<table class="t"><thead><tr>
           <th>注文番号</th><th>明細</th><th>楽天の商品コード</th><th>数量</th>
           <th>商品</th><th>発送</th></tr></thead><tbody>${lines.map(l => `<tr>
@@ -2175,7 +2176,8 @@ function rakutenOrderResultHtml(out, dry) {
           <td class="num">${l.qty}</td>
           <td>${l.product_code
                 ? `<span class="tag st-在庫">${esc(l.product_code)}</span>`
-                : '<span class="tag act">当たりません</span>'}</td>
+                : (l.matched === null ? '<span class="meta">—</span>'
+                                      : '<span class="tag act">当たりません</span>')}</td>
           <td class="meta">${l.cancelled ? 'キャンセル' : (l.shipped ? '発送済として渡す' : '販売予約で止める')}</td>
         </tr>`).join('')}</tbody></table>` : ''}
       <p class="meta" style="margin-top:8px">${esc(out.note || '')}

@@ -291,6 +291,9 @@ Deno.serve(async (req: Request) => {
     //     SQL側と同じ関数（inv_listing_product）で引く。推測はしない。
     if (dryRun) {
       const cache = new Map<string, string | null>();
+      // 照合そのものが試せなかった（権限が足りない等）ときに、
+      // 「商品が当たらなかった」と取り違えないよう別に覚えておく
+      let matchError: string | null = null;
       for (const l of lines) {
         const key = `${l.item_code || ""}|${l.item_url || ""}`;
         if (!cache.has(key)) {
@@ -299,11 +302,27 @@ Deno.serve(async (req: Request) => {
             headers: sbHeaders,
             body: JSON.stringify({ p_channel: "rakuten", p_item_code: l.item_code, p_item_url: l.item_url }),
           });
+          if (!r.ok && !matchError) {
+            matchError = `商品の照合ができませんでした（HTTP ${r.status}）。`
+              + "管理者・一般メンバーとしてログインした状態で実行してください"
+              + "（/zaiko の「楽天の注文を取り込む」から実行するのが確実です）。";
+          }
           const v = r.ok ? await r.json().catch(() => null) : null;
           cache.set(key, typeof v === "string" && v ? v : null);
         }
         l.product_code = cache.get(key) ?? null;
-        l.matched = !!l.product_code;
+        l.matched = matchError ? null : !!l.product_code;
+      }
+      if (matchError) {
+        return json({
+          dry_run: true, ship, shop_code: shopCode, shop_code_from: shopCodeFrom,
+          days: picked.length ? null : days,
+          order_count: orders.length, line_count: lines.length,
+          matched: null, unmatched: null,
+          warning: matchError,
+          note: "在庫は動かしていません。楽天からの取得はできています（下の明細）。",
+          lines,
+        });
       }
       return json({
         dry_run: true, ship, shop_code: shopCode, shop_code_from: shopCodeFrom,
