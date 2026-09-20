@@ -63,6 +63,20 @@ main{padding:38px 0 70px}
   font-size:13.5px;line-height:1.85;color:#43530E;margin-bottom:30px}
 .note b{display:block;font-size:15px;margin-bottom:4px;color:var(--ink)}
 
+/* 商品から来たとき（/buy・/rent の商品カードから）に出す、相談の対象商品 */
+.subject{display:flex;gap:16px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);
+  background:var(--white);border-radius:3px;padding:14px 16px;margin-bottom:22px}
+.subject img{width:96px;height:72px;object-fit:contain;background:var(--bg);border-radius:2px;flex:none}
+.subject .ph{width:96px;height:72px;display:flex;align-items:center;justify-content:center;background:var(--bg);
+  border-radius:2px;color:var(--meta);font-size:11px;flex:none}
+.subject .b{flex:1 1 220px;min-width:0}
+.subject .kd{font-size:11px;font-weight:700;letter-spacing:.12em;color:var(--lime-d);margin-bottom:3px}
+.subject .nm{font-size:16px;font-weight:700;letter-spacing:-.01em;line-height:1.45}
+.subject .sp{font-size:12.5px;color:var(--meta);margin-top:3px;line-height:1.7}
+.subject .pr{font-size:15px;font-weight:700;margin-top:5px}
+.subject .pr .num{font-size:20px}
+.subject .pr small{font-weight:500;color:var(--meta);font-size:12px;margin-left:6px}
+
 fieldset{border:0;padding:0;margin:0 0 34px}
 legend{padding:0;margin-bottom:4px;font-size:20px;font-weight:700;letter-spacing:-.02em}
 .lead{font-size:13px;color:var(--meta);margin:0 0 16px;line-height:1.8}
@@ -124,19 +138,19 @@ footer a:hover{text-decoration:underline}
 <body>
 
 <div class="bar"><div class="wrap">
-  <a class="brand" href="/">8<span>RENT</span></a>
+  <a class="brand" href="/">8<span>EC</span></a>
   <nav>
-    <a href="/#catalog">商品から探す</a>
-    <a href="/pc.html">法人PCレンタル</a>
-    <a href="/cloud.html">クラウド情シス</a>
+    <a href="/rent">レンタル</a>
+    <a href="/buy">購入</a>
+    <a href="/pc">法人PC</a>
     <a href="/#contact">お問い合わせ</a>
   </nav>
 </div></div>
 
 <div class="hero"><div class="wrap">
   <p class="eyebrow">ESTIMATE</p>
-  <h1>何を用意すればいいか<br>分からなくても大丈夫。</h1>
-  <p>必要な台数・期間・用途をお知らせください。自社の在庫・整備済み機器・新品の調達を組み合わせて、
+  <h1 id="qHead1">何を用意すればいいか<br>分からなくても大丈夫。</h1>
+  <p id="qHeadLead">必要な台数・期間・用途をお知らせください。自社の在庫・整備済み機器・新品の調達を組み合わせて、
     最適な構成をご用意します。購入がよいか、レンタルがよいか、組み合わせるかも、こちらで判断してご提案します。</p>
   <div class="pts">
     <span>1台から相談できます</span><span>1か月の短期もご相談ください</span>
@@ -146,6 +160,7 @@ footer a:hover{text-decoration:underline}
 
 <main><div class="wrap">
   <div id="formHost">
+    <div id="subjectHost"></div>
     <div class="note">
       <b>この画面で契約は発生しません。</b>
       いただいた内容は「ご希望」としてお預かりします。台数や構成を確認したうえで、
@@ -259,7 +274,7 @@ footer a:hover{text-decoration:underline}
 <footer><div class="wrap">
   <span>© 株式会社エイト</span>
   <a href="/">8RENT トップ</a>
-  <a href="/pc.html">法人PCレンタル</a>
+  <a href="/pc">法人PCレンタル</a>
   <a href="/privacy.html">プライバシーポリシー</a>
   <a href="/tokushou.html">特定商取引法に基づく表記</a>
 </div></footer>
@@ -314,6 +329,89 @@ $('qServices').innerHTML = SERVICES.map(([t, d]) =>
   if (g) { const el = document.querySelector(`input[name=grade][value="${CSS.escape(g)}"]`); if (el) el.checked = true; }
 })();
 
+/* ── 商品から来たとき ─────────────────────────────
+   /buy の［この商品を購入相談する］ → /quote?mode=buy&code=P-00424
+   /rent の［レンタルを相談する］     → /quote?mode=rent&code=P-00424
+
+   この画面は購入でもレンタルでも同じです。違うのは
+     ・どの商品を見て相談が始まったか（product_code）
+     ・お客様の希望（want ＝ 購入希望 / レンタル希望）
+   を案件に残すことだけで、ここで決済も個体の確保もしません。
+   購入とレンタルのどちらで出すかは、これまでどおり担当者が決めます。 */
+const SUPA_URL = 'https://htglvascsuqkixpmclwr.supabase.co';
+const SUPA_KEY = 'sb_publishable_yZCcrwdqjuf0u_5WBWlHIw_AxdvteEV';
+const subject = { code: null, name: null, want: null };
+
+const yen = (n) => '¥' + Number(n || 0).toLocaleString('ja-JP');
+
+function subjectCard(it, want) {
+  const title = [it.maker, it.name || it.model].filter(Boolean).join(' ') || it.code;
+  const spec = [it.cpu, it.memory_size, it.storage_capacity, it.screen_size].filter(Boolean).join(' / ');
+  const price = want === '購入希望'
+    ? (it.sale_price ? `<span class="num">${yen(it.sale_price)}</span><small>販売価格（税抜）</small>`
+                     : '販売価格はお見積り')
+    : (it.rental_price_month ? `<span class="num">${yen(it.rental_price_month)}</span><small>月額（税抜）〜</small>`
+                             : '月額はお見積り');
+  const img = it.image_url
+    ? `<img src="${esc(it.image_url)}" alt="" decoding="async" onerror="this.remove()">`
+    : '<div class="ph">画像準備中</div>';
+  return `<div class="subject">
+    ${img}
+    <div class="b">
+      <div class="kd">${want === '購入希望' ? 'この商品の購入について' : 'この商品のレンタルについて'}</div>
+      <div class="nm">${esc(title)}</div>
+      ${spec ? `<div class="sp">${esc(spec)}</div>` : ''}
+      <div class="pr">${price}</div>
+    </div>
+  </div>`;
+}
+
+(async function fromProduct() {
+  const q = new URLSearchParams(location.search);
+  const mode = (q.get('mode') || '').toLowerCase();
+  const code = (q.get('code') || '').trim().toUpperCase();
+  if (mode !== 'buy' && mode !== 'rent') return;
+  subject.want = mode === 'buy' ? '購入希望' : 'レンタル希望';
+  if (!/^[A-Z]{1,4}-[A-Z0-9-]{1,20}$/.test(code)) return;
+  subject.code = code;
+
+  // 見出しを場面に合わせる（見積フォームであることは変えない）
+  if (mode === 'buy') {
+    document.title = '商品の購入相談 | 8EC';
+    $('qHead1').innerHTML = 'この商品について<br>ご相談ください。';
+    $('qHeadLead').textContent = 'ご希望の台数と納期をお知らせください。在庫と調達状況を確認して、'
+      + 'お見積りと納期をご案内します。この画面ではお支払いは発生しません。';
+  } else {
+    document.title = '商品のレンタル相談 | 8RENT';
+    $('qHead1').innerHTML = 'この商品のレンタルを<br>ご相談ください。';
+    $('qHeadLead').textContent = 'ご希望台数と利用期間をお知らせください。'
+      + '在庫・調達状況を確認してご案内します。この画面では機器は押さえません。';
+  }
+
+  // 商品名はDBから取る（URLの文字列を信じない）。読めなくても相談は送れる
+  let it = null;
+  for (const view of ['inv_public_products', 'inv_public_catalog']) {
+    try {
+      const r = await fetch(`${SUPA_URL}/rest/v1/${view}?code=eq.${encodeURIComponent(code)}`
+        + '&select=code,name,maker,model,cpu,memory_size,storage_capacity,screen_size,image_url,'
+        + 'sale_price,sale_condition,sale_availability,rental_price_month,availability&limit=1',
+        { headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + SUPA_KEY } });
+      if (!r.ok) continue;
+      const rows = await r.json();
+      if (rows && rows.length) { it = rows[0]; break; }
+    } catch (_) { /* 通信できなくても相談は受ける */ }
+  }
+  if (!it) {
+    $('subjectHost').innerHTML = `<div class="subject"><div class="ph">商品</div>
+      <div class="b"><div class="kd">${subject.want === '購入希望' ? 'この商品の購入について' : 'この商品のレンタルについて'}</div>
+      <div class="nm">${esc(code)}</div>
+      <div class="sp">商品の情報を読み込めませんでしたが、このままご相談いただけます。</div></div></div>`;
+    return;
+  }
+  subject.name = [it.maker, it.name || it.model].filter(Boolean).join(' ') || it.code;
+  $('subjectHost').innerHTML = subjectCard(it, subject.want);
+})();
+
 const numOrNull = (el) => {
   const s = (el.value || '').trim();
   if (s === '') return null;
@@ -345,7 +443,10 @@ $('qForm').addEventListener('submit', async (e) => {
   });
   const months = $('qMonths').value;
   const body = {
-    source: 'quote',
+    source: subject.want === '購入希望' ? 'buy' : (subject.want === 'レンタル希望' ? 'rent' : 'quote'),
+    product_code: subject.code,
+    product_name: subject.name,
+    want: subject.want,
     name: name.value.trim(),
     company: $('qCompany').value.trim(),
     email: $('qEmail').value.trim(),

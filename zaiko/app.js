@@ -3881,6 +3881,7 @@ function tabInfo(p) {
     </div>
     ${ind ? prodPrices(p) : ''}
     ${ind ? rentalBox(p) : ''}
+    ${ind ? saleBox(p) : ''}
     ${ind ? imagesBox(p) : ''}
     ${p.spec ? `<div class="sec">スペック</div><div class="pre">${esc(p.spec)}</div>` : ''}
     ${p.note ? `<div class="sec">備考</div><div class="pre">${esc(p.note)}</div>` : ''}
@@ -4021,6 +4022,102 @@ function rentalBox(p) {
       '貸し出しても楽天の掲載は解除せず、販売サイトへ出す数量だけが減ります。'
     ]).join('　')}</p>`
     : `<p class="meta" style="margin-top:6px">非掲載のあいだは、個体を8RENT対象にしても8ECには出ません。</p>`}`;
+}
+
+const SALE_CONDITIONS = ['新品', '整備済み', '中古'];
+
+/* 販売設定に出す「参考価格」。
+   楽天の出品価格と、個体に入っている販売予定価格（plan_price）を見るだけで、
+   公開する販売価格（sale_price）へ自動ではコピーしない。
+   楽天は個人向け・送料込みの値段で、plan_price は社内の見込みなので、
+   どちらも法人向けの公開価格とは別物。 */
+function saleRefPrices(code) {
+  const rk = channelsOf(code)
+    .concat(itemsOf(code).reduce((a, i) => a.concat(listingsOf(i.id)), []))
+    .filter(c => c.channel === 'rakuten' && c.price > 0).map(c => c.price);
+  const plans = itemsOf(code).filter(i => !GONE.includes(i.status) && i.plan_price > 0)
+    .map(i => i.plan_price);
+  return { rakuten: rk.length ? Math.min.apply(null, rk) : null,
+           plan:    plans.length ? Math.min.apply(null, plans) : null };
+}
+
+/* 商品詳細に出す販売設定（8EC BUY）。
+   レンタル（8RENT）とは別の判断で、同じ商品を 販売だけ・レンタルだけ・両方 にできる。
+   ここで「販売する」にした商品だけが /buy と公開トップの販売欄に出る。
+   楽天の掲載とは関係しない（楽天は裏側の販売チャネルのまま）。 */
+function saleBox(p) {
+  // 販売の列がまだ無いDB（migration未適用）では出さない
+  if (p.sale_enabled === undefined) return '';
+  const on = !!p.sale_enabled;
+  const ref = saleRefPrices(p.code);
+  return `<div class="prices" style="margin-top:16px">
+    <div><div class="lbl">販売（8EC BUY）</div><div class="v ${on ? 'plus' : ''}">${on ? '公開中' : '非公開'}</div></div>
+    <div><div class="lbl">法人向け販売価格</div><div class="v">${p.sale_price ? yen(p.sale_price) : 'お見積り'}</div></div>
+    <div><div class="lbl">状態</div><div class="v" style="font-size:15px">${esc(p.sale_condition || '未設定')}</div></div>
+    <div><div class="lbl">取り寄せ</div><div class="v">${p.sale_procurement_available ? '可' : '—'}</div></div>
+    <button class="btn sm ghost" onclick="sheetSaleSet('${esc(p.code)}')" ${dis()}>販売設定を変える</button>
+  </div>
+  <p class="meta" style="margin-top:6px">${[
+      on && !p.sale_price ? '価格が未設定なので、公開画面では「販売価格はお見積り」と出ます。' : '',
+      ref.rakuten ? '参考：楽天の出品 ' + yen(ref.rakuten) : '',
+      ref.plan ? '参考：販売予定価格 ' + yen(ref.plan) : '',
+      '参考価格は自動で入りません。法人向けに出す価格はここで決めてください。'
+    ].filter(Boolean).join('　')}</p>`;
+}
+
+function sheetSaleSet(code) {
+  const p = prod(code); if (!p) return;
+  const ref = saleRefPrices(code);
+  openSheet({
+    title: '販売設定', subject: code, cta: '保存',
+    hint: '「販売する」にすると、この商品が /buy（法人IT機器販売）と公開トップの販売欄に出ます。レンタル（8RENT）の設定とは別なので、両方に出すこともできます。',
+    body: `<label class="field" style="margin-bottom:10px"><span>販売</span>
+        <select class="input" id="sheetVal">
+          <option value="false"${!p.sale_enabled ? ' selected' : ''}>販売しない</option>
+          <option value="true"${p.sale_enabled ? ' selected' : ''}>販売する</option>
+        </select></label>
+      <label class="field" style="margin-bottom:6px"><span>法人向け販売価格（税抜・円）</span>
+        <input class="input num" type="number" min="1" step="100" id="slPrice"
+               value="${esc(p.sale_price == null ? '' : String(p.sale_price))}" placeholder="空欄なら「お見積り」"></label>
+      <p class="meta" style="margin:-2px 0 12px">${[
+          ref.rakuten ? '楽天の出品価格 ' + yen(ref.rakuten) : '',
+          ref.plan ? '社内の販売予定価格 ' + yen(ref.plan) : ''
+        ].filter(Boolean).join('／') || '参考にできる価格はまだありません。'}
+        <br>どちらも参考値です（楽天は個人向け・送料込み、販売予定価格は社内の見込み）。
+        そのまま公開価格にはしないでください。</p>
+      <label class="field" style="margin-bottom:10px"><span>商品の状態</span>
+        <select class="input" id="slCond">
+          <option value=""${!p.sale_condition ? ' selected' : ''}>未設定（公開画面に状態を出さない）</option>
+          ${SALE_CONDITIONS.map(c => `<option value="${c}"${p.sale_condition === c ? ' selected' : ''}>${c}</option>`).join('')}
+        </select></label>
+      <label class="bchk" style="margin-bottom:8px"><input type="checkbox" id="slProcure" ${p.sale_procurement_available ? 'checked' : ''}> 取り寄せ可（在庫0でも販売の相談を受ける）</label>
+      <p class="meta" style="margin:-4px 0 4px">在庫があれば「在庫あり」、無くて取り寄せ可なら「取り寄せ可能」と出ます。
+        残り何台かは公開しません。仕入先の社名も出しません。</p>`,
+    // 入れ直しにならないよう、閉じる前に見る（閉じてから知らせると入力が消える）
+    validate: () => {
+      const v = numField('slPrice');
+      if (v != null && (!(v > 0) || v > 100000000)) {
+        toast('販売価格は1円〜1億円の範囲で入れてください'); return false;
+      }
+      return true;
+    },
+    run: (val) => saveSaleSet(code, val === 'true')
+  });
+}
+
+async function saveSaleSet(code, enabled) {
+  const { data, error } = await sb.rpc('inv_product_sale_set', {
+    p_code: code, p_enabled: enabled,
+    p_price: numField('slPrice'),
+    p_condition: (($('slCond') || {}).value || null),
+    p_procurement: !!($('slProcure') || {}).checked
+  });
+  if (error) { toast('保存できませんでした：' + error.message); return; }
+  const i = db.masters.findIndex(x => x.code === code);
+  if (i >= 0 && data) db.masters[i] = data;
+  await refreshTx();
+  render();
+  toast(enabled ? '販売する商品にしました' : '販売設定を保存しました');
 }
 
 /* 商品画像。8ECトップ・8RENTの公開ページは、ここで登録した
@@ -5633,8 +5730,13 @@ function dealBodyHtml() {
         <b style="font-size:16px">${esc(d.company || d.customer_name)}</b>
         ${d.company ? `<span class="meta">${esc(d.customer_name)} 様</span>` : ''}
         ${dealStatusTag(d.status)}
+        ${d.want ? `<span class="tag">${esc(d.want)}</span>` : ''}
         <span class="meta" style="margin-left:auto">${fmtDT(d.created_at)}</span>
       </div>
+      ${d.product_code ? `<div style="margin-top:8px;font-size:13.5px">
+        ご覧の商品：<a class="c" href="/zaiko/products/${encodeURIComponent(d.product_code)}"
+          onclick="go('prod','${esc(d.product_code)}');return false">${esc(d.product_code)}${(prod(d.product_code) || {}).name ? '　' + esc(prod(d.product_code).name) : ''}</a>
+        <span class="meta">（お客様のご希望です。購入と決まったわけではありません）</span></div>` : ''}
       <div style="margin-top:8px;font-size:14px">${esc(dealSizeText(d))}</div>
       ${d.grade ? `<div class="meta" style="margin-top:4px">ご希望の方針：${esc(GRADE_LABEL[d.grade] || d.grade)}</div>` : ''}
       ${dealSpecText(d) ? `<div class="meta" style="margin-top:4px">スペック：${esc(dealSpecText(d))}</div>` : ''}

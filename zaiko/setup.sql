@@ -2284,6 +2284,22 @@ alter table public.inventory_products add column if not exists rental_listing_ty
 -- Officeを付けられないことがはっきりしている商品だけ true（false は「未確認」）
 alter table public.inventory_products add column if not exists office_unavailable  boolean not null default false;
 
+-- 販売（8EC BUY）。レンタル側と同じ形でそろえる。どちらか片方でも両方でもよい。
+--   楽天の出品価格（inventory_channel_listings.price）と販売予定価格
+--   （inventory_items.plan_price）は社内の参考値なので、ここへ自動コピーしない
+alter table public.inventory_products add column if not exists sale_enabled               boolean not null default false;
+alter table public.inventory_products add column if not exists sale_price                 integer;
+alter table public.inventory_products add column if not exists sale_condition             text;
+alter table public.inventory_products add column if not exists sale_procurement_available boolean not null default false;
+alter table public.inventory_products drop constraint if exists inventory_products_sale_condition_chk;
+alter table public.inventory_products add constraint inventory_products_sale_condition_chk
+  check (sale_condition is null or sale_condition in ('新品', '整備済み', '中古'));
+alter table public.inventory_products drop constraint if exists inventory_products_sale_price_chk;
+alter table public.inventory_products add constraint inventory_products_sale_price_chk
+  check (sale_price is null or (sale_price > 0 and sale_price <= 100000000));
+create index if not exists inventory_products_sale_idx
+  on public.inventory_products (sale_enabled) where sale_enabled;
+
 do $$ begin
   if not exists (select 1 from pg_constraint where conname = 'inventory_products_rental_form_chk') then
     alter table public.inventory_products add constraint inventory_products_rental_form_chk
@@ -2423,6 +2439,74 @@ end $$;
 comment on function public.inv_product_procurement_set is
   '在庫が無くてもレンタルの申込を受けるか（取り寄せ）を切り替える。8RENTでは「取り寄せ可能」と出て、
    申込は「調達確認」から始まる。仮の個体は作らない。';
+
+-- ------------------------------------------------------------
+-- 29-1b) 販売設定（法人向けに売るかどうか・公開価格・状態・取り寄せ）
+-- ------------------------------------------------------------
+create or replace function public.inv_product_sale_set(
+  p_code        text,
+  p_enabled     boolean,
+  p_price       integer default null,
+  p_condition   text default null,
+  p_procurement boolean default null
+) returns public.inventory_products
+language plpgsql security invoker set search_path = public as $$
+declare
+  pr       public.inventory_products;
+  v_before text;
+  v_after  text;
+  v_cond   text;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+
+  v_cond := nullif(btrim(coalesce(p_condition, '')), '');
+  if v_cond is not null and v_cond not in ('新品', '整備済み', '中古') then
+    raise exception '商品の状態は 新品 / 整備済み / 中古 のいずれかでお願いします（%）', v_cond;
+  end if;
+  if p_price is not null and (p_price <= 0 or p_price > 100000000) then
+    raise exception '販売価格は1円〜1億円の範囲で入れてください（%）', p_price;
+  end if;
+
+  select * into pr from public.inventory_products where code = p_code for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_code;
+  end if;
+
+  v_before := (case when coalesce(pr.sale_enabled, false) then '販売する' else '販売しない' end)
+              || ' / ' || coalesce(pr.sale_price::text, '価格未設定')
+              || ' / ' || coalesce(pr.sale_condition, '状態未設定')
+              || (case when coalesce(pr.sale_procurement_available, false) then ' / 取り寄せ可' else '' end);
+
+  update public.inventory_products
+     set sale_enabled               = coalesce(p_enabled, false),
+         sale_price                 = p_price,
+         sale_condition             = v_cond,
+         sale_procurement_available = coalesce(p_procurement, false)
+   where code = p_code
+  returning * into pr;
+
+  v_after := (case when pr.sale_enabled then '販売する' else '販売しない' end)
+             || ' / ' || coalesce(pr.sale_price::text, '価格未設定')
+             || ' / ' || coalesce(pr.sale_condition, '状態未設定')
+             || (case when pr.sale_procurement_available then ' / 取り寄せ可' else '' end);
+
+  if v_before is distinct from v_after then
+    insert into public.inventory_transactions
+      (actor, ref_kind, ref_id, label, action, before_value, after_value)
+    values (public.inv_actor(), 'product', p_code, coalesce(pr.name, pr.model), '販売設定',
+            v_before, v_after);
+  end if;
+
+  return pr;
+end $$;
+
+comment on function public.inv_product_sale_set is
+  '商品を法人向けに販売するかどうかと、公開販売価格・状態・取り寄せ可否を決める。
+   楽天の出品価格や inventory_items.plan_price は見ない（参考値であって公開価格ではないため）。
+   価格が未設定でも販売はできる（公開画面は「販売価格はお見積り」と出す）。';
+
 
 
 
@@ -3949,12 +4033,16 @@ comment on view public.inv_public_categories is
    parent_id が入っている行は子カテゴリーで、トップのタイルではなく親を選んだあとの
    絞り込みに使う。';
 
+-- 先に互換ビューを落とす（inv_public_products に依存しているので、
+-- 残したまま作り直そうとすると2回目以降の実行が止まる）
 drop view if exists public.inv_public_catalog;
-create view public.inv_public_catalog as
+drop view if exists public.inv_public_products;
+create view public.inv_public_products as
 with avail as (
   select product_code,
          count(*) filter (where status = '在庫'
-                            and coalesce(rental_eligible, false)) as rental_available
+                            and coalesce(rental_eligible, false)) as rental_available,
+         count(*) filter (where status = '在庫')                  as in_stock
     from public.inventory_items
    group by product_code
 )
@@ -3971,39 +4059,64 @@ select
              where btrim(x) <> '' limit 1))                        as rental_image_url,
   case when jsonb_array_length(coalesce(p.rental_images,'[]'::jsonb)) > 0
        then p.rental_images else coalesce(p.images,'[]'::jsonb) end as rental_images,
-  -- 事実としてのスペック（条件で選んでもらうために出す）
   p.cpu, p.cpu_gen, p.memory_size, p.storage_type, p.storage_capacity,
   p.screen_size, p.os, p.webcam, p.wifi, p.bluetooth, p.numpad, p.accessories,
   p.condition_note, p.office_supported,
   p.rental_form, p.rental_listing_type,
-  -- レンタル（8EC）。台数は出さず、用意できるかどうかだけ
-  coalesce(p.rental_enabled, false)                                 as rental_enabled,
+  -- レンタル（8RENT）。単品で公開してよいものだけ true
+  (coalesce(p.rental_enabled, false)
+     and coalesce(p.rental_listing_type, 'standalone') = 'standalone')  as rental_enabled,
   coalesce(p.procurement_available, false)                          as procurement_available,
   case when coalesce(a.rental_available, 0) > 0 then 'ご案内可能'
        when coalesce(p.procurement_available, false) then '取り寄せ可能'
        else 'ご相談ください' end                                    as availability,
   p.rental_price_month, p.rental_min_months, p.trial_eligible, p.rental_tags,
-  -- 8ECが出す説明はレンタル向けの文だけ（楽天の販売用の文は出さない）
   nullif(btrim(coalesce(p.rental_description,'')), '')              as rental_description,
+  -- 販売（8EC BUY）
+  coalesce(p.sale_enabled, false)                                   as sale_enabled,
+  p.sale_price,
+  p.sale_condition,
+  coalesce(p.sale_procurement_available, false)                     as sale_procurement_available,
+  case when not coalesce(p.sale_enabled, false) then null
+       when coalesce(a.in_stock, 0) > 0 then '在庫あり'
+       when coalesce(p.sale_procurement_available, false) then '取り寄せ可能'
+       else 'ご相談ください' end                                    as sale_availability,
   p.updated_at
 from public.inventory_products p
 left join public.inventory_categories c on c.id = p.category_id
 left join avail a on a.product_code = p.code
 where p.kind = 'individual'
-  and coalesce(p.rental_enabled, false) = true
-  -- 単品でレンタルできる商品だけをカードに出す。
-  -- option（PCレンタルのオプション。セキュリティワイヤーなど）と
-  -- not_public は、商品カードとしては公開しない
-  and coalesce(p.rental_listing_type, 'standalone') = 'standalone';
+  and (
+        (coalesce(p.rental_enabled, false)
+           and coalesce(p.rental_listing_type, 'standalone') = 'standalone')
+     or coalesce(p.sale_enabled, false)
+      );
+
+comment on view public.inv_public_products is
+  '公開画面（/ ・/rent ・/buy）が読む1つのカタログ。レンタルできる商品と販売する商品の両方を返す。
+   同じ商品が両方に対応していれば、rental_enabled と sale_enabled の両方が true になる。
+   在庫数は出さない（レンタルは availability、販売は sale_availability の言葉だけ）。
+   楽天のURL・出品価格は出さない。社内で数量を見るときは inv_channel_stock_feed を使う。';
+
+-- これまでの公開ビューは残す（8ECトップの旧版・外部からの参照が壊れないように）。
+-- 中身は inv_public_products のレンタルぶんと同じ。列の並びもこれまでどおり。
+create view public.inv_public_catalog as
+select
+  code, name, model, maker, category_id, category_name, model_key, spec,
+  image_url, images, rental_image_url, rental_images,
+  cpu, cpu_gen, memory_size, storage_type, storage_capacity,
+  screen_size, os, webcam, wifi, bluetooth, numpad, accessories,
+  condition_note, office_supported, rental_form, rental_listing_type,
+  rental_enabled, procurement_available, availability,
+  rental_price_month, rental_min_months, trial_eligible, rental_tags,
+  rental_description, updated_at
+from public.inv_public_products
+where rental_enabled;
 
 comment on view public.inv_public_catalog is
-  '8ECトップ／8RENTが読む公開カタログ。rental_enabled=true の商品だけを出す。
-   在庫数（available / rental_available / total_owned）と楽天の販売情報
-   （sale_listed / sale_available / sale_url / sale_price）は公開しない。
-   用意できるかどうかは availability（ご案内可能／取り寄せ可能／ご相談ください）だけで表す。
-   説明は rental_description（レンタル向けに作り直した文）のみ。
-   rental_listing_type が standalone の商品だけを出す（option・not_public は出さない）。
-   社内で数量を見るときは inv_channel_stock_feed（authenticated専用）を使う。';
+  '8RENT（レンタル）の公開カタログ。inv_public_products のレンタルぶん。
+   列の並びは以前のままにしてある（既存のページがそのまま読めるように）。
+   新しい画面は inv_public_products を読み、販売とレンタルを1枚のカードで出す。';
 
 -- ------------------------------------------------------------
 -- 30-6) 商品画像の登録（/zaiko の商品詳細から）
@@ -4839,6 +4952,8 @@ grant execute on function public.inv_rental_request_create(text[],text,integer,t
 grant execute on function public.inv_model_key(text,text,text) to anon, authenticated;
 grant execute on function public.inv_rental_allocate(bigint) to authenticated;
 grant execute on function public.inv_product_procurement_set(text,boolean) to authenticated;
+revoke all on function public.inv_product_sale_set(text,boolean,integer,text,boolean) from public;
+grant execute on function public.inv_product_sale_set(text,boolean,integer,text,boolean) to authenticated;
 grant execute on function public.inv_rental_text(text) to authenticated;
 -- 一括生成は authenticated だけに渡す（anon・PUBLIC には渡さない）。
 -- 管理者以外のWebユーザーは、関数の中の inv_can_maintain() で弾かれる
@@ -4854,6 +4969,7 @@ grant execute on function public.inv_rental_unclassified() to authenticated;
 grant execute on function public.inv_dashboard_stats(date) to authenticated;
 grant usage on schema public to anon;
 grant select on public.inv_rental_catalog to anon, authenticated;
+grant select on public.inv_public_products to anon, authenticated;
 grant select on public.inv_public_catalog to anon, authenticated;
 grant select on public.inv_public_categories to anon, authenticated;
 -- 販売チャネルへ送る数量は社内用（anonには出さない）
@@ -5342,6 +5458,9 @@ create table if not exists public.inventory_deals (
   note          text,                  -- スタッフのメモ
   actor         text,                  -- 最後に動かした人
 
+  -- 商品からの購入相談（product_code / want）は、この下の alter で足す
+  -- （本番は 2026-09-21-deals.sql のあとに追補を当てているので、列の並びをそろえる）
+
   -- Stripe（Phase 3で使う。いまは入れない）
   stripe_customer_id     text,
   stripe_subscription_id text,
@@ -5377,6 +5496,20 @@ create trigger inventory_deals_touch before update on public.inventory_deals
   for each row execute function public.inv_touch();
 
 -- 既存のレンタル申込からも案件をたどれるようにしておく（Phase 2 で使う）
+alter table public.inventory_deals
+  add column if not exists product_code text
+    references public.inventory_products(code) on delete set null;
+alter table public.inventory_deals add column if not exists want text;
+alter table public.inventory_deals drop constraint if exists inventory_deals_want_chk;
+alter table public.inventory_deals add constraint inventory_deals_want_chk
+  check (want is null or want in ('購入希望', 'レンタル希望', '未定'));
+
+comment on column public.inventory_deals.product_code is
+  'どの商品を見て相談が始まったか。商品が決まっていない相談では null。';
+comment on column public.inventory_deals.want is
+  '購入希望 / レンタル希望 / 未定。お客様の希望で、確定ではない。
+   購入とレンタルのどちらで出すかは、社内で中身を見てから決める。';
+
 alter table public.inventory_rental_requests
   add column if not exists deal_id bigint references public.inventory_deals(id) on delete set null;
 
@@ -5391,27 +5524,31 @@ comment on column public.inventory_rental_requests.deal_id is
 --     決済もしないし、個体も押さえない。ここでやるのは保存だけ。
 -- ------------------------------------------------------------
 create or replace function public.inv_deal_create(
-  p_name      text,
-  p_company   text default null,
-  p_email     text default null,
-  p_phone     text default null,
-  p_purpose   text default null,
-  p_headcount integer default null,
-  p_qty       integer default null,
-  p_start     date default null,
-  p_months    integer default null,
-  p_grade     text default null,
-  p_spec      jsonb default '{}'::jsonb,
-  p_services  text[] default '{}',
-  p_message   text default null,
-  p_source    text default 'quote'
+  p_name         text,
+  p_company      text default null,
+  p_email        text default null,
+  p_phone        text default null,
+  p_purpose      text default null,
+  p_headcount    integer default null,
+  p_qty          integer default null,
+  p_start        date default null,
+  p_months       integer default null,
+  p_grade        text default null,
+  p_spec         jsonb default '{}'::jsonb,
+  p_services     text[] default '{}',
+  p_message      text default null,
+  p_source       text default 'quote',
+  p_product_code text default null,
+  p_want         text default null
 ) returns jsonb
 language plpgsql
 security definer
 set search_path = public, pg_catalog
 as $$
 declare
-  v_id bigint;
+  v_id   bigint;
+  v_code text;
+  v_want text;
 begin
   if p_name is null or btrim(p_name) = '' then
     raise exception 'ご担当者名を入力してください';
@@ -5429,25 +5566,39 @@ begin
     raise exception 'ご希望の方針が正しくありません（%）', p_grade;
   end if;
 
+  v_want := nullif(btrim(coalesce(p_want, '')), '');
+  if v_want is not null and v_want not in ('購入希望', 'レンタル希望', '未定') then
+    v_want := '未定';   -- 知らない値は落とさず「未定」にする（相談を取りこぼさない）
+  end if;
+
+  -- 知らない商品コードで落とさない。公開ページのリンクは古くなることがあるので、
+  -- 見つからなければ商品を付けずに受け付ける（相談そのものは受ける）
+  v_code := nullif(btrim(coalesce(p_product_code, '')), '');
+  if v_code is not null
+     and not exists (select 1 from public.inventory_products where code = v_code) then
+    v_code := null;
+  end if;
+
   insert into public.inventory_deals
     (source, status, company, customer_name, email, phone,
-     purpose, headcount, qty, start_date, months, grade, spec, services, message)
+     purpose, headcount, qty, start_date, months, grade, spec, services, message,
+     product_code, want)
   values
     (coalesce(nullif(btrim(coalesce(p_source, '')), ''), 'quote'), '希望受付',
      nullif(btrim(coalesce(p_company, '')), ''), btrim(p_name),
      nullif(btrim(coalesce(p_email, '')), ''), nullif(btrim(coalesce(p_phone, '')), ''),
      nullif(btrim(coalesce(p_purpose, '')), ''), p_headcount, p_qty, p_start, p_months,
      p_grade, coalesce(p_spec, '{}'::jsonb), coalesce(p_services, '{}'),
-     nullif(btrim(coalesce(p_message, '')), ''))
+     nullif(btrim(coalesce(p_message, '')), ''),
+     v_code, v_want)
   returning id into v_id;
 
   return jsonb_build_object('deal_id', v_id, 'status', '希望受付');
 end $$;
 
 comment on function public.inv_deal_create is
-  '法人ITまるごと見積の送信口。匿名から呼べる。保存するだけで、決済も個体の確保もしない。
-   在庫が無くても受け付ける（在庫と調達を組み合わせて用意するのが8RENTの仕事なので、
-   ここで断らない）。';
+  '法人ITまるごと見積・商品からの購入相談の送信口。匿名から呼べる。
+   保存するだけで、決済も個体の確保もしない。商品コードが付いていても在庫は押さえない。';
 
 -- ------------------------------------------------------------
 -- 44-3) 社内で案件を動かす
@@ -5526,8 +5677,8 @@ create policy "inventory_deals write" on public.inventory_deals
 
 grant select, update on public.inventory_deals to authenticated;
 
-revoke all on function public.inv_deal_create(text,text,text,text,text,integer,integer,date,integer,text,jsonb,text[],text,text) from public;
-grant execute on function public.inv_deal_create(text,text,text,text,text,integer,integer,date,integer,text,jsonb,text[],text,text) to anon, authenticated;
+revoke all on function public.inv_deal_create(text,text,text,text,text,integer,integer,date,integer,text,jsonb,text[],text,text,text,text) from public;
+grant execute on function public.inv_deal_create(text,text,text,text,text,integer,integer,date,integer,text,jsonb,text[],text,text,text,text) to anon, authenticated;
 revoke all on function public.inv_deal_set_status(bigint,text) from public;
 revoke all on function public.inv_deal_note(bigint,text) from public;
 grant execute on function public.inv_deal_set_status(bigint,text) to authenticated;
