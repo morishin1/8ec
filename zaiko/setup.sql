@@ -4535,7 +4535,7 @@ create or replace function public.inv_sale_orders_apply(
   p_orders  jsonb,
   p_channel text default 'rakuten'
 ) returns jsonb
-language plpgsql security invoker set search_path = public as $$
+language plpgsql security definer set search_path = public, pg_catalog as $$
 declare
   o            jsonb;
   v_order      text;
@@ -4604,7 +4604,9 @@ begin
         elsif v_shipped and v_row.status = '受注' and v_row.item_id is not null then
           select * into v_item from public.inventory_items where id = v_row.item_id for update;
           if v_item.status = '販売予約' then
-            perform public.inv_item_op(v_row.item_id, '売却',
+            -- 売却先（sold_channel）も残す。inv_item_op だけだと「どこへ売ったか」が
+            -- 空のままになり、ダッシュボードの売却先が分からなくなる
+            perform public.inv_item_sell(v_row.item_id, p_channel,
                      nullif(v_row.price, null)::text,
                      p_channel || ' 注文 ' || v_order || ' 発送');
           end if;
@@ -4674,7 +4676,7 @@ begin
 
       -- 取り込んだ時点ですでに発送済みなら、そのまま売却済へ進める
       if v_shipped then
-        perform public.inv_item_op(v_item.id, '売却', (o->>'price'),
+        perform public.inv_item_sell(v_item.id, p_channel, (o->>'price'),
                  p_channel || ' 注文 ' || v_order || ' 発送');
         update public.inventory_sale_orders set status = '発送済' where id = v_row.id;
         v_shippedn := v_shippedn + 1;
@@ -4690,10 +4692,10 @@ begin
 end $$;
 
 comment on function public.inv_sale_orders_apply is
-  'モールの受注明細を取り込み、在庫を1台ずつ確保する（在庫→販売予約、発送済みなら売却済）。
+  'モールの受注明細を取り込み、在庫を1台ずつ確保する（在庫→販売予約、発送済みで届いたら売却済）。
    注文番号×明細番号×連番で冪等。商品を特定できない明細は在庫を動かさず「未割当」で記録する。
    確保は inv_sale_reserve（inv_reserve_available_item）を通すので、8RENTの申込と同じ1台を
-   二重に取ることはない。';
+   二重に取ることはない。security definer だが、操作できるのは inv_can_edit()（管理者・一般）だけ。';
 
 -- ------------------------------------------------------------
 -- 33-5) 取り込み後に人が直す（未割当の明細に商品を当てる）
@@ -4702,7 +4704,7 @@ create or replace function public.inv_sale_order_link(
   p_id   bigint,
   p_code text
 ) returns public.inventory_sale_orders
-language plpgsql security invoker set search_path = public as $$
+language plpgsql security definer set search_path = public, pg_catalog as $$
 declare
   r      public.inventory_sale_orders;
   v_item public.inventory_items;
@@ -4740,8 +4742,11 @@ begin
 end $$;
 
 comment on function public.inv_sale_order_link is
-  '商品を特定できなかった受注明細に、人が商品を当てて在庫を確保する。確保は inv_sale_reserve を通す。';
+  '商品を特定できなかった受注明細に、人が商品を当てて在庫を確保する。確保は inv_sale_reserve を通す。
+   security definer だが、操作できるのは inv_can_edit()（管理者・一般）だけ。';
 
+-- 受注明細の表は読み取り専用。書き込みは inv_sale_orders_apply / inv_sale_order_link だけ
+revoke insert, update, delete on public.inventory_sale_orders from authenticated;
 grant select on public.inventory_sale_orders to authenticated;
 grant execute on function public.inv_listing_product(text,text,text) to authenticated;
 grant execute on function public.inv_sale_orders_apply(jsonb,text) to authenticated;
