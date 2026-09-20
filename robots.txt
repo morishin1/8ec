@@ -2,5 +2,7 @@ User-agent: *
 Allow: /
 Disallow: /assets/uploads/
 Disallow: /admin/
+Disallow: /zaiko/
 
 Sitemap: https://8ec.jp/sitemap.xml
+Sitemap: https://8ec.jp/api/sitemap-products
