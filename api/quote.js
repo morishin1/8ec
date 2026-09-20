@@ -25,8 +25,8 @@ const ZAIKO_DEALS_URL = process.env.ZAIKO_DEALS_URL || "https://www.8ec.jp/zaiko
 
 const GRADE_LABEL = {
   budget: "コスト重視（整備済み中心）",
-  standard: "標準（価格と性能のバランス）",
-  latest: "最新・高性能（新品を調達）",
+  standard: "性能重視（スペック優先）",
+  latest: "新品がいい（新品を調達）",
   any: "おまかせ（提案してほしい）",
 };
 
@@ -60,6 +60,7 @@ function pickList(value, allowed, max) {
 }
 
 const SERVICES = [
+  "PC本体", "モニター・周辺機器",
   "初期設定・キッティング", "Office / Microsoft 365", "アカウント設定",
   "ネットワーク・Wi-Fi", "セキュリティ", "現地設置", "AI研修", "Office研修",
   "データ消去・証明書", "故障時の交換対応",
@@ -112,7 +113,9 @@ function buildSlackPayload(row) {
       type: "header",
       text: {
         type: "plain_text",
-        text: row.want === "購入希望" ? "🛒 商品の購入相談" : "🧾 法人ITまるごと見積のご依頼",
+        text: row.want === "購入希望" ? "🛒 商品の購入相談"
+          : row.want === "レンタル希望" ? "📦 商品のレンタル相談"
+          : "🧾 3分IT調達診断からのご依頼",
         emoji: true,
       },
     },
@@ -144,7 +147,8 @@ function buildSlackPayload(row) {
       }],
     },
   );
-  const head = row.want === "購入希望" ? "購入相談" : "まるごと見積";
+  const head = row.want === "購入希望" ? "購入相談"
+    : row.want === "レンタル希望" ? "レンタル相談" : "IT調達診断";
   return {
     text: head + "：" + slackEscape(row.name) + " 様"
       + (row.company ? "（" + slackEscape(row.company) + "）" : "")

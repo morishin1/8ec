@@ -19,6 +19,42 @@
   ],
   "rewrites": [
     {
+      "source": "/faq",
+      "destination": "/faq.html"
+    },
+    {
+      "source": "/cases",
+      "destination": "/cases.html"
+    },
+    {
+      "source": "/care",
+      "destination": "/care.html"
+    },
+    {
+      "source": "/support",
+      "destination": "/support.html"
+    },
+    {
+      "source": "/packs",
+      "destination": "/packs/index.html"
+    },
+    {
+      "source": "/packs/",
+      "destination": "/packs/index.html"
+    },
+    {
+      "source": "/packs/(new-employee-pc|short-term-rental|training-pc|office-opening|kitting)",
+      "destination": "/packs/$1.html"
+    },
+    {
+      "source": "/products",
+      "destination": "/products.html"
+    },
+    {
+      "source": "/products/(.*)",
+      "destination": "/products.html"
+    },
+    {
       "source": "/rent",
       "destination": "/rent.html"
     },
