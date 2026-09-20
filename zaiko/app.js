@@ -125,7 +125,8 @@ const db = {
   cats: [], locs: [], masters: [], items: [], channels: [],
   tx: [], stocktake: null, stChecked: [], stPast: [], members: [], imports: [], rentalReqs: [],
   chanSettings: [],         // 販売サイトごとの管理画面URL（inventory_channel_settings）
-  deals: [],                // 法人ITまるごと見積（/quote）から届いた案件
+  deals: [],                // 3分診断（/quote）から届いた案件
+  quotes: [], qItems: [], qTotals: [],   // 見積・明細・合計
   stats: null               // 今月の経営数値（inv_dashboard_stats）
 };
 const ui = {
@@ -136,6 +137,7 @@ const ui = {
   // 一覧のタブ。individual / model のほかに、販売サイトのキーと 'none'（未出品）を取る
   listMode: 'unit', fSt: '', fDiff: false, fNoPrice: false, fRental: '', fRentEl: '',
   mTab: 'loc',               // マスター管理のタブ（保管場所／カテゴリー）
+  quoteId: null,             // いま開いている見積
   fDeal: ''                  // 案件の状態の絞り込み
 };
 
@@ -550,9 +552,12 @@ async function loadAll() {
     sb.from('inventory_channel_listings').select('*').limit(LOAD_LIMIT),
     sb.from('inventory_channel_settings').select('*'),
     sb.rpc('inv_dashboard_stats'),
-    sb.from('inventory_deals').select('*').order('created_at', { ascending: false }).limit(300)
+    sb.from('inventory_deals').select('*').order('created_at', { ascending: false }).limit(300),
+    sb.from('inventory_quotes').select('*').order('id', { ascending: false }).limit(500),
+    sb.from('inventory_quote_items').select('*').limit(LOAD_LIMIT),
+    sb.from('inv_quote_totals').select('*').limit(500)
   ];
-  const [c, l, i, p, t, s, ch, im, rr, cl, cs, ds, dl] = await Promise.all(q);
+  const [c, l, i, p, t, s, ch, im, rr, cl, cs, ds, dl, qh, qi, qt] = await Promise.all(q);
   const bad = [c, l, i, p, t, s, ch, im].find(r => r.error);
   if (bad) { showSetup(bad.error); return false; }
   db.imports = im.data || [];
@@ -562,6 +567,10 @@ async function loadAll() {
   db.stats = ds.error ? null : (ds.data || null);
   // 案件。migration未適用でも他の画面が動くよう、取れなければ空にする
   db.deals = dl.error ? [] : (dl.data || []);
+  // 見積。migration未適用でも他の画面が動くよう、取れなければ空にする
+  db.quotes = qh.error ? [] : (qh.data || []);
+  db.qItems = qi.error ? [] : (qi.data || []);
+  db.qTotals = qt.error ? [] : (qt.data || []);
 
   db.cats = c.data || [];
   db.locs = l.data || [];
@@ -607,6 +616,7 @@ function parsePath() {
   if (seg[0] === 'items' && seg[1]) return { screen: 'item', itemId: decodeURIComponent(seg[1]) };
   if (seg[0] === 'products' && seg[1]) return { screen: 'prod', prodId: decodeURIComponent(seg[1]) };
   if (seg[0] === 'locations' && seg[1]) return { screen: 'loc', locId: decodeURIComponent(seg[1]) };
+  if (seg[0] === 'quotes' && seg[1]) return { screen: 'quote', quoteId: Number(seg[1]) || null };
   const byPath = { list: 'list', in: 'in', out: 'out', loan: 'loan', stock: 'stock', locations: 'locs',
                    masters: 'master', history: 'hist', register: 'reg', labels: 'labels',
                    deals: 'deals', 'rental-requests': 'rental' };
@@ -637,6 +647,7 @@ function pathFor(screen, id) {
   if (screen === 'prod') return BASE + '/products/' + encodeURIComponent(id);
   if (screen === 'master') return BASE + '/masters';
   if (screen === 'deals') return BASE + '/deals';
+  if (screen === 'quote') return BASE + '/quotes/' + encodeURIComponent(id);
   if (screen === 'loc') return BASE + '/locations/' + encodeURIComponent(id);
   const m = MENU.find(x => x[0] === screen);
   return BASE + (m ? m[3] : '') + (screen === 'list' ? listQuery() : '');
@@ -646,7 +657,8 @@ function go(screen, id) {
   const path = pathFor(screen, id);
   if (path !== location.pathname + location.search) history.pushState(null, '', path);
   closeSheet();
-  applyRoute({ screen, itemId: screen === 'item' ? id : null, prodId: screen === 'prod' ? id : null, locId: screen === 'loc' ? id : null });
+  applyRoute({ screen, itemId: screen === 'item' ? id : null, prodId: screen === 'prod' ? id : null,
+               locId: screen === 'loc' ? id : null, quoteId: screen === 'quote' ? Number(id) : null });
   window.scrollTo(0, 0);
 }
 window.addEventListener('popstate', () => route(false));
@@ -656,6 +668,7 @@ function applyRoute(r) {
   ui.itemId = r.itemId || null;
   ui.prodId = r.prodId || null;
   ui.locId = r.locId || null;
+  ui.quoteId = r.quoteId || null;
   if (r.listMode) ui.listMode = r.listMode;
   renderMenu();
   render();
@@ -733,7 +746,7 @@ function render() {
     dash: viewDash, list: viewList, item: viewItem, prod: viewProd, in: viewIn, out: viewOut,
     loan: viewLoan, stock: viewStock, locs: viewLocs, loc: viewLoc, master: viewMaster,
     hist: viewHist, reg: viewReg, labels: viewLabels,
-    deals: viewDeals, rental: viewRentalRequests
+    deals: viewDeals, rental: viewRentalRequests, quote: viewQuote
   }[ui.screen] || viewDash;
   v.innerHTML = fn();
   if (ui.screen === 'labels') bindLabelPicks();
@@ -5699,7 +5712,7 @@ async function logRegister(kind, id, label, after) {
    この画面でできるのは、中身を見る・状態を進める・メモを書くまで。
    見積の明細と契約・請求は、まだ作っていない（Phase 2以降）。 */
 
-const DEAL_STATES = ['希望受付', '在庫・調達確認', '見積', '顧客承認', '契約', 'ご縁なし'];
+const DEAL_STATES = ['希望受付', '在庫・調達確認', '見積', '顧客承認', '契約準備', '契約', 'ご縁なし'];
 const GRADE_LABEL = {
   budget: 'コスト重視（整備済み中心）', standard: '標準', latest: '最新・高性能（新品）', any: 'おまかせ'
 };
@@ -5780,12 +5793,375 @@ function dealBodyHtml() {
       ${d.note ? `<div class="card" style="margin-top:10px;background:var(--n100)">
         <div class="meta" style="margin-bottom:3px">社内メモ${d.actor ? '（' + esc(d.actor) + '）' : ''}</div>
         <div style="font-size:13.5px;white-space:pre-wrap">${esc(d.note)}</div></div>` : ''}
+      ${dealQuotesHtml(d)}
       ${canEdit() ? `<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:12px">
         ${DEAL_STATES.filter(x => x !== d.status).map(x =>
           `<button class="btn sm ghost" onclick="setDealStatus(${d.id},'${esc(x)}')">${esc(x)}にする</button>`).join('')}
         <button class="btn sm ghost" onclick="sheetDealNote(${d.id})">メモ</button>
       </div>` : ''}
     </div>`).join('');
+}
+
+/* ================================================================
+   見積（Phase 2）
+
+   案件1件に、版（rev）を持つ見積をぶら下げる。
+     ・提示済みの見積は直せない。直すときは［複製して新しい版］
+     ・新しい版を提示すると、前の提示済みの版は自動で失効する
+       （お客様が古いURLから承認する事故を防ぐため）
+     ・明細はそのときの内容を写して持つので、商品マスタを直しても見積は変わらない
+     ・顧客の［この内容で進める］は契約ではない。在庫はここでは動かさない
+   ================================================================ */
+const QUOTE_KINDS = [
+  ['sale',            '販売（機器）',        'one_time'],
+  ['rental',          'レンタル（機器）',    'monthly'],
+  ['setup',           '初期設定費',          'one_time'],
+  ['kitting',         'キッティング費',      'one_time'],
+  ['install',         '現地設置・配線費',    'one_time'],
+  ['network',         'ネットワーク構築費',  'one_time'],
+  ['service_monthly', '月額サービス',        'monthly'],
+  ['training',        'AI・Office研修',      'one_time'],
+  ['other',           'その他',              'one_time']
+];
+const kindLabel = (k) => (QUOTE_KINDS.find(x => x[0] === k) || [])[1] || k;
+const QUOTE_STATE_CLASS = { '作成中': 'act', '提示済み': 'st-在庫', '承認': 'st-在庫',
+                            '相談中': 'act', '失効': 'st-廃棄', '取消': 'st-廃棄' };
+
+const quotesOf = (dealId) => db.quotes.filter(q => q.deal_id === dealId).sort((a, b) => b.rev - a.rev);
+const quoteOf = (id) => db.quotes.find(q => q.id === id) || null;
+const qItemsOf = (id) => db.qItems.filter(x => x.quote_id === id).sort((a, b) => (a.sort_no - b.sort_no) || (a.id - b.id));
+const qTotalOf = (id) => db.qTotals.find(x => x.quote_id === id) || null;
+const quoteNo = (q) => 'Q-' + String(q.deal_id).padStart(5, '0') + '-' + q.rev;
+const quoteUrl = (q) => location.origin + '/q/' + (q.token || '');
+
+/* 案件カードに出す見積の一覧 */
+function dealQuotesHtml(d) {
+  const qs = quotesOf(d.id);
+  return `<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--rule)">
+    <div class="meta" style="margin-bottom:6px">見積</div>
+    ${qs.length ? qs.map(q => {
+      const t = qTotalOf(q.id) || {};
+      return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+        <a class="c" href="/zaiko/quotes/${q.id}" onclick="go('quote',${q.id});return false">${esc(quoteNo(q))}</a>
+        <span class="tag ${QUOTE_STATE_CLASS[q.status] || 'act'}">${esc(q.status)}</span>
+        <span class="meta">初期 ${yen(t.initial_total || 0)}${
+          t.monthly_total ? ' ／ 月額 ' + yen(t.monthly_total) + (t.months ? ' ×' + t.months + 'ヶ月' : '') : ''}</span>
+        ${q.valid_until ? `<span class="meta">期限 ${esc(q.valid_until)}</span>` : ''}
+      </div>`;
+    }).join('') : '<div class="meta" style="margin-bottom:6px">まだ見積はありません。</div>'}
+    ${canEdit() ? `<button class="btn sm ghost" onclick="createQuote(${d.id})">見積を作る</button>` : ''}
+  </div>`;
+}
+
+async function createQuote(dealId, fromId) {
+  const { data, error } = await sb.rpc('inv_quote_create', {
+    p_deal_id: dealId, p_title: null, p_from: fromId || null
+  });
+  if (error) { toast(error.message || '見積を作れませんでした'); return; }
+  await loadAll();
+  go('quote', data.id);
+  toast(fromId ? '複製して新しい版を作りました' : '見積を作りました');
+}
+
+/* ---- 見積の画面 ---- */
+function viewQuote() {
+  const q = quoteOf(ui.quoteId);
+  if (!q) return `<div class="empty" style="margin-top:20px">見積が見つかりません。
+    <button class="btn sm ghost" onclick="go('deals')">案件一覧へ</button></div>`;
+  const d = db.deals.find(x => x.id === q.deal_id) || {};
+  const items = qItemsOf(q.id);
+  const t = qTotalOf(q.id) || {};
+  const editable = canEdit() && q.status === '作成中';
+  const tax = Number(q.tax_rate || 10);
+
+  return `
+  <div class="head">
+    <div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <h1 class="num">${esc(quoteNo(q))}</h1>
+        <span class="tag ${QUOTE_STATE_CLASS[q.status] || 'act'} big">${esc(q.status)}</span>
+        ${q.rev > 1 ? `<span class="meta">第${q.rev}版</span>` : ''}
+      </div>
+      <div class="meta" style="margin-top:6px">
+        案件 <a class="c" href="/zaiko/deals" onclick="go('deals');return false">#${q.deal_id}</a>
+        ／ ${esc(d.company || d.customer_name || '')} ${d.company && d.customer_name ? esc(d.customer_name) + ' 様' : ''}
+        ${q.presented_at ? '／ 提示 ' + fmtDT(q.presented_at) : ''}
+        ${q.decided_at ? '／ お客様の操作 ' + fmtDT(q.decided_at) + '（' + esc(q.decided_by || '') + '）' : ''}
+      </div>
+    </div>
+  </div>
+
+  ${q.status === '提示済み' || q.status === '承認' || q.status === '相談中' ? `
+    <div class="card" style="background:var(--l100);border:1px solid var(--l400);margin-bottom:14px">
+      <div class="meta" style="margin-bottom:6px">お客様に見せるURL（担当者がメール等でお送りします）</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <code style="font-size:12.5px;word-break:break-all;flex:1 1 320px">${esc(quoteUrl(q))}</code>
+        <button class="btn sm" onclick="copyQuoteUrl(${q.id})">顧客URLをコピー</button>
+        <a class="btn sm ghost" href="${esc(quoteUrl(q))}" target="_blank" rel="noopener noreferrer">顧客画面を開く</a>
+        <button class="btn sm ghost" onclick="window.print()">印刷 / PDF保存</button>
+      </div>
+      ${q.customer_message ? `<div class="pre" style="margin-top:10px">お客様からのご相談：${esc(q.customer_message)}</div>` : ''}
+    </div>` : ''}
+
+  ${q.status === '作成中' ? `<p class="meta" style="margin-bottom:12px">まだお客様には見えていません。
+      明細を入れて［お客様に提示する］を押すと、顧客URLができます。</p>`
+    : `<p class="meta" style="margin-bottom:12px">この版は提示済みなので編集できません。
+      直すときは［複製して新しい版を作る］を押してください（提示すると、この版は自動で失効します）。</p>`}
+
+  <div class="prices" style="margin-bottom:16px">
+    <div><div class="lbl">件名</div><div class="v" style="font-size:15px">${esc(q.title || '（未設定）')}</div></div>
+    <div><div class="lbl">有効期限</div><div class="v" style="font-size:15px">${esc(q.valid_until || '提示時に14日後')}</div></div>
+    <div><div class="lbl">消費税率</div><div class="v">${tax}%</div></div>
+    ${editable ? `<button class="btn sm ghost" onclick="sheetQuoteHead(${q.id})">件名・期限・税率</button>` : ''}
+  </div>
+
+  <div class="sec">明細<span class="secn">${items.length}件</span></div>
+  ${items.length ? `<div class="table-wrap"><table class="t"><thead><tr>
+      <th>種類</th><th>品名</th><th>数量</th><th>単価</th><th>期間</th><th>金額（税抜）</th>${editable ? '<th></th>' : ''}
+    </tr></thead><tbody>
+    ${items.map(x => `<tr>
+      <td class="meta">${esc(kindLabel(x.kind))}</td>
+      <td><b>${esc(x.name)}</b>${x.spec ? `<div class="meta">${esc(x.spec)}</div>` : ''}${
+        x.note ? `<div class="meta">${esc(x.note)}</div>` : ''}</td>
+      <td class="num">${x.qty}</td>
+      <td class="num">${yen(x.unit_price)}</td>
+      <td class="meta">${x.billing === 'monthly' ? (x.months || 1) + 'ヶ月' : '—'}</td>
+      <td class="num"><b>${yen(x.amount)}</b>${x.billing === 'monthly' ? '<div class="meta">月額</div>' : ''}</td>
+      ${editable ? `<td style="white-space:nowrap">
+        <button class="btn sm ghost" onclick="sheetQuoteItem(${q.id},${x.id})">直す</button>
+        <button class="btn sm ghost" onclick="deleteQuoteItem(${q.id},${x.id})">消す</button></td>` : ''}
+    </tr>`).join('')}
+  </tbody></table></div>` : '<div class="empty">明細がまだありません。</div>'}
+
+  ${editable ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+    <button class="btn sm" onclick="sheetQuoteItem(${q.id})">明細を追加</button>
+    <button class="btn sm ghost" onclick="sheetQuoteFromProduct(${q.id})">商品から追加</button>
+    <button class="btn sm ghost" onclick="quoteFromDeal(${q.id})">案件の希望から作る</button>
+  </div>` : ''}
+
+  <div class="prices" style="margin-top:18px">
+    <div><div class="lbl">初期費用（税抜）</div><div class="v">${yen(t.initial_total || 0)}</div></div>
+    <div><div class="lbl">月額費用（税抜）</div><div class="v">${t.monthly_total ? yen(t.monthly_total) : '—'}</div></div>
+    <div><div class="lbl">利用期間</div><div class="v" style="font-size:15px">${t.months ? t.months + 'ヶ月' : '—'}</div></div>
+    <div><div class="lbl">期間総額</div><div class="v">${t.monthly_period_total ? yen(t.monthly_period_total) : '—'}</div></div>
+    <div><div class="lbl">小計</div><div class="v">${yen(t.subtotal || 0)}</div></div>
+    <div><div class="lbl">消費税</div><div class="v">${yen(t.tax || 0)}</div></div>
+    <div><div class="lbl">税込総額</div><div class="v plus">${yen(t.total || 0)}</div></div>
+  </div>
+
+  ${q.note ? `<div class="sec">お客様向けの但し書き</div><div class="pre">${esc(q.note)}</div>` : ''}
+  ${q.internal_note ? `<div class="sec">社内メモ<span class="secn">顧客ページには出ません</span></div>
+    <div class="pre legacy">${esc(q.internal_note)}</div>` : ''}
+
+  ${canEdit() ? `<div class="ops" style="max-width:560px;margin-top:20px">
+    ${q.status === '作成中' ? `
+      <button class="btn pri" onclick="presentQuote(${q.id})" ${items.length ? '' : 'disabled'}>
+        <span class="ms">send</span><span class="t">お客様に提示する</span></button>` : ''}
+    <button class="btn" onclick="createQuote(${q.deal_id}, ${q.id})">
+      <span class="ms">content_copy</span><span class="t">複製して新しい版を作る</span></button>
+    ${q.status !== '取消' ? `<button class="btn" onclick="cancelQuote(${q.id})">
+      <span class="ms">block</span><span class="t">この見積を取り消す</span></button>` : ''}
+  </div>` : ''}
+  <p class="meta" style="margin-top:14px">お客様が［この内容で進める］を押しても、契約・決済・機器の確保は行われません。
+    案件が「契約準備」に進むだけです。個体の確保は、契約と支払方法が決まってから行います。</p>`;
+}
+
+function copyQuoteUrl(id) {
+  const q = quoteOf(id); if (!q) return;
+  const url = quoteUrl(q);
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(() => toast('顧客URLをコピーしました'),
+                                            () => toast('コピーできませんでした：' + url));
+  } else {
+    toast(url);
+  }
+}
+
+function sheetQuoteHead(id) {
+  const q = quoteOf(id); if (!q) return;
+  openSheet({
+    title: '見積の設定', subject: quoteNo(q), cta: '保存',
+    hint: '件名はお客様の見積書にそのまま出ます。有効期限を空にすると、提示した日から14日後になります。',
+    body: `<label class="field" style="margin-bottom:10px"><span>件名</span>
+        <input class="input" id="qhTitle" value="${esc(q.title || '')}" placeholder="例）新入社員12名ぶん PC・設定一式"></label>
+      <label class="field" style="margin-bottom:10px"><span>有効期限</span>
+        <input class="input" type="date" id="qhValid" value="${esc(q.valid_until || '')}"></label>
+      <label class="field" style="margin-bottom:10px"><span>消費税率（%）</span>
+        <input class="input num" type="number" id="qhTax" min="0" max="30" step="0.1" value="${esc(String(q.tax_rate || 10))}"></label>
+      <label class="field" style="margin-bottom:10px"><span>お客様向けの但し書き</span>
+        <textarea class="input" id="qhNote" rows="3">${esc(q.note || '')}</textarea></label>
+      <label class="field"><span>社内メモ（顧客ページには出ません）</span>
+        <textarea class="input" id="qhInt" rows="2">${esc(q.internal_note || '')}</textarea></label>`,
+    run: async () => {
+      const { error } = await sb.rpc('inv_quote_set', {
+        p_id: id, p_title: ($('qhTitle') || {}).value || null,
+        p_valid: ($('qhValid') || {}).value || null,
+        p_tax: numField('qhTax'),
+        p_note: ($('qhNote') || {}).value || null,
+        p_internal: ($('qhInt') || {}).value || null
+      });
+      if (error) { toast(error.message || '保存できませんでした'); return; }
+      await loadAll(); render(); toast('保存しました');
+    }
+  });
+}
+
+function sheetQuoteItem(quoteId, itemId) {
+  const it = itemId ? (db.qItems.find(x => x.id === itemId) || {}) : {};
+  openSheet({
+    title: itemId ? '明細を直す' : '明細を追加', subject: quoteNo(quoteOf(quoteId)), cta: '保存',
+    hint: 'レンタルと月額サービスは「月額」として計算します（単価×数量×月数）。それ以外は一括です。',
+    body: `<label class="field" style="margin-bottom:10px"><span>種類</span>
+        <select class="input" id="qiKind">${QUOTE_KINDS.map(([v, t]) =>
+          `<option value="${v}"${(it.kind || 'sale') === v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
+      <label class="field" style="margin-bottom:10px"><span>品名</span>
+        <input class="input" id="qiName" value="${esc(it.name || '')}" placeholder="例）HP ProBook 450 G9"></label>
+      <label class="field" style="margin-bottom:10px"><span>内容・スペック</span>
+        <input class="input" id="qiSpec" value="${esc(it.spec || '')}" placeholder="例）Core i5 / 8GB / SSD 256GB"></label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <label class="field" style="margin-bottom:10px"><span>数量</span>
+          <input class="input num" type="number" id="qiQty" min="1" value="${esc(String(it.qty || 1))}"></label>
+        <label class="field" style="margin-bottom:10px"><span>単価（税抜）</span>
+          <input class="input num" type="number" id="qiUnit" min="0" step="100" value="${esc(String(it.unit_price || 0))}"></label>
+      </div>
+      <label class="field" style="margin-bottom:10px"><span>期間（月額のときだけ）</span>
+        <input class="input num" type="number" id="qiMonths" min="0" max="120" value="${esc(it.months == null ? '' : String(it.months))}"></label>
+      <label class="field" style="margin-bottom:10px"><span>商品コード（任意）</span>
+        <input class="input" id="qiCode" value="${esc(it.product_code || '')}" placeholder="P-00424"></label>
+      <label class="bchk"><input type="checkbox" id="qiTax" ${it.taxable === false ? '' : 'checked'}> 課税対象</label>`,
+    validate: () => {
+      if (!(($('qiName') || {}).value || '').trim()) { toast('品名を入れてください'); return false; }
+      return true;
+    },
+    run: async () => {
+      const kind = ($('qiKind') || {}).value || 'other';
+      const { error } = await sb.rpc('inv_quote_item_save', {
+        p_quote_id: quoteId, p_item_id: itemId || null, p_kind: kind,
+        p_name: ($('qiName') || {}).value, p_spec: ($('qiSpec') || {}).value || null,
+        p_qty: numField('qiQty') || 1, p_unit: numField('qiUnit') || 0,
+        p_months: numField('qiMonths'), p_billing: null,
+        p_taxable: !!($('qiTax') || {}).checked,
+        p_code: ($('qiCode') || {}).value || null, p_note: null, p_sort: null
+      });
+      if (error) { toast(error.message || '保存できませんでした'); return; }
+      await loadAll(); render(); toast('明細を保存しました');
+    }
+  });
+}
+
+/* 商品マスタから明細を作る。値は初期値で、あとから自由に直せる */
+function sheetQuoteFromProduct(quoteId) {
+  const list = db.masters.filter(p => p.kind === 'individual').slice(0, 300);
+  openSheet({
+    title: '商品から追加', subject: quoteNo(quoteOf(quoteId)), cta: '追加',
+    hint: '商品の登録内容（品名・スペック・価格）を初期値として入れます。入れたあとは自由に直せます。',
+    body: `<label class="field" style="margin-bottom:10px"><span>商品</span>
+        <select class="input" id="qfCode">${list.map(p =>
+          `<option value="${esc(p.code)}">${esc(titleOf(p))}（${esc(p.code)}）</option>`).join('')}</select></label>
+      <label class="field" style="margin-bottom:10px"><span>入れかた</span>
+        <select class="input" id="qfKind">
+          <option value="sale">販売（一括）</option>
+          <option value="rental">レンタル（月額）</option>
+        </select></label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <label class="field" style="margin-bottom:10px"><span>数量</span>
+          <input class="input num" type="number" id="qfQty" min="1" value="1"></label>
+        <label class="field" style="margin-bottom:10px"><span>期間（レンタル）</span>
+          <input class="input num" type="number" id="qfMonths" min="1" max="120" value="12"></label>
+      </div>`,
+    run: async () => {
+      const code = ($('qfCode') || {}).value;
+      const kind = ($('qfKind') || {}).value || 'sale';
+      const p = prod(code) || {};
+      const unit = kind === 'rental' ? (p.rental_price_month || 0) : (p.sale_price || 0);
+      const { error } = await sb.rpc('inv_quote_item_save', {
+        p_quote_id: quoteId, p_item_id: null, p_kind: kind,
+        p_name: titleOf(p), p_spec: [p.cpu, p.memory_size, p.storage_capacity, p.screen_size].filter(Boolean).join(' / ') || null,
+        p_qty: numField('qfQty') || 1, p_unit: unit,
+        p_months: kind === 'rental' ? (numField('qfMonths') || 12) : null,
+        p_billing: null, p_taxable: true, p_code: code, p_note: null, p_sort: null
+      });
+      if (error) { toast(error.message || '追加できませんでした'); return; }
+      await loadAll(); render();
+      toast(unit ? '商品を追加しました' : '商品を追加しました（価格は未設定なので入れてください）');
+    }
+  });
+}
+
+/* 案件の「必要なもの」から、明細の下地をまとめて作る（金額は空のまま） */
+async function quoteFromDeal(quoteId) {
+  const q = quoteOf(quoteId); if (!q) return;
+  const d = db.deals.find(x => x.id === q.deal_id) || {};
+  const map = {
+    'PC本体': ['sale', 'PC本体'],
+    'モニター・周辺機器': ['sale', 'モニター・周辺機器'],
+    '初期設定・キッティング': ['kitting', 'キッティング（初期設定）'],
+    'Office / Microsoft 365': ['setup', 'Office / Microsoft 365'],
+    'アカウント設定': ['setup', 'アカウント設定'],
+    'ネットワーク・Wi-Fi': ['network', 'ネットワーク構築'],
+    'セキュリティ': ['setup', 'セキュリティ設定'],
+    '現地設置': ['install', '現地設置・配線・接続確認'],
+    'AI研修': ['training', 'AI研修'],
+    'Office研修': ['training', 'Office研修'],
+    'データ消去・証明書': ['other', 'データ消去・証明書発行'],
+    '故障時の交換対応': ['service_monthly', '故障時の交換対応（8RENT Care）']
+  };
+  const want = (d.services || []).filter(x => map[x]);
+  if (!want.length) { toast('案件に「必要なもの」が入っていません'); return; }
+  for (const w of want) {
+    const [kind, name] = map[w];
+    const r = await sb.rpc('inv_quote_item_save', {
+      p_quote_id: quoteId, p_item_id: null, p_kind: kind, p_name: name, p_spec: null,
+      p_qty: d.qty || 1, p_unit: 0, p_months: kind === 'service_monthly' ? (d.months || 12) : null,
+      p_billing: null, p_taxable: true, p_code: null, p_note: null, p_sort: null
+    });
+    if (r.error) { toast(r.error.message || '作れませんでした'); return; }
+  }
+  await loadAll(); render();
+  toast(want.length + '行つくりました。単価を入れてください');
+}
+
+async function deleteQuoteItem(quoteId, itemId) {
+  const { error } = await sb.rpc('inv_quote_item_delete', { p_quote_id: quoteId, p_item_id: itemId });
+  if (error) { toast(error.message || '消せませんでした'); return; }
+  await loadAll(); render(); toast('明細を消しました');
+}
+
+function presentQuote(id) {
+  const q = quoteOf(id); if (!q) return;
+  const others = quotesOf(q.deal_id).filter(x => x.id !== id && ['提示済み', '相談中'].includes(x.status));
+  openSheet({
+    title: 'お客様に提示する', subject: quoteNo(q), cta: '提示する',
+    hint: `顧客URLを発行します。<strong>提示するとこの版は編集できなくなります。</strong>
+      ${others.length ? `前に提示した ${others.map(x => quoteNo(x)).join('・')} は<strong>自動で失効</strong>します
+        （古いURLから承認されないようにするためです）。` : ''}`,
+    body: `<label class="field" style="max-width:220px"><span>有効期限（何日間）</span>
+        <input class="input num" type="number" id="qpDays" min="1" max="180" value="14"></label>
+      <p class="meta" style="margin-top:10px">お客様の画面には、初期費用と月額費用を分けて出します。
+        原価・在庫数・管理番号・社内メモは出しません。<br>
+        メールでお送りするのは担当者の操作です（自動送信はしません）。</p>`,
+    run: async () => {
+      const { data, error } = await sb.rpc('inv_quote_present', { p_id: id, p_days: numField('qpDays') || 14 });
+      if (error) { toast(error.message || '提示できませんでした'); return; }
+      await loadAll(); render();
+      toast('提示しました。顧客URLをコピーしてお送りください');
+      if (data && data.token) copyQuoteUrl(id);
+    }
+  });
+}
+
+function cancelQuote(id) {
+  openSheet({
+    title: '見積を取り消す', subject: quoteNo(quoteOf(id)), cta: '取り消す',
+    hint: '取り消すと、顧客URLからは操作できなくなります。',
+    body: `<label class="field"><span>理由（社内メモに残ります）</span>
+        <input class="input" id="qcWhy" placeholder="例）条件が変わったため作り直し"></label>`,
+    run: async () => {
+      const { error } = await sb.rpc('inv_quote_cancel', { p_id: id, p_reason: ($('qcWhy') || {}).value || null });
+      if (error) { toast(error.message || '取り消せませんでした'); return; }
+      await loadAll(); render(); toast('取り消しました');
+    }
+  });
 }
 
 async function setDealStatus(id, status) {

@@ -19,6 +19,10 @@
   ],
   "rewrites": [
     {
+      "source": "/q/(.*)",
+      "destination": "/quote-view.html"
+    },
+    {
       "source": "/faq",
       "destination": "/faq.html"
     },
@@ -75,7 +79,7 @@
       "destination": "/zaiko/index.html"
     },
     {
-      "source": "/zaiko/(items|products|locations)/(.*)",
+      "source": "/zaiko/(items|products|locations|quotes)/(.*)",
       "destination": "/zaiko/index.html"
     },
     {
