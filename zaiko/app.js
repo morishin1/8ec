@@ -3768,50 +3768,27 @@ function sheetListing(id, ch) {
         <input class="input" id="lsSku" value="${esc(x.sku || '')}" placeholder="そのサイトでの商品コード"></label>
       <label class="field" style="margin-bottom:10px"><span>商品URL（お客様が見るページ）</span>
         <input class="input" id="lsUrl" value="${esc(x.url || '')}" placeholder="https://…"></label>
-      <label class="field" style="margin-bottom:10px"><span>メモ（任意）</span>
+      <label class="field"><span>メモ（任意）</span>
         <input class="input" id="lsNote" value="${esc(x.note || '')}"></label>
-      ${ADMIN_SEARCH_CHANNELS.indexOf(ch) >= 0 ? `
-      <label class="field"><span>管理画面URL（任意・この型番に共通）</span>
-        <input class="input" id="lsAdmin" value="${esc(up2.admin_url || '')}"
-               placeholder="${ch === 'rakuten' ? 'https://item.rms.rakuten.co.jp/…' : 'https://sellercentral.amazon.co.jp/…'}">
-        <span class="meta">${esc(c.label)}の管理画面でこの商品を開いたときのURLを貼ってください。
-          入れると出品先の表に［商品を編集］が出ます。<strong>こちらで組み立てたURLは使いません。</strong>
-          ログイン中だけ有効な（セッションID・トークンつきの）URLは登録できません。</span></label>` : ''}`,
-    run: async (state) => {
-      await saveListing(id, null, ch, state, {
-        price: numField('lsPrice'), sku: ($('lsSku') || {}).value,
-        url: ($('lsUrl') || {}).value, note: ($('lsNote') || {}).value
-      });
-      await saveAdminUrl(it.product_code, ch);
-    }
+      ${ADMIN_SEARCH_CHANNELS.indexOf(ch) >= 0 ? `<p class="meta" style="margin-top:8px">
+        管理画面URLは、表の［管理URLを${up2.admin_url ? '直す' : '登録'}］から（別に保存します）。</p>` : ''}`,
+    run: (state) => saveListing(id, null, ch, state, {
+      price: numField('lsPrice'), sku: ($('lsSku') || {}).value,
+      url: ($('lsUrl') || {}).value, note: ($('lsNote') || {}).value
+    })
   });
-}
-
-/* 管理画面URLは出品情報とは別の列なので、専用のRPCで入れ直す。
-   欄が出ていない販売サイト（楽天・Amazon以外）では何もしない。 */
-async function saveAdminUrl(code, ch) {
-  const f = $('lsAdmin');
-  if (!f) return true;
-  const admin = (f.value || '').trim();
-  const cur = ((channelsOf(code).find(v => v.channel === ch) || {}).admin_url || '').trim();
-  if (admin === cur) return true;
-  const { error } = await sb.rpc('inv_listing_admin_url_set',
-    { p_code: code, p_channel: ch, p_url: admin || null });
-  if (error) { toast('管理画面URLを保存できませんでした：' + error.message); return false; }
-  await loadAll();
-  render();
-  return true;
 }
 
 /* 出品情報の保存はDBの関数を通す。状態が変わったときだけ履歴に残る */
 async function saveListing(itemId, code, ch, state, more) {
+  // 返り値は「保存できたか」。呼ぶ側はこれを見てから次へ進む
   const { data, error } = await sb.rpc('inv_listing_set', {
     p_item_id: itemId || null, p_code: code || null, p_channel: ch,
     p_state: state || null, p_sku: (more || {}).sku || null,
     p_price: (more || {}).price == null ? null : (more || {}).price,
     p_url: (more || {}).url || null, p_note: (more || {}).note || null
   });
-  if (error) { toast('保存できませんでした：' + error.message); return; }
+  if (error) { toast('保存できませんでした：' + error.message); return false; }
   // 未出品にしたときは行を消している。中身が空の返りは「消えた」とみなす
   const row = (data && data.id != null) ? data : null;
   const same = (v) => itemId ? v.item_id === itemId && v.channel === ch
@@ -3824,6 +3801,7 @@ async function saveListing(itemId, code, ch, state, more) {
   await refreshTx();
   render();
   toast(row ? `${chanLabel(ch)}の出品情報を保存しました` : `${chanLabel(ch)}を未出品にしました`);
+  return true;
 }
 
 /* 売れた・捨てたのに出たままになっている出品を、まとめて出品停止にする */
@@ -4662,22 +4640,14 @@ function sheetChannel(code, ch) {
         <input class="input" id="lsSku" value="${esc(x.sku || '')}" placeholder="そのサイトでの商品コード"></label>
       <label class="field" style="margin-bottom:10px"><span>商品URL</span>
         <input class="input" id="lsUrl" value="${esc(x.url || '')}" placeholder="https://…"></label>
-      <label class="field" style="margin-bottom:10px"><span>管理画面URL（任意）</span>
-        <input class="input" id="lsAdmin" value="${esc(x.admin_url || '')}"
-               placeholder="${ch === 'rakuten' ? 'https://item.rms.rakuten.co.jp/…'
-                              : ch === 'amazon' ? 'https://sellercentral.amazon.co.jp/…' : 'https://…'}">
-        <span class="meta">売れたあとに在庫を直しにいく先です。<strong>実際に管理画面で開いたURLを貼ってください。</strong>
-          入れると出品先の表に［商品を編集］が出ます。空なら販売サイトごとの設定（管理画面のトップ・ひな形）を使います。
-          ログイン中だけ有効な（セッションID・トークンつきの）URLは登録できません。</span></label>
       <label class="field"><span>メモ</span>
-        <input class="input" id="lsNote" value="${esc(x.note || '')}"></label>`,
-    run: async (state) => {
-      await saveListing(null, code, ch, state, {
-        price: numField('lsPrice'), sku: ($('lsSku') || {}).value,
-        url: ($('lsUrl') || {}).value, note: ($('lsNote') || {}).value
-      });
-      await saveAdminUrl(code, ch);
-    }
+        <input class="input" id="lsNote" value="${esc(x.note || '')}"></label>
+      <p class="meta" style="margin-top:8px">管理画面URLは、表の
+        ［管理URLを${x.admin_url ? '直す' : '登録'}］から（別に保存します）。</p>`,
+    run: (state) => saveListing(null, code, ch, state, {
+      price: numField('lsPrice'), sku: ($('lsSku') || {}).value,
+      url: ($('lsUrl') || {}).value, note: ($('lsNote') || {}).value
+    })
   });
 }
 
@@ -7402,12 +7372,27 @@ function closeSheet() {
 }
 async function confirmSheet() {
   if (!sheetState) return;
-  const fn = sheetState.run;
+  const cfg = sheetState;
   const val = (($('sheetVal') || {}).value || '').trim();
   // 入力が足りないときは閉じない（閉じてから知らせると入れ直しになるため）
-  if (sheetState.validate && !sheetState.validate(val)) return;
+  if (cfg.validate && !cfg.validate(val)) return;
+
+  // 保存が失敗したときに入れた値を消さないシート。run が false を返したら開いたまま
+  if (cfg.keepOpenOnError) {
+    const cta = $('sheetPanel').querySelector('.btn.cta');
+    const label = cta ? cta.textContent : '';
+    if (cta) { cta.disabled = true; cta.textContent = '保存中…'; }
+    let ok = false;
+    try { ok = await cfg.run(val); } catch (e) { ok = false; toast('保存できませんでした'); }
+    if (ok === false) {
+      if (cta) { cta.disabled = false; cta.textContent = label; }
+      return;
+    }
+    closeSheet();
+    return;
+  }
   closeSheet();
-  await fn(val);
+  await cfg.run(val);
 }
 const userOptions = () => {
   const names = [...new Set(db.items.map(i => i.user_name).filter(Boolean).concat(db.members.map(m => m.display_name)))];
@@ -7708,37 +7693,30 @@ function adminSearchTerm(p) {
   return { q: '', from: null, label: null };
 }
 
-/* 新しいタブで開く。ポップアップを止められていたら、そう伝える */
-function openTab(url, blockedMsg) {
-  let w = null;
-  try { w = window.open(url, '_blank', 'noopener,noreferrer'); } catch (e) { w = null; }
-  if (!w) { toast(blockedMsg || 'ポップアップがブロックされました。このタブのブロック設定を許可してください'); return false; }
-  return true;
-}
-
-/* 「型番で探す」。設定に検証ずみの検索URLがあればそこへ、
-   無ければ検索語をコピーして管理画面のトップを開く */
-function adminSearch(code, ch) {
-  if (!canEdit()) { toast('閲覧のみの権限では管理画面を開けません'); return; }
-  const p = prod(code);
-  const t = adminSearchTerm(p);
-  if (!t.q) { toast('型番も商品名も登録されていないので、管理画面では探せません'); return; }
-
+/* 「探す」で開くURLを決める。
+     ・設定に検証ずみの検索URL（{q}つき）があれば、検索結果をそのまま開く
+     ・無ければ管理画面のトップを開き、検索語はクリップボードへ渡す
+   どちらも実URLを持つ <a target="_blank" rel="noopener noreferrer"> で開く。
+   window.open は使わない。noopener つきの window.open は、正しく開けた
+   ときでも null を返す仕様で、返り値からブロックの有無を判定できないため
+   （以前はここで「ポップアップがブロックされました」と誤って出していた）。 */
+function adminSearchLink(code, ch) {
+  const t = adminSearchTerm(prod(code));
+  if (!t.q) return { ready: false, why: '型番も商品名も登録されていません', term: t };
   const st = chanSetting(ch);
   const tpl = (st.admin_search_url_template || '').trim();
   const home = (st.admin_home_url || '').trim();
-
-  // 1) 検証ずみの検索URLがあるとき：検索結果をそのまま開く
   if (tpl && tpl.indexOf('{q}') >= 0) {
-    openTab(tpl.replace(/\{q\}/g, encodeURIComponent(t.q)),
-      'ポップアップがブロックされました。' + chanLabel(ch) + 'の管理画面を開けません');
-    return;
+    return { ready: true, direct: true, term: t, url: tpl.replace(/\{q\}/g, encodeURIComponent(t.q)) };
   }
-  // 2) まだ確かめていないとき：検索語をコピーして管理画面を開く
-  if (!home) {
-    toast(chanLabel(ch) + 'の管理画面URLが未設定です。設定 → 販売サイトで入れてください');
-    return;
-  }
+  if (home) return { ready: true, direct: false, term: t, url: home };
+  return { ready: false, why: chanLabel(ch) + 'の管理画面URLが未設定です（設定 → 販売サイト）', term: t };
+}
+
+/* 検索語をコピーして知らせるだけ。タブを開くのはリンク自身の仕事 */
+function adminSearchCopy(code, ch) {
+  const t = adminSearchTerm(prod(code));
+  if (!t.q) return;
   const paste = t.label + '「' + t.q + '」をコピーしました。管理画面の検索欄に貼り付けてください';
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(t.q).then(
@@ -7747,7 +7725,6 @@ function adminSearch(code, ch) {
   } else {
     toast('コピーできませんでした。' + t.label + 'は ' + t.q + ' です');
   }
-  openTab(home, 'ポップアップがブロックされました。' + chanLabel(ch) + 'の管理画面を開けません');
 }
 
 /* 出品先の表の「管理画面」欄。楽天・Amazonだけに出し、閲覧のみの人には出さない。
@@ -7756,30 +7733,66 @@ function adminSearch(code, ch) {
 function adminCell(code, ch) {
   if (!canEdit()) return '<span class="meta">—</span>';
   if (ADMIN_SEARCH_CHANNELS.indexOf(ch) < 0) return '<span class="meta">—</span>';
-  const p = prod(code);
-  const t = adminSearchTerm(p);
-  const st = chanSetting(ch);
+  const link = adminSearchLink(code, ch);
   const direct = ((channelsOf(code).find(v => v.channel === ch) || {}).admin_url || '').trim();
-  const ready = !!(st.admin_search_url_template || '').trim() || !!(st.admin_home_url || '').trim();
+  const stop = 'event.stopPropagation()';
 
-  const search = !t.q
-    ? `<button class="btn sm ghost" disabled
-         title="型番も商品名も登録されていないので探せません">型番で探す</button>
-       <div class="meta">型番も商品名も未登録</div>`
-    : !ready
-      ? `<button class="btn sm ghost" disabled
-           title="${esc(chanLabel(ch))}の管理画面URLが未設定です">${esc(t.label)}で探す</button>
-         <div class="meta">管理画面URLが未設定</div>`
-      : `<button class="btn sm ghost" onclick="event.stopPropagation();adminSearch('${esc(code)}','${esc(ch)}')"
-           title="${esc(chanLabel(ch) + 'の管理画面で ' + t.q + ' を探します')}">${esc(t.label)}で探す</button>
-         <div class="meta num" style="word-break:break-all">${esc(t.q)}</div>`;
+  const search = !link.ready
+    ? `<button class="btn sm ghost" disabled title="${esc(link.why)}">${
+         esc((link.term.label || '型番') + 'で探す')}</button>
+       <div class="meta">${esc(link.why)}</div>`
+    : `<a class="btn sm ghost" href="${esc(link.url)}" target="_blank" rel="noopener noreferrer"
+         onclick="${stop};${link.direct ? '' : `adminSearchCopy('${esc(code)}','${esc(ch)}')`}"
+         title="${esc(chanLabel(ch) + 'の管理画面で ' + link.term.q + ' を探します'
+                  + (link.direct ? '' : '（検索語はコピーします。検索欄に貼り付けてください）'))}"
+         >${esc(link.term.label + 'で探す')}</a>
+       <div class="meta num" style="word-break:break-all">${esc(link.term.q)}${
+         link.direct ? '' : '<br>検索語をコピーします'}</div>`;
 
   const edit = direct
     ? `<a class="btn sm" href="${esc(direct)}" target="_blank" rel="noopener noreferrer"
-         onclick="event.stopPropagation()" title="${esc(direct)}">商品を編集</a>`
+         onclick="${stop}" title="${esc(direct)}">商品を編集</a>`
     : '';
   return `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-start">
-      ${edit}<div>${search}</div></div>`;
+      ${edit}<div>${search}
+        <div><button class="btn sm ghost" style="margin-top:4px;font-size:11.5px"
+          onclick="${stop};sheetAdminUrl('${esc(code)}','${esc(ch)}')">管理URLを${
+            direct ? '直す' : '登録'}</button></div></div></div>`;
+}
+
+/* 管理URLだけを入れ直す。出品情報とは別の保存にして、
+   どちらかが失敗したときに「もう一方は保存できた」と取り違えないようにする。
+   失敗したときはシートを閉じない（入れた値が消えないように）。 */
+function sheetAdminUrl(code, ch) {
+  const c = CHANNELS.find(x => x.key === ch) || { key: ch, label: ch };
+  const now = ((channelsOf(code).find(v => v.channel === ch) || {}).admin_url || '').trim();
+  const host = ch === 'rakuten' ? 'item.rms.rakuten.co.jp'
+             : ch === 'amazon' ? 'sellercentral.amazon.co.jp' : '';
+  openSheet({
+    title: c.label + 'の管理画面URL', subject: code, cta: '保存',
+    keepOpenOnError: true,
+    hint: `出品先の表に［商品を編集］を出すためのURLです。
+      <strong>${esc(c.label)}の管理画面でこの商品を開いて、そのときのURLを貼ってください。</strong>
+      こちらで組み立てたURLは使いません。`,
+    body: `<label class="field"><span>管理画面URL</span>
+        <input class="input" id="auUrl" value="${esc(now)}"
+               placeholder="${host ? 'https://' + esc(host) + '/…' : 'https://…'}"></label>
+      <p class="meta" style="margin-top:8px">
+        ${host ? '<code>' + esc(host) + '</code> の https だけ受け付けます。' : ''}
+        ログイン中だけ有効な（セッションID・トークンつきの）URLは登録できません。<br>
+        空にすると［商品を編集］は出なくなります。まだ出品していない商品でも登録できます。</p>`,
+    run: async () => {
+      const url = (($('auUrl') || {}).value || '').trim();
+      if (url === now) return true;                   // 変わっていないので何もしない
+      const { error } = await sb.rpc('inv_listing_admin_url_set',
+        { p_code: code, p_channel: ch, p_url: url || null });
+      if (error) { toast('保存できませんでした：' + error.message); return false; }
+      await loadAll();
+      render();
+      toast(url ? chanLabel(ch) + 'の管理画面URLを保存しました' : chanLabel(ch) + 'の管理画面URLを消しました');
+      return true;
+    }
+  });
 }
 
 function copyText(t, msg) {
@@ -7924,6 +7937,7 @@ async function saveChannelAdmin(ch) {
   const i = db.chanSettings.findIndex(x => x.channel === ch);
   if (data) { if (i >= 0) db.chanSettings[i] = data; else db.chanSettings.push(data); }
   closeModal();
+  render();          // 出品先の「管理画面」欄はこの設定を見ているので、すぐ描き直す
   toast(`${chanLabel(ch)}の管理画面URLを保存しました`);
 }
 
