@@ -6211,10 +6211,12 @@ language plpgsql security definer set search_path = public, pg_catalog as $$
 declare
   q public.inventory_quotes;
   v_name text;
+  v_done text;   -- その操作が済んだときの状態名
 begin
   if p_action not in ('approve', 'consult') then
     raise exception '知らない操作です';
   end if;
+  v_done := case when p_action = 'approve' then '承認' else '相談中' end;
   v_name := nullif(btrim(coalesce(p_name, '')), '');
   if v_name is null then
     raise exception 'お名前を入力してください';
@@ -6224,6 +6226,13 @@ begin
   if not found then
     raise exception 'この見積は見つかりません。担当者へお問い合わせください';
   end if;
+
+  -- 同じ操作のやり直し：何もせずに成功として返す（二重送信・連打の受け止め）
+  if q.status = v_done then
+    return jsonb_build_object('ok', true, 'already', true, 'status', q.status,
+                              'quote_no', public.inv_quote_no(q.deal_id, q.rev));
+  end if;
+
   if q.status <> '提示済み' then
     raise exception 'この見積は現在お手続きいただけません（%）。担当者へお問い合わせください', q.status;
   end if;
@@ -6258,14 +6267,16 @@ begin
      where id = q.deal_id;
   end if;
 
-  return jsonb_build_object('ok', true, 'status', q.status,
+  return jsonb_build_object('ok', true, 'already', false, 'status', q.status,
                             'quote_no', public.inv_quote_no(q.deal_id, q.rev));
 end $$;
 
 comment on function public.inv_quote_decide is
   'お客様の［この内容で進める］［内容について相談する］。進めるは契約ではなく意思表示で、
    案件は「契約準備」へ進む。**この関数は inventory_items を一切変更しない**
-   （在庫の確保は、契約と支払方法が決まってから別途行う）。';
+   （在庫の確保は、契約と支払方法が決まってから別途行う）。
+   同じ操作を二度送られたときは already=true で何もせず返す。
+   サーバー（service_role）からだけ呼べる。';
 
 -- ------------------------------------------------------------
 -- 46-6) 権限
@@ -6302,11 +6313,99 @@ grant execute on function public.inv_quote_item_delete(bigint,bigint) to authent
 grant execute on function public.inv_quote_present(bigint,integer) to authenticated;
 grant execute on function public.inv_quote_cancel(bigint,text) to authenticated;
 
-revoke all on function public.inv_quote_public(text) from public;
-revoke all on function public.inv_quote_decide(text,text,text,text,text) from public;
-grant execute on function public.inv_quote_public(text) to anon, authenticated;
-grant execute on function public.inv_quote_decide(text,text,text,text,text) to anon, authenticated;
-grant execute on function public.inv_quote_no(bigint,integer) to anon, authenticated;
+-- ------------------------------------------------------------
+-- 47) 顧客見積APIは、サーバー経由だけにする
+--
+--     お客様のブラウザ → Vercel /api/* →（サーバー鍵）→ Supabase
+--     見積の関数は service_role からしか呼べない。公開鍵はサイトのJSに
+--     載っているので、anon に残すと /api を通さずに直接たたけてしまい、
+--     Slack通知や今後の共通処理を迂回できるため。
+-- ------------------------------------------------------------
+create table if not exists public.inventory_quote_access (
+  client_key text        not null,
+  window_at  timestamptz not null,
+  tries      integer     not null default 0,
+  misses     integer     not null default 0,
+  primary key (client_key, window_at)
+);
+
+comment on table public.inventory_quote_access is
+  '顧客見積ページへのアクセス回数（分単位）。総当たりを止めるためだけに使う。
+   client_key はIPのsha256で、IPそのものは保存しない。';
+
+create index if not exists inventory_quote_access_window_idx
+  on public.inventory_quote_access (window_at);
+
+alter table public.inventory_quote_access enable row level security;
+revoke all on public.inventory_quote_access from anon, authenticated;
+
+-- ------------------------------------------------------------
+-- 47-2) 数えて、行きすぎならことわる
+--
+--     直近10分で
+--       ・見つからないtokenが 20回
+--       ・または合計 150回
+--     を超えたら blocked=true を返す。APIはこれを見て429を返す。
+--
+--     p_miss は「tokenが見つからなかった」ときだけ true。
+-- ------------------------------------------------------------
+create or replace function public.inv_quote_access_check(
+  p_client text,
+  p_miss   boolean default false
+) returns jsonb
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare
+  v_key    text := nullif(btrim(coalesce(p_client, '')), '');
+  v_win    timestamptz := date_trunc('minute', now());
+  v_tries  integer;
+  v_misses integer;
+begin
+  -- 相手が分からないときは数えようがないので素通しする（APIが必ず渡す）
+  if v_key is null then
+    return jsonb_build_object('blocked', false, 'tries', 0, 'misses', 0);
+  end if;
+  v_key := left(v_key, 64);
+
+  insert into public.inventory_quote_access (client_key, window_at, tries, misses)
+  values (v_key, v_win, 1, case when p_miss then 1 else 0 end)
+  on conflict (client_key, window_at) do update
+    set tries  = public.inventory_quote_access.tries + 1,
+        misses = public.inventory_quote_access.misses + case when p_miss then 1 else 0 end;
+
+  select coalesce(sum(tries), 0), coalesce(sum(misses), 0)
+    into v_tries, v_misses
+    from public.inventory_quote_access
+   where client_key = v_key and window_at > now() - interval '10 minutes';
+
+  -- ときどき古い行を捨てる（掃除のためだけにcronを足したくないので）
+  if random() < 0.02 then
+    delete from public.inventory_quote_access where window_at < now() - interval '2 hours';
+  end if;
+
+  return jsonb_build_object(
+    'blocked', (v_misses >= 20 or v_tries >= 150),
+    'tries',   v_tries,
+    'misses',  v_misses);
+end $$;
+
+comment on function public.inv_quote_access_check is
+  '顧客見積ページへのアクセスを分単位で数え、短時間に失敗が続く相手をことわる。
+   APIからサーバー鍵で呼ぶ。client_key はIPのsha256（IPそのものは保存しない）。';
+
+--     PostgreSQL は関数を作ると PUBLIC に実行権限が付くので、
+--     anon から revoke するだけでは足りない。PUBLIC ごと落としてから配り直す。
+revoke all on function public.inv_quote_public(text)                     from public, anon, authenticated;
+revoke all on function public.inv_quote_decide(text,text,text,text,text) from public, anon, authenticated;
+revoke all on function public.inv_quote_no(bigint,integer)               from public, anon;
+revoke all on function public.inv_quote_access_check(text,boolean)       from public, anon, authenticated;
+
+--     顧客見積の関数を呼べるのはサーバー（service_role）だけにする。
+grant execute on function public.inv_quote_public(text)                     to service_role;
+grant execute on function public.inv_quote_decide(text,text,text,text,text) to service_role;
+grant execute on function public.inv_quote_access_check(text,boolean)       to service_role;
+--     見積番号を作るだけの関数は、社内画面から使うこともあるので authenticated に残す
+--     （中身は 'Q-00012-2' のような文字列を組み立てるだけで、データは読まない）。
+grant execute on function public.inv_quote_no(bigint,integer)               to authenticated, service_role;
 
 
 

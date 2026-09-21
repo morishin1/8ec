@@ -2,20 +2,23 @@
 // お客様の［この内容で進める］［内容について相談する］（/api/quote-decide）
 //
 //   ここでやること
-//     (1) inv_quote_decide() を呼ぶ
-//     (2) Slack へ通知する（お客様が押したときだけ）
+//     (1) 連打・総当たりを止める
+//     (2) inv_quote_decide() をサーバー鍵で呼ぶ
+//     (3) Slack へ通知する（お客様が押したときだけ・同じ操作の二度目は送らない）
+//
+//   お客様のブラウザ → Vercel /api/* →（サーバー鍵）→ Supabase の順で必ず通ります。
+//   anon（公開鍵）から inv_quote_decide は呼べません（2026-09-23-quote-api-only.sql）。
 //
 //   押しても契約・決済・機器の確保は起きません。
 //   案件が「契約準備」へ進み、担当者が続きを進めます。
 //   在庫（inventory_items）はこの経路では一切動きません。
 // ============================================================
 
-const SUPABASE_URL = process.env.SUPABASE_URL || "https://htglvascsuqkixpmclwr.supabase.co";
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "sb_publishable_yZCcrwdqjuf0u_5WBWlHIw_AxdvteEV";
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || "";
 const ZAIKO_DEALS_URL = process.env.ZAIKO_DEALS_URL || "https://www.8ec.jp/zaiko/deals";
 
-const { cleanToken } = require("./quote-view.js");
+// 鍵の解決・IPの数えかた・RPCの呼びかたは quote-view.js に集めてある
+const { cleanToken, clientKey, accessCheck, tooFast, rpc } = require("./quote-view.js");
 
 function clean(value, max) {
   const s = String(value == null ? "" : value).trim();
@@ -85,6 +88,9 @@ module.exports = async (req, res) => {
   if (req.method === "OPTIONS") { res.setHeader("Allow", "POST"); return res.status(204).end(); }
   if (req.method !== "POST") { res.setHeader("Allow", "POST"); return res.status(405).json({ error: "POST のみ受け付けます" }); }
 
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("X-Robots-Tag", "noindex, nofollow");
+
   let body = req.body;
   if (typeof body === "string") { try { body = JSON.parse(body); } catch (_) { body = null; } }
   if (!body || typeof body !== "object") return res.status(400).json({ error: "リクエストの形式が不正です" });
@@ -97,26 +103,30 @@ module.exports = async (req, res) => {
     company: clean(body.company, 120),
     message: clean(body.message, 2000),
   };
+  const key = clientKey(req);
+  // 同じ相手からの連打はここで止める（DB側の数えかたと二段構え）
+  if (tooFast(key, 10, 60000)) {
+    res.setHeader("Retry-After", "60");
+    return res.status(429).json({ error: "送信が続いています。少し時間をおいてからお試しください" });
+  }
   if (!token) return res.status(400).json({ error: "URLが正しくありません" });
   if (!action) return res.status(400).json({ error: "操作が正しくありません" });
   if (!row.name) return res.status(400).json({ error: "ご担当者名を入力してください" });
 
   // ── 1) 見積の状態を進める（ここが失敗したら失敗として返す） ──
+  //     書き込む操作なので、数えた結果が行きすぎていれば通さない
   let out = null;
   try {
-    const r = await fetch(SUPABASE_URL + "/rest/v1/rpc/inv_quote_decide", {
-      method: "POST",
-      headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: "Bearer " + SUPABASE_ANON_KEY,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        p_token: token, p_action: action, p_name: row.name,
-        p_company: row.company, p_message: row.message,
-      }),
+    const guard = await accessCheck(key, false);
+    if (guard.blocked) {
+      res.setHeader("Retry-After", "600");
+      return res.status(429).json({ error: "アクセスが多すぎます。少し時間をおいてからお試しください" });
+    }
+    const r = await rpc("inv_quote_decide", {
+      p_token: token, p_action: action, p_name: row.name,
+      p_company: row.company, p_message: row.message,
     });
-    out = await r.json().catch(() => null);
+    out = r.out;
     if (!r.ok) {
       // 期限切れ・失効などは、SQL側のメッセージをそのままお客様に見せる
       const msg = (out && (out.message || out.hint)) || "お手続きできませんでした";
@@ -128,8 +138,12 @@ module.exports = async (req, res) => {
     return res.status(502).json({ error: "お手続きできませんでした" });
   }
 
-  // ── 2) Slack へ通知（失敗しても、お客様の操作は成功として返す） ──
-  if (SLACK_WEBHOOK_URL) {
+  // ── 2) Slack へ通知 ──
+  //     ・DBはもう確定しているので、Slackが失敗してもお客様の操作は成功として返す
+  //       （失敗はログに残す。案件の状態は /zaiko/deals で見えるので取りこぼさない）
+  //     ・同じ操作の二度目（already）は、状態が変わっていないので送らない
+  const already = !!(out && out.already);
+  if (SLACK_WEBHOOK_URL && !already) {
     try {
       const s = await fetch(SLACK_WEBHOOK_URL, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -141,7 +155,9 @@ module.exports = async (req, res) => {
     }
   }
 
-  return res.status(200).json({ ok: true, status: out && out.status, quote_no: out && out.quote_no });
+  return res.status(200).json({
+    ok: true, already, status: out && out.status, quote_no: out && out.quote_no,
+  });
 };
 
 module.exports.buildSlackPayload = buildSlackPayload;
