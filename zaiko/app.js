@@ -128,6 +128,7 @@ const db = {
   deals: [],                // 3分診断（/quote）から届いた案件
   quotes: [], qItems: [], qTotals: [],   // 見積・明細・合計
   contracts: [], cItems: [],             // 契約・契約明細（Phase 3-a）
+  invoices: [], payments: [],            // 請求・入金（Phase 3-b）
   stats: null               // 今月の経営数値（inv_dashboard_stats）
 };
 const ui = {
@@ -559,9 +560,11 @@ async function loadAll() {
     sb.from('inventory_quote_items').select('*').limit(LOAD_LIMIT),
     sb.from('inv_quote_totals').select('*').limit(500),
     sb.from('inventory_contracts').select('*').order('id', { ascending: false }).limit(500),
-    sb.from('inventory_contract_items').select('*').limit(LOAD_LIMIT)
+    sb.from('inventory_contract_items').select('*').limit(LOAD_LIMIT),
+    sb.from('inv_contract_invoice_list').select('*').order('id', { ascending: true }).limit(LOAD_LIMIT),
+    sb.from('inventory_contract_payments').select('*').limit(LOAD_LIMIT)
   ];
-  const [c, l, i, p, t, s, ch, im, rr, cl, cs, ds, dl, qh, qi, qt, kh, ki] = await Promise.all(q);
+  const [c, l, i, p, t, s, ch, im, rr, cl, cs, ds, dl, qh, qi, qt, kh, ki, vh, vp] = await Promise.all(q);
   const bad = [c, l, i, p, t, s, ch, im].find(r => r.error);
   if (bad) { showSetup(bad.error); return false; }
   db.imports = im.data || [];
@@ -578,6 +581,9 @@ async function loadAll() {
   // 契約。migration未適用でも他の画面が動くよう、取れなければ空にする
   db.contracts = kh.error ? [] : (kh.data || []);
   db.cItems = ki.error ? [] : (ki.data || []);
+  // 請求・入金。migration未適用でも他の画面が動くよう、取れなければ空にする
+  db.invoices = vh.error ? [] : (vh.data || []);
+  db.payments = vp.error ? [] : (vp.data || []);
 
   db.cats = c.data || [];
   db.locs = l.data || [];
@@ -5995,8 +6001,8 @@ function viewQuote() {
    ================================================================ */
 const CONTRACT_STATE_CLASS = { '作成中': 'act', '確定': 'st-在庫', '履行中': 'st-在庫',
                                '完了': 'st-在庫', '取消': 'st-廃棄' };
-const PAY_STATE_CLASS = { '未請求': 'act', '請求済み': 'act', '入金待ち': 'act',
-                          '一部入金': 'act', '入金済み': 'st-在庫',
+const PAY_STATE_CLASS = { '未請求': 'act', '発行済み': 'act', '一部入金': 'act',
+                          '入金済み': 'st-在庫', '期限超過': 'st-廃棄',
                           '決済失敗': 'st-廃棄', '取消': 'st-廃棄' };
 const FUL_STATE_CLASS = { '未手配': 'act', '手配可': 'act', '手配中': 'act',
                           '準備完了': 'st-在庫', '発送済み': 'st-在庫', '貸出中': 'st-貸出中',
@@ -6074,8 +6080,21 @@ function flowHtml(dealStatus) {
 }
 
 /* ---- 契約の画面 ---- */
+/* 契約画面を開いたら、支払期限を過ぎた請求がないか見直す。
+   日が変わると結果が変わるので、開いたときに計算しなおす（1契約ぶんだけ） */
+let lastRefreshed = null;
+async function refreshInvoices(contractId) {
+  if (!contractId || lastRefreshed === contractId) return;
+  lastRefreshed = contractId;
+  const { error } = await sb.rpc('inv_contract_invoices_refresh', { p_contract_id: contractId });
+  if (error) return;                       // migration未適用でも画面は動かす
+  await loadAll();
+  if (ui.screen === 'contract' && ui.contractId === contractId) render();
+}
+
 function viewContract() {
   const c = contractOf(ui.contractId);
+  if (c && canEdit()) refreshInvoices(c.id);
   if (!c) return `<div class="empty" style="margin-top:20px">契約が見つかりません。
     <button class="btn sm ghost" onclick="go('deals')">案件一覧へ</button></div>`;
   const d = db.deals.find(x => x.id === c.deal_id) || {};
@@ -6214,6 +6233,8 @@ function viewContract() {
     <div><div class="lbl">税込総額</div><div class="v plus">${yen(c.total || 0)}</div></div>
   </div>
 
+  ${contractInvoicesHtml(c)}
+
   ${c.note ? `<div class="sec">お客様向けの但し書き</div><div class="pre">${esc(c.note)}</div>` : ''}
   ${c.internal_note ? `<div class="sec">社内メモ<span class="secn">顧客には出ません</span></div>
     <div class="pre legacy">${esc(c.internal_note)}</div>` : ''}
@@ -6227,6 +6248,280 @@ function viewContract() {
   <p class="meta" style="margin-top:14px">契約を確定しても、<b>機器は確保されません</b>。
     在庫の確保は［手配に進む］を押したときだけ行います（Phase 3-c）。
     ${needCredit ? '後払いなので、その前に管理者の社内承認が要ります。' : ''}</p>`;
+}
+
+/* ---- 請求と入金（Phase 3-b） ----
+     契約から請求の予定を作り、担当者が確認して発行し、入金を記録する。
+     状態は重ならないように整理してある：
+       下書き → 発行待ち → 発行済み → 一部入金 → 入金済み
+                              └→ 期限超過      └→ 取消
+     「発行済み」が入金待ちを含む（請求済みと入金待ちは分けない）。
+     ここでも在庫は動かさない。 */
+const INVOICE_STATE_CLASS = { '下書き': 'act', '発行待ち': 'act', '発行済み': 'st-在庫',
+                              '一部入金': 'act', '入金済み': 'st-在庫',
+                              '期限超過': 'st-廃棄', '取消': 'st-廃棄' };
+const INVOICE_KIND = { initial: '初期費用', monthly: '月額', manual: '個別' };
+const PAY_WAYS = ['銀行振込', '請求書払い', 'カード', '相殺', 'その他'];
+
+const invoicesOf = (contractId) => db.invoices.filter(v => v.contract_id === contractId)
+  .sort((a, b) => (a.kind === b.kind ? a.sequence_no - b.sequence_no
+                   : (a.kind === 'initial' ? -1 : b.kind === 'initial' ? 1 : 0)) || (a.id - b.id));
+const invoiceOf = (id) => db.invoices.find(v => v.id === id) || null;
+const paymentsOf = (invoiceId) => db.payments.filter(x => x.invoice_id === invoiceId)
+  .sort((a, b) => String(a.paid_on).localeCompare(String(b.paid_on)) || (a.id - b.id));
+/* 請求の期間の見出し。2026/11 月額 のように出す */
+function invoiceLabel(v) {
+  if (v.kind === 'monthly' && v.period_start) {
+    return String(v.period_start).slice(0, 7).replace('-', '/') + ' 月額';
+  }
+  if (v.kind === 'initial') return '初期費用';
+  return v.note || '個別の請求';
+}
+
+/* 契約画面の「請求」欄 */
+function contractInvoicesHtml(c) {
+  const vs = invoicesOf(c.id);
+  const canMake = c.status === '確定' && c.terms_confirmed_at;
+  const over = vs.filter(v => (v.over_paid || 0) > 0);
+  return `
+  <div class="sec">請求<span class="secn">${vs.length}件</span></div>
+  ${c.payment_method === 'カード' ? `<p class="meta" style="margin:0 0 10px">
+    カード決済の自動連携（Stripe）はまだつないでいません。請求の予定は作れますが、
+    <b>入金済みへの自動更新はしません</b>。いまは入金を手で記録してください。</p>` : ''}
+  ${over.length ? `<div class="card" style="border:1px solid #E8A33D;margin-bottom:10px">
+    <b>過入金あり</b>
+    <div class="meta">${over.map(v => esc(invoiceLabel(v)) + '：' + yen(v.over_paid) + ' 多く入っています').join('<br>')}</div>
+    <div class="meta" style="margin-top:4px">返金するか、次回の請求で相殺するかを決めてください。自動では消しません。</div>
+  </div>` : ''}
+  ${vs.length ? `<div class="table-wrap"><table class="t"><thead><tr>
+      <th>請求</th><th>請求番号</th><th>金額（税込）</th><th>請求予定 / 発行</th><th>支払期限</th>
+      <th>入金</th><th>状態</th>${canEdit() ? '<th></th>' : ''}
+    </tr></thead><tbody>
+    ${vs.map(v => `<tr${v.status === '期限超過' ? ' class="warn"' : ''}>
+      <td><b>${esc(invoiceLabel(v))}</b>${v.period_start ? `<div class="meta">${
+        esc(v.period_start)} 〜 ${esc(v.period_end || '')}</div>` : ''}</td>
+      <td class="meta">${v.invoice_no ? esc(v.invoice_no) : '（発行前）'}</td>
+      <td class="num"><b>${yen(v.amount_incl)}</b><div class="meta">税 ${yen(v.tax)}</div></td>
+      <td class="meta">${esc(v.scheduled_issue_date || '—')}${
+        v.issued_at ? `<div class="meta">発行 ${fmtDT(v.issued_at)}</div>` : ''}</td>
+      <td class="meta">${esc(v.due_date || '—')}</td>
+      <td class="num">${v.paid_total ? yen(v.paid_total) : '—'}${
+        v.remaining ? `<div class="meta">残 ${yen(v.remaining)}</div>` : ''}${
+        v.over_paid ? `<div class="meta">過入金 ${yen(v.over_paid)}</div>` : ''}</td>
+      <td><span class="tag ${INVOICE_STATE_CLASS[v.status] || 'act'}">${esc(v.status)}</span></td>
+      ${canEdit() ? `<td style="white-space:nowrap">
+        ${v.status === '下書き' ? `<button class="btn sm ghost" onclick="sheetInvoiceEdit(${v.id})">直す</button>
+          <button class="btn sm" onclick="readyInvoice(${v.id})">確認した</button>` : ''}
+        ${v.status === '発行待ち' ? `<button class="btn sm ghost" onclick="readyInvoice(${v.id},true)">下書きに戻す</button>
+          <button class="btn sm" onclick="sheetInvoiceIssue(${v.id})">発行する</button>` : ''}
+        ${['発行済み', '一部入金', '期限超過'].includes(v.status)
+          ? `<button class="btn sm" onclick="sheetPayment(${v.id})">入金を記録</button>` : ''}
+        ${v.status === '入金済み' ? `<button class="btn sm ghost" onclick="sheetPayment(${v.id})">入金を記録</button>` : ''}
+        ${['下書き', '発行待ち', '発行済み'].includes(v.status) && !v.paid_total
+          ? `<button class="btn sm ghost" onclick="cancelInvoice(${v.id})">取消</button>` : ''}
+      </td>` : ''}
+    </tr>
+    ${paymentsOf(v.id).length ? `<tr class="qty"><td colspan="${canEdit() ? 8 : 7}">
+      <div class="meta">入金の記録</div>
+      ${paymentsOf(v.id).map(pm => `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <span class="meta">${esc(pm.paid_on)}</span>
+        <b>${yen(pm.amount)}</b>
+        <span class="meta">${esc(pm.method || '')}${pm.reference ? '／' + esc(pm.reference) : ''}${
+          pm.note ? '／' + esc(pm.note) : ''}</span>
+        ${canEdit() ? `<button class="btn sm ghost" onclick="deletePayment(${pm.id})">消す</button>` : ''}
+      </div>`).join('')}
+    </td></tr>` : ''}`).join('')}
+  </tbody></table></div>`
+    : `<div class="empty">まだ請求はありません。${canMake
+        ? '［請求の予定を作る］で、初期費用と月額ぶんの下書きをまとめて作れます。'
+        : '契約と支払条件を確定すると作れるようになります。'}</div>`}
+
+  ${canEdit() && c.status !== '取消' ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+    <button class="btn sm" onclick="generateInvoices(${c.id})" ${canMake ? '' : 'disabled'}>請求の予定を作る</button>
+    <button class="btn sm ghost" onclick="sheetInvoiceAdd(${c.id})" ${c.status === '確定' ? '' : 'disabled'}>請求を1本足す</button>
+  </div>
+  ${canMake ? '' : '<div class="meta" style="margin-top:6px">契約と支払条件を確定してから作れます。</div>'}` : ''}
+  <p class="meta" style="margin-top:8px">請求の予定は<b>下書きで作ります。自動では発行しません。</b>
+    中身を確認して［確認した］→［発行する］の順に進めると、そこではじめて正式な請求番号が付きます。
+    発行したあとは金額・日付を直せません（取り消して作り直します）。</p>`;
+}
+
+async function generateInvoices(contractId) {
+  const { data, error } = await sb.rpc('inv_contract_invoices_generate', { p_contract_id: contractId });
+  if (error) { toast(error.message || '作れませんでした'); return; }
+  await loadAll(); render();
+  const made = (data && data.created) || 0;
+  const skip = (data && data.skipped) || 0;
+  toast(made ? made + '本の下書きを作りました' + (skip ? '（' + skip + '本はすでにあります）' : '')
+             : 'すでに全部そろっています（' + skip + '本）');
+}
+
+function sheetInvoiceAdd(contractId) {
+  const c = contractOf(contractId); if (!c) return;
+  openSheet({
+    title: '請求を1本足す', subject: contractNo(c), cta: '作る',
+    hint: '追加費用など、予定に入っていない請求を手で足します。下書きで作られます。',
+    body: `<label class="field" style="margin-bottom:10px"><span>請求の名前</span>
+        <input class="input" id="viTitle" placeholder="例）追加キッティング 3台ぶん"></label>
+      <label class="field" style="margin-bottom:10px"><span>金額（税抜）</span>
+        <input class="input num" type="number" id="viAmount" min="0" step="100" value="0"></label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <label class="field" style="margin-bottom:10px"><span>請求予定日</span>
+          <input class="input" type="date" id="viIssue"></label>
+        <label class="field" style="margin-bottom:10px"><span>支払期限</span>
+          <input class="input" type="date" id="viDue"></label>
+      </div>
+      <label class="bchk"><input type="checkbox" id="viTax" checked> 課税対象</label>`,
+    validate: () => {
+      if (!(($('viTitle') || {}).value || '').trim()) { toast('請求の名前を入れてください'); return false; }
+      return true;
+    },
+    run: async () => {
+      const { error } = await sb.rpc('inv_contract_invoice_add', {
+        p_contract_id: contractId,
+        p_title: ($('viTitle') || {}).value,
+        p_amount_excl: numField('viAmount') || 0,
+        p_taxable: !!($('viTax') || {}).checked,
+        p_issue: ($('viIssue') || {}).value || null,
+        p_due: ($('viDue') || {}).value || null
+      });
+      if (error) { toast(error.message || '作れませんでした'); return; }
+      await loadAll(); render(); toast('請求を1本足しました（下書き）');
+    }
+  });
+}
+
+function sheetInvoiceEdit(id) {
+  const v = invoiceOf(id); if (!v) return;
+  openSheet({
+    title: '請求を直す', subject: invoiceLabel(v), cta: '保存',
+    hint: '直せるのは<strong>下書き・発行待ちのあいだ</strong>だけです。発行したあとは取り消して作り直します。',
+    body: `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <label class="field" style="margin-bottom:10px"><span>請求予定日</span>
+          <input class="input" type="date" id="veIssue" value="${esc(v.scheduled_issue_date || '')}"></label>
+        <label class="field" style="margin-bottom:10px"><span>支払期限</span>
+          <input class="input" type="date" id="veDue" value="${esc(v.due_date || '')}"></label>
+      </div>
+      <label class="field" style="margin-bottom:10px"><span>金額（税抜）</span>
+        <input class="input num" type="number" id="veAmount" min="0" step="100" value="${esc(String(v.amount_excl || 0))}"></label>
+      <label class="field" style="margin-bottom:10px"><span>お客様向けの但し書き</span>
+        <input class="input" id="veNote" value="${esc(v.note || '')}"></label>
+      <label class="field"><span>社内メモ</span>
+        <textarea class="input" id="veInt" rows="2">${esc(v.internal_note || '')}</textarea></label>`,
+    run: async () => {
+      const { error } = await sb.rpc('inv_contract_invoice_set', {
+        p_id: id,
+        p_issue: ($('veIssue') || {}).value || null,
+        p_due: ($('veDue') || {}).value || null,
+        p_amount_excl: numField('veAmount'),
+        p_taxable: (v.tax || 0) > 0 || (v.amount_excl || 0) === 0,
+        p_note: ($('veNote') || {}).value,
+        p_internal: ($('veInt') || {}).value
+      });
+      if (error) { toast(error.message || '保存できませんでした'); return; }
+      await loadAll(); render(); toast('保存しました');
+    }
+  });
+}
+
+async function readyInvoice(id, back) {
+  const { error } = await sb.rpc('inv_contract_invoice_ready', { p_id: id, p_back: !!back });
+  if (error) { toast(error.message || '変えられませんでした'); return; }
+  await loadAll(); render();
+  toast(back ? '下書きに戻しました' : '発行待ちにしました。［発行する］で請求番号が付きます');
+}
+
+function sheetInvoiceIssue(id) {
+  const v = invoiceOf(id); if (!v) return;
+  openSheet({
+    title: '請求を発行する', subject: invoiceLabel(v), cta: '発行する',
+    hint: `発行すると<strong>正式な請求番号が付きます</strong>。
+      そのあとは金額・日付を直せません（取り消して作り直します）。`,
+    body: `<div class="prices" style="margin-bottom:10px">
+        <div><div class="lbl">金額（税込）</div><div class="v plus">${yen(v.amount_incl)}</div></div>
+        <div><div class="lbl">うち消費税</div><div class="v">${yen(v.tax)}</div></div>
+        <div><div class="lbl">支払期限</div><div class="v" style="font-size:15px">${esc(v.due_date || '—')}</div></div>
+      </div>
+      <label class="field"><span>発行日</span>
+        <input class="input" type="date" id="vsOn" value="${esc(new Date().toISOString().slice(0, 10))}"></label>
+      <p class="meta" style="margin-top:8px">請求書そのものの送付は、これまでどおり担当者の作業です（自動送信はしません）。</p>`,
+    run: async () => {
+      const { data, error } = await sb.rpc('inv_contract_invoice_issue',
+        { p_id: id, p_on: ($('vsOn') || {}).value || null });
+      if (error) { toast(error.message || '発行できませんでした'); return; }
+      await loadAll(); render();
+      toast('発行しました：' + ((data && data.invoice_no) || ''));
+    }
+  });
+}
+
+function sheetPayment(invoiceId) {
+  const v = invoiceOf(invoiceId); if (!v) return;
+  const rest = v.remaining || 0;
+  openSheet({
+    title: '入金を記録する', subject: invoiceLabel(v), cta: '記録する',
+    hint: `1つの請求に<strong>何回でも</strong>記録できます（一部入金）。
+      入金合計が請求額に届けば「入金済み」になります。返金はマイナスで入れてください。`,
+    body: `<div class="prices" style="margin-bottom:10px">
+        <div><div class="lbl">請求額（税込）</div><div class="v">${yen(v.amount_incl)}</div></div>
+        <div><div class="lbl">入金済み</div><div class="v">${yen(v.paid_total || 0)}</div></div>
+        <div><div class="lbl">残額</div><div class="v plus">${yen(rest)}</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <label class="field" style="margin-bottom:10px"><span>入金日</span>
+          <input class="input" type="date" id="pmOn" value="${esc(new Date().toISOString().slice(0, 10))}"></label>
+        <label class="field" style="margin-bottom:10px"><span>金額</span>
+          <input class="input num" type="number" id="pmAmount" step="1" value="${esc(String(rest || v.amount_incl))}"></label>
+      </div>
+      <label class="field" style="margin-bottom:10px"><span>支払方法</span>
+        <select class="input" id="pmMethod">
+          ${PAY_WAYS.map(m => `<option${m === (v.kind === 'manual' ? '銀行振込' : '銀行振込') ? ' selected' : ''}>${esc(m)}</option>`).join('')}
+        </select></label>
+      <label class="field" style="margin-bottom:10px"><span>振込名義 / 参照番号</span>
+        <input class="input" id="pmRef" placeholder="例）ケイヤクテスト（カ"></label>
+      <label class="field"><span>メモ</span>
+        <input class="input" id="pmNote" placeholder="例）手数料は先方負担"></label>`,
+    validate: () => {
+      if (!numField('pmAmount')) { toast('入金額を入れてください'); return false; }
+      return true;
+    },
+    run: async () => {
+      const { data, error } = await sb.rpc('inv_contract_payment_add', {
+        p_invoice_id: invoiceId,
+        p_amount: numField('pmAmount'),
+        p_paid_on: ($('pmOn') || {}).value || null,
+        p_method: ($('pmMethod') || {}).value || null,
+        p_reference: ($('pmRef') || {}).value || null,
+        p_note: ($('pmNote') || {}).value || null
+      });
+      if (error) { toast(error.message || '記録できませんでした'); return; }
+      await loadAll(); render();
+      toast((data && data.warn) ? data.warn : '入金を記録しました（' + ((data && data.status) || '') + '）');
+    }
+  });
+}
+
+async function deletePayment(id) {
+  const { error } = await sb.rpc('inv_contract_payment_delete', { p_id: id });
+  if (error) { toast(error.message || '消せませんでした'); return; }
+  await loadAll(); render(); toast('入金の記録を消しました');
+}
+
+function cancelInvoice(id) {
+  const v = invoiceOf(id); if (!v) return;
+  openSheet({
+    title: '請求を取り消す', subject: invoiceLabel(v), cta: '取り消す',
+    hint: v.invoice_no ? '発行済みの請求です。取り消したうえで、新しい請求を作り直してください（履歴は残ります）。'
+                       : 'まだ発行していない請求です。',
+    body: `<label class="field"><span>理由（履歴に残ります）</span>
+        <input class="input" id="vcReason" placeholder="例）金額の訂正のため"></label>`,
+    run: async () => {
+      const { error } = await sb.rpc('inv_contract_invoice_cancel',
+        { p_id: id, p_reason: ($('vcReason') || {}).value || null });
+      if (error) { toast(error.message || '取り消せませんでした'); return; }
+      await loadAll(); render(); toast('請求を取り消しました');
+    }
+  });
 }
 
 /* ---- 操作 ---- */
@@ -6252,12 +6547,12 @@ function sheetContractHead(id) {
     run: async () => {
       const { error } = await sb.rpc('inv_contract_set', {
         p_id: id,
-        p_title: ($('khTitle') || {}).value || null,
+        p_title: ($('khTitle') || {}).value,
         p_contract_date: ($('khDate') || {}).value || null,
         p_start: ($('khStart') || {}).value || null,
         p_end: ($('khEnd') || {}).value || null,
-        p_note: ($('khNote') || {}).value || null,
-        p_internal: ($('khInt') || {}).value || null
+        p_note: ($('khNote') || {}).value,
+        p_internal: ($('khInt') || {}).value
       });
       if (error) { toast(error.message || '保存できませんでした'); return; }
       await loadAll(); render(); toast('保存しました');
@@ -6328,15 +6623,16 @@ function sheetContractBilling(id) {
       <label class="field"><span>請求についての申し送り</span>
         <textarea class="input" id="kbNote" rows="2" placeholder="例）請求書は郵送でお願いします">${esc(c.billing_note || '')}</textarea></label>`,
     run: async () => {
+      // 空文字を送ると消える（シートはいつも全項目を出しているので、消す操作もここで通る）
       const { error } = await sb.rpc('inv_contract_billing_set', {
         p_id: id,
-        p_company: ($('kbCompany') || {}).value || null,
-        p_department: ($('kbDept') || {}).value || null,
-        p_person: ($('kbPerson') || {}).value || null,
-        p_postal: ($('kbPostal') || {}).value || null,
-        p_address: ($('kbAddr') || {}).value || null,
-        p_email: ($('kbEmail') || {}).value || null,
-        p_note: ($('kbNote') || {}).value || null
+        p_company: ($('kbCompany') || {}).value,
+        p_department: ($('kbDept') || {}).value,
+        p_person: ($('kbPerson') || {}).value,
+        p_postal: ($('kbPostal') || {}).value,
+        p_address: ($('kbAddr') || {}).value,
+        p_email: ($('kbEmail') || {}).value,
+        p_note: ($('kbNote') || {}).value
       });
       if (error) { toast(error.message || '保存できませんでした'); return; }
       await loadAll(); render(); toast('請求先を保存しました');
@@ -6489,12 +6785,17 @@ function sheetQuoteHead(id) {
       <label class="field"><span>社内メモ（顧客ページには出ません）</span>
         <textarea class="input" id="qhInt" rows="2">${esc(q.internal_note || '')}</textarea></label>`,
     run: async () => {
+      // 渡さない＝いまの値を残す、空文字＝消す。だから value をそのまま送る。
+      // 有効期限だけは日付なので、空にしたいときは p_clear_valid で伝える。
+      const valid = ($('qhValid') || {}).value || '';
       const { error } = await sb.rpc('inv_quote_set', {
-        p_id: id, p_title: ($('qhTitle') || {}).value || null,
-        p_valid: ($('qhValid') || {}).value || null,
+        p_id: id,
+        p_title: ($('qhTitle') || {}).value,
+        p_valid: valid || null,
+        p_clear_valid: !valid,
         p_tax: numField('qhTax'),
-        p_note: ($('qhNote') || {}).value || null,
-        p_internal: ($('qhInt') || {}).value || null
+        p_note: ($('qhNote') || {}).value,
+        p_internal: ($('qhInt') || {}).value
       });
       if (error) { toast(error.message || '保存できませんでした'); return; }
       await loadAll(); render(); toast('保存しました');
