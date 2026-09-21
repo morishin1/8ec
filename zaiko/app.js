@@ -127,6 +127,7 @@ const db = {
   chanSettings: [],         // 販売サイトごとの管理画面URL（inventory_channel_settings）
   deals: [],                // 3分診断（/quote）から届いた案件
   quotes: [], qItems: [], qTotals: [],   // 見積・明細・合計
+  contracts: [], cItems: [],             // 契約・契約明細（Phase 3-a）
   stats: null               // 今月の経営数値（inv_dashboard_stats）
 };
 const ui = {
@@ -138,6 +139,7 @@ const ui = {
   listMode: 'unit', fSt: '', fDiff: false, fNoPrice: false, fRental: '', fRentEl: '',
   mTab: 'loc',               // マスター管理のタブ（保管場所／カテゴリー）
   quoteId: null,             // いま開いている見積
+  contractId: null,          // いま開いている契約
   fDeal: ''                  // 案件の状態の絞り込み
 };
 
@@ -555,9 +557,11 @@ async function loadAll() {
     sb.from('inventory_deals').select('*').order('created_at', { ascending: false }).limit(300),
     sb.from('inventory_quotes').select('*').order('id', { ascending: false }).limit(500),
     sb.from('inventory_quote_items').select('*').limit(LOAD_LIMIT),
-    sb.from('inv_quote_totals').select('*').limit(500)
+    sb.from('inv_quote_totals').select('*').limit(500),
+    sb.from('inventory_contracts').select('*').order('id', { ascending: false }).limit(500),
+    sb.from('inventory_contract_items').select('*').limit(LOAD_LIMIT)
   ];
-  const [c, l, i, p, t, s, ch, im, rr, cl, cs, ds, dl, qh, qi, qt] = await Promise.all(q);
+  const [c, l, i, p, t, s, ch, im, rr, cl, cs, ds, dl, qh, qi, qt, kh, ki] = await Promise.all(q);
   const bad = [c, l, i, p, t, s, ch, im].find(r => r.error);
   if (bad) { showSetup(bad.error); return false; }
   db.imports = im.data || [];
@@ -571,6 +575,9 @@ async function loadAll() {
   db.quotes = qh.error ? [] : (qh.data || []);
   db.qItems = qi.error ? [] : (qi.data || []);
   db.qTotals = qt.error ? [] : (qt.data || []);
+  // 契約。migration未適用でも他の画面が動くよう、取れなければ空にする
+  db.contracts = kh.error ? [] : (kh.data || []);
+  db.cItems = ki.error ? [] : (ki.data || []);
 
   db.cats = c.data || [];
   db.locs = l.data || [];
@@ -617,6 +624,7 @@ function parsePath() {
   if (seg[0] === 'products' && seg[1]) return { screen: 'prod', prodId: decodeURIComponent(seg[1]) };
   if (seg[0] === 'locations' && seg[1]) return { screen: 'loc', locId: decodeURIComponent(seg[1]) };
   if (seg[0] === 'quotes' && seg[1]) return { screen: 'quote', quoteId: Number(seg[1]) || null };
+  if (seg[0] === 'contracts' && seg[1]) return { screen: 'contract', contractId: Number(seg[1]) || null };
   const byPath = { list: 'list', in: 'in', out: 'out', loan: 'loan', stock: 'stock', locations: 'locs',
                    masters: 'master', history: 'hist', register: 'reg', labels: 'labels',
                    deals: 'deals', 'rental-requests': 'rental' };
@@ -648,6 +656,7 @@ function pathFor(screen, id) {
   if (screen === 'master') return BASE + '/masters';
   if (screen === 'deals') return BASE + '/deals';
   if (screen === 'quote') return BASE + '/quotes/' + encodeURIComponent(id);
+  if (screen === 'contract') return BASE + '/contracts/' + encodeURIComponent(id);
   if (screen === 'loc') return BASE + '/locations/' + encodeURIComponent(id);
   const m = MENU.find(x => x[0] === screen);
   return BASE + (m ? m[3] : '') + (screen === 'list' ? listQuery() : '');
@@ -658,7 +667,8 @@ function go(screen, id) {
   if (path !== location.pathname + location.search) history.pushState(null, '', path);
   closeSheet();
   applyRoute({ screen, itemId: screen === 'item' ? id : null, prodId: screen === 'prod' ? id : null,
-               locId: screen === 'loc' ? id : null, quoteId: screen === 'quote' ? Number(id) : null });
+               locId: screen === 'loc' ? id : null, quoteId: screen === 'quote' ? Number(id) : null,
+               contractId: screen === 'contract' ? Number(id) : null });
   window.scrollTo(0, 0);
 }
 window.addEventListener('popstate', () => route(false));
@@ -669,6 +679,7 @@ function applyRoute(r) {
   ui.prodId = r.prodId || null;
   ui.locId = r.locId || null;
   ui.quoteId = r.quoteId || null;
+  ui.contractId = r.contractId || null;
   if (r.listMode) ui.listMode = r.listMode;
   renderMenu();
   render();
@@ -746,7 +757,7 @@ function render() {
     dash: viewDash, list: viewList, item: viewItem, prod: viewProd, in: viewIn, out: viewOut,
     loan: viewLoan, stock: viewStock, locs: viewLocs, loc: viewLoc, master: viewMaster,
     hist: viewHist, reg: viewReg, labels: viewLabels,
-    deals: viewDeals, rental: viewRentalRequests, quote: viewQuote
+    deals: viewDeals, rental: viewRentalRequests, quote: viewQuote, contract: viewContract
   }[ui.screen] || viewDash;
   v.innerHTML = fn();
   if (ui.screen === 'labels') bindLabelPicks();
@@ -5712,7 +5723,8 @@ async function logRegister(kind, id, label, after) {
    この画面でできるのは、中身を見る・状態を進める・メモを書くまで。
    見積の明細と契約・請求は、まだ作っていない（Phase 2以降）。 */
 
-const DEAL_STATES = ['希望受付', '在庫・調達確認', '見積', '顧客承認', '契約準備', '契約', 'ご縁なし'];
+const DEAL_STATES = ['希望受付', '在庫・調達確認', '見積', '顧客承認', '契約準備',
+                     '契約', '支払条件確定', '手配', '完了', 'ご縁なし'];
 const GRADE_LABEL = {
   budget: 'コスト重視（整備済み中心）', standard: '標準', latest: '最新・高性能（新品）', any: 'おまかせ'
 };
@@ -5794,6 +5806,7 @@ function dealBodyHtml() {
         <div class="meta" style="margin-bottom:3px">社内メモ${d.actor ? '（' + esc(d.actor) + '）' : ''}</div>
         <div style="font-size:13.5px;white-space:pre-wrap">${esc(d.note)}</div></div>` : ''}
       ${dealQuotesHtml(d)}
+      ${dealContractsHtml(d)}
       ${canEdit() ? `<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:12px">
         ${DEAL_STATES.filter(x => x !== d.status).map(x =>
           `<button class="btn sm ghost" onclick="setDealStatus(${d.id},'${esc(x)}')">${esc(x)}にする</button>`).join('')}
@@ -5964,6 +5977,489 @@ function viewQuote() {
   </div>` : ''}
   <p class="meta" style="margin-top:14px">お客様が［この内容で進める］を押しても、契約・決済・機器の確保は行われません。
     案件が「契約準備」に進むだけです。個体の確保は、契約と支払方法が決まってから行います。</p>`;
+}
+
+/* ================================================================
+   契約（Phase 3-a）
+     承認済みの見積から契約を作り、確定 → 支払条件確定 → 後払い社内承認
+     まで進める。ここでは在庫を一切動かさない。
+
+     大事なところ：契約・入金・手配は別々の状態として持つ。
+       契約が決まった      status
+       支払い方が決まった  terms_confirmed_at
+       お金が入った        payment_status
+       モノを押さえた      fulfillment_status
+
+     請求書払い（後払い）は、入金前でも手配できる。
+     「入金されないと在庫を押さえられない」という作りにはしない。
+   ================================================================ */
+const CONTRACT_STATE_CLASS = { '作成中': 'act', '確定': 'st-在庫', '履行中': 'st-在庫',
+                               '完了': 'st-在庫', '取消': 'st-廃棄' };
+const PAY_STATE_CLASS = { '未請求': 'act', '請求済み': 'act', '入金待ち': 'act',
+                          '一部入金': 'act', '入金済み': 'st-在庫',
+                          '決済失敗': 'st-廃棄', '取消': 'st-廃棄' };
+const FUL_STATE_CLASS = { '未手配': 'act', '手配可': 'act', '手配中': 'act',
+                          '準備完了': 'st-在庫', '発送済み': 'st-在庫', '貸出中': 'st-貸出中',
+                          '完了': 'st-在庫', '返却待ち': 'act', '返却済み': 'st-在庫' };
+const PAY_METHODS = ['カード', '請求書払い', '銀行振込'];
+const PAY_TIMINGS = ['前払い', '後払い'];
+/* よく使う支払条件。選ぶだけで入るようにしておく */
+const PAY_TERM_SAMPLES = ['月末締め翌月末払い', '月末締め翌々月末払い', '納品後30日',
+                          '前金100%', 'カード決済（即時）'];
+/* 案件の進み具合。画面の上に一列で出す */
+const DEAL_FLOW = ['希望受付', '見積', '顧客承認', '契約準備', '契約', '支払条件確定', '手配'];
+
+const contractsOf = (dealId) => db.contracts.filter(c => c.deal_id === dealId)
+  .sort((a, b) => b.seq - a.seq);
+const contractOf = (id) => db.contracts.find(c => c.id === id) || null;
+const cItemsOf = (id) => db.cItems.filter(x => x.contract_id === id)
+  .sort((a, b) => (a.sort_no - b.sort_no) || (a.id - b.id));
+const contractNo = (c) => 'C-' + String(c.deal_id).padStart(5, '0') + '-' + c.seq;
+
+/* 手配してよいか。SQLの inv_contract_can_fulfill と同じ判断を画面でも出す
+   （押せない理由をその場に見せるため。実際の手配は Phase 3-c） */
+function canFulfill(c) {
+  if (!c) return { ok: false, reason: '契約がありません' };
+  if (c.status === '取消') return { ok: false, reason: 'この契約は取消です' };
+  if (c.status === '作成中') return { ok: false, reason: '契約を確定してください' };
+  if (!c.terms_confirmed_at) return { ok: false, reason: '支払条件を確定してください' };
+  if (c.payment_timing === '後払い' && !c.credit_approved_at) {
+    return { ok: false, reason: '後払いなので、管理者の社内承認が要ります（入金前に手配してよいかの判断です）' };
+  }
+  if (c.payment_timing === '前払い' && c.payment_status !== '入金済み') {
+    return { ok: false, reason: '前払いの契約です。入金が確認できてから手配してください（いまは「' + c.payment_status + '」）' };
+  }
+  return { ok: true, reason: c.payment_timing === '後払い'
+    ? '後払い・社内承認済みなので、入金前でも手配できます' : '入金済みなので手配できます' };
+}
+
+/* 案件カードに出す契約の一覧 */
+function dealContractsHtml(d) {
+  const cs = contractsOf(d.id);
+  const approved = quotesOf(d.id).filter(q => q.status === '承認'
+    && !db.contracts.some(c => c.quote_id === q.id && c.status !== '取消'));
+  if (!cs.length && !approved.length) return '';
+  return `<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--rule)">
+    <div class="meta" style="margin-bottom:6px">契約</div>
+    ${cs.map(c => `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+      <a class="c" href="/zaiko/contracts/${c.id}" onclick="go('contract',${c.id});return false">${esc(contractNo(c))}</a>
+      <span class="tag ${CONTRACT_STATE_CLASS[c.status] || 'act'}">${esc(c.status)}</span>
+      <span class="meta">${esc(c.payment_method || '支払方法まだ')}${
+        c.payment_timing ? '（' + esc(c.payment_timing) + '）' : ''}</span>
+      <span class="tag ${PAY_STATE_CLASS[c.payment_status] || 'act'}">入金 ${esc(c.payment_status)}</span>
+      <span class="tag ${FUL_STATE_CLASS[c.fulfillment_status] || 'act'}">手配 ${esc(c.fulfillment_status)}</span>
+      <span class="meta">${yen(c.total || 0)}（税込）</span>
+      ${c.start_date ? `<span class="meta">納期 ${esc(c.start_date)}</span>` : ''}
+    </div>`).join('')}
+    ${canEdit() ? approved.map(q => `<button class="btn sm ghost" onclick="createContract(${q.id})">
+      ${esc(quoteNo(q))} から契約を作る</button>`).join(' ') : ''}
+  </div>`;
+}
+
+async function createContract(quoteId) {
+  const { data, error } = await sb.rpc('inv_contract_create', { p_quote_id: quoteId });
+  if (error) { toast(error.message || '契約を作れませんでした'); return; }
+  await loadAll();
+  go('contract', data.id);
+  toast('見積の内容を写して契約を作りました');
+}
+
+/* 案件・契約の進み具合を一列で出す */
+function flowHtml(dealStatus) {
+  const at = DEAL_FLOW.indexOf(dealStatus);
+  return `<div class="flow">${DEAL_FLOW.map((s, n) => {
+    const cls = at < 0 ? '' : (n < at ? ' done' : (n === at ? ' now' : ''));
+    return `<span class="fstep${cls}">${esc(s)}</span>`;
+  }).join('<span class="farrow">›</span>')}</div>`;
+}
+
+/* ---- 契約の画面 ---- */
+function viewContract() {
+  const c = contractOf(ui.contractId);
+  if (!c) return `<div class="empty" style="margin-top:20px">契約が見つかりません。
+    <button class="btn sm ghost" onclick="go('deals')">案件一覧へ</button></div>`;
+  const d = db.deals.find(x => x.id === c.deal_id) || {};
+  const items = cItemsOf(c.id);
+  const editable = canEdit() && c.status === '作成中';
+  const ff = canFulfill(c);
+  const needCredit = c.payment_timing === '後払い' && !c.credit_approved_at;
+
+  return `
+  <div class="head">
+    <div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <h1 class="num">${esc(contractNo(c))}</h1>
+        <span class="tag ${CONTRACT_STATE_CLASS[c.status] || 'act'} big">${esc(c.status)}</span>
+      </div>
+      <div class="meta" style="margin-top:6px">
+        案件 <a class="c" href="/zaiko/deals" onclick="go('deals');return false">#${c.deal_id}</a>
+        ／ ${esc(c.company || c.customer_name || '')} ${c.company && c.customer_name ? esc(c.customer_name) + ' 様' : ''}
+        ${c.quote_id ? `／ <a class="c" href="/zaiko/quotes/${c.quote_id}" onclick="go('quote',${c.quote_id});return false">元の見積</a>` : ''}
+        ${c.confirmed_at ? '／ 確定 ' + fmtDT(c.confirmed_at) + '（' + esc(c.confirmed_by || '') + '）' : ''}
+      </div>
+    </div>
+  </div>
+
+  ${flowHtml(d.status)}
+
+  <div class="prices" style="margin-bottom:16px">
+    <div><div class="lbl">契約の状態</div><div class="v" style="font-size:15px">${esc(c.status)}</div></div>
+    <div><div class="lbl">入金</div><div class="v" style="font-size:15px">${esc(c.payment_status)}</div></div>
+    <div><div class="lbl">手配</div><div class="v" style="font-size:15px">${esc(c.fulfillment_status)}</div></div>
+    <div><div class="lbl">納期（利用開始）</div><div class="v" style="font-size:15px">${esc(c.start_date || '未定')}</div></div>
+  </div>
+  <p class="meta" style="margin:-6px 0 16px">契約・入金・手配は別々に進みます。
+    契約が決まっていても入金はこれから、ということが普通に起きます（請求書払いなど）。</p>
+
+  <div class="card" style="margin-bottom:16px;${ff.ok ? 'background:var(--l100);border:1px solid var(--l400)' : ''}">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <span class="ms">${ff.ok ? 'check_circle' : 'schedule'}</span>
+      <b>${ff.ok ? '手配に進めます' : 'まだ手配できません'}</b>
+      <span class="meta">${esc(ff.reason)}</span>
+    </div>
+    <p class="meta" style="margin:8px 0 0">実際の手配（販売予約・レンタル割当）は Phase 3-c で作ります。
+      いまの画面では、在庫は一切動きません。</p>
+  </div>
+
+  <div class="sec">件名・日付</div>
+  <div class="prices" style="margin-bottom:16px">
+    <div><div class="lbl">件名</div><div class="v" style="font-size:15px">${esc(c.title || '（未設定）')}</div></div>
+    <div><div class="lbl">契約日</div><div class="v" style="font-size:15px">${esc(c.contract_date || '未設定')}</div></div>
+    <div><div class="lbl">利用開始</div><div class="v" style="font-size:15px">${esc(c.start_date || '未設定')}</div></div>
+    <div><div class="lbl">利用終了</div><div class="v" style="font-size:15px">${esc(c.end_date || '未設定')}</div></div>
+    ${editable ? `<button class="btn sm ghost" onclick="sheetContractHead(${c.id})">件名・日付を直す</button>` : ''}
+  </div>
+
+  <div class="sec">支払条件${c.terms_confirmed_at ? '<span class="secn">確定済み</span>' : ''}</div>
+  <div class="prices" style="margin-bottom:10px">
+    <div><div class="lbl">支払方法</div><div class="v" style="font-size:15px">${esc(c.payment_method || '未設定')}</div></div>
+    <div><div class="lbl">前払い / 後払い</div><div class="v" style="font-size:15px">${esc(c.payment_timing || '未設定')}</div></div>
+    <div><div class="lbl">支払条件</div><div class="v" style="font-size:15px">${esc(c.payment_terms || '未設定')}</div></div>
+    <div><div class="lbl">毎月の請求日</div><div class="v" style="font-size:15px">${c.billing_day ? c.billing_day + '日' : '—'}</div></div>
+  </div>
+  ${c.terms_confirmed_at
+    ? `<p class="meta" style="margin-bottom:16px">${fmtDT(c.terms_confirmed_at)}　${esc(c.terms_confirmed_by || '')} が確定しました。</p>`
+    : `<p class="meta" style="margin-bottom:16px">支払条件は、契約が決まったこととは別に確定します。
+        ${canEdit() ? '［支払条件を入れる］→［支払条件を確定］の順に進めてください。' : ''}</p>`}
+  ${canEdit() && !c.terms_confirmed_at && c.status !== '取消' ? `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+      <button class="btn sm" onclick="sheetContractTerms(${c.id})">支払条件を入れる</button>
+      <button class="btn sm ghost" onclick="confirmContractTerms(${c.id})"
+        ${c.payment_method && c.payment_timing && c.payment_terms ? '' : 'disabled'}>支払条件を確定</button>
+    </div>` : ''}
+
+  ${c.payment_timing === '後払い' ? `
+    <div class="card" style="margin-bottom:16px${c.credit_approved_at ? '' : ';border:1px solid #E8A33D'}">
+      <div class="sec" style="margin-top:0">後払いの社内承認<span class="secn">管理者だけ</span></div>
+      ${c.credit_approved_at
+        ? `<div class="meta">${fmtDT(c.credit_approved_at)}　${esc(c.credit_approved_by || '')} が承認しました。
+             ${c.credit_note ? '<br>' + esc(c.credit_note) : ''}</div>`
+        : `<p class="meta" style="margin:0 0 10px">この契約は<b>後払い</b>です。入金より先にモノを出すことになるので、
+             「入金前に手配してよいか」を管理者が判断します。承認があれば、入金前でも手配できます。</p>
+           ${canAdmin() ? `<button class="btn sm" onclick="sheetContractCredit(${c.id})"
+                ${c.status === '確定' && c.terms_confirmed_at ? '' : 'disabled'}>入金前の手配を承認する</button>
+              ${c.status === '確定' && c.terms_confirmed_at ? '' :
+                '<div class="meta" style="margin-top:6px">契約と支払条件を確定してから承認できます。</div>'}`
+             : '<div class="meta">承認できるのは管理者だけです。管理者に依頼してください。</div>'}`}
+    </div>` : ''}
+
+  <div class="sec">請求先<span class="secn">${c.billing_company ? '契約先と別' : '契約先と同じ'}</span></div>
+  ${c.billing_company ? `<div class="prices" style="margin-bottom:10px">
+      <div><div class="lbl">請求先</div><div class="v" style="font-size:15px">${esc(c.billing_company)}</div></div>
+      ${c.billing_department ? `<div><div class="lbl">部署</div><div class="v" style="font-size:15px">${esc(c.billing_department)}</div></div>` : ''}
+      ${c.billing_person ? `<div><div class="lbl">ご担当</div><div class="v" style="font-size:15px">${esc(c.billing_person)}</div></div>` : ''}
+      ${c.billing_postal_code || c.billing_address ? `<div><div class="lbl">住所</div><div class="v" style="font-size:14px">${
+        esc([c.billing_postal_code ? '〒' + c.billing_postal_code : '', c.billing_address].filter(Boolean).join(' '))}</div></div>` : ''}
+      ${c.billing_email ? `<div><div class="lbl">請求先メール</div><div class="v" style="font-size:14px">${esc(c.billing_email)}</div></div>` : ''}
+    </div>${c.billing_note ? `<div class="pre" style="margin-bottom:10px">${esc(c.billing_note)}</div>` : ''}`
+    : `<p class="meta" style="margin-bottom:10px">契約先へそのまま請求します。
+        自治体・学校法人・親会社一括請求・経理部指定などで請求先が違うときは、ここに入れてください。</p>`}
+  ${canEdit() && c.status !== '取消' && c.status !== '完了'
+    ? `<button class="btn sm ghost" style="margin-bottom:16px" onclick="sheetContractBilling(${c.id})">請求先を直す</button>` : ''}
+
+  <div class="sec">明細<span class="secn">${items.length}件</span></div>
+  ${items.length ? `<div class="table-wrap"><table class="t"><thead><tr>
+      <th>種類</th><th>品名</th><th>数量</th><th>単価</th><th>期間</th><th>金額（税抜）</th><th>手配</th>${editable ? '<th></th>' : ''}
+    </tr></thead><tbody>
+    ${items.map(x => `<tr>
+      <td class="meta">${esc(kindLabel(x.kind))}</td>
+      <td><b>${esc(x.name)}</b>${x.spec ? `<div class="meta">${esc(x.spec)}</div>` : ''}${
+        x.note ? `<div class="meta">${esc(x.note)}</div>` : ''}</td>
+      <td class="num">${x.qty}</td>
+      <td class="num">${yen(x.unit_price)}</td>
+      <td class="meta">${x.billing === 'monthly' ? (x.months || 1) + 'ヶ月' : '—'}</td>
+      <td class="num"><b>${yen(x.amount)}</b>${x.billing === 'monthly' ? '<div class="meta">月額</div>' : ''}</td>
+      <td class="meta">${esc(x.fulfillment_status)}${
+        x.procure_qty ? `<div class="meta">調達 ${x.procure_qty}台</div>` : ''}${
+        x.allocated_qty ? `<div class="meta">確保 ${x.allocated_qty}台</div>` : ''}</td>
+      ${editable ? `<td style="white-space:nowrap">
+        <button class="btn sm ghost" onclick="sheetContractItem(${c.id},${x.id})">直す</button>
+        <button class="btn sm ghost" onclick="deleteContractItem(${c.id},${x.id})">消す</button></td>` : ''}
+    </tr>`).join('')}
+  </tbody></table></div>` : '<div class="empty">明細がまだありません。</div>'}
+  <p class="meta" style="margin-top:8px">手配の状態は明細ごとに持ちます。
+    1つの契約の中で「レンタルは割当済み・販売は調達待ち・キッティングは作業待ち」が同時に起きるためです。</p>
+
+  ${editable ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+    <button class="btn sm" onclick="sheetContractItem(${c.id})">明細を追加</button>
+  </div>` : ''}
+
+  <div class="prices" style="margin-top:18px">
+    <div><div class="lbl">初期費用（税抜）</div><div class="v">${yen(c.initial_total || 0)}</div></div>
+    <div><div class="lbl">月額費用（税抜）</div><div class="v">${c.monthly_total ? yen(c.monthly_total) : '—'}</div></div>
+    <div><div class="lbl">利用期間</div><div class="v" style="font-size:15px">${c.months ? c.months + 'ヶ月' : '—'}</div></div>
+    <div><div class="lbl">期間総額</div><div class="v">${c.monthly_period_total ? yen(c.monthly_period_total) : '—'}</div></div>
+    <div><div class="lbl">小計</div><div class="v">${yen(c.subtotal || 0)}</div></div>
+    <div><div class="lbl">消費税</div><div class="v">${yen(c.tax || 0)}</div></div>
+    <div><div class="lbl">税込総額</div><div class="v plus">${yen(c.total || 0)}</div></div>
+  </div>
+
+  ${c.note ? `<div class="sec">お客様向けの但し書き</div><div class="pre">${esc(c.note)}</div>` : ''}
+  ${c.internal_note ? `<div class="sec">社内メモ<span class="secn">顧客には出ません</span></div>
+    <div class="pre legacy">${esc(c.internal_note)}</div>` : ''}
+
+  ${canEdit() ? `<div class="ops" style="max-width:560px;margin-top:20px">
+    ${c.status === '作成中' ? `<button class="btn pri" onclick="confirmContract(${c.id})" ${items.length ? '' : 'disabled'}>
+      <span class="ms">task_alt</span><span class="t">契約を確定する</span></button>` : ''}
+    ${c.status !== '取消' ? `<button class="btn" onclick="cancelContract(${c.id})">
+      <span class="ms">block</span><span class="t">この契約を取り消す</span></button>` : ''}
+  </div>` : ''}
+  <p class="meta" style="margin-top:14px">契約を確定しても、<b>機器は確保されません</b>。
+    在庫の確保は［手配に進む］を押したときだけ行います（Phase 3-c）。
+    ${needCredit ? '後払いなので、その前に管理者の社内承認が要ります。' : ''}</p>`;
+}
+
+/* ---- 操作 ---- */
+function sheetContractHead(id) {
+  const c = contractOf(id); if (!c) return;
+  openSheet({
+    title: '件名・日付', subject: contractNo(c), cta: '保存',
+    hint: '契約を確定すると、ここは直せなくなります。',
+    body: `<label class="field" style="margin-bottom:10px"><span>件名</span>
+        <input class="input" id="khTitle" value="${esc(c.title || '')}" placeholder="例）新入社員12名ぶん PC・設定一式"></label>
+      <label class="field" style="margin-bottom:10px"><span>契約日</span>
+        <input class="input" type="date" id="khDate" value="${esc(c.contract_date || '')}"></label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <label class="field" style="margin-bottom:10px"><span>利用開始</span>
+          <input class="input" type="date" id="khStart" value="${esc(c.start_date || '')}"></label>
+        <label class="field" style="margin-bottom:10px"><span>利用終了</span>
+          <input class="input" type="date" id="khEnd" value="${esc(c.end_date || '')}"></label>
+      </div>
+      <label class="field" style="margin-bottom:10px"><span>お客様向けの但し書き</span>
+        <textarea class="input" id="khNote" rows="3">${esc(c.note || '')}</textarea></label>
+      <label class="field"><span>社内メモ（顧客には出ません）</span>
+        <textarea class="input" id="khInt" rows="2">${esc(c.internal_note || '')}</textarea></label>`,
+    run: async () => {
+      const { error } = await sb.rpc('inv_contract_set', {
+        p_id: id,
+        p_title: ($('khTitle') || {}).value || null,
+        p_contract_date: ($('khDate') || {}).value || null,
+        p_start: ($('khStart') || {}).value || null,
+        p_end: ($('khEnd') || {}).value || null,
+        p_note: ($('khNote') || {}).value || null,
+        p_internal: ($('khInt') || {}).value || null
+      });
+      if (error) { toast(error.message || '保存できませんでした'); return; }
+      await loadAll(); render(); toast('保存しました');
+    }
+  });
+}
+
+function sheetContractTerms(id) {
+  const c = contractOf(id); if (!c) return;
+  openSheet({
+    title: '支払条件', subject: contractNo(c), cta: '保存',
+    hint: `<b>後払い</b>（請求書払い・銀行振込の後払い）は、入金より先に手配します。
+      そのぶん、管理者の社内承認が要ります。<b>前払い</b>は入金が確認できてから手配します。`,
+    body: `<label class="field" style="margin-bottom:10px"><span>支払方法</span>
+        <select class="input" id="ktMethod">
+          <option value="">（選んでください）</option>
+          ${PAY_METHODS.map(m => `<option${c.payment_method === m ? ' selected' : ''}>${esc(m)}</option>`).join('')}
+        </select></label>
+      <label class="field" style="margin-bottom:10px"><span>前払い / 後払い</span>
+        <select class="input" id="ktTiming">
+          <option value="">（選んでください）</option>
+          ${PAY_TIMINGS.map(m => `<option${c.payment_timing === m ? ' selected' : ''}>${esc(m)}</option>`).join('')}
+        </select></label>
+      <label class="field" style="margin-bottom:6px"><span>支払条件</span>
+        <input class="input" id="ktTerms" value="${esc(c.payment_terms || '')}" placeholder="例）月末締め翌月末払い"></label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+        ${PAY_TERM_SAMPLES.map(t => `<button type="button" class="btn sm ghost"
+          onclick="document.getElementById('ktTerms').value='${esc(t)}'">${esc(t)}</button>`).join('')}
+      </div>
+      <label class="field"><span>毎月の請求日（月額があるとき。1〜31）</span>
+        <input class="input num" type="number" id="ktDay" min="1" max="31" value="${esc(c.billing_day == null ? '' : String(c.billing_day))}"></label>
+      <p class="meta" style="margin-top:8px">月額の請求は、ここで決めた日をもとに毎月の請求予定を作ります（Phase 3-b）。</p>`,
+    run: async () => {
+      const { error } = await sb.rpc('inv_contract_set', {
+        p_id: id,
+        p_method: ($('ktMethod') || {}).value || null,
+        p_timing: ($('ktTiming') || {}).value || null,
+        p_terms: ($('ktTerms') || {}).value || null,
+        p_billing_day: numField('ktDay')
+      });
+      if (error) { toast(error.message || '保存できませんでした'); return; }
+      await loadAll(); render(); toast('支払条件を入れました。確定するとあとから変えられません');
+    }
+  });
+}
+
+function sheetContractBilling(id) {
+  const c = contractOf(id); if (!c) return;
+  openSheet({
+    title: '請求先', subject: contractNo(c), cta: '保存',
+    hint: '契約先と同じなら、空のままで構いません。自治体・学校法人・親会社一括請求・経理部指定のときに入れてください。',
+    body: `<label class="field" style="margin-bottom:10px"><span>請求先の会社名・団体名</span>
+        <input class="input" id="kbCompany" value="${esc(c.billing_company || '')}" placeholder="例）○○市役所"></label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <label class="field" style="margin-bottom:10px"><span>部署</span>
+          <input class="input" id="kbDept" value="${esc(c.billing_department || '')}" placeholder="例）総務部 経理課"></label>
+        <label class="field" style="margin-bottom:10px"><span>ご担当者</span>
+          <input class="input" id="kbPerson" value="${esc(c.billing_person || '')}"></label>
+      </div>
+      <div style="display:grid;grid-template-columns:140px 1fr;gap:10px">
+        <label class="field" style="margin-bottom:10px"><span>郵便番号</span>
+          <input class="input" id="kbPostal" value="${esc(c.billing_postal_code || '')}" placeholder="150-0001"></label>
+        <label class="field" style="margin-bottom:10px"><span>住所</span>
+          <input class="input" id="kbAddr" value="${esc(c.billing_address || '')}"></label>
+      </div>
+      <label class="field" style="margin-bottom:10px"><span>請求先メール</span>
+        <input class="input" type="email" id="kbEmail" value="${esc(c.billing_email || '')}"></label>
+      <label class="field"><span>請求についての申し送り</span>
+        <textarea class="input" id="kbNote" rows="2" placeholder="例）請求書は郵送でお願いします">${esc(c.billing_note || '')}</textarea></label>`,
+    run: async () => {
+      const { error } = await sb.rpc('inv_contract_billing_set', {
+        p_id: id,
+        p_company: ($('kbCompany') || {}).value || null,
+        p_department: ($('kbDept') || {}).value || null,
+        p_person: ($('kbPerson') || {}).value || null,
+        p_postal: ($('kbPostal') || {}).value || null,
+        p_address: ($('kbAddr') || {}).value || null,
+        p_email: ($('kbEmail') || {}).value || null,
+        p_note: ($('kbNote') || {}).value || null
+      });
+      if (error) { toast(error.message || '保存できませんでした'); return; }
+      await loadAll(); render(); toast('請求先を保存しました');
+    }
+  });
+}
+
+function sheetContractItem(contractId, itemId) {
+  const it = itemId ? (db.cItems.find(x => x.id === itemId) || {}) : {};
+  const c = contractOf(contractId);
+  openSheet({
+    title: itemId ? '明細を直す' : '明細を追加', subject: c ? contractNo(c) : '', cta: '保存',
+    hint: 'レンタルと月額サービスは「月額」として計算します（単価×数量×月数）。それ以外は一括です。',
+    body: `<label class="field" style="margin-bottom:10px"><span>種類</span>
+        <select class="input" id="kiKind">${QUOTE_KINDS.map(([v, t]) =>
+          `<option value="${v}"${(it.kind || 'sale') === v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
+      <label class="field" style="margin-bottom:10px"><span>品名</span>
+        <input class="input" id="kiName" value="${esc(it.name || '')}"></label>
+      <label class="field" style="margin-bottom:10px"><span>内容・スペック</span>
+        <input class="input" id="kiSpec" value="${esc(it.spec || '')}"></label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <label class="field" style="margin-bottom:10px"><span>数量</span>
+          <input class="input num" type="number" id="kiQty" min="1" value="${esc(String(it.qty || 1))}"></label>
+        <label class="field" style="margin-bottom:10px"><span>単価（税抜）</span>
+          <input class="input num" type="number" id="kiUnit" min="0" step="100" value="${esc(String(it.unit_price || 0))}"></label>
+      </div>
+      <label class="field" style="margin-bottom:10px"><span>期間（月額のときだけ）</span>
+        <input class="input num" type="number" id="kiMonths" min="0" max="120" value="${esc(it.months == null ? '' : String(it.months))}"></label>
+      <label class="field" style="margin-bottom:10px"><span>商品コード（任意）</span>
+        <input class="input" id="kiCode" value="${esc(it.product_code || '')}"></label>
+      <label class="bchk"><input type="checkbox" id="kiTax" ${it.taxable === false ? '' : 'checked'}> 課税対象</label>`,
+    validate: () => {
+      if (!(($('kiName') || {}).value || '').trim()) { toast('品名を入れてください'); return false; }
+      return true;
+    },
+    run: async () => {
+      const { error } = await sb.rpc('inv_contract_item_save', {
+        p_contract_id: contractId, p_item_id: itemId || null,
+        p_kind: ($('kiKind') || {}).value || 'other',
+        p_name: ($('kiName') || {}).value, p_spec: ($('kiSpec') || {}).value || null,
+        p_qty: numField('kiQty') || 1, p_unit: numField('kiUnit') || 0,
+        p_months: numField('kiMonths'), p_billing: null,
+        p_taxable: !!($('kiTax') || {}).checked,
+        p_code: ($('kiCode') || {}).value || null, p_note: null, p_sort: null
+      });
+      if (error) { toast(error.message || '保存できませんでした'); return; }
+      await loadAll(); render(); toast('明細を保存しました');
+    }
+  });
+}
+
+async function deleteContractItem(contractId, itemId) {
+  const { error } = await sb.rpc('inv_contract_item_delete',
+    { p_contract_id: contractId, p_item_id: itemId });
+  if (error) { toast(error.message || '消せませんでした'); return; }
+  await loadAll(); render(); toast('明細を消しました');
+}
+
+function confirmContract(id) {
+  const c = contractOf(id); if (!c) return;
+  openSheet({
+    title: '契約を確定する', subject: contractNo(c), cta: '確定する',
+    hint: `確定すると<strong>明細と金額は直せなくなります</strong>。
+      直すときは取り消して作り直してください。<br>
+      <strong>機器はまだ確保されません。</strong>在庫の確保は［手配に進む］を押したときだけです。`,
+    body: `<div class="prices">
+        <div><div class="lbl">初期費用（税抜）</div><div class="v">${yen(c.initial_total || 0)}</div></div>
+        <div><div class="lbl">月額費用（税抜）</div><div class="v">${c.monthly_total ? yen(c.monthly_total) : '—'}</div></div>
+        <div><div class="lbl">税込総額</div><div class="v plus">${yen(c.total || 0)}</div></div>
+      </div>
+      <p class="meta" style="margin-top:10px">支払条件はこのあとで決めても構いません。
+        契約が決まったことと、支払い方が決まったことは別に扱います。</p>`,
+    run: async () => {
+      const { error } = await sb.rpc('inv_contract_confirm', { p_id: id });
+      if (error) { toast(error.message || '確定できませんでした'); return; }
+      await loadAll(); render(); toast('契約を確定しました（在庫はまだ確保していません）');
+    }
+  });
+}
+
+async function confirmContractTerms(id) {
+  const { error } = await sb.rpc('inv_contract_terms_confirm', { p_id: id });
+  if (error) { toast(error.message || '確定できませんでした'); return; }
+  await loadAll(); render(); toast('支払条件を確定しました');
+}
+
+function sheetContractCredit(id) {
+  const c = contractOf(id); if (!c) return;
+  openSheet({
+    title: '入金前の手配を承認する', subject: contractNo(c), cta: '承認する',
+    hint: `この契約は<strong>${esc(c.payment_terms || '後払い')}</strong>です。
+      入金より先に機器を出すことになるので、<strong>与信の判断</strong>としてここで承認します。
+      承認すると、入金前でも手配に進めるようになります。`,
+    body: `<div class="prices" style="margin-bottom:10px">
+        <div><div class="lbl">お客様</div><div class="v" style="font-size:15px">${esc(c.company || c.customer_name || '')}</div></div>
+        <div><div class="lbl">金額（税込）</div><div class="v">${yen(c.total || 0)}</div></div>
+        <div><div class="lbl">支払条件</div><div class="v" style="font-size:15px">${esc(c.payment_terms || '')}</div></div>
+      </div>
+      <label class="field"><span>判断の理由・条件（履歴に残ります）</span>
+        <textarea class="input" id="kcNote" rows="3" placeholder="例）取引実績あり。与信枠内。"></textarea></label>`,
+    run: async () => {
+      const { error } = await sb.rpc('inv_contract_credit_approve',
+        { p_id: id, p_note: ($('kcNote') || {}).value || null });
+      if (error) { toast(error.message || '承認できませんでした'); return; }
+      await loadAll(); render(); toast('承認しました。入金前でも手配に進めます');
+    }
+  });
+}
+
+function cancelContract(id) {
+  const c = contractOf(id); if (!c) return;
+  openSheet({
+    title: '契約を取り消す', subject: contractNo(c), cta: '取り消す',
+    hint: '手配前なので、在庫は触っていません。取り消しても個体の状態は変わりません。',
+    body: `<label class="field"><span>理由（履歴に残ります）</span>
+        <input class="input" id="kxReason" placeholder="例）お客様都合"></label>`,
+    run: async () => {
+      const { error } = await sb.rpc('inv_contract_cancel',
+        { p_id: id, p_reason: ($('kxReason') || {}).value || null });
+      if (error) { toast(error.message || '取り消せませんでした'); return; }
+      await loadAll(); render(); toast('契約を取り消しました');
+    }
+  });
 }
 
 function copyQuoteUrl(id) {

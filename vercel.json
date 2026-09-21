@@ -79,7 +79,7 @@
       "destination": "/zaiko/index.html"
     },
     {
-      "source": "/zaiko/(items|products|locations|quotes)/(.*)",
+      "source": "/zaiko/(items|products|locations|quotes|contracts)/(.*)",
       "destination": "/zaiko/index.html"
     },
     {
