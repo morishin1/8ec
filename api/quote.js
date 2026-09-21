@@ -11,15 +11,18 @@
 //   「こういうものが要る」という希望を受け取って保存するだけです。
 //   購入・レンタル・組み合わせのどれにするかは、担当者が中身を見て決めます。
 //
+//   お客様のブラウザ → Vercel /api/quote →（サーバー鍵）→ Supabase
+//   の順で必ず通します。ブラウザから inv_deal_create() を直接呼ぶ経路はありません。
+//   入力チェック・回数制限・Slack通知を必ずここで通すためです。
+//
 //   ── Vercel での設定 ─────────────────────────────
+//     SUPABASE_SECRET_KEY 【必須】サーバー鍵。無いと 503 を返して止まります
 //     SLACK_WEBHOOK_URL   Slackの受信Webhook（未設定でもフォームは動きます）
 //     SUPABASE_URL        既定 https://htglvascsuqkixpmclwr.supabase.co
-//     SUPABASE_ANON_KEY   既定 sb_publishable_...（公開鍵。RLSで保護）
 //     ZAIKO_DEALS_URL     Slack通知のボタンの遷移先。既定 https://www.8ec.jp/zaiko/deals
 // ============================================================
 
-const SUPABASE_URL = process.env.SUPABASE_URL || "https://htglvascsuqkixpmclwr.supabase.co";
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "sb_publishable_yZCcrwdqjuf0u_5WBWlHIw_AxdvteEV";
+const L = require("./_lib.js");
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || "";
 const ZAIKO_DEALS_URL = process.env.ZAIKO_DEALS_URL || "https://www.8ec.jp/zaiko/deals";
 
@@ -161,6 +164,12 @@ module.exports = async (req, res) => {
   if (req.method === "OPTIONS") { res.setHeader("Allow", "POST"); return res.status(204).end(); }
   if (req.method !== "POST") { res.setHeader("Allow", "POST"); return res.status(405).json({ error: "POST のみ受け付けます" }); }
 
+  res.setHeader("Cache-Control", "no-store");
+  if (!L.hasKey()) return L.keyMissing(res);
+
+  const key = L.clientKey(req);
+  if (L.tooFast("form", key, 5, 60000)) return L.tooMany(res, 60);
+
   let body = req.body;
   if (typeof body === "string") { try { body = JSON.parse(body); } catch (_) { body = null; } }
   if (!body || typeof body !== "object") return res.status(400).json({ error: "リクエストの形式が不正です" });
@@ -209,24 +218,18 @@ module.exports = async (req, res) => {
 
   // ── 1) Supabase に保存（ここが失敗したら送信失敗として返す） ──
   try {
-    const r = await fetch(SUPABASE_URL + "/rest/v1/rpc/inv_deal_create", {
-      method: "POST",
-      headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: "Bearer " + SUPABASE_ANON_KEY,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        p_name: row.name, p_company: row.company, p_email: row.email, p_phone: row.phone,
-        p_purpose: row.purpose, p_headcount: row.headcount, p_qty: row.qty,
-        p_start: row.start_date, p_months: row.months, p_grade: row.grade,
-        p_spec: row.spec, p_services: row.services, p_message: row.message, p_source: row.source,
-        p_product_code: row.product_code, p_want: row.want,
-      }),
+    const guard = await L.accessCheck("form", key, false);
+    if (guard.blocked) return L.tooMany(res, 600);
+    const r = await L.rpc("inv_deal_create", {
+      p_name: row.name, p_company: row.company, p_email: row.email, p_phone: row.phone,
+      p_purpose: row.purpose, p_headcount: row.headcount, p_qty: row.qty,
+      p_start: row.start_date, p_months: row.months, p_grade: row.grade,
+      p_spec: row.spec, p_services: row.services, p_message: row.message, p_source: row.source,
+      p_product_code: row.product_code, p_want: row.want,
     });
     if (!r.ok) {
-      const detail = await r.text().catch(() => "");
-      console.error("quote: supabase insert failed", r.status, detail);
+      console.error("quote: supabase insert failed", r.status,
+        (r.out && (r.out.message || r.out.hint)) || "");
       return res.status(502).json({ error: "保存に失敗しました" });
     }
   } catch (e) {

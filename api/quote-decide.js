@@ -17,17 +17,9 @@
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || "";
 const ZAIKO_DEALS_URL = process.env.ZAIKO_DEALS_URL || "https://www.8ec.jp/zaiko/deals";
 
-// 鍵の解決・IPの数えかた・RPCの呼びかたは quote-view.js に集めてある
-const { cleanToken, clientKey, accessCheck, tooFast, rpc } = require("./quote-view.js");
-
-function clean(value, max) {
-  const s = String(value == null ? "" : value).trim();
-  if (!s) return null;
-  return s.slice(0, max);
-}
-function slackEscape(s) {
-  return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
+// 鍵の解決・IPの数えかた・RPCの呼びかたは _lib.js に集めてある
+const L = require("./_lib.js");
+const { cleanToken, clientKey, accessCheck, tooFast, rpc, clean, slackEscape } = L;
 
 function buildSlackPayload(row) {
   const ok = row.action === "approve";
@@ -91,6 +83,8 @@ module.exports = async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("X-Robots-Tag", "noindex, nofollow");
 
+  if (!L.hasKey()) return L.keyMissing(res);
+
   let body = req.body;
   if (typeof body === "string") { try { body = JSON.parse(body); } catch (_) { body = null; } }
   if (!body || typeof body !== "object") return res.status(400).json({ error: "リクエストの形式が不正です" });
@@ -105,10 +99,7 @@ module.exports = async (req, res) => {
   };
   const key = clientKey(req);
   // 同じ相手からの連打はここで止める（DB側の数えかたと二段構え）
-  if (tooFast(key, 10, 60000)) {
-    res.setHeader("Retry-After", "60");
-    return res.status(429).json({ error: "送信が続いています。少し時間をおいてからお試しください" });
-  }
+  if (tooFast("quote-decide", key, 10, 60000)) return L.tooMany(res, 60);
   if (!token) return res.status(400).json({ error: "URLが正しくありません" });
   if (!action) return res.status(400).json({ error: "操作が正しくありません" });
   if (!row.name) return res.status(400).json({ error: "ご担当者名を入力してください" });
@@ -117,11 +108,8 @@ module.exports = async (req, res) => {
   //     書き込む操作なので、数えた結果が行きすぎていれば通さない
   let out = null;
   try {
-    const guard = await accessCheck(key, false);
-    if (guard.blocked) {
-      res.setHeader("Retry-After", "600");
-      return res.status(429).json({ error: "アクセスが多すぎます。少し時間をおいてからお試しください" });
-    }
+    const guard = await accessCheck("quote-decide", key, false);
+    if (guard.blocked) return L.tooMany(res, 600);
     const r = await rpc("inv_quote_decide", {
       p_token: token, p_action: action, p_name: row.name,
       p_company: row.company, p_message: row.message,
