@@ -23,6 +23,10 @@
       "destination": "/quote-view.html"
     },
     {
+      "source": "/c/(.*)",
+      "destination": "/contract-view.html"
+    },
+    {
       "source": "/faq",
       "destination": "/faq.html"
     },

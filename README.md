@@ -22,6 +22,8 @@
 ├── cases.html          活用例・導入イメージ（`/cases`）
 ├── faq.html            よくある質問（`/faq`。FAQPageの構造化データつき）
 ├── packs/              課題から入る集客ページ（`/packs/*`）
+├── quote-view.html     お客様向けの見積ページ（`/q/:token`。検索避け）
+├── contract-view.html  お客様向けの契約手続きページ（`/c/:token`。検索避け）
 │
 ├── tools/build-shell.py  共通ヘッダー・フッター・診断CTAを全ページへ流し込む
 ├── tools/make-pages.py   FAQ・事例・Care・導入支援・課題ページを作る
@@ -39,7 +41,8 @@
 ├── robots.txt
 ├── sitemap.xml
 │
-├── api/                Vercel サーバーレス関数（問い合わせ受付・Slack通知・型番サイトマップ）
+├── api/                Vercel サーバーレス関数（問い合わせ受付・見積／契約の顧客API・Slack通知）
+│   └── _lib.js         サーバー側の共通部分（サーバー鍵・回数制限・入力の整え）
 ├── admin/              管理画面（EC在庫・棚卸・決算資料・ショップ出品・商品画像・問い合わせ・レンタル）
 │   ├── setup-all.sql   追加機能のSupabase設定（棚卸・決算・商品画像をまとめて実行）
 │   ├── ec-master-setup.sql  EC一元管理のSupabase設定（新品SKUの商品マスター）
@@ -2334,13 +2337,97 @@ ok になる条件
 
 COMMERCEが押さえた個体は、**8RENTの貸出可能数からも、楽天へ送る販売可能数量からも同時に外れます。**
 
+### 顧客側の契約手続き（Phase 3-d）
+
+担当者が**契約ごとに1本のURL**を発行し、お客様がそこで内容を確認して
+請求先・お届け先・お支払い方法を入れて送ります。
+
+```
+/zaiko で［顧客URLを発行］ → お客様が /c/:token で5ステップ入力 → 送信
+  → Slackへ通知 → 担当者が中身を見て［契約を確定する］
+```
+
+**お客様が送っても契約は確定しません。**送信で記録するのは
+「この内容で進めたい」という意思表示と、入力いただいた内容だけです。
+契約の確定・請求・入金・手配・発送は、担当者が `/zaiko` で進めます。
+
+| | |
+|---|---|
+| migration | `zaiko/migrations/2026-09-28-contract-customer.sql` |
+| 顧客ページ | `/c/:token` → `contract-view.html` + `assets/contract-view.js` |
+| API | `api/contract-view.js`（GET/POST）／`api/contract-decide.js`（POSTのみ） |
+| 社内画面 | `/zaiko/contracts/:id` の「顧客手続き」パネル |
+
+#### 通り道はひとつだけ
+
+```
+お客様のブラウザ → Vercel /api/contract-view・/api/contract-decide
+                 →（サーバー鍵 = service_role）→ Supabase
+```
+
+ブラウザから Supabase の関数を直接呼ぶ道は**作っていません**。
+Slack通知・入力チェック・回数制限を必ずAPI側で通すためです。
+
+| 関数 | `anon` | `authenticated` | `service_role` |
+|---|---|---|---|
+| `inv_contract_public` | ✕ | ✕ | ○ |
+| `inv_contract_customer_confirm` | ✕ | ✕ | ○ |
+| `inv_public_access_check` | ✕ | ✕ | ○ |
+| `inv_contract_token_issue` | ✕ | ○ | ✕ |
+| `inv_contract_allowed_methods_set` | ✕ | ○ | ✕ |
+
+`SUPABASE_SECRET_KEY` が無いときは **503 を返して止まります**。公開鍵で代わりに
+動かすことはしません（公開鍵はサイトのJSに載っていて誰でも読めるため）。
+
+#### token の決まり
+
+- `gen_random_uuid()` 2回ぶんから **40文字（約154ビット）**。契約ごとに別のtoken。
+- 既定の有効期限は **60日**。切れたら「担当者へ新しいURLをご依頼ください」と出ます。
+- **再発行すると前のURLは使えなくなります**（`public_token` を上書きするため）。
+- 履歴（`inventory_transactions`）に**token平文は入れません**。残すのは有効期限だけです。
+
+#### 回数制限
+
+`inventory_public_access` を見積ページと共用します。IPは平文で持たず **sha256** だけ。
+
+| | Vercel側 | Supabase側（外れtoken） |
+|---|---|---|
+| `contract-view` | 1分60回 | 外れが20回で止める |
+| `contract-decide` | 1分10回 | 30回で止める |
+
+`select public.inv_public_access_cleanup(30);` で30日より古い記録を消せます。
+
+#### お客様の画面（5ステップ）
+
+1. ご契約内容（読むだけ）
+2. 請求先（ご契約先と同じ／別に入力）
+3. お届け先（ご契約先と同じ／請求先と同じ／別に入力）＋お届け希望日
+4. お支払い方法（`allowed_payment_methods` で社内が選んだものだけ出す）
+5. 最終確認（各行に［直す］／「この操作だけでは契約・決済・発送は完了しません。」）
+
+`inv_contract_public()` が返すのは**お客様に見せてよいものだけ**です。
+原価・粗利・社内メモ・在庫数・シリアル・管理番号・与信・Stripe の項目は入っていません。
+
+二度目の送信は、内容が同じなら `already = true` を返して**履歴も通知も増やしません**。
+内容が違うときは断ります（「すでに送信済みです。変更が必要な場合は担当者へご連絡ください」）。
+
+#### 社内用語をお客様に見せない
+
+顧客ページには `履行` `与信承認` `fulfillment` `payment terms` を出しません。
+「お手続き」「担当者が確認しています」「契約手続きは完了しています」と書きます。
+「契約手続きは完了しています」と出すのは、**お客様が送ったあとに担当者が契約を確定させたとき**だけです。
+
+#### /zaiko 側
+
+`/zaiko/contracts/:id` の「顧客手続き」パネルで、URLの発行・コピー・再発行、
+お客様が入れた内容、お客様の希望と社内の設定のずれ（支払方法）を見られます。
+
 ### まだ作っていないもの
 
 | | いつ |
 |---|---|
-| 発送・納品・返却の管理 | Phase 3-c の次（未定） |
-| 顧客向けの契約確認ページ `/c/:token` | Phase 3-d |
-| Stripe（Checkout・Subscription・Webhook） | Phase 3-e |
+| 発送・納品・返却の管理 | Phase 3-e |
+| Stripe（Checkout・Subscription・Webhook） | Phase 3-f |
 
 ### Phase 3（Stripe）との接続点
 

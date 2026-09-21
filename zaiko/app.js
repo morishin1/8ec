@@ -6238,6 +6238,8 @@ function viewContract() {
     <div><div class="lbl">税込総額</div><div class="v plus">${yen(c.total || 0)}</div></div>
   </div>
 
+  ${contractCustomerHtml(c)}
+
   ${contractFulfillHtml(c)}
 
   ${contractInvoicesHtml(c)}
@@ -6255,6 +6257,149 @@ function viewContract() {
   <p class="meta" style="margin-top:14px">契約を確定しても、<b>機器は確保されません</b>。
     在庫の確保は［手配に進む］を押したときだけ行います。
     ${needCredit ? '後払いなので、その前に管理者の社内承認が要ります。' : ''}</p>`;
+}
+
+/* ---- 顧客手続き（Phase 3-d） ----
+     担当者が顧客URLを発行し、お客様が /c/:token で
+     契約内容・請求先・お届け先・お支払い方法を確認して送り返す。
+     お客様が送っても契約は確定しない。担当者が中身を見てから確定する。 */
+const contractUrl = (c) => location.origin + '/c/' + (c.public_token || '');
+const PAY_ALLOW = ['請求書払い', '銀行振込', 'カード'];
+
+/* 顧客が入れた内容と、社内の確定値がずれていないか */
+function methodMismatch(c) {
+  if (!c.requested_payment_method || !c.payment_method) return null;
+  if (c.requested_payment_method === c.payment_method) return null;
+  return 'お客様のご希望は「' + c.requested_payment_method + '」ですが、社内の設定は「'
+    + c.payment_method + '」です。どちらで進めるか確認してください。';
+}
+
+function contractCustomerHtml(c) {
+  const has = !!c.public_token;
+  const expired = c.public_token_expires_at && new Date(c.public_token_expires_at) < new Date();
+  const mm = methodMismatch(c);
+
+  return `
+  <div class="sec">顧客手続き<span class="secn">${c.customer_confirmed_at ? 'お客様の確認ずみ' : (has ? 'URL発行ずみ' : '未発行')}</span></div>
+
+  ${has ? `<div class="card" style="background:var(--l100);border:1px solid var(--l400);margin-bottom:12px">
+    <div class="meta" style="margin-bottom:6px">お客様に見せるURL（担当者がメール等でお送りします）</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <code style="font-size:12.5px;word-break:break-all;flex:1 1 320px">${esc(contractUrl(c))}</code>
+      ${canEdit() ? `<button class="btn sm" onclick="copyContractUrl(${c.id})">顧客URLをコピー</button>` : ''}
+      <a class="btn sm ghost" href="${esc(contractUrl(c))}" target="_blank" rel="noopener noreferrer">顧客画面を開く</a>
+      ${canEdit() ? `<button class="btn sm ghost" onclick="sheetContractToken(${c.id}, true)">URLを再発行</button>` : ''}
+    </div>
+    <div class="meta" style="margin-top:8px">
+      有効期限 ${esc((c.public_token_expires_at || '').slice(0, 10) || '—')}
+      ${expired ? '（期限切れです。再発行してください）' : ''}
+    </div>
+  </div>` : `<p class="meta" style="margin-bottom:10px">まだ顧客URLを発行していません。
+    発行すると、お客様が契約内容・請求先・お届け先・お支払い方法を確認できるようになります。</p>
+    ${canEdit() && c.status !== '取消' ? `<button class="btn sm" style="margin-bottom:12px"
+      onclick="sheetContractToken(${c.id})">顧客URLを発行</button>` : ''}`}
+
+  <div class="prices" style="margin-bottom:12px">
+    <div><div class="lbl">お客様の確認</div><div class="v" style="font-size:15px">${
+      c.customer_confirmed_at ? fmtDT(c.customer_confirmed_at) : 'まだ'}</div>
+      ${c.customer_confirmed_by ? `<div class="meta">${esc(c.customer_confirmed_by)} 様</div>` : ''}</div>
+    <div><div class="lbl">支払希望</div><div class="v" style="font-size:15px">${
+      esc(c.requested_payment_method || '—')}</div>
+      ${c.payment_method ? `<div class="meta">社内の設定：${esc(c.payment_method)}</div>` : ''}</div>
+    <div><div class="lbl">お届け希望日</div><div class="v" style="font-size:15px">${
+      esc(c.desired_delivery_date || '—')}</div></div>
+    <div><div class="lbl">顧客ページの支払方法</div><div class="v" style="font-size:14px">${
+      (c.allowed_payment_methods || []).length ? esc((c.allowed_payment_methods || []).join('・')) : '未設定'}</div>
+      ${canEdit() && c.status !== '取消' ? `<button class="btn sm ghost" style="margin-top:6px"
+        onclick="sheetAllowedMethods(${c.id})">選べるものを決める</button>` : ''}</div>
+  </div>
+
+  ${mm ? `<div class="card" style="border:1px solid #E8A33D;margin-bottom:12px">
+    <b>支払方法が一致していません</b><div class="meta">${esc(mm)}</div></div>` : ''}
+
+  ${c.customer_confirmed_at ? `
+    <div class="sec" style="margin-top:14px">お客様が入れた内容<span class="secn">顧客ページから</span></div>
+    <div class="table-wrap"><table class="t"><tbody>
+      <tr><td style="width:120px" class="meta">請求先</td><td>${
+        c.billing_company ? esc([c.billing_company, c.billing_department, c.billing_person].filter(Boolean).join('／'))
+          + (c.billing_postal_code || c.billing_address
+            ? `<div class="meta">${esc([c.billing_postal_code ? '〒' + c.billing_postal_code : '', c.billing_address].filter(Boolean).join(' '))}</div>` : '')
+          + (c.billing_email ? `<div class="meta">${esc(c.billing_email)}</div>` : '')
+          + (c.billing_note ? `<div class="meta">${esc(c.billing_note)}</div>` : '')
+        : '<span class="meta">契約先と同じ</span>'}</td></tr>
+      <tr><td class="meta">お届け先</td><td>${
+        c.shipping_company ? esc([c.shipping_company, c.shipping_department, c.shipping_person].filter(Boolean).join('／'))
+          + (c.shipping_postal_code || c.shipping_address
+            ? `<div class="meta">${esc([c.shipping_postal_code ? '〒' + c.shipping_postal_code : '', c.shipping_address].filter(Boolean).join(' '))}</div>` : '')
+          + (c.shipping_phone ? `<div class="meta">${esc(c.shipping_phone)}</div>` : '')
+          + (c.shipping_note ? `<div class="meta">${esc(c.shipping_note)}</div>` : '')
+        : '<span class="meta">契約先と同じ</span>'}</td></tr>
+      ${c.customer_message ? `<tr><td class="meta">ご連絡事項</td><td class="pre">${esc(c.customer_message)}</td></tr>` : ''}
+    </tbody></table></div>
+    ${c.status === '作成中' || c.status === '確定' ? `<p class="meta" style="margin-top:8px">
+      お客様は「この内容で進めたい」と送ってきています。
+      <b>契約はまだ確定していません。</b>中身を確認して［契約を確定する］を押してください。</p>` : ''}` : ''}`;
+}
+
+function copyContractUrl(id) {
+  const c = contractOf(id); if (!c || !c.public_token) return;
+  const url = contractUrl(c);
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(() => toast('顧客URLをコピーしました'),
+                                            () => toast('コピーできませんでした：' + url));
+  } else {
+    toast(url);
+  }
+}
+
+function sheetContractToken(id, again) {
+  const c = contractOf(id); if (!c) return;
+  openSheet({
+    title: again ? '顧客URLを再発行する' : '顧客URLを発行する', subject: contractNo(c),
+    cta: again ? '再発行する' : '発行する',
+    hint: again
+      ? `<strong>いまのURLは使えなくなります。</strong>すでにお送りしているURLをお客様が開くと
+         「このURLは無効になっています」と出ます。新しいURLをお送りください。`
+      : `お客様が契約内容・請求先・お届け先・お支払い方法を確認できるURLを作ります。
+         <strong>お客様が送信しても契約は確定しません。</strong>担当者が中身を見てから確定します。`,
+    body: `<label class="field" style="max-width:220px"><span>有効期限（何日間）</span>
+        <input class="input num" type="number" id="ctDays" min="1" max="365" value="60"></label>
+      <p class="meta" style="margin-top:10px">メールでお送りするのは担当者の操作です（自動送信はしません）。</p>
+      ${(c.allowed_payment_methods || []).length ? '' :
+        '<div class="meta" style="margin-top:8px">顧客ページで選べる支払方法がまだ未設定です。' +
+        '未設定のままだと、お客様の画面には「お支払い方法は担当者からご案内します」とだけ出ます。</div>'}`,
+    run: async () => {
+      const { error } = await sb.rpc('inv_contract_token_issue',
+        { p_id: id, p_days: numField('ctDays') || 60 });
+      if (error) { toast(error.message || '発行できませんでした'); return; }
+      await loadAll(); render();
+      toast(again ? '再発行しました。新しいURLをお送りください' : '発行しました。顧客URLをコピーしてお送りください');
+      copyContractUrl(id);
+    }
+  });
+}
+
+function sheetAllowedMethods(id) {
+  const c = contractOf(id); if (!c) return;
+  const now = c.allowed_payment_methods || [];
+  openSheet({
+    title: '顧客ページで選べる支払方法', subject: contractNo(c), cta: '保存',
+    hint: `ここで選んだものだけが、お客様の画面に出ます。
+      <strong>3つとも無条件に出すことはしません。</strong>
+      カードは Stripe をまだつないでいないので、「契約確定後にURLをご案内します」と出るだけです。`,
+    body: PAY_ALLOW.map((m, n) => `<label class="bchk" style="display:block;margin-bottom:8px">
+        <input type="checkbox" id="am${n}" ${now.includes(m) ? 'checked' : ''}> ${esc(m)}</label>`).join('')
+      + `<p class="meta" style="margin-top:10px">お客様が選んだものは「ご希望」として記録され、
+        社内の確定値（支払条件）は担当者が別に決めます。</p>`,
+    run: async () => {
+      const picked = PAY_ALLOW.filter((m, n) => ($('am' + n) || {}).checked);
+      const { error } = await sb.rpc('inv_contract_allowed_methods_set',
+        { p_id: id, p_methods: picked });
+      if (error) { toast(error.message || '保存できませんでした'); return; }
+      await loadAll(); render();
+      toast(picked.length ? picked.join('・') + ' を出します' : '顧客ページでは選べなくなりました');
+    }
+  });
 }
 
 /* ---- 手配（Phase 3-c） ----
@@ -6827,6 +6972,12 @@ async function deleteContractItem(contractId, itemId) {
 
 function confirmContract(id) {
   const c = contractOf(id); if (!c) return;
+  const mm = methodMismatch(c);
+  const addr = (co, dept, person, postal, address, extra) => co
+    ? esc([co, dept, person].filter(Boolean).join('／'))
+      + (postal || address ? '<div class="meta">' + esc([postal ? '〒' + postal : '', address].filter(Boolean).join(' ')) + '</div>' : '')
+      + (extra ? '<div class="meta">' + esc(extra) + '</div>' : '')
+    : '<span class="meta">契約先と同じ</span>';
   openSheet({
     title: '契約を確定する', subject: contractNo(c), cta: '確定する',
     hint: `確定すると<strong>明細と金額は直せなくなります</strong>。
@@ -6837,6 +6988,27 @@ function confirmContract(id) {
         <div><div class="lbl">月額費用（税抜）</div><div class="v">${c.monthly_total ? yen(c.monthly_total) : '—'}</div></div>
         <div><div class="lbl">税込総額</div><div class="v plus">${yen(c.total || 0)}</div></div>
       </div>
+      ${c.customer_confirmed_at ? `
+        <div class="sec" style="margin-top:14px">お客様が入れた内容<span class="secn">${
+          fmtDT(c.customer_confirmed_at)}　${esc(c.customer_confirmed_by || '')} 様</span></div>
+        ${mm ? `<div class="card" style="border:1px solid #E8A33D;margin-bottom:10px">
+          <b>支払方法が一致していません</b><div class="meta">${esc(mm)}</div></div>` : ''}
+        <div class="table-wrap"><table class="t"><tbody>
+          <tr><td style="width:110px" class="meta">請求先</td><td>${
+            addr(c.billing_company, c.billing_department, c.billing_person,
+                 c.billing_postal_code, c.billing_address, c.billing_email)}</td></tr>
+          <tr><td class="meta">お届け先</td><td>${
+            addr(c.shipping_company, c.shipping_department, c.shipping_person,
+                 c.shipping_postal_code, c.shipping_address, c.shipping_phone)}</td></tr>
+          <tr><td class="meta">支払希望</td><td>${esc(c.requested_payment_method || '—')}
+            ${c.payment_method ? `<div class="meta">社内の設定：${esc(c.payment_method)}${
+              c.payment_timing ? '（' + esc(c.payment_timing) + '）' : ''}</div>` : ''}</td></tr>
+          <tr><td class="meta">支払条件</td><td>${esc(c.payment_terms || '未設定')}</td></tr>
+          <tr><td class="meta">お届け希望日</td><td>${esc(c.desired_delivery_date || '—')}
+            <div class="meta">ご希望日です。確定日は担当者から案内します。</div></td></tr>
+          ${c.customer_message ? `<tr><td class="meta">ご連絡事項</td><td class="pre">${esc(c.customer_message)}</td></tr>` : ''}
+        </tbody></table></div>`
+        : `<p class="meta" style="margin-top:10px">お客様はまだ顧客ページから内容を送っていません。</p>`}
       <p class="meta" style="margin-top:10px">支払条件はこのあとで決めても構いません。
         契約が決まったことと、支払い方が決まったことは別に扱います。</p>`,
     run: async () => {
