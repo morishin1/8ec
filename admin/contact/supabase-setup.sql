@@ -35,8 +35,12 @@ create policy "contact admin all" on public.contact_submissions for all to authe
   using (public.zimu_is_admin()) with check (public.zimu_is_admin());
 
 -- ============================================================
--- 公開フォームからの投函（anonはこの関数だけ実行可）
---   anon にテーブル直接権限は付与しない＝ステータス・メモ等は書き換え不可、
+-- 公開フォームからの投函（サーバー＝service_role だけ実行可）
+--   ブラウザからは直接呼べません。サイトのフォームは必ず
+--     ブラウザ → Vercel /api/contact →（サーバー鍵）→ Supabase
+--   を通ります。入力チェック・回数制限・Slack通知をAPI側で必ず通すためです。
+--   （2026-09-24-public-api-only.sql で anon の実行権限を外しました）
+--   テーブルへの直接権限は誰にも付与しない＝ステータス・メモ等は書き換え不可、
 --   他人の投函の閲覧・削除も不可。入力に対応する列だけ受け付ける。
 -- ============================================================
 create or replace function public.contact_public_submit(
@@ -69,7 +73,8 @@ begin
   return v_id;
 end $$;
 
-grant execute on function public.contact_public_submit(text,text,text,text,text,text,text) to anon;
+revoke all on function public.contact_public_submit(text,text,text,text,text,text,text) from public, anon, authenticated;
+grant execute on function public.contact_public_submit(text,text,text,text,text,text,text) to service_role;
 
 -- PostgREST スキーマキャッシュを再読み込み
 notify pgrst, 'reload schema';

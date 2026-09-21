@@ -5682,8 +5682,9 @@ create policy "inventory_deals write" on public.inventory_deals
 
 grant select, update on public.inventory_deals to authenticated;
 
-revoke all on function public.inv_deal_create(text,text,text,text,text,integer,integer,date,integer,text,jsonb,text[],text,text,text,text) from public;
-grant execute on function public.inv_deal_create(text,text,text,text,text,integer,integer,date,integer,text,jsonb,text[],text,text,text,text) to anon, authenticated;
+-- /quote の3分IT調達診断。ブラウザからは直接呼べない（必ず /api/quote を通す）
+revoke all on function public.inv_deal_create(text,text,text,text,text,integer,integer,date,integer,text,jsonb,text[],text,text,text,text) from public, anon;
+grant execute on function public.inv_deal_create(text,text,text,text,text,integer,integer,date,integer,text,jsonb,text[],text,text,text,text) to authenticated, service_role;
 revoke all on function public.inv_deal_set_status(bigint,text) from public;
 revoke all on function public.inv_deal_note(bigint,text) from public;
 grant execute on function public.inv_deal_set_status(bigint,text) to authenticated;
@@ -6321,88 +6322,115 @@ grant execute on function public.inv_quote_cancel(bigint,text) to authenticated;
 --     載っているので、anon に残すと /api を通さずに直接たたけてしまい、
 --     Slack通知や今後の共通処理を迂回できるため。
 -- ------------------------------------------------------------
-create table if not exists public.inventory_quote_access (
+create table if not exists public.inventory_public_access (
   client_key text        not null,
   window_at  timestamptz not null,
+  kind       text        not null default 'quote-view',
   tries      integer     not null default 0,
   misses     integer     not null default 0,
   primary key (client_key, window_at)
 );
 
-comment on table public.inventory_quote_access is
-  '顧客見積ページへのアクセス回数（分単位）。総当たりを止めるためだけに使う。
-   client_key はIPのsha256で、IPそのものは保存しない。';
+comment on table public.inventory_public_access is
+  '公開の入口（顧客見積ページ・診断フォーム・相談フォーム）へのアクセス回数を分単位で数える。
+   総当たりと連打を止めるためだけに使う。client_key は「入口の種類:IPのsha256」で、
+   IPそのものは保存しない。保持期間は既定30日（inv_public_access_cleanup で消える）。';
 
-create index if not exists inventory_quote_access_window_idx
-  on public.inventory_quote_access (window_at);
+create index if not exists inventory_public_access_window_idx
+  on public.inventory_public_access (window_at);
 
-alter table public.inventory_quote_access enable row level security;
-revoke all on public.inventory_quote_access from anon, authenticated;
+alter table public.inventory_public_access enable row level security;
+revoke all on public.inventory_public_access from anon, authenticated;
 
--- ------------------------------------------------------------
--- 47-2) 数えて、行きすぎならことわる
---
---     直近10分で
---       ・見つからないtokenが 20回
---       ・または合計 150回
---     を超えたら blocked=true を返す。APIはこれを見て429を返す。
---
---     p_miss は「tokenが見つからなかった」ときだけ true。
--- ------------------------------------------------------------
-create or replace function public.inv_quote_access_check(
+create or replace function public.inv_public_access_cleanup(
+  p_days integer default 30
+) returns integer
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare
+  v_days integer := greatest(coalesce(p_days, 30), 1);
+  v_n    integer;
+begin
+  delete from public.inventory_public_access
+   where window_at < now() - (v_days || ' days')::interval;
+  get diagnostics v_n = row_count;
+  return v_n;
+end $$;
+
+comment on function public.inv_public_access_cleanup is
+  'アクセス記録の掃除。既定30日より前を消して、消した件数を返す。
+   inv_public_access_check が毎回呼ぶので、ふだんは手で実行しなくてよい。';
+
+create or replace function public.inv_public_access_check(
   p_client text,
+  p_kind   text default 'quote-view',
   p_miss   boolean default false
 ) returns jsonb
 language plpgsql security definer set search_path = public, pg_catalog as $$
 declare
-  v_key    text := nullif(btrim(coalesce(p_client, '')), '');
+  v_kind   text := coalesce(nullif(btrim(coalesce(p_kind, '')), ''), 'other');
+  v_raw    text := nullif(btrim(coalesce(p_client, '')), '');
+  v_key    text;
   v_win    timestamptz := date_trunc('minute', now());
   v_tries  integer;
   v_misses integer;
+  v_max_miss integer;
+  v_max_try  integer;
 begin
   -- 相手が分からないときは数えようがないので素通しする（APIが必ず渡す）
-  if v_key is null then
+  if v_raw is null then
     return jsonb_build_object('blocked', false, 'tries', 0, 'misses', 0);
   end if;
-  v_key := left(v_key, 64);
+  v_kind := left(v_kind, 16);
+  v_key  := v_kind || ':' || left(v_raw, 64);
 
-  insert into public.inventory_quote_access (client_key, window_at, tries, misses)
-  values (v_key, v_win, 1, case when p_miss then 1 else 0 end)
+  if v_kind = 'quote-view' then
+    v_max_miss := 20; v_max_try := 150;
+  elsif v_kind = 'quote-decide' then
+    v_max_miss := 10; v_max_try := 30;
+  else
+    v_max_miss := 10; v_max_try := 20;
+  end if;
+
+  insert into public.inventory_public_access (client_key, kind, window_at, tries, misses)
+  values (v_key, v_kind, v_win, 1, case when p_miss then 1 else 0 end)
   on conflict (client_key, window_at) do update
-    set tries  = public.inventory_quote_access.tries + 1,
-        misses = public.inventory_quote_access.misses + case when p_miss then 1 else 0 end;
+    set tries  = public.inventory_public_access.tries + 1,
+        misses = public.inventory_public_access.misses + case when p_miss then 1 else 0 end;
 
   select coalesce(sum(tries), 0), coalesce(sum(misses), 0)
     into v_tries, v_misses
-    from public.inventory_quote_access
+    from public.inventory_public_access
    where client_key = v_key and window_at > now() - interval '10 minutes';
 
-  -- ときどき古い行を捨てる（掃除のためだけにcronを足したくないので）
-  if random() < 0.02 then
-    delete from public.inventory_quote_access where window_at < now() - interval '2 hours';
-  end if;
+  -- 古い記録はここで消す。数えるのに要るのは直近10分だけなので、
+  -- 残しているのは「あとで様子を見るため」の30日ぶん。
+  perform public.inv_public_access_cleanup(30);
 
   return jsonb_build_object(
-    'blocked', (v_misses >= 20 or v_tries >= 150),
+    'blocked', (v_misses >= v_max_miss or v_tries >= v_max_try),
+    'kind',    v_kind,
     'tries',   v_tries,
     'misses',  v_misses);
 end $$;
 
-comment on function public.inv_quote_access_check is
-  '顧客見積ページへのアクセスを分単位で数え、短時間に失敗が続く相手をことわる。
-   APIからサーバー鍵で呼ぶ。client_key はIPのsha256（IPそのものは保存しない）。';
+comment on function public.inv_public_access_check is
+  '公開の入口へのアクセスを分単位で数え、短時間に外し続ける相手・送り続ける相手をことわる。
+   APIからサーバー鍵で呼ぶ。client_key はIPのsha256（IPそのものは保存しない）。
+   呼ぶたびに30日より前の記録を消すので、無期限には残らない。';
 
 --     PostgreSQL は関数を作ると PUBLIC に実行権限が付くので、
 --     anon から revoke するだけでは足りない。PUBLIC ごと落としてから配り直す。
 revoke all on function public.inv_quote_public(text)                     from public, anon, authenticated;
 revoke all on function public.inv_quote_decide(text,text,text,text,text) from public, anon, authenticated;
 revoke all on function public.inv_quote_no(bigint,integer)               from public, anon;
-revoke all on function public.inv_quote_access_check(text,boolean)       from public, anon, authenticated;
+revoke all on function public.inv_public_access_check(text,text,boolean) from public, anon, authenticated;
+revoke all on function public.inv_public_access_cleanup(integer)         from public, anon, authenticated;
 
 --     顧客見積の関数を呼べるのはサーバー（service_role）だけにする。
 grant execute on function public.inv_quote_public(text)                     to service_role;
 grant execute on function public.inv_quote_decide(text,text,text,text,text) to service_role;
-grant execute on function public.inv_quote_access_check(text,boolean)       to service_role;
+grant execute on function public.inv_public_access_check(text,text,boolean) to service_role;
+grant execute on function public.inv_public_access_cleanup(integer)         to service_role;
 --     見積番号を作るだけの関数は、社内画面から使うこともあるので authenticated に残す
 --     （中身は 'Q-00012-2' のような文字列を組み立てるだけで、データは読まない）。
 grant execute on function public.inv_quote_no(bigint,integer)               to authenticated, service_role;

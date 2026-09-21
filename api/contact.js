@@ -14,16 +14,20 @@
 //     SLACK_WEBHOOK_URL   Slackの受信Webhook（https://hooks.slack.com/services/...）
 //                         ※未設定でもフォームは動作します（Slack通知だけスキップ）
 //
+//     SUPABASE_SECRET_KEY 【必須】サーバー鍵。無いと 503 を返して止まります
+//
 //   任意（通常は設定不要。既定値で動きます）：
 //     SUPABASE_URL        既定 https://htglvascsuqkixpmclwr.supabase.co
-//     SUPABASE_ANON_KEY   既定 sb_publishable_...（公開鍵。RLSで保護されています）
 //     ADMIN_CONTACT_URL   Slack通知のボタンの遷移先。既定 https://www.8ec.jp/admin/contact/
+//
+//   お客様のブラウザ → Vercel /api/contact →（サーバー鍵）→ Supabase
+//   の順で必ず通します。ブラウザから contact_public_submit() を直接呼ぶ経路は
+//   ありません（入力チェック・回数制限・Slack通知を必ず通すため）。
 //
 //   環境変数を追加・変更したあとは、再デプロイすると反映されます。
 // ============================================================
 
-const SUPABASE_URL = process.env.SUPABASE_URL || "https://htglvascsuqkixpmclwr.supabase.co";
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "sb_publishable_yZCcrwdqjuf0u_5WBWlHIw_AxdvteEV";
+const L = require("./_lib.js");
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || "";
 const ADMIN_CONTACT_URL = process.env.ADMIN_CONTACT_URL || "https://www.8ec.jp/admin/contact/";
 
@@ -119,6 +123,12 @@ module.exports = async (req, res) => {
     return res.status(405).json({ error: "POSTのみ受け付けます" });
   }
 
+  res.setHeader("Cache-Control", "no-store");
+  if (!L.hasKey()) return L.keyMissing(res);
+
+  const key = L.clientKey(req);
+  if (L.tooFast("form", key, 5, 60000)) return L.tooMany(res, 60);
+
   // Vercel は Content-Type: application/json を自動で解釈する。
   // それ以外の形で届いた場合に備えて自前でも解析する。
   let body = req.body;
@@ -149,26 +159,20 @@ module.exports = async (req, res) => {
 
   // ── 1) Supabase に保存（ここが失敗したら送信失敗として返す） ──
   try {
-    const r = await fetch(SUPABASE_URL + "/rest/v1/rpc/contact_public_submit", {
-      method: "POST",
-      headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: "Bearer " + SUPABASE_ANON_KEY,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        p_source: row.source,
-        p_name: row.name,
-        p_company: row.company,
-        p_email: row.email,
-        p_phone: row.phone,
-        p_message: row.message,
-        p_inquiry_type: row.inquiry_type,
-      }),
+    const guard = await L.accessCheck("form", key, false);
+    if (guard.blocked) return L.tooMany(res, 600);
+    const r = await L.rpc("contact_public_submit", {
+      p_source: row.source,
+      p_name: row.name,
+      p_company: row.company,
+      p_email: row.email,
+      p_phone: row.phone,
+      p_message: row.message,
+      p_inquiry_type: row.inquiry_type,
     });
     if (!r.ok) {
-      const detail = await r.text().catch(() => "");
-      console.error("contact: supabase insert failed", r.status, detail);
+      console.error("contact: supabase insert failed", r.status,
+        (r.out && (r.out.message || r.out.hint)) || "");
       return res.status(502).json({ error: "保存に失敗しました" });
     }
   } catch (e) {

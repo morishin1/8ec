@@ -1898,49 +1898,63 @@ supabase functions deploy rakuten-order-sync
 * 匿名（anon）で実行できるのは `inv_quote_public()` と `inv_quote_decide()` だけで、
   `inventory_quotes` などのテーブルは読めません。
 
-### 顧客見積APIはサーバー経由だけにする
+### 書き込みは必ずサーバー経由（ブラウザ → `/api/*` → Supabase）
 
-顧客見積ページは、**必ず次の順番で通ります**。
+お客様のブラウザから Supabase の関数（RPC）を直接呼ぶ経路は、**書き込みには一つもありません**。
 
 ```
-お客様のブラウザ → Vercel /api/quote-view・/api/quote-decide →（サーバー鍵）→ Supabase
+お客様のブラウザ → Vercel /api/* →（サーバー鍵）→ Supabase
 ```
 
-ブラウザから Supabase を直接たたく経路はありません。公開鍵（`sb_publishable_…`）は
-`assets/catalog.js` や `quote.html` に載っている＝誰でも読めるので、
-**anon に見積の関数を実行させたままだと、顧客URLを持っている人が `/api` を通さずに
-`inv_quote_decide()` を直接呼べてしまいます**。そうなると「承認はDBに入っているのに、
-Slack通知も、これから足す共通処理も素通り」という状態が作れてしまいます。
+公開鍵（`sb_publishable_…`）は `assets/catalog.js` や `quote.html` に載っている＝誰でも読めます。
+**anon に書き込みの関数を実行させたままだと、`/api` を通さずに直接呼べてしまい、
+Slack通知・サーバー側の入力チェック・回数制限をすべて迂回できます。**
+見積の承認なら「承認はDBに入っているのに担当者に通知が来ない」、
+フォームなら「誰も気づかない問い合わせ」が作れてしまいます。
 
-そのため `2026-09-23-quote-api-only.sql` で、
+| 関数 | 入口 | anon | ログイン社員 | サーバー |
+|---|---|:--:|:--:|:--:|
+| `inv_quote_public` | `/api/quote-view` | ✕ | ✕ | ○ |
+| `inv_quote_decide` | `/api/quote-decide` | ✕ | ✕ | ○ |
+| `inv_deal_create` | `/api/quote` | ✕ | ○ | ○ |
+| `contact_public_submit` | `/api/contact` | ✕ | ✕ | ○ |
+| `inv_public_access_check` / `_cleanup` | （APIの中だけ） | ✕ | ✕ | ○ |
 
-| 関数 | anon | ログイン社員（authenticated） | サーバー（service_role） |
-|---|:--:|:--:|:--:|
-| `inv_quote_public` | ✕ | ✕ | ○ |
-| `inv_quote_decide` | ✕ | ✕ | ○ |
-| `inv_quote_access_check` | ✕ | ✕ | ○ |
+PostgreSQL は関数を作ると `PUBLIC` に実行権限が付くので、`anon` から revoke するだけでは
+足りません。**`PUBLIC` ごと落としてから配り直しています。**
 
-としています。PostgreSQL は関数を作ると `PUBLIC` に実行権限が付くので、
-`anon` から revoke するだけでは足りません。**`PUBLIC` ごと落としてから配り直しています。**
+**読み取りは別です。**公開カタログ（`inv_public_products`）はもともと誰に見せてもよい情報なので、
+ブラウザから公開鍵で直接読みます（`assets/catalog.js`・`/api/sitemap-products`）。
+迂回されて困る処理がそこには無いためです。
 
-**本番へ入れる順番（この順でないと顧客ページが一時的に開けません）**
+**まだブラウザから直接呼んでいるもの**：`rent.html` の 8RENT申込（`inv_rental_request_create`）だけが
+残っています。こちらは `/api/rental-apply` を新しく作る必要があるので、別途対応します。
+
+**本番へ入れる順番（この順でないとフォームが一時的に止まります）**
 
 1. Vercel に `SUPABASE_SECRET_KEY` を登録する（この時点では何も変わりません）
-2. デプロイする（APIがサーバー鍵を使い始めます。anonもまだ使えるので、どちらでも動きます）
-3. `2026-09-23-quote-api-only.sql` を当てる（anonが使えなくなります。APIはサーバー鍵なので動き続けます）
+2. デプロイする（APIがサーバー鍵を使い始めます。**鍵が無いと 503 になります**）
+3. `2026-09-23-quote-api-only.sql` → `2026-09-24-public-api-only.sql` の順に当てる
+   （anonが使えなくなります。APIはサーバー鍵なので動き続けます）
 
 ### 総当たり・連打への備え
 
 | 見るところ | いまの状態 |
 |---|---|
 | token の推測 | `gen_random_uuid()` を2つつないだ16進40文字。実際のランダムさは**約154ビット**（約 2.3×10⁴⁶ 通り）で、毎秒1000回試しても現実的な時間では当たりません |
-| 総当たり | 直近10分で**外れが20回**、または**合計150回**を超えた相手は `/api` が 429 を返します（`inventory_quote_access`）。**正しいURLのお客様は止めません**（外し続けている相手だけ止めます） |
-| 連打 | `/api/quote-decide` は同じ相手から**1分に10回**まで。`/api/quote-view` は**1分に60回**まで |
+| 総当たり | 入口ごとに直近10分で数えます（`inventory_public_access`）。超えた相手は `/api` が 429 を返します。**正しいURLのお客様は止めません**（外し続けている相手だけ止めます） |
+| 入口ごとの上限 | `quote-view`＝外れ20回／合計150回、`quote-decide`＝外れ10回／合計30回、`form`（診断・相談フォーム）＝合計20回 |
+| 連打 | `/api/quote-decide` は同じ相手から**1分に10回**、`/api/quote-view` は**1分に60回**、`/api/quote` と `/api/contact` は**1分に5回**まで |
 | 二重送信 | 同じ操作をもう一度送っても、`inv_quote_decide` が `already=true` を返して**何も書き換えません**。承認者名も日時も最初のままで、**Slackも二度は送りません** |
 | 違う操作 | 承認したあとに相談（またはその逆）は、これまでどおりことわります（担当者が新しい版を出す流れにするため） |
 | Slackが失敗したとき | DBはすでに確定しているので、**巻き戻しません**。お客様には成功として返し、失敗はログに残します。案件の状態は `/zaiko/deals` で見えるので取りこぼしません |
 
-IPそのものは保存しません。APIが sha256 にしてから渡します。
+**IPそのものは保存しません。**APIが sha256 にしてから渡します。
+記録は**無期限には残しません**。`inv_public_access_check` が呼ばれるたびに
+**30日より前の記録を消します**（cronを足さなくても必ず消えます）。
+期間を変えたいときや手で消したいときは `select public.inv_public_access_cleanup(90);`
+のように日数を渡します（消した件数が返ります）。
+数えるのに使うのは直近10分だけで、30日ぶん残しているのは**あとで様子を見るため**です。
 
 ### ［この内容で進める］が意味すること
 
@@ -2531,12 +2545,16 @@ Slack 通知に失敗しても送信は成功として返します**（相談を
 | `SUPABASE_URL` | 任意 | 既定値がコードに入っているため通常は不要 |
 | `SUPABASE_ANON_KEY` | 任意 | 同上（RLS で保護された公開鍵） |
 | `ADMIN_CONTACT_URL` | 任意 | Slack 通知のボタンの遷移先。既定 `https://www.8ec.jp/admin/contact/` |
-| `SUPABASE_SECRET_KEY` | **必須** | **顧客見積ページ（`/q/:token`）用のサーバー鍵。**Supabase の Project Settings → API Keys で作る `sb_secret_…`（旧方式なら `service_role` の JWT）。`SUPABASE_SERVICE_ROLE_KEY` でも読みます。**公開鍵と違って絶対に公開してはいけません**（ブラウザに出す場所では使いません） |
-| `QUOTE_IP_SALT` | 任意 | 総当たりを数えるときにIPをハッシュ化する塩。未設定でも動きます |
+| `SUPABASE_SECRET_KEY` | **必須** | **サーバー鍵。**Supabase の Project Settings → API Keys で作る `sb_secret_…`（旧方式なら `service_role` の JWT）。`SUPABASE_SERVICE_ROLE_KEY` でも読みます。**公開鍵と違って絶対に公開してはいけません**（ブラウザに出す場所では使いません） |
+| `QUOTE_IP_SALT` | 任意 | 回数を数えるときにIPをハッシュ化する塩。未設定でも動きます |
+| `SUPABASE_ANON_KEY` | 任意 | 公開カタログの読み取り（`/api/sitemap-products`・ブラウザの商品一覧）だけに使います |
 
-`SUPABASE_SECRET_KEY` は `/api/quote-view` と `/api/quote-decide` だけが使います。
-未設定のあいだは公開鍵で動こうとしますが、`2026-09-23-quote-api-only.sql` を当てたあとは
-権限エラーになり、顧客見積ページが開けなくなります（順番は「顧客見積APIはサーバー経由だけにする」を参照）。
+`SUPABASE_SECRET_KEY` は `/api/quote`・`/api/contact`・`/api/quote-view`・`/api/quote-decide` が使います。
+
+**未設定だと、この4つは 503 を返して止まります（fail closed）。**
+公開鍵で代わりに動かすことはしません。公開鍵はサイトのJSに載っていて誰でも読めるので、
+それで書き込めるならAPIを通す意味がなくなるためです。
+**この4つのAPIを配信する前に、必ず環境変数を登録してください。**
 
 ### Slack の受信 Webhook を作る
 
