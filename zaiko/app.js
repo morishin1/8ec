@@ -129,6 +129,7 @@ const db = {
   quotes: [], qItems: [], qTotals: [],   // 見積・明細・合計
   contracts: [], cItems: [],             // 契約・契約明細（Phase 3-a）
   invoices: [], payments: [],            // 請求・入金（Phase 3-b）
+  fulLines: [], fulfillments: [],        // 手配の一覧・確保した実物（Phase 3-c）
   stats: null               // 今月の経営数値（inv_dashboard_stats）
 };
 const ui = {
@@ -562,9 +563,11 @@ async function loadAll() {
     sb.from('inventory_contracts').select('*').order('id', { ascending: false }).limit(500),
     sb.from('inventory_contract_items').select('*').limit(LOAD_LIMIT),
     sb.from('inv_contract_invoice_list').select('*').order('id', { ascending: true }).limit(LOAD_LIMIT),
-    sb.from('inventory_contract_payments').select('*').limit(LOAD_LIMIT)
+    sb.from('inventory_contract_payments').select('*').limit(LOAD_LIMIT),
+    sb.from('inv_contract_fulfillment_list').select('*').limit(LOAD_LIMIT),
+    sb.from('inventory_contract_fulfillments').select('*').limit(LOAD_LIMIT)
   ];
-  const [c, l, i, p, t, s, ch, im, rr, cl, cs, ds, dl, qh, qi, qt, kh, ki, vh, vp] = await Promise.all(q);
+  const [c, l, i, p, t, s, ch, im, rr, cl, cs, ds, dl, qh, qi, qt, kh, ki, vh, vp, fl, fm] = await Promise.all(q);
   const bad = [c, l, i, p, t, s, ch, im].find(r => r.error);
   if (bad) { showSetup(bad.error); return false; }
   db.imports = im.data || [];
@@ -584,6 +587,9 @@ async function loadAll() {
   // 請求・入金。migration未適用でも他の画面が動くよう、取れなければ空にする
   db.invoices = vh.error ? [] : (vh.data || []);
   db.payments = vp.error ? [] : (vp.data || []);
+  // 手配。migration未適用でも他の画面が動くよう、取れなければ空にする
+  db.fulLines = fl.error ? [] : (fl.data || []);
+  db.fulfillments = fm.error ? [] : (fm.data || []);
 
   db.cats = c.data || [];
   db.locs = l.data || [];
@@ -6136,8 +6142,7 @@ function viewContract() {
       <b>${ff.ok ? '手配に進めます' : 'まだ手配できません'}</b>
       <span class="meta">${esc(ff.reason)}</span>
     </div>
-    <p class="meta" style="margin:8px 0 0">実際の手配（販売予約・レンタル割当）は Phase 3-c で作ります。
-      いまの画面では、在庫は一切動きません。</p>
+    <p class="meta" style="margin:8px 0 0">実際に在庫を押さえるのは、下の「手配」で［手配に進む］を押したときだけです。</p>
   </div>
 
   <div class="sec">件名・日付</div>
@@ -6233,6 +6238,8 @@ function viewContract() {
     <div><div class="lbl">税込総額</div><div class="v plus">${yen(c.total || 0)}</div></div>
   </div>
 
+  ${contractFulfillHtml(c)}
+
   ${contractInvoicesHtml(c)}
 
   ${c.note ? `<div class="sec">お客様向けの但し書き</div><div class="pre">${esc(c.note)}</div>` : ''}
@@ -6246,8 +6253,135 @@ function viewContract() {
       <span class="ms">block</span><span class="t">この契約を取り消す</span></button>` : ''}
   </div>` : ''}
   <p class="meta" style="margin-top:14px">契約を確定しても、<b>機器は確保されません</b>。
-    在庫の確保は［手配に進む］を押したときだけ行います（Phase 3-c）。
+    在庫の確保は［手配に進む］を押したときだけ行います。
     ${needCredit ? '後払いなので、その前に管理者の社内承認が要ります。' : ''}</p>`;
+}
+
+/* ---- 手配（Phase 3-c） ----
+     ［手配に進む］を押したときだけ、実在庫を押さえる。
+     販売は販売予約、レンタルはレンタル申込 → 個体割当。
+     足りないぶんは「調達待ち」として残し、仮の個体は作らない。
+     ここで完成するのは受注から手配・在庫確保まで。発送・納品・返却はまだ。 */
+const ITEM_FUL_CLASS = { '手配不要': 'act', '未手配': 'act', '手配中': 'act',
+                         '確保済み': 'st-在庫', '調達待ち': 'st-廃棄',
+                         '発送済み': 'st-在庫', '貸出中': 'st-貸出中',
+                         '返却済み': 'st-在庫', '完了': 'st-在庫' };
+
+const fulLinesOf = (contractId) => db.fulLines.filter(x => x.contract_id === contractId)
+  .sort((a, b) => (a.sort_no - b.sort_no) || (a.contract_item_id - b.contract_item_id));
+const fulItemsOf = (contractItemId) => db.fulfillments
+  .filter(x => x.contract_item_id === contractItemId && x.status !== '解除');
+
+/* 契約画面の「手配」欄 */
+function contractFulfillHtml(c) {
+  const lines = fulLinesOf(c.id);
+  const stock = lines.filter(x => x.kind === 'sale' || x.kind === 'rental');
+  const ff = canFulfill(c);
+  const got = stock.reduce((a, x) => a + (x.allocated_qty || 0), 0);
+  const short = stock.reduce((a, x) => a + (x.procure_qty || 0), 0);
+  const shipped = ['発送済み', '貸出中', '完了', '返却待ち', '返却済み'].includes(c.fulfillment_status);
+  const started = got > 0 || stock.some(x => x.fulfillment_status === '調達待ち');
+
+  return `
+  <div class="sec">手配<span class="secn">${stock.length ? stock.length + '明細' : '在庫を伴う明細なし'}</span></div>
+  <div class="prices" style="margin-bottom:12px">
+    <div><div class="lbl">手配状態</div><div class="v" style="font-size:15px">${esc(c.fulfillment_status)}</div></div>
+    <div><div class="lbl">自社在庫から確保</div><div class="v">${got}台</div></div>
+    <div><div class="lbl">調達待ち</div><div class="v${short ? ' plus' : ''}">${short}台</div></div>
+  </div>
+
+  ${stock.length ? `<div class="table-wrap"><table class="t"><thead><tr>
+      <th>明細</th><th>必要</th><th>確保</th><th>調達待ち</th><th>状態</th><th>押さえた個体</th>
+    </tr></thead><tbody>
+    ${lines.map(x => {
+      const ids = fulItemsOf(x.contract_item_id);
+      return `<tr${x.fulfillment_status === '調達待ち' ? ' class="warn"' : ''}>
+        <td><b>${esc(x.name)}</b><div class="meta">${esc(kindLabel(x.kind))}${
+          x.product_code ? '／' + esc(x.product_code) : '／商品コードなし'}</div></td>
+        <td class="num">${x.kind === 'sale' || x.kind === 'rental' ? x.qty + '台' : '—'}</td>
+        <td class="num">${x.kind === 'sale' || x.kind === 'rental' ? x.allocated_qty + '台' : '—'}</td>
+        <td class="num">${x.procure_qty ? '<b>' + x.procure_qty + '台</b>' : '—'}</td>
+        <td><span class="tag ${ITEM_FUL_CLASS[x.fulfillment_status] || 'act'}">${esc(x.fulfillment_status)}</span>
+          ${x.rental_request_id ? `<div class="meta">申込 #${x.rental_request_id}</div>` : ''}</td>
+        <td class="meta" style="font-size:11.5px">${ids.length
+          ? ids.slice(0, 6).map(f => esc(f.item_id)).join('、') + (ids.length > 6 ? ` ほか${ids.length - 6}台` : '')
+          : '—'}</td>
+      </tr>`;
+    }).join('')}
+  </tbody></table></div>` : '<div class="empty">在庫を伴う明細がありません（作業・月額サービスだけの契約です）。</div>'}
+
+  ${short ? `<p class="meta" style="margin-top:8px"><b>${short}台が調達待ちです。</b>
+    仕入れて在庫が増えたら［不足分を手配］を押してください。
+    すでに確保できている個体には触りません。</p>` : ''}
+
+  ${canEdit() && c.status !== '取消' && !shipped ? `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+      ${!started ? `<button class="btn sm pri" onclick="sheetFulfill(${c.id})" ${ff.ok ? '' : 'disabled'}>手配に進む</button>` : ''}
+      ${short ? `<button class="btn sm" onclick="sheetFulfill(${c.id}, true)" ${ff.ok ? '' : 'disabled'}>不足分を手配</button>` : ''}
+      ${got ? `<button class="btn sm ghost" onclick="releaseFulfill(${c.id})">確保した個体を戻す</button>` : ''}
+    </div>
+    ${ff.ok ? '' : `<div class="meta" style="margin-top:6px">${esc(ff.reason)}</div>`}` : ''}
+  ${shipped ? `<p class="meta" style="margin-top:8px">発送以降に進んでいるので、ここからは在庫を自動で戻しません。
+    返品・返却は実物を確認してから個体ごとに操作してください。</p>` : ''}
+  <p class="meta" style="margin-top:8px">ここで完成しているのは<b>受注から手配・在庫確保まで</b>です。
+    発送・納品・返却の管理はまだ作っていません。</p>`;
+}
+
+function sheetFulfill(contractId, onlyShort) {
+  const c = contractOf(contractId); if (!c) return;
+  const lines = fulLinesOf(contractId).filter(x => x.kind === 'sale' || x.kind === 'rental');
+  const target = onlyShort ? lines.filter(x => x.procure_qty > 0) : lines;
+  openSheet({
+    title: onlyShort ? '不足分を手配する' : '手配を開始する',
+    subject: contractNo(c), cta: onlyShort ? '不足分を手配する' : '手配を開始する',
+    hint: `<strong>ここで実在庫を押さえます。</strong>
+      販売の商品は「販売予約」、レンタルの商品は「予約中」になります。
+      足りないぶんは<strong>「調達待ち」として残します</strong>（仮の在庫は作りません）。
+      ${onlyShort ? 'すでに確保できている個体には触りません。' : ''}`,
+    body: `${target.length ? `<div class="table-wrap"><table class="t"><thead><tr>
+        <th>明細</th><th>必要</th><th>確保済み</th><th>これから</th>
+      </tr></thead><tbody>
+      ${target.map(x => `<tr>
+        <td><b>${esc(x.name)}</b><div class="meta">${esc(kindLabel(x.kind))}</div></td>
+        <td class="num">${x.qty}台</td>
+        <td class="num">${x.allocated_qty}台</td>
+        <td class="num"><b>${x.procure_qty}台</b></td>
+      </tr>`).join('')}
+      </tbody></table></div>` : '<div class="empty">手配するものがありません。</div>'}
+      <p class="meta" style="margin-top:10px">在庫が足りないときは、取れたぶんだけ確保して残りを調達待ちにします。
+        取れた個体を取り消すことはしません。</p>`,
+    run: async () => {
+      const { data, error } = await sb.rpc('inv_contract_fulfill_start',
+        { p_contract_id: contractId, p_only_short: !!onlyShort });
+      if (error) { toast(error.message || '手配できませんでした'); return; }
+      await loadAll(); render();
+      if (data && data.ok === false) { toast(data.reason || '手配できませんでした'); return; }
+      const stopped = (data && data.stopped) || [];
+      if (stopped.length) { toast(stopped.join(' ／ ')); return; }
+      toast((data && data.allocated ? data.allocated + '台を確保しました' : '新しく確保するものはありませんでした')
+        + (data && data.short ? '／' + data.short + '台は調達待ちです' : ''));
+    }
+  });
+}
+
+function releaseFulfill(contractId) {
+  const c = contractOf(contractId); if (!c) return;
+  openSheet({
+    title: '確保した個体を戻す', subject: contractNo(c), cta: '在庫へ戻す',
+    hint: `<strong>この契約が押さえた個体だけ</strong>を在庫へ戻します。
+      同じ商品でも、ほかの案件が押さえている個体には触りません。
+      発送済み・売却済みの個体は戻しません（返品・返却の手続きが要ります）。`,
+    body: `<label class="field"><span>理由（履歴に残ります）</span>
+        <input class="input" id="frReason" placeholder="例）納期変更のため一度戻す"></label>`,
+    run: async () => {
+      const { data, error } = await sb.rpc('inv_contract_fulfill_release',
+        { p_contract_id: contractId, p_reason: ($('frReason') || {}).value || null });
+      if (error) { toast(error.message || '戻せませんでした'); return; }
+      await loadAll(); render();
+      toast(((data && data.released) || 0) + '台を在庫へ戻しました'
+        + (data && data.reason ? '／' + data.reason : ''));
+    }
+  });
 }
 
 /* ---- 請求と入金（Phase 3-b） ----
