@@ -5918,12 +5918,13 @@ comment on function public.inv_quote_create is
 
 /* 見積のヘッダを直す。提示済み以降は直せない */
 create or replace function public.inv_quote_set(
-  p_id       bigint,
-  p_title    text default null,
-  p_valid    date default null,
-  p_tax      numeric default null,
-  p_note     text default null,
-  p_internal text default null
+  p_id          bigint,
+  p_title       text    default null,
+  p_valid       date    default null,
+  p_tax         numeric default null,
+  p_note        text    default null,
+  p_internal    text    default null,
+  p_clear_valid boolean default false
 ) returns public.inventory_quotes
 language plpgsql security definer set search_path = public, pg_catalog as $$
 declare q public.inventory_quotes;
@@ -5937,18 +5938,22 @@ begin
     raise exception 'この見積は「%」なので直せません。複製して新しい版を作ってください', q.status;
   end if;
   update public.inventory_quotes
-     set title = nullif(btrim(coalesce(p_title, '')), ''),
-         valid_until = p_valid,
+     set title = case when p_title is null then title else nullif(btrim(p_title), '') end,
+         valid_until = case when coalesce(p_clear_valid, false) then null
+                            else coalesce(p_valid, valid_until) end,
          tax_rate = coalesce(p_tax, q.tax_rate),
-         note = nullif(btrim(coalesce(p_note, '')), ''),
-         internal_note = nullif(btrim(coalesce(p_internal, '')), ''),
+         note = case when p_note is null then note else nullif(btrim(p_note), '') end,
+         internal_note = case when p_internal is null then internal_note
+                              else nullif(btrim(p_internal), '') end,
          actor = public.inv_actor()
    where id = p_id
   returning * into q;
   return q;
 end $$;
 
-comment on function public.inv_quote_set is '見積の件名・有効期限・税率・但し書き・社内メモを直す。作成中のときだけ。';
+comment on function public.inv_quote_set is
+  '見積の件名・期限・税率・但し書きを直す。渡さなかった項目はいまの値を残し、
+   空文字を渡した項目だけ消す。有効期限を消すときは p_clear_valid を true にする。';
 
 /* 明細の追加・書き換え。p_item_id が null なら追加 */
 create or replace function public.inv_quote_item_save(
@@ -6529,7 +6534,7 @@ create table if not exists public.inventory_contracts (
   constraint inventory_contracts_status_chk check
     (status in ('作成中', '確定', '履行中', '完了', '取消')),
   constraint inventory_contracts_pay_chk check
-    (payment_status in ('未請求', '請求済み', '入金待ち', '一部入金', '入金済み', '決済失敗', '取消')),
+    (payment_status in ('未請求', '発行済み', '一部入金', '入金済み', '期限超過', '決済失敗', '取消')),
   constraint inventory_contracts_ful_chk check
     (fulfillment_status in ('未手配', '手配可', '手配中', '準備完了', '発送済み',
                             '貸出中', '完了', '返却待ち', '返却済み')),
@@ -6748,27 +6753,32 @@ begin
   if c.status not in ('作成中', '確定') then
     raise exception 'この契約は「%」なので直せません', c.status;
   end if;
-  -- 確定後に直せるのは支払条件まわりだけ（金額や期間は動かさない）
   if c.status = '確定' and (p_title is not null or p_contract_date is not null
                             or p_start is not null or p_end is not null) then
     raise exception '確定した契約の件名・日付は直せません。取り消してから作り直してください';
   end if;
   if c.terms_confirmed_at is not null
-     and (p_method is not null or p_timing is not null or p_terms is not null) then
+     and (nullif(btrim(coalesce(p_method, '')), '') is not null
+          or nullif(btrim(coalesce(p_timing, '')), '') is not null
+          or nullif(btrim(coalesce(p_terms, '')), '') is not null) then
     raise exception '支払条件はもう確定しています。変えるときは担当者にご確認ください';
   end if;
 
   update public.inventory_contracts
-     set title         = coalesce(nullif(btrim(coalesce(p_title, '')), ''), title),
+     set title         = case when p_title is null then title else nullif(btrim(p_title), '') end,
          contract_date = coalesce(p_contract_date, contract_date),
          start_date    = coalesce(p_start, start_date),
          end_date      = coalesce(p_end, end_date),
-         payment_method = coalesce(nullif(btrim(coalesce(p_method, '')), ''), payment_method),
-         payment_timing = coalesce(nullif(btrim(coalesce(p_timing, '')), ''), payment_timing),
-         payment_terms  = coalesce(nullif(btrim(coalesce(p_terms, '')), ''), payment_terms),
+         payment_method = case when p_method is null then payment_method
+                               else nullif(btrim(p_method), '') end,
+         payment_timing = case when p_timing is null then payment_timing
+                               else nullif(btrim(p_timing), '') end,
+         payment_terms  = case when p_terms is null then payment_terms
+                               else nullif(btrim(p_terms), '') end,
          billing_day    = coalesce(p_billing_day, billing_day),
-         note           = coalesce(p_note, note),
-         internal_note  = coalesce(p_internal, internal_note),
+         note           = case when p_note is null then note else nullif(btrim(p_note), '') end,
+         internal_note  = case when p_internal is null then internal_note
+                                else nullif(btrim(p_internal), '') end,
          actor          = public.inv_actor(),
          updated_at     = now()
    where id = p_id
@@ -6784,8 +6794,8 @@ begin
 end $$;
 
 comment on function public.inv_contract_set is
-  '契約の件名・日付・支払条件を直す。確定後は支払条件まわりだけ。
-   支払条件を確定したあとは、支払方法・前後払い・支払条件を変えられない。';
+  '契約の件名・日付・支払条件を直す。渡さなかった項目はいまの値を残す（空文字を渡すと消す）。
+   確定後は支払条件まわりだけ。支払条件を確定したあとは支払方法・前後払い・支払条件を変えられない。';
 
 -- ------------------------------------------------------------
 -- 49-7) 請求先を入れる
@@ -6816,13 +6826,20 @@ begin
   end if;
 
   update public.inventory_contracts
-     set billing_company     = nullif(btrim(coalesce(p_company, '')), ''),
-         billing_department  = nullif(btrim(coalesce(p_department, '')), ''),
-         billing_person      = nullif(btrim(coalesce(p_person, '')), ''),
-         billing_postal_code = nullif(btrim(coalesce(p_postal, '')), ''),
-         billing_address     = nullif(btrim(coalesce(p_address, '')), ''),
-         billing_email       = nullif(btrim(coalesce(p_email, '')), ''),
-         billing_note        = nullif(btrim(coalesce(p_note, '')), ''),
+     set billing_company     = case when p_company is null then billing_company
+                                    else nullif(btrim(p_company), '') end,
+         billing_department  = case when p_department is null then billing_department
+                                    else nullif(btrim(p_department), '') end,
+         billing_person      = case when p_person is null then billing_person
+                                    else nullif(btrim(p_person), '') end,
+         billing_postal_code = case when p_postal is null then billing_postal_code
+                                    else nullif(btrim(p_postal), '') end,
+         billing_address     = case when p_address is null then billing_address
+                                    else nullif(btrim(p_address), '') end,
+         billing_email       = case when p_email is null then billing_email
+                                    else nullif(btrim(p_email), '') end,
+         billing_note        = case when p_note is null then billing_note
+                                    else nullif(btrim(p_note), '') end,
          actor = public.inv_actor(), updated_at = now()
    where id = p_id
   returning * into c;
@@ -6836,7 +6853,8 @@ begin
 end $$;
 
 comment on function public.inv_contract_billing_set is
-  '請求先を入れる。空にすれば「契約先と同じ」という意味になる。';
+  '請求先を入れる。渡さなかった項目はいまの値を残す（空文字を渡すと消す）。
+   請求先の会社名が空なら「契約先と同じ」という意味になる。';
 
 -- ------------------------------------------------------------
 -- 49-8) 明細を直す・消す（作成中のあいだだけ）
@@ -7221,6 +7239,854 @@ grant execute on function public.inv_contract_terms_confirm(bigint)     to authe
 grant execute on function public.inv_contract_credit_approve(bigint,text) to authenticated;
 grant execute on function public.inv_contract_cancel(bigint,text)       to authenticated;
 grant execute on function public.inv_contract_can_fulfill(bigint)       to authenticated;
+
+
+-- ------------------------------------------------------------
+-- 50-1) 請求番号の採番
+--
+--     予定（下書き）の段階では番号を付けません。
+--     担当者が［発行する］を押したときに、はじめて正式採番します。
+-- ------------------------------------------------------------
+create sequence if not exists public.inventory_invoice_no_seq;
+
+create or replace function public.inv_invoice_no_next(p_on date default null)
+returns text language sql volatile set search_path = public, pg_catalog as $$
+  select 'INV-' || to_char(coalesce(p_on, current_date), 'YYYY') || '-'
+         || lpad(nextval('public.inventory_invoice_no_seq')::text, 6, '0')
+$$;
+
+comment on function public.inv_invoice_no_next is
+  '請求番号を採番する。INV-2026-000123。発行したときだけ呼ぶ（予定の段階では番号を付けない）。';
+
+-- ------------------------------------------------------------
+-- 50-2) 「その月の○日」を出す
+--
+--     請求日が31日でも、2月は28日（閏年は29日）、4月は30日になるようにする。
+--     月末の日数はDBに計算させるので、閏年も自然に正しくなる。
+-- ------------------------------------------------------------
+create or replace function public.inv_month_day(p_month date, p_day integer)
+returns date language sql immutable as $$
+  select (date_trunc('month', p_month)
+          + ((least(greatest(coalesce(p_day, 1), 1),
+                    extract(day from (date_trunc('month', p_month)
+                                      + interval '1 month' - interval '1 day'))::integer) - 1)
+             || ' days')::interval)::date
+$$;
+
+comment on function public.inv_month_day is
+  'その月の○日を返す。31日を指定しても、2月なら28日（閏年は29日）、4月なら30日になる。';
+
+-- ------------------------------------------------------------
+-- 50-3) 請求書
+--
+--     kind
+--       initial … 初期費用。契約につき1本
+--       monthly … 月額。1か月につき1本
+--       manual  … 追加や個別のもの（手で作る）
+-- ------------------------------------------------------------
+create table if not exists public.inventory_contract_invoices (
+  id          bigint generated by default as identity primary key,
+  contract_id bigint not null references public.inventory_contracts(id) on delete cascade,
+  contract_item_id bigint references public.inventory_contract_items(id) on delete set null,
+  kind        text not null default 'manual',
+  sequence_no integer not null default 0,
+
+  period_start date,
+  period_end   date,
+  scheduled_issue_date date,
+  issued_at    timestamptz,
+  due_date     date,
+
+  amount_excl integer not null default 0,
+  tax         integer not null default 0,
+  amount_incl integer not null default 0,
+
+  status      text not null default '下書き',
+  invoice_no  text unique,
+  stripe_invoice_id text,
+
+  note          text,     -- お客様に見せてよい但し書き
+  internal_note text,     -- 社内メモ
+  actor      text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint inventory_contract_invoices_kind_chk check (kind in ('initial', 'monthly', 'manual')),
+  constraint inventory_contract_invoices_status_chk check
+    (status in ('下書き', '発行待ち', '発行済み', '一部入金', '入金済み', '期限超過', '取消')),
+  -- 発行したものには必ず番号と日時が付いている
+  constraint inventory_contract_invoices_issued_chk check
+    (status in ('下書き', '発行待ち', '取消') or (invoice_no is not null and issued_at is not null))
+);
+
+comment on table public.inventory_contract_invoices is
+  '請求書。契約から予定として自動生成し、担当者が確認して発行する。
+   状態は 下書き → 発行待ち → 発行済み → 一部入金 → 入金済み。
+   「発行済み」が入金待ちを含む（請求済みと入金待ちは分けない）。
+   請求番号は発行したときだけ付ける。';
+
+create index if not exists inventory_contract_invoices_contract_idx
+  on public.inventory_contract_invoices (contract_id, sequence_no, id);
+create index if not exists inventory_contract_invoices_due_idx
+  on public.inventory_contract_invoices (due_date) where status in ('発行済み', '一部入金');
+
+-- 同じ契約・同じ請求期間で二重に作らない（取り消したものは数えない）
+create unique index if not exists inventory_contract_invoices_initial_uk
+  on public.inventory_contract_invoices (contract_id)
+  where kind = 'initial' and status <> '取消';
+create unique index if not exists inventory_contract_invoices_monthly_uk
+  on public.inventory_contract_invoices (contract_id, period_start)
+  where kind = 'monthly' and status <> '取消';
+
+-- ------------------------------------------------------------
+-- 50-4) 請求の内訳（どの契約明細から来たか）
+--
+--     初期費用の1本に複数の明細がまとまることがあるので、
+--     まとめても元の明細をたどれるようにする。
+-- ------------------------------------------------------------
+create table if not exists public.inventory_contract_invoice_lines (
+  id          bigint generated by default as identity primary key,
+  invoice_id  bigint not null references public.inventory_contract_invoices(id) on delete cascade,
+  contract_item_id bigint references public.inventory_contract_items(id) on delete set null,
+  name        text not null,
+  spec        text,
+  qty         integer not null default 1,
+  unit_price  integer not null default 0,
+  amount_excl integer not null default 0,
+  taxable     boolean not null default true,
+  sort_no     integer not null default 0
+);
+
+comment on table public.inventory_contract_invoice_lines is
+  '請求書の内訳。まとめて1本の請求にしても、どの契約明細のぶんかを追えるようにする。';
+
+create index if not exists inventory_contract_invoice_lines_invoice_idx
+  on public.inventory_contract_invoice_lines (invoice_id, sort_no, id);
+
+-- ------------------------------------------------------------
+-- 50-5) 入金
+--
+--     1つの請求に何回でも入金を登録できる（一部入金のため）。
+-- ------------------------------------------------------------
+create table if not exists public.inventory_contract_payments (
+  id         bigint generated by default as identity primary key,
+  invoice_id bigint not null references public.inventory_contract_invoices(id) on delete cascade,
+  paid_on    date not null default current_date,
+  amount     integer not null,
+  method     text,          -- 銀行振込 / 請求書払い / カード / 相殺 など
+  reference  text,          -- 振込名義・参照番号
+  note       text,
+  actor      text,
+  created_at timestamptz not null default now(),
+  constraint inventory_contract_payments_amount_chk check (amount <> 0)
+);
+
+comment on table public.inventory_contract_payments is
+  '入金。1つの請求に何回でも登録できる（一部入金・分割入金のため）。
+   返金はマイナスで入れる。過入金になっても自動では消さず、管理画面で警告する。';
+
+create index if not exists inventory_contract_payments_invoice_idx
+  on public.inventory_contract_payments (invoice_id, paid_on, id);
+
+-- ------------------------------------------------------------
+-- 50-6) 画面が読む一覧（入金合計と過入金つき）
+-- ------------------------------------------------------------
+create or replace view public.inv_contract_invoice_list as
+select i.*,
+       coalesce(p.paid_total, 0) as paid_total,
+       greatest(i.amount_incl - coalesce(p.paid_total, 0), 0) as remaining,
+       greatest(coalesce(p.paid_total, 0) - i.amount_incl, 0) as over_paid,
+       (i.status in ('発行済み', '一部入金', '期限超過')
+        and i.due_date is not null and i.due_date < current_date) as is_overdue
+  from public.inventory_contract_invoices i
+  left join (select invoice_id, sum(amount) as paid_total
+               from public.inventory_contract_payments group by invoice_id) p
+    on p.invoice_id = i.id;
+
+comment on view public.inv_contract_invoice_list is
+  '請求の一覧。入金合計・残額・過入金・期限超過かどうかを足して返す。';
+
+-- ------------------------------------------------------------
+-- 50-7) 請求1本の状態を計算しなおす
+--
+--     入金合計 = 0            → 発行済み（期限を過ぎていれば 期限超過）
+--     0 < 入金合計 < 請求額   → 一部入金（期限を過ぎていれば 期限超過）
+--     入金合計 >= 請求額      → 入金済み
+--
+--     過入金でも自動で消しません。画面に「過入金あり」と出します。
+-- ------------------------------------------------------------
+create or replace function public.inv_invoice_recalc(p_id bigint)
+returns public.inventory_contract_invoices
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare
+  v   public.inventory_contract_invoices;
+  v_paid integer;
+  v_new  text;
+begin
+  select * into v from public.inventory_contract_invoices where id = p_id for update;
+  if not found then raise exception '請求が見つかりません（%）', p_id; end if;
+  -- まだ発行していないもの・取り消したものは、入金で状態が動かない
+  if v.status in ('下書き', '発行待ち', '取消') then return v; end if;
+
+  select coalesce(sum(amount), 0) into v_paid
+    from public.inventory_contract_payments where invoice_id = p_id;
+
+  if v_paid >= v.amount_incl and v.amount_incl > 0 then
+    v_new := '入金済み';
+  elsif v_paid > 0 then
+    v_new := case when v.due_date is not null and v.due_date < current_date
+                  then '期限超過' else '一部入金' end;
+  else
+    v_new := case when v.due_date is not null and v.due_date < current_date
+                  then '期限超過' else '発行済み' end;
+  end if;
+
+  if v_new <> v.status then
+    update public.inventory_contract_invoices
+       set status = v_new, updated_at = now() where id = p_id returning * into v;
+  end if;
+  return v;
+end $$;
+
+comment on function public.inv_invoice_recalc is
+  '請求1本の状態を、入金合計と支払期限から計算しなおす。
+   下書き・発行待ち・取消は動かさない。過入金でも自動で消さない。';
+
+-- ------------------------------------------------------------
+-- 50-8) 契約全体の入金状態を、請求書たちから組み立てる（集約）
+--
+--     取消の請求は数えない。請求が1本も無ければ「未請求」。
+-- ------------------------------------------------------------
+create or replace function public.inv_contract_payment_recalc(p_contract_id bigint)
+returns text
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare
+  c        public.inventory_contracts;
+  v_all    integer; v_issued integer; v_paid_full integer;
+  v_over   integer; v_paid_any integer; v_status text;
+begin
+  select * into c from public.inventory_contracts where id = p_contract_id for update;
+  if not found then raise exception '契約が見つかりません（%）', p_contract_id; end if;
+
+  select count(*) filter (where status <> '取消'),
+         count(*) filter (where status in ('発行済み', '一部入金', '入金済み', '期限超過')),
+         count(*) filter (where status = '入金済み'),
+         count(*) filter (where status = '期限超過'),
+         count(*) filter (where status in ('一部入金', '入金済み'))
+    into v_all, v_issued, v_paid_full, v_over, v_paid_any
+    from public.inventory_contract_invoices where contract_id = p_contract_id;
+
+  if c.status = '取消' then
+    v_status := '取消';
+  elsif v_all = 0 or v_issued = 0 then
+    v_status := '未請求';
+  elsif v_paid_full = v_all then
+    v_status := '入金済み';
+  elsif v_over > 0 then
+    v_status := '期限超過';
+  elsif v_paid_any > 0 then
+    v_status := '一部入金';
+  else
+    v_status := '発行済み';
+  end if;
+
+  if v_status <> c.payment_status then
+    update public.inventory_contracts
+       set payment_status = v_status, updated_at = now() where id = p_contract_id;
+    insert into public.inventory_transactions
+      (actor, ref_kind, ref_id, label, action, before_value, after_value)
+    values (public.inv_actor(), 'contract', c.id::text,
+            public.inv_contract_no(c.deal_id, c.seq), '入金状態', c.payment_status, v_status);
+  end if;
+  return v_status;
+end $$;
+
+comment on function public.inv_contract_payment_recalc is
+  '契約全体の入金状態を、その契約の請求書たちから組み立てる。
+   すべて入金済み → 入金済み、1本でも期限超過 → 期限超過、一部でも入金あり → 一部入金、
+   発行しただけ → 発行済み、まだ発行していない → 未請求。';
+
+-- ------------------------------------------------------------
+-- 50-9) 契約の入金状態の言葉を、請求書と揃える
+--
+--     「請求済み」「入金待ち」は意味が重なるのでやめる。
+--     決済失敗は Phase 3-e（カード）で使うので残しておく。
+-- ------------------------------------------------------------
+
+
+-- ------------------------------------------------------------
+-- 50-10) まとめて計算しなおす（期限超過の反映もここで）
+--
+--     支払期限を過ぎたかどうかは日が変わると変わるので、
+--     画面を開いたときと、請求まわりを触ったときに呼び直す。
+--     p_contract_id を省くと全件（あとで日次バッチに載せてもよい）。
+-- ------------------------------------------------------------
+create or replace function public.inv_contract_invoices_refresh(p_contract_id bigint default null)
+returns integer
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare r record; n integer := 0;
+begin
+  for r in select id from public.inventory_contract_invoices
+            where (p_contract_id is null or contract_id = p_contract_id)
+              and status in ('発行済み', '一部入金', '入金済み', '期限超過')
+  loop
+    perform public.inv_invoice_recalc(r.id);
+    n := n + 1;
+  end loop;
+  for r in select distinct contract_id from public.inventory_contract_invoices
+            where (p_contract_id is null or contract_id = p_contract_id)
+  loop
+    perform public.inv_contract_payment_recalc(r.contract_id);
+  end loop;
+  return n;
+end $$;
+
+comment on function public.inv_contract_invoices_refresh is
+  '請求の状態（期限超過を含む）と契約の入金状態を計算しなおす。
+   引数なしで全件。画面を開いたときに呼ぶほか、日次バッチに載せてもよい。';
+
+-- ------------------------------------------------------------
+-- 50-11) 請求の予定をまとめて作る
+--
+--     契約確定 ＋ 支払条件確定 のあとに呼ぶ。
+--       初期費用 … 一括の明細をまとめて1本
+--       月額     … 1か月につき1本（12か月なら12本）
+--
+--     作るのは「下書き」までです。自動では発行しません。
+--       自動生成 → 下書き → 担当者確認 → 発行待ち → 発行
+--
+--     日割りはしません。契約明細に固定された 単価×数量 を1か月分として立てます。
+--     何度呼んでも、同じ契約・同じ請求期間のものは二重に作りません。
+-- ------------------------------------------------------------
+create or replace function public.inv_contract_invoices_generate(p_contract_id bigint)
+returns jsonb
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare
+  c        public.inventory_contracts;
+  v_inv_id bigint;
+  v_excl   integer; v_taxable integer;
+  v_start  date; v_ps date; v_pe date; v_issue date; v_due date;
+  v_made   integer := 0; v_skip integer := 0;
+  n        integer;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  select * into c from public.inventory_contracts where id = p_contract_id for update;
+  if not found then raise exception '契約が見つかりません（%）', p_contract_id; end if;
+  if c.status <> '確定' then
+    raise exception '契約を確定してから請求の予定を作ってください（いまは「%」）', c.status;
+  end if;
+  if c.terms_confirmed_at is null then
+    raise exception '支払条件を確定してから請求の予定を作ってください';
+  end if;
+
+  -- ── 初期費用（一括の明細をまとめて1本） ──
+  select coalesce(sum(amount), 0), coalesce(sum(amount) filter (where taxable), 0)
+    into v_excl, v_taxable
+    from public.inventory_contract_items
+   where contract_id = p_contract_id and billing = 'one_time';
+
+  if v_excl > 0 then
+    if exists (select 1 from public.inventory_contract_invoices
+                where contract_id = p_contract_id and kind = 'initial' and status <> '取消') then
+      v_skip := v_skip + 1;
+    else
+      v_issue := coalesce(c.contract_date, current_date);
+      -- 支払期限の既定は「発行する月の翌月末」。下書きのあいだは直せます
+      v_due := (date_trunc('month', v_issue) + interval '2 months' - interval '1 day')::date;
+      insert into public.inventory_contract_invoices
+        (contract_id, kind, sequence_no, scheduled_issue_date, due_date,
+         amount_excl, tax, amount_incl, status, actor)
+      values (p_contract_id, 'initial', 0, v_issue, v_due,
+              v_excl, round(v_taxable * c.tax_rate / 100)::integer,
+              v_excl + round(v_taxable * c.tax_rate / 100)::integer, '下書き', public.inv_actor())
+      returning id into v_inv_id;
+
+      insert into public.inventory_contract_invoice_lines
+        (invoice_id, contract_item_id, name, spec, qty, unit_price, amount_excl, taxable, sort_no)
+      select v_inv_id, it.id, it.name, it.spec, it.qty, it.unit_price, it.amount, it.taxable, it.sort_no
+        from public.inventory_contract_items it
+       where it.contract_id = p_contract_id and it.billing = 'one_time'
+       order by it.sort_no, it.id;
+      v_made := v_made + 1;
+    end if;
+  end if;
+
+  -- ── 月額（1か月につき1本） ──
+  select coalesce(sum(qty * unit_price), 0),
+         coalesce(sum(qty * unit_price) filter (where taxable), 0)
+    into v_excl, v_taxable
+    from public.inventory_contract_items
+   where contract_id = p_contract_id and billing = 'monthly';
+
+  if v_excl > 0 and coalesce(c.months, 0) > 0 then
+    v_start := coalesce(c.start_date, c.contract_date, current_date);
+    for n in 0 .. (c.months - 1) loop
+      v_ps := (date_trunc('month', v_start) + (n || ' months')::interval)::date;
+      -- 利用期間の開始日が月の途中なら、初月だけその日から
+      if n = 0 then v_ps := v_start; end if;
+      v_pe := (date_trunc('month', v_ps) + interval '1 month' - interval '1 day')::date;
+      -- 請求日は支払条件を確定するときに必ず入れてもらうが、念のため既定は月末（31→その月の末日）
+      v_issue := public.inv_month_day(v_ps, coalesce(c.billing_day, 31));
+      v_due := (date_trunc('month', v_issue) + interval '2 months' - interval '1 day')::date;
+
+      if exists (select 1 from public.inventory_contract_invoices
+                  where contract_id = p_contract_id and kind = 'monthly'
+                    and period_start = v_ps and status <> '取消') then
+        v_skip := v_skip + 1;
+      else
+        insert into public.inventory_contract_invoices
+          (contract_id, kind, sequence_no, period_start, period_end,
+           scheduled_issue_date, due_date, amount_excl, tax, amount_incl, status, actor)
+        values (p_contract_id, 'monthly', n + 1, v_ps, v_pe, v_issue, v_due,
+                v_excl, round(v_taxable * c.tax_rate / 100)::integer,
+                v_excl + round(v_taxable * c.tax_rate / 100)::integer, '下書き', public.inv_actor())
+        returning id into v_inv_id;
+
+        insert into public.inventory_contract_invoice_lines
+          (invoice_id, contract_item_id, name, spec, qty, unit_price, amount_excl, taxable, sort_no)
+        select v_inv_id, it.id, it.name, it.spec, it.qty, it.unit_price,
+               it.qty * it.unit_price, it.taxable, it.sort_no
+          from public.inventory_contract_items it
+         where it.contract_id = p_contract_id and it.billing = 'monthly'
+         order by it.sort_no, it.id;
+        v_made := v_made + 1;
+      end if;
+    end loop;
+  end if;
+
+  if v_made > 0 then
+    insert into public.inventory_transactions
+      (actor, ref_kind, ref_id, label, action, before_value, after_value)
+    values (public.inv_actor(), 'contract', c.id::text,
+            public.inv_contract_no(c.deal_id, c.seq), '請求予定の作成', null,
+            v_made || '本を下書きで作成（発行はしていません）');
+  end if;
+  perform public.inv_contract_payment_recalc(p_contract_id);
+  return jsonb_build_object('created', v_made, 'skipped', v_skip);
+end $$;
+
+comment on function public.inv_contract_invoices_generate is
+  '契約から請求の予定をまとめて作る。初期費用1本＋月額は月ごとに1本。
+   作るのは下書きまでで、自動では発行しない。日割りはしない。
+   何度呼んでも、同じ契約・同じ請求期間のものは二重に作らない。';
+
+-- ------------------------------------------------------------
+-- 50-12) 請求を手で1本足す
+-- ------------------------------------------------------------
+create or replace function public.inv_contract_invoice_add(
+  p_contract_id bigint,
+  p_title       text    default null,
+  p_amount_excl integer default 0,
+  p_taxable     boolean default true,
+  p_issue       date    default null,
+  p_due         date    default null,
+  p_item_id     bigint  default null
+) returns public.inventory_contract_invoices
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare
+  c public.inventory_contracts;
+  v public.inventory_contract_invoices;
+  v_tax integer;
+  v_seq integer;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  select * into c from public.inventory_contracts where id = p_contract_id;
+  if not found then raise exception '契約が見つかりません（%）', p_contract_id; end if;
+  if c.status = '取消' then raise exception 'この契約は取消です'; end if;
+  if nullif(btrim(coalesce(p_title, '')), '') is null then
+    raise exception '請求の名前を入れてください';
+  end if;
+
+  v_tax := case when coalesce(p_taxable, true)
+                then round(greatest(coalesce(p_amount_excl, 0), 0) * c.tax_rate / 100)::integer
+                else 0 end;
+  select coalesce(max(sequence_no), 0) + 1 into v_seq
+    from public.inventory_contract_invoices where contract_id = p_contract_id;
+
+  insert into public.inventory_contract_invoices
+    (contract_id, contract_item_id, kind, sequence_no, scheduled_issue_date, due_date,
+     amount_excl, tax, amount_incl, status, note, actor)
+  values (p_contract_id, p_item_id, 'manual', v_seq,
+          coalesce(p_issue, current_date),
+          coalesce(p_due, (date_trunc('month', coalesce(p_issue, current_date))
+                           + interval '2 months' - interval '1 day')::date),
+          greatest(coalesce(p_amount_excl, 0), 0), v_tax,
+          greatest(coalesce(p_amount_excl, 0), 0) + v_tax, '下書き', btrim(p_title), public.inv_actor())
+  returning * into v;
+
+  insert into public.inventory_contract_invoice_lines
+    (invoice_id, contract_item_id, name, qty, unit_price, amount_excl, taxable, sort_no)
+  values (v.id, p_item_id, btrim(p_title), 1, v.amount_excl, v.amount_excl, coalesce(p_taxable, true), 10);
+  return v;
+end $$;
+
+comment on function public.inv_contract_invoice_add is '請求を手で1本足す（追加費用など）。下書きで作る。';
+
+-- ------------------------------------------------------------
+-- 50-13) 請求を直す（下書き・発行待ちのあいだだけ）
+--
+--     発行したあとは、金額・請求先・対象期間を直接書き換えられません。
+--     直したいときは「取り消して、新しい請求を作る」形にします（履歴を壊さないため）。
+--     発行後に触れるのは社内メモだけです。
+-- ------------------------------------------------------------
+create or replace function public.inv_contract_invoice_set(
+  p_id          bigint,
+  p_issue       date    default null,
+  p_due         date    default null,
+  p_amount_excl integer default null,
+  p_taxable     boolean default null,
+  p_note        text    default null,
+  p_internal    text    default null
+) returns public.inventory_contract_invoices
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare
+  v public.inventory_contract_invoices;
+  c public.inventory_contracts;
+  v_excl integer; v_tax integer;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  select * into v from public.inventory_contract_invoices where id = p_id for update;
+  if not found then raise exception '請求が見つかりません（%）', p_id; end if;
+
+  -- 発行したあとは社内メモだけ
+  if v.status not in ('下書き', '発行待ち') then
+    if p_issue is not null or p_due is not null or p_amount_excl is not null or p_taxable is not null then
+      raise exception '発行した請求の金額・日付は直せません（いまは「%」）。'
+        '取り消して、新しい請求を作ってください', v.status;
+    end if;
+    if p_internal is not null then
+      update public.inventory_contract_invoices
+         set internal_note = nullif(btrim(p_internal), ''), updated_at = now()
+       where id = p_id returning * into v;
+    end if;
+    return v;
+  end if;
+
+  select * into c from public.inventory_contracts where id = v.contract_id;
+  v_excl := coalesce(p_amount_excl, v.amount_excl);
+  v_tax  := case when coalesce(p_taxable, v.tax > 0 or v.amount_excl = 0)
+                 then round(v_excl * c.tax_rate / 100)::integer else 0 end;
+
+  update public.inventory_contract_invoices
+     set scheduled_issue_date = coalesce(p_issue, scheduled_issue_date),
+         due_date    = coalesce(p_due, due_date),
+         amount_excl = v_excl,
+         tax         = v_tax,
+         amount_incl = v_excl + v_tax,
+         note          = case when p_note is null then note else nullif(btrim(p_note), '') end,
+         internal_note = case when p_internal is null then internal_note else nullif(btrim(p_internal), '') end,
+         actor = public.inv_actor(), updated_at = now()
+   where id = p_id
+  returning * into v;
+  return v;
+end $$;
+
+comment on function public.inv_contract_invoice_set is
+  '請求を直す。下書き・発行待ちのあいだだけ金額と日付を直せる。
+   発行したあとは社内メモだけ。直したいときは取り消して作り直す。';
+
+-- ------------------------------------------------------------
+-- 50-14) 下書き → 発行待ち（担当者が中身を確認した）
+-- ------------------------------------------------------------
+create or replace function public.inv_contract_invoice_ready(p_id bigint, p_back boolean default false)
+returns public.inventory_contract_invoices
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare v public.inventory_contract_invoices;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  select * into v from public.inventory_contract_invoices where id = p_id for update;
+  if not found then raise exception '請求が見つかりません（%）', p_id; end if;
+
+  if coalesce(p_back, false) then
+    if v.status <> '発行待ち' then
+      raise exception '発行待ちの請求だけ下書きに戻せます（いまは「%」）', v.status;
+    end if;
+    update public.inventory_contract_invoices
+       set status = '下書き', actor = public.inv_actor(), updated_at = now()
+     where id = p_id returning * into v;
+    return v;
+  end if;
+
+  if v.status <> '下書き' then
+    raise exception '下書きの請求だけ発行待ちにできます（いまは「%」）', v.status;
+  end if;
+  if v.amount_incl <= 0 then raise exception '金額が0円です。中身を確認してください'; end if;
+  update public.inventory_contract_invoices
+     set status = '発行待ち', actor = public.inv_actor(), updated_at = now()
+   where id = p_id returning * into v;
+  return v;
+end $$;
+
+comment on function public.inv_contract_invoice_ready is
+  '請求を 下書き → 発行待ち にする（担当者が中身を確認した印）。p_back を true にすると下書きへ戻す。';
+
+-- ------------------------------------------------------------
+-- 50-15) 発行する（ここで正式採番）
+-- ------------------------------------------------------------
+create or replace function public.inv_contract_invoice_issue(p_id bigint, p_on date default null)
+returns public.inventory_contract_invoices
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare
+  v public.inventory_contract_invoices;
+  c public.inventory_contracts;
+  v_on date := coalesce(p_on, current_date);
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  select * into v from public.inventory_contract_invoices where id = p_id for update;
+  if not found then raise exception '請求が見つかりません（%）', p_id; end if;
+  if v.status <> '発行待ち' then
+    raise exception '発行待ちの請求だけ発行できます（いまは「%」）。'
+      '先に中身を確認して［発行待ちにする］を押してください', v.status;
+  end if;
+
+  select * into c from public.inventory_contracts where id = v.contract_id;
+  update public.inventory_contract_invoices
+     set status = '発行済み',
+         invoice_no = public.inv_invoice_no_next(v_on),
+         issued_at  = now(),
+         scheduled_issue_date = v_on,
+         due_date = coalesce(due_date,
+           (date_trunc('month', v_on) + interval '2 months' - interval '1 day')::date),
+         actor = public.inv_actor(), updated_at = now()
+   where id = p_id
+  returning * into v;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'invoice', v.id::text, v.invoice_no, '請求発行', '発行待ち',
+          to_char(v.amount_incl, 'FM9,999,999,999') || '円（税込）／支払期限 ' || v.due_date::text);
+
+  perform public.inv_invoice_recalc(p_id);
+  perform public.inv_contract_payment_recalc(v.contract_id);
+  select * into v from public.inventory_contract_invoices where id = p_id;
+  return v;
+end $$;
+
+comment on function public.inv_contract_invoice_issue is
+  '請求を発行する。ここではじめて正式な請求番号を採番する。
+   発行したあとは金額・日付を直せない（取り消して作り直す）。';
+
+-- ------------------------------------------------------------
+-- 50-16) 請求を取り消す
+-- ------------------------------------------------------------
+create or replace function public.inv_contract_invoice_cancel(p_id bigint, p_reason text default null)
+returns public.inventory_contract_invoices
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare v public.inventory_contract_invoices;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  select * into v from public.inventory_contract_invoices where id = p_id for update;
+  if not found then raise exception '請求が見つかりません（%）', p_id; end if;
+  if v.status = '取消' then raise exception 'この請求はすでに取消です'; end if;
+  if exists (select 1 from public.inventory_contract_payments where invoice_id = p_id) then
+    raise exception '入金が記録されている請求は取り消せません。先に入金の記録を消してください';
+  end if;
+
+  update public.inventory_contract_invoices
+     set status = '取消',
+         internal_note = coalesce(internal_note || E'\n', '')
+           || coalesce('取消：' || nullif(btrim(coalesce(p_reason, '')), ''), '取消'),
+         actor = public.inv_actor(), updated_at = now()
+   where id = p_id
+  returning * into v;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'invoice', v.id::text, coalesce(v.invoice_no, '（未発行）'),
+          '請求取消', null, coalesce(nullif(btrim(coalesce(p_reason, '')), ''), '取消'));
+
+  perform public.inv_contract_payment_recalc(v.contract_id);
+  return v;
+end $$;
+
+comment on function public.inv_contract_invoice_cancel is
+  '請求を取り消す。入金が記録されているものは取り消せない（先に入金の記録を消す）。';
+
+-- ------------------------------------------------------------
+-- 50-17) 入金を記録する
+--
+--     1つの請求に何回でも登録できます（一部入金）。
+--     過入金になっても自動では直しません。返り値と画面で知らせます。
+-- ------------------------------------------------------------
+create or replace function public.inv_contract_payment_add(
+  p_invoice_id bigint,
+  p_amount     integer,
+  p_paid_on    date default null,
+  p_method     text default null,
+  p_reference  text default null,
+  p_note       text default null
+) returns jsonb
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare
+  v      public.inventory_contract_invoices;
+  v_paid integer;
+  v_id   bigint;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  if coalesce(p_amount, 0) = 0 then raise exception '入金額を入れてください'; end if;
+  select * into v from public.inventory_contract_invoices where id = p_invoice_id for update;
+  if not found then raise exception '請求が見つかりません（%）', p_invoice_id; end if;
+  if v.status in ('下書き', '発行待ち') then
+    raise exception 'まだ発行していない請求には入金を記録できません（いまは「%」）', v.status;
+  end if;
+  if v.status = '取消' then raise exception '取り消した請求には入金を記録できません'; end if;
+
+  insert into public.inventory_contract_payments
+    (invoice_id, paid_on, amount, method, reference, note, actor)
+  values (p_invoice_id, coalesce(p_paid_on, current_date), p_amount,
+          nullif(btrim(coalesce(p_method, '')), ''),
+          nullif(btrim(coalesce(p_reference, '')), ''),
+          nullif(btrim(coalesce(p_note, '')), ''), public.inv_actor())
+  returning id into v_id;
+
+  v := public.inv_invoice_recalc(p_invoice_id);
+  select coalesce(sum(amount), 0) into v_paid
+    from public.inventory_contract_payments where invoice_id = p_invoice_id;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'invoice', v.id::text, coalesce(v.invoice_no, '（未発行）'),
+          '入金確認', null,
+          to_char(p_amount, 'FM9,999,999,999') || '円'
+            || coalesce('（' || nullif(btrim(coalesce(p_method, '')), '') || '）', '')
+            || '／入金計 ' || to_char(v_paid, 'FM9,999,999,999') || '円'
+            || '／' || v.status);
+
+  perform public.inv_contract_payment_recalc(v.contract_id);
+
+  return jsonb_build_object(
+    'payment_id', v_id,
+    'status', v.status,
+    'paid_total', v_paid,
+    'remaining', greatest(v.amount_incl - v_paid, 0),
+    'over_paid', greatest(v_paid - v.amount_incl, 0),
+    'warn', case when v_paid > v.amount_incl
+                 then '過入金あり（' || to_char(v_paid - v.amount_incl, 'FM9,999,999,999')
+                      || '円多く入っています）。返金・次回相殺の扱いを決めてください'
+                 else null end);
+end $$;
+
+comment on function public.inv_contract_payment_add is
+  '入金を記録する。1つの請求に何回でも登録できる（一部入金）。
+   入金合計が請求額を超えても自動では直さず、「過入金あり」として知らせる。';
+
+create or replace function public.inv_contract_payment_delete(p_id bigint)
+returns boolean
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare v_invoice bigint; v_contract bigint; v_amount integer;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  select invoice_id, amount into v_invoice, v_amount
+    from public.inventory_contract_payments where id = p_id;
+  if v_invoice is null then raise exception '入金の記録が見つかりません（%）', p_id; end if;
+  select contract_id into v_contract from public.inventory_contract_invoices where id = v_invoice;
+
+  delete from public.inventory_contract_payments where id = p_id;
+  perform public.inv_invoice_recalc(v_invoice);
+  perform public.inv_contract_payment_recalc(v_contract);
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'invoice', v_invoice::text,
+          (select coalesce(invoice_no, '（未発行）') from public.inventory_contract_invoices where id = v_invoice),
+          '入金の取消', to_char(v_amount, 'FM9,999,999,999') || '円', '入金の記録を消しました');
+  return true;
+end $$;
+
+comment on function public.inv_contract_payment_delete is '入金の記録を消す（入力間違いの取り消し）。';
+
+-- ------------------------------------------------------------
+-- 50-18) 見積の部分更新を直す（既存の不具合）
+--
+--     これまで inv_quote_set は、渡さなかった項目を NULL で上書きしていた。
+--     画面がいつも全項目を送っていたので表面化していなかったが、
+--     APIやこれからの自動処理から一部だけ直すと、件名や但し書きが消えてしまう。
+--
+--     これからは
+--       渡さない（null）        … いまの値を残す
+--       空文字（''）を渡す      … 消す
+--     に統一する。inv_contract_set / inv_contract_billing_set も同じにする。
+--
+--     有効期限は日付なので空文字を渡せない。消したいときは p_clear_valid を true にする。
+-- ------------------------------------------------------------
+
+
+-- 契約も同じ考え方に揃える（渡さない＝残す、空文字＝消す）
+
+
+
+
+-- ------------------------------------------------------------
+-- 50-19) 権限
+--
+--     請求・入金にもお客様の金額が入るので、anon には一切見せない。
+--     表は読み取りだけにして、書き込みは関数（security definer）を通す。
+-- ------------------------------------------------------------
+alter table public.inventory_contract_invoices      enable row level security;
+alter table public.inventory_contract_invoice_lines enable row level security;
+alter table public.inventory_contract_payments      enable row level security;
+
+drop policy if exists "inventory_contract_invoices read" on public.inventory_contract_invoices;
+create policy "inventory_contract_invoices read" on public.inventory_contract_invoices
+  for select to authenticated using (true);
+drop policy if exists "inventory_contract_invoice_lines read" on public.inventory_contract_invoice_lines;
+create policy "inventory_contract_invoice_lines read" on public.inventory_contract_invoice_lines
+  for select to authenticated using (true);
+drop policy if exists "inventory_contract_payments read" on public.inventory_contract_payments;
+create policy "inventory_contract_payments read" on public.inventory_contract_payments
+  for select to authenticated using (true);
+
+revoke all on public.inventory_contract_invoices      from anon, authenticated;
+revoke all on public.inventory_contract_invoice_lines from anon, authenticated;
+revoke all on public.inventory_contract_payments      from anon, authenticated;
+grant select on public.inventory_contract_invoices      to authenticated;
+grant select on public.inventory_contract_invoice_lines to authenticated;
+grant select on public.inventory_contract_payments      to authenticated;
+grant select on public.inv_contract_invoice_list        to authenticated;
+revoke all on sequence public.inventory_invoice_no_seq from public, anon, authenticated;
+
+revoke all on function public.inv_invoice_no_next(date)                     from public, anon;
+revoke all on function public.inv_month_day(date,integer)                   from public, anon;
+revoke all on function public.inv_invoice_recalc(bigint)                    from public, anon, authenticated;
+revoke all on function public.inv_contract_payment_recalc(bigint)           from public, anon, authenticated;
+revoke all on function public.inv_contract_invoices_refresh(bigint)         from public, anon;
+revoke all on function public.inv_contract_invoices_generate(bigint)        from public, anon;
+revoke all on function public.inv_contract_invoice_add(bigint,text,integer,boolean,date,date,bigint) from public, anon;
+revoke all on function public.inv_contract_invoice_set(bigint,date,date,integer,boolean,text,text) from public, anon;
+revoke all on function public.inv_contract_invoice_ready(bigint,boolean)    from public, anon;
+revoke all on function public.inv_contract_invoice_issue(bigint,date)       from public, anon;
+revoke all on function public.inv_contract_invoice_cancel(bigint,text)      from public, anon;
+revoke all on function public.inv_contract_payment_add(bigint,integer,date,text,text,text) from public, anon;
+revoke all on function public.inv_contract_payment_delete(bigint)           from public, anon;
+revoke all on function public.inv_quote_set(bigint,text,date,numeric,text,text,boolean) from public, anon;
+
+grant execute on function public.inv_month_day(date,integer)                   to authenticated;
+grant execute on function public.inv_contract_invoices_refresh(bigint)         to authenticated;
+grant execute on function public.inv_contract_invoices_generate(bigint)        to authenticated;
+grant execute on function public.inv_contract_invoice_add(bigint,text,integer,boolean,date,date,bigint) to authenticated;
+grant execute on function public.inv_contract_invoice_set(bigint,date,date,integer,boolean,text,text) to authenticated;
+grant execute on function public.inv_contract_invoice_ready(bigint,boolean)    to authenticated;
+grant execute on function public.inv_contract_invoice_issue(bigint,date)       to authenticated;
+grant execute on function public.inv_contract_invoice_cancel(bigint,text)      to authenticated;
+grant execute on function public.inv_contract_payment_add(bigint,integer,date,text,text,text) to authenticated;
+grant execute on function public.inv_contract_payment_delete(bigint)           to authenticated;
+grant execute on function public.inv_quote_set(bigint,text,date,numeric,text,text,boolean) to authenticated;
 
 
 -- ============================================================
