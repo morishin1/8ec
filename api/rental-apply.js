@@ -19,6 +19,12 @@
 //   個体を押さえるのは契約後の手配だけなので、ここでは
 //   inventory_items も inv_rental_allocate() も触りません。
 //
+//   商品を決めずに申し込めます。型番が分かる人は商品ページから、
+//   分からない人は条件（台数・期間・スペック・用途）から相談できます。
+//   商品が決まっていないことは product_code = null で表し、
+//   架空の商品コードは作りません。お客様が書いた「希望モデル」は
+//   conditions.model に入れて、社内で決める商品とは分けて持ちます。
+//
 //   ── Vercel での設定 ─────────────────────────────
 //     SUPABASE_SECRET_KEY 【必須】サーバー鍵。無いと 503 を返して止まります
 //     SLACK_WEBHOOK_URL   Slackの受信Webhook（未設定でもフォームは動きます）
@@ -73,7 +79,8 @@ function conditions(src) {
   put("storage_gb", num(s.storage_gb, 1, 100000));
   put("screen", clean(s.screen, 40));
   put("office", clean(s.office, 20));
-  put("model", clean(s.model, 160));
+  put("model", clean(s.model, 160));      // お客様が書いた「希望モデル」。社内で決める商品とは別
+  put("purpose", clean(s.purpose, 60));
   if (s.webcam === true || s.webcam === "yes") out.webcam = true;
   if (s.numpad === true || s.numpad === "yes") out.numpad = true;
   return out;
@@ -85,6 +92,8 @@ function buildSlackPayload(row) {
     { type: "mrkdwn", text: "*台数*\n" + row.qty + "台" },
   ];
   if (row.company) fields.push({ type: "mrkdwn", text: "*会社名*\n" + slackEscape(row.company) });
+  fields.push({ type: "mrkdwn", text: "*商品*\n" + (row.codes.length
+    ? slackEscape(row.codes.join("、")) : "未指定（条件から提案）") });
   if (row.conditions.model) fields.push({ type: "mrkdwn", text: "*ご希望の機種*\n" + slackEscape(row.conditions.model) });
   if (row.start) fields.push({ type: "mrkdwn", text: "*開始希望*\n" + slackEscape(row.start) });
   if (row.months) fields.push({ type: "mrkdwn", text: "*ご利用期間*\n" + row.months + "ヶ月" });
@@ -117,7 +126,8 @@ function buildSlackPayload(row) {
   return {
     text: "8RENT 新規申込：" + slackEscape(row.name) + " 様"
       + (row.company ? "（" + slackEscape(row.company) + "）" : "")
-      + "　" + row.qty + "台",
+      + "　" + row.qty + "台"
+      + (row.codes.length ? "" : "　商品未指定（条件から提案）"),
     blocks,
   };
 }
@@ -174,6 +184,25 @@ module.exports = async (req, res) => {
   if (row.qty == null) return res.status(400).json({ error: "台数は1〜500台でお願いします（それ以上はご相談ください）" });
   if (row.email && !/.+@.+\..+/.test(row.email)) {
     return res.status(400).json({ error: "メールアドレスの形式をご確認ください" });
+  }
+  // 商品を選ばずに申し込むとき（条件から提案してほしい相談）は、
+  // こちらから連絡できて、かつ何を探せばよいかが分かる程度の手がかりを頂く。
+  // 商品を選んでいるときは、これまでどおり増やさない。
+  if (!row.codes.length) {
+    const need = [];
+    if (!row.company) need.push("会社名");
+    if (!row.email) need.push("メールアドレス");
+    if (need.length) {
+      return res.status(400).json({
+        error: "商品を選ばずにお申し込みの場合は、" + need.join("・") + "を入力してください" });
+    }
+    const hint = ["cpu", "memory_gb", "storage_gb", "screen", "office", "model", "purpose"]
+      .some((k) => row.conditions[k] !== undefined) || !!row.message;
+    if (!hint) {
+      return res.status(400).json({
+        error: "ご希望の機種か条件（CPU・メモリ・容量・画面サイズ・用途など）、"
+          + "またはご連絡事項のいずれかをご入力ください" });
+    }
   }
 
   try {

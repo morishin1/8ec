@@ -8168,8 +8168,21 @@ function rentalCondText(r) {
     c.storage_gb ? (c.storage_gb >= 1024 ? 'SSD 1TB以上' : `SSD ${c.storage_gb}GB以上`) : '',
     { small: '13型以下', mid: '14型前後', large: '15型以上' }[c.screen] || '',
     c.office === 'yes' ? 'Officeあり' : (c.office === 'no' ? 'Officeなし' : ''),
-    c.webcam ? 'カメラ必須' : '', c.numpad ? 'テンキー必須' : ''
+    c.webcam ? 'カメラ必須' : '', c.numpad ? 'テンキー必須' : '',
+    c.purpose ? '用途：' + c.purpose : ''
   ].filter(Boolean).join('／');
+}
+/* 申込の商品。8RENTは「型番が分かる人」だけの入口ではないので、
+   決まっていない申込が普通にある。空欄にせず、そう書く。
+   お客様が書いた「希望モデル」（conditions.model）は、社内で決める商品とは別物。 */
+function rentalProductText(r) {
+  if (!r.product_code) {
+    const wish = ((r.conditions || {}).model || '').trim();
+    return `<span class="tag act">商品未指定</span><div class="meta">条件から提案</div>`
+      + (wish ? `<div class="meta">ご希望：${esc(wish)}</div>` : '');
+  }
+  const p = prod(r.product_code);
+  return esc(p ? titleOf(p) : r.product_code);
 }
 
 /* 申込に割り当てられた個体。複数台に対応する前の申込は item_id にだけ入っている */
@@ -8183,12 +8196,11 @@ function rentalBodyHtml() {
       <th>希望開始日</th><th class="r">利用月数</th><th>状態</th>${canEdit() ? '<th></th>' : ''}
     </tr></thead>
     <tbody>${rows.map(r => {
-      const p = prod(r.product_code);
       const ids = reqItems(r);
       return `<tr class="clk" onclick="showRentalDetail(${r.id})">
         <td class="meta nowrap num">${esc(fmtDT(r.created_at))}</td>
         <td>${esc(r.customer_name)}${r.company ? `<div class="meta">${esc(r.company)}</div>` : ''}</td>
-        <td class="nowrap">${esc(p ? titleOf(p) : r.product_code)}${r.office ? '<div class="meta">Office付き</div>' : ''}</td>
+        <td>${rentalProductText(r)}${r.office ? '<div class="meta">Office付き</div>' : ''}</td>
         <td class="num r">${r.qty || 1}${r.procure_qty ? `<div class="meta">取り寄せ ${r.procure_qty}</div>` : ''}</td>
         <td class="num">${ids.length ? esc(ids.join('、')) : '—'}</td>
         <td class="meta nowrap">${r.start_date ? fmtD(r.start_date) : '—'}</td>
@@ -8202,10 +8214,13 @@ function rentalBodyHtml() {
    個体を押さえるのは「個体を割り当てる」を押したときだけ。 */
 function rentalActionBtns(r) {
   const cancel = `<button class="btn sm ghost" onclick="doRentalStatus(${r.id},'キャンセル')">キャンセル</button>`;
+  const pick = `<button class="btn sm" onclick="sheetRentalProduct(${r.id})">商品を決める</button>`;
   if (r.status === '希望受付') return `
     <button class="btn sm" onclick="doRentalStatus(${r.id},'在庫・調達確認')">確認を始める</button>${cancel}`;
-  if (r.status === '在庫・調達確認') return `
-    <button class="btn sm" onclick="doRentalAllocate(${r.id})">個体を割り当てる</button>${cancel}`;
+  // 商品が決まっていないうちは割り当てられない（似た型番をこちらで当てはめない）
+  if (r.status === '在庫・調達確認') return r.product_code
+    ? `<button class="btn sm" onclick="doRentalAllocate(${r.id})">個体を割り当てる</button>${cancel}`
+    : `${pick}${cancel}`;
   if (r.status === '個体割当') return `
     <button class="btn sm" onclick="doRentalStatus(${r.id},'レンタル確定')">レンタル確定</button>${cancel}`;
   if (r.status === 'レンタル確定') return `
@@ -8216,16 +8231,21 @@ function rentalActionBtns(r) {
 function showRentalDetail(id) {
   const r = db.rentalReqs.find(x => x.id === id);
   if (!r) return;
-  const p = prod(r.product_code);
   openModal(`申込 #${r.id}`, `
     <div class="info" style="margin-bottom:14px">
       <div><span class="k">お客様</span>${esc(r.customer_name)}</div>
       <div><span class="k">会社名</span>${esc(r.company || '—')}</div>
       <div><span class="k">メール</span>${esc(r.email || '—')}</div>
       <div><span class="k">電話</span>${esc(r.phone || '—')}</div>
-      <div><span class="k">商品</span>${esc(p ? titleOf(p) : r.product_code)}</div>
+      <div><span class="k">商品</span>${rentalProductText(r)}</div>
       <div><span class="k">台数</span>${r.qty || 1}台${r.procure_qty ? `（うち取り寄せ ${r.procure_qty}台）` : ''}</div>
       <div><span class="k">Office</span>${r.office ? '希望あり' : '—'}</div>
+      <div><span class="k">CPU</span>${esc((r.conditions || {}).cpu || '') || '—'}</div>
+      <div><span class="k">メモリ</span>${(r.conditions || {}).memory_gb ? (r.conditions.memory_gb + 'GB以上') : '—'}</div>
+      <div><span class="k">ストレージ</span>${(r.conditions || {}).storage_gb
+        ? (r.conditions.storage_gb >= 1024 ? 'SSD 1TB以上' : 'SSD ' + r.conditions.storage_gb + 'GB以上') : '—'}</div>
+      <div><span class="k">画面サイズ</span>${esc({ small: '13型以下', mid: '14型前後', large: '15型以上' }[(r.conditions || {}).screen] || '') || '—'}</div>
+      <div><span class="k">用途</span>${esc((r.conditions || {}).purpose || '') || '—'}</div>
       <div><span class="k">ご希望の条件</span>${esc(rentalCondText(r)) || '—'}</div>
       <div><span class="k">割り当てた個体</span>${reqItems(r).length
         ? reqItems(r).map(id => `<a href="#" onclick="closeModal();go('item','${esc(id)}');return false">${esc(id)}</a>`).join('、')
@@ -8243,7 +8263,10 @@ function showRentalDetail(id) {
       ] : []),
       ...(canEdit() && r.status === '在庫・調達確認' ? [
         ['キャンセル', `doRentalStatus(${r.id},'キャンセル');closeModal()`, 'btn ghost'],
-        ['個体を割り当てる', `doRentalAllocate(${r.id});closeModal()`, 'btn lime']
+        ...(r.product_code
+          ? [['商品を変える', `closeModal();sheetRentalProduct(${r.id})`, 'btn ghost'],
+             ['個体を割り当てる', `doRentalAllocate(${r.id});closeModal()`, 'btn lime']]
+          : [['商品を決める', `closeModal();sheetRentalProduct(${r.id})`, 'btn lime']])
       ] : []),
       ...(canEdit() && r.status === '個体割当' ? [
         ['キャンセル', `doRentalStatus(${r.id},'キャンセル');closeModal()`, 'btn ghost'],
@@ -8257,6 +8280,46 @@ function showRentalDetail(id) {
         ['返却済みにする', `doRentalStatus(${r.id},'返却済み');closeModal()`, 'btn lime']
       ] : [])]);
 }
+/* 商品未指定の申込に、社内で商品を決める。
+   似た型番や後継機をこちらで当てはめることはしない。人が選んだものだけを入れる。
+   ここで入れるのは商品だけで、個体は押さえない（押さえるのは［個体を割り当てる］）。 */
+function sheetRentalProduct(id) {
+  const r = db.rentalReqs.find(x => x.id === id); if (!r) return;
+  const wish = ((r.conditions || {}).model || '').trim();
+  const list = db.masters
+    .filter(p => p.kind === 'individual' && p.rental_enabled)
+    .sort((a, b) => String(titleOf(a)).localeCompare(String(titleOf(b)), 'ja'));
+  openSheet({
+    title: '申込の商品を決める', subject: '#' + r.id + '　' + (r.customer_name || ''), cta: '保存',
+    keepOpenOnError: true,
+    hint: `お客様のご希望から、<strong>実在する商品</strong>を選んでください。
+      似た型番や後継機をこちらで当てはめることはしません。
+      <strong>決めただけでは個体は押さえません。</strong>押さえるのは［個体を割り当てる］のときです。`,
+    body: `<div class="prow"><span>ご希望の条件</span><b>${esc(rentalCondText(r)) || '—'}</b></div>
+      ${wish ? `<div class="prow"><span>お客様が書いた希望モデル</span><b>${esc(wish)}</b></div>` : ''}
+      <div class="prow"><span>台数</span><b>${r.qty || 1}台</b></div>
+      <label class="field" style="margin-top:12px"><span>商品</span>
+        <select class="input" id="rpCode">
+          <option value="">（商品未指定にもどす）</option>
+          ${list.map(p => `<option value="${esc(p.code)}"${p.code === r.product_code ? ' selected' : ''}
+            >${esc(titleOf(p))}（${esc(p.code)}）</option>`).join('')}
+        </select>
+        <span class="meta">8RENTに掲載している商品だけが出ます。
+          見つからないときは、先に商品を登録して8RENT掲載を有効にしてください。</span></label>`,
+    run: async () => {
+      const code = (($('rpCode') || {}).value || '').trim();
+      const { error } = await sb.rpc('inv_rental_request_product_set',
+        { p_request_id: id, p_code: code || null });
+      if (error) { toast('決められませんでした：' + error.message); return false; }
+      await loadAll();
+      await refreshTx();
+      render();
+      toast(code ? '商品を決めました' : '商品未指定にもどしました');
+      return true;
+    }
+  });
+}
+
 async function doRentalStatus(id, status) {
   const { data, error } = await sb.rpc('inv_rental_set_status', { p_request_id: id, p_status: status });
   if (error) { toast('進められませんでした：' + error.message); return; }
