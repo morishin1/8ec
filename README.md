@@ -337,6 +337,13 @@ Supabase の SQL Editor で `zaiko/setup.sql` を実行します。何度実行�
 本番は `setup.sql` 全体を再実行しない運用なので、差分だけを当てるファイルを
 `zaiko/migrations/` に置いています（上から順に実行。いずれも何度実行しても安全です）。
 
+**ファイル名の日付は「実行日」ではなく「並び順の通し番号」です。** migration を記録する表も
+自動実行のしくみも使っておらず、Supabase の SQL Editor でファイル名順に人が流す運用なので、
+日付が先の日になっていても実行上の問題はありません（実際、最初から**作った日より先の日付**が
+付いています。例：`2026-09-22-quotes.sql` は 9/20 のコミット）。
+**新しく足すときは、いまある最後のファイルより必ずあとに並ぶ名前にしてください**
+（カレンダー上の今日の日付に戻すと、既存ファイルより前に並んでしまいます）。
+
 | ファイル | 中身 |
 |---|---|
 | `2026-09-18-channel-listings-split.sql` | 商品×チャネルの掲載情報を `inventory_channel_listings` に分離 |
@@ -360,6 +367,19 @@ Supabase の SQL Editor で `zaiko/setup.sql` を実行します。何度実行�
 | `2026-09-21-deals.sql` | 公開側の**法人ITまるごと見積**（`/quote`）を受ける `inventory_deals`。用途・人数・台数・開始希望日・期間・PCの希望（`spec`）・あわせて依頼する作業（`services`）・方針（`grade`）をまとめて1件の案件として保存し、`/zaiko` の「案件」画面で状態（希望受付→在庫・調達確認→見積→顧客承認→契約／ご縁なし）を進める。**この時点では決済も個体予約もしません**（Stripe用の列は後続Phase向けに空で用意するだけ）。匿名から呼べるのは `inv_deal_create()` だけで、案件の閲覧はログイン済みに限ります |
 | `2026-09-21-sale-catalog.sql` | 同じ商品マスタで**販売（8EC BUY）とレンタル（8RENT）の両方**を扱えるようにする。`inventory_products` に `sale_enabled` / `sale_price` / `sale_condition` / `sale_procurement_available`、公開ビュー `inv_public_products`（レンタルぶんだけ返す `inv_public_catalog` は互換で残す）、`inv_product_sale_set()`、案件に `product_code` / `want`（商品からの購入相談）。**`sale_enabled` の既定は false なので、流しただけでは1件も販売公開されません** |
 | `2026-09-21-rakuten-order-sync.sql` | 楽天の受注取り込みを**実際に動く権限**にする。`inventory_sale_orders` は authenticated に select しか渡していないのに `inv_sale_orders_apply()` が security invoker だったため、取り込みが `permission denied` で止まっていました。関数を **security definer**（権限の確認は中の `inv_can_edit()`）にして、表は読み取り専用のまま書けるようにします。あわせて発送済みまで進めたときに**売却先（`sold_channel`）が空**だったのを直します（`inv_item_sell` を通す） |
+
+上の表は 2026-09-21 までです。これ以降のぶんは、それぞれの機能の章に置いています。
+未適用のものだけをまとめると、この順に流します。
+
+| ファイル | 中身 | 詳しくはREADMEのこの章 |
+|---|---|---|
+| `2026-09-29-listing-admin-search.sql` | 出品先の表に**管理画面で商品を探す**導線（`admin_search_url_template`）を足す | 「管理画面で商品を探す」 |
+| `2026-09-30-listing-admin-anon-revoke.sql` | 上で足した3つの関数を anon から外す（次の1本に含まれますが、履歴として残します） | 同上 |
+| `2026-10-01-rpc-permission-hardening.sql` | `public.inv_*` **110本の EXECUTE を棚卸し**し、公開してよい2本以外を anon から外す | 「RPCの権限」 |
+| `2026-10-02-rental-api-only.sql` | 8RENT の申込を `anon` の直接RPCから **`/api/rental-apply` 経由**に変える | 「申込は『希望条件の送信』」 |
+| `2026-10-03-rental-no-product.sql` | **商品を決めずに**申し込めるようにする（`product_code` を NULL 可に） | 同上 |
+| `2026-10-04-rental-product-fk-set-null.sql` | 商品マスタを消しても**申込は消さない**（外部キーを `ON DELETE SET NULL` に） | 同上 |
+
 
 ### 使う人と権限
 
