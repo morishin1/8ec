@@ -24,15 +24,19 @@
 do $$
 declare
   -- 公開（anon）から呼んでよい関数。ここに無いのに anon が呼べたら失敗
-  --   inv_model_key             公開カタログのビュー inv_public_products が中で呼ぶ
-  --   inv_rental_request_create 8RENT（/rent）の申込フォーム。ブラウザから直接呼んでいる
-  anon_ok  text[] := array['inv_model_key', 'inv_rental_request_create'];
+  --   inv_model_key  公開カタログのビュー inv_public_products が中で呼ぶ
+  --
+  --   お客様が送るフォームはここに足しません。
+  --   browser → /api/* → service_role が原則です。
+  --   inv_norm_model はその inv_model_key が中で呼ぶ（invoker なので anon の権限で動く）
+  anon_ok  text[] := array['inv_model_key', 'inv_norm_model'];
 
   -- サーバーAPI専用。service_role だけが呼べること
   api_only text[] := array[
     'inv_quote_public', 'inv_quote_decide',
     'inv_contract_public', 'inv_contract_customer_confirm',
-    'inv_public_access_check', 'inv_public_access_cleanup'
+    'inv_public_access_check', 'inv_public_access_cleanup',
+    'inv_rental_request_create'
   ];
 
   bad text;
@@ -106,6 +110,45 @@ begin
       raise exception 'contact_public_submit が anon から呼べます（/api/contact 経由だけにしてください）';
     end if;
   end;
+
+  -- 7) 公開ビューが中で呼ぶ関数を、anon が呼べるか（呼べないとカタログが出なくなる）
+  --
+  --    security invoker の関数は「呼んだ人の権限」で中を実行します。
+  --    ビュー → 関数A → 関数B とつながっていると、anon には A だけでなく
+  --    B の EXECUTE も要ります。count(*) だけだとプランナが列の計算を
+  --    省いて気づけないので、ここは権限のつながりで見ます。
+  with recursive pub as (
+    -- anon が select できるビュー
+    select c.oid, c.relname
+      from pg_class c join pg_namespace n2 on n2.oid = c.relnamespace
+     where n2.nspname = 'public' and c.relkind = 'v'
+       and has_table_privilege('anon', c.oid, 'select')
+  ), seed as (
+    select p.oid, p.proname, p.prosecdef, p.prosrc, 0 as depth
+      from pub v
+      join lateral regexp_matches(pg_get_viewdef(v.oid, true), '(inv_[a-z0-9_]+)\s*\(', 'g') as m(f) on true
+      join pg_proc p on p.proname = m.f[1]
+      join pg_namespace n3 on n3.oid = p.pronamespace and n3.nspname = 'public'
+  ), closure as (
+    select * from seed
+    union
+    select p.oid, p.proname, p.prosecdef, p.prosrc, c.depth + 1
+      from closure c
+      join lateral regexp_matches(c.prosrc, '(inv_[a-z0-9_]+)\s*\(', 'g') as m(f) on true
+      join pg_proc p on p.proname = m.f[1]
+      join pg_namespace n4 on n4.oid = p.pronamespace and n4.nspname = 'public'
+     where c.depth < 5 and not c.prosecdef   -- definer なら中は所有者の権限で動くので追わない
+  )
+  select string_agg(distinct proname, ', '), count(distinct proname)
+    into bad, n
+    from closure
+   where not has_function_privilege('anon', oid, 'execute');
+  if n > 0 then
+    raise exception E'公開ビューが中で呼ぶ関数を anon が呼べません（% 件）：%\n'
+      '  このままだと公開カタログの中身が出ません。\n'
+      '  grant execute on function public.<名前>(<引数>) to anon;',
+      n, bad;
+  end if;
 
   raise notice 'RPC権限の点検：問題なし';
 end $$;

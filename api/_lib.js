@@ -26,7 +26,8 @@ const IP_SALT = process.env.QUOTE_IP_SALT || "8ec-public-access";
 if (!SUPABASE_SECRET_KEY) {
   console.error(
     "api: SUPABASE_SECRET_KEY が未設定です。/api/quote・/api/contact・" +
-    "/api/quote-view・/api/quote-decide・/api/contract-view・/api/contract-decide は 503 を返します。" +
+    "/api/quote-view・/api/quote-decide・/api/contract-view・/api/contract-decide・" +
+    "/api/rental-apply は 503 を返します。" +
     "Vercel の Settings → Environment Variables に登録して再デプロイしてください。"
   );
 }

@@ -2298,22 +2298,28 @@ async function onApplySubmit(e) {
   const codes = spec ? [spec] : m.variants.map(x => x.code);
   btn.disabled = true; msg.style.color = '#6C6E64'; msg.textContent = '送信中…';
   try {
-    const { data, error } = await C.client().rpc('inv_rental_request_create', {
-      p_codes: codes, p_name: g('name'), p_qty: qty,
-      p_company: g('company') || null, p_email: g('email') || null, p_phone: g('phone') || null,
-      p_start: g('start') || null, p_months: g('months') ? Number(g('months')) : null,
-      p_office: g('office') === 'yes', p_message: g('message') || null,
-      p_conditions: {
-        cpu: g('cpu') || null, memory_gb: g('memory') ? Number(g('memory')) : null,
-        storage_gb: g('storage') ? Number(g('storage')) : null, screen: g('screen') || null,
-        office: g('office') || null, webcam: g('webcam') === 'yes', numpad: g('numpad') === 'yes',
-        model: [m.maker, m.model].filter(Boolean).join(' ')
-      }
+    // 送り先は /api/rental-apply。ブラウザから Supabase を直接呼ぶ道は作らない
+    //（入力チェック・回数制限・Slack通知を必ずサーバー側で通すため）
+    const res = await fetch('/api/rental-apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        codes: codes, name: g('name'), qty: qty,
+        company: g('company') || null, email: g('email') || null, phone: g('phone') || null,
+        start: g('start') || null, months: g('months') ? Number(g('months')) : null,
+        office: g('office') === 'yes', message: g('message') || null,
+        conditions: {
+          cpu: g('cpu') || null, memory_gb: g('memory') ? Number(g('memory')) : null,
+          storage_gb: g('storage') ? Number(g('storage')) : null, screen: g('screen') || null,
+          office: g('office') || null, webcam: g('webcam') === 'yes', numpad: g('numpad') === 'yes',
+          model: [m.maker, m.model].filter(Boolean).join(' ')
+        }
+      })
     });
-    if (error) {
-      let t = '送信に失敗しました。時間をおいて再度お試しください。';
-      if (/別々の機種/.test(error.message)) t = '機種を1つ選んでからお送りください。';
-      else if (/1〜500/.test(error.message)) t = error.message;
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      let t = out.error || '送信に失敗しました。時間をおいて再度お試しください。';
+      if (/別々の機種/.test(t)) t = '機種を1つ選んでからお送りください。';
       msg.style.color = '#B3261E'; msg.textContent = t; btn.disabled = false; return;
     }
     $('applyHost').innerHTML = `<div class="done"><div class="ic">✓</div>
