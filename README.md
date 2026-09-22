@@ -925,6 +925,54 @@ PCは1段、スマホ（375〜390px）は「件数＋選択解除」と操作ボ
 > python3 tools/check-sql.py     # WHEREのないDELETE/UPDATEが無いか点検する
 > ```
 
+### RPCの権限（関数を足したら必ず点検する）
+
+> **PostgreSQL は関数を作った時点で `PUBLIC` に EXECUTE を付けます。**
+> `PUBLIC` には `anon`（ログインしていない相手）が含まれるので、`revoke` を書き忘れると
+> 社内向けの関数まで外から呼べる状態になります。Phase 2 の見積関数と、
+> 管理画面URLの関数で2度これを踏みました。
+>
+> **新しい関数は「作る → PUBLICから外す → 必要なroleにだけ渡す」を必ずセットで書きます。**
+>
+> ```sql
+> create or replace function public.inv_xxx(...) ... ;
+> revoke all   on function public.inv_xxx(...) from public, anon;
+> grant execute on function public.inv_xxx(...) to authenticated;   -- 社内向けなら
+> ```
+>
+> 「関数の中で権限を見ているから PUBLIC のままでよい」にはしません。
+>
+> 足したあとは、Supabase の SQL Editor でこれを流して点検します。
+> 読むだけで、権限もデータも変えません。
+>
+> ```sql
+> -- zaiko/check-rpc-permissions.sql をそのまま貼る
+> -- 問題なし → NOTICE: RPC権限の点検：問題なし
+> -- 問題あり → ERROR で、どの関数が外れているかを出す
+> ```
+
+#### 誰が何を呼べるか
+
+| 分類 | 例 | anon | authenticated | service_role |
+|---|---|---|---|---|
+| A 公開読み取り | `inv_model_key`（公開カタログのビューが中で呼ぶ） | ○ | ○ | ✕ |
+| B 公開フォーム | `inv_rental_request_create`（8RENTの申込） | ○ | ○ | ✕ |
+| C ログイン社員向け | `inv_item_op` `inv_listing_set` `inv_contract_set` | ✕ | ○ | ✕ |
+| D 管理者のみ | `inv_channel_settings_set` `inv_contract_credit_approve` | ✕ | ○ | ✕ |
+| E サーバーAPI専用 | `inv_quote_public` `inv_contract_public` `inv_public_access_check` | ✕ | ✕ | ○ |
+
+D は authenticated から呼べますが、**関数の中で `inv_is_admin()` を見て**弾きます。
+E は `/api/*` がサーバー鍵で呼ぶものだけです。**ブラウザから直接呼ぶ道は作りません。**
+
+**B はいま `inv_rental_request_create` だけが例外**で、`/rent` のフォームがブラウザから
+直接呼んでいます。ほかの公開フォーム（問い合わせ・診断・顧客見積・顧客契約）は
+すでに `browser → /api/* → service_role` に移してあります。
+`inv_rental_request_create` も同じ形へ移すのが望ましく、**移すまでは回数制限がかかりません。**
+
+**表への直接の書き込み権限は増やしません。**書き込みは関数（`security definer`）に通します。
+`authenticated` が `inventory_channel_settings` に持っているのは `SELECT` だけで、
+更新は `inv_channel_settings_set()` が行います。
+
 ### 在庫一覧のCSV
 
 在庫一覧から、いま絞り込んでいる分をCSVに書き出せます。Excelでそのまま開けるBOM付きUTF-8です。
