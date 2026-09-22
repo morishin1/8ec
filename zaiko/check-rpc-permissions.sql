@@ -153,6 +153,28 @@ begin
   raise notice 'RPC権限の点検：問題なし';
 end $$;
 
+-- ------------------------------------------------------------
+-- 公開ビューを anon で実際に読む
+--
+--   上の点検は権限のつながりを見るだけなので、最後に実データでも
+--   確かめます。count(*) だとプランナが列の計算を省いてしまうので、
+--   json_agg で実際に値を作ります（inv_model_key → inv_norm_model の
+--   ような依存の抜けは、これでないと出ません）。
+--   読むだけで、何も変えません。
+-- ------------------------------------------------------------
+begin;
+set local role anon;
+select 'inv_public_products'   as ビュー, json_agg(t) is not null as 読めた from public.inv_public_products t
+union all
+select 'inv_public_catalog',    json_agg(t) is not null from public.inv_public_catalog t
+union all
+select 'inv_public_categories', json_agg(t) is not null from public.inv_public_categories t
+union all
+select 'inv_rental_catalog',    json_agg(t) is not null from public.inv_rental_catalog t;
+rollback;
+-- 4行とも エラーにならず返れば合格（商品が0件なら「読めた」は f でもよい。
+-- permission denied で止まったら、その関数を anon に渡してください）
+
 -- いまの状態を目で見たいとき
 --   select p.proname,
 --          case when p.prosecdef then 'DEFINER' else 'INVOKER' end as 実行権限,
