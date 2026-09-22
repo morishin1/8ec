@@ -9259,8 +9259,13 @@ comment on function public.inv_channel_settings_set is
   '販売サイトの管理画面URL（トップ・商品ごとのひな形・検索語つきのひな形）を設定する。管理者だけ。
    検索語つきのひな形は、実際の管理画面で検索して確かめた人だけが入れる。';
 
-revoke all on function public.inv_admin_url_check(text,text) from public, anon;
-grant execute on function public.inv_admin_url_check(text,text) to authenticated;
+-- 関数は作った時点で PUBLIC（anon を含む）に EXECUTE が付くので、明示的に外す
+revoke all on function public.inv_admin_url_check(text,text)                     from public, anon;
+revoke all on function public.inv_listing_admin_url_set(text,text,text)          from public, anon;
+revoke all on function public.inv_channel_settings_set(text,text,text,text,text) from public, anon;
+
+grant execute on function public.inv_admin_url_check(text,text)                     to authenticated;
+grant execute on function public.inv_listing_admin_url_set(text,text,text)          to authenticated;
 grant execute on function public.inv_channel_settings_set(text,text,text,text,text) to authenticated;
 
 -- ============================================================
