@@ -41,7 +41,7 @@
 ├── robots.txt
 ├── sitemap.xml
 │
-├── api/                Vercel サーバーレス関数（問い合わせ受付・見積／契約の顧客API・Slack通知）
+├── api/                Vercel サーバーレス関数（問い合わせ・診断・8RENT申込・見積／契約の顧客API・Slack通知）
 │   └── _lib.js         サーバー側の共通部分（サーバー鍵・回数制限・入力の整え）
 ├── admin/              管理画面（EC在庫・棚卸・決算資料・ショップ出品・商品画像・問い合わせ・レンタル）
 │   ├── setup-all.sql   追加機能のSupabase設定（棚卸・決算・商品画像をまとめて実行）
@@ -951,12 +951,29 @@ PCは1段、スマホ（375〜390px）は「件数＋選択解除」と操作ボ
 > -- 問題あり → ERROR で、どの関数が外れているかを出す
 > ```
 
+#### 公開フォームの送り先
+
+| ページ | 送り先 | DBの関数 |
+|---|---|---|
+| 各ページの相談フォーム | `/api/contact` | `contact_public_submit` |
+| `/quote`（3分IT調達診断） | `/api/quote` | `inv_deal_create` |
+| `/rent`（8RENTの申込） | `/api/rental-apply` | `inv_rental_request_create` |
+| `/q/:token`（顧客見積） | `/api/quote-view` `/api/quote-decide` | `inv_quote_public` `inv_quote_decide` |
+| `/c/:token`（顧客契約） | `/api/contract-view` `/api/contract-decide` | `inv_contract_public` `inv_contract_customer_confirm` |
+
+`/rent` の申込は**レンタルの希望を受け取るだけ**です。
+`希望受付 → 在庫・調達確認 → 見積 → 顧客承認 → 契約 → 手配` のうち、
+個体を押さえるのは契約後の手配だけなので、申込では `inventory_items` を触りません。
+
+同じ内容が10分のあいだに二度届いたら、保存もSlack通知もしないで1回目と同じ返事を返します
+（送信ボタンは押した時点で無効化し、API側でも1分10回・10分20回で止めます）。
+
 #### 誰が何を呼べるか
 
 | 分類 | 例 | anon | authenticated | service_role |
 |---|---|---|---|---|
-| A 公開読み取り | `inv_model_key`（公開カタログのビューが中で呼ぶ） | ○ | ○ | ✕ |
-| B 公開フォーム | `inv_rental_request_create`（8RENTの申込） | ○ | ○ | ✕ |
+| A 公開読み取り | `inv_model_key` `inv_norm_model`（公開カタログのビューが中で呼ぶ） | ○ | ○ | ✕ |
+| B 公開フォーム | `inv_rental_request_create` `contact_public_submit` `inv_deal_create` `inv_quote_public` ほか | ✕ | ✕ | ○ |
 | C ログイン社員向け | `inv_item_op` `inv_listing_set` `inv_contract_set` | ✕ | ○ | ✕ |
 | D 管理者のみ | `inv_channel_settings_set` `inv_contract_credit_approve` | ✕ | ○ | ✕ |
 | E サーバーAPI専用 | `inv_quote_public` `inv_contract_public` `inv_public_access_check` | ✕ | ✕ | ○ |
@@ -964,10 +981,17 @@ PCは1段、スマホ（375〜390px）は「件数＋選択解除」と操作ボ
 D は authenticated から呼べますが、**関数の中で `inv_is_admin()` を見て**弾きます。
 E は `/api/*` がサーバー鍵で呼ぶものだけです。**ブラウザから直接呼ぶ道は作りません。**
 
-**B はいま `inv_rental_request_create` だけが例外**で、`/rent` のフォームがブラウザから
-直接呼んでいます。ほかの公開フォーム（問い合わせ・診断・顧客見積・顧客契約）は
-すでに `browser → /api/* → service_role` に移してあります。
-`inv_rental_request_create` も同じ形へ移すのが望ましく、**移すまでは回数制限がかかりません。**
+**B（お客様が送るフォーム）は全部 `browser → /api/* → service_role` に揃えました。**
+問い合わせ・3分診断・顧客見積・顧客契約・8RENTの申込のどれも、
+ブラウザから Supabase を直接呼ぶ道はありません。入力チェック・回数制限・Slack通知を
+必ずサーバー側で通すためです。
+
+**A は「ビューが中で呼ぶ関数」なので、つながりに注意してください。**
+`inv_public_products`（anon が読むビュー）→ `inv_model_key` → `inv_norm_model` と続き、
+`security invoker` の関数は呼んだ人の権限で中を実行するので、anon には**両方**の
+EXECUTE が要ります。片方だけだと `count(*)` は通るのに行の中身を作るところで
+`permission denied` になり、公開カタログが出なくなります。
+`zaiko/check-rpc-permissions.sql` はこのつながりも見ています。
 
 **表への直接の書き込み権限は増やしません。**書き込みは関数（`security definer`）に通します。
 `authenticated` が `inventory_channel_settings` に持っているのは `SELECT` だけで、
@@ -2053,8 +2077,8 @@ PostgreSQL は関数を作ると `PUBLIC` に実行権限が付くので、`anon
 ブラウザから公開鍵で直接読みます（`assets/catalog.js`・`/api/sitemap-products`）。
 迂回されて困る処理がそこには無いためです。
 
-**まだブラウザから直接呼んでいるもの**：`rent.html` の 8RENT申込（`inv_rental_request_create`）だけが
-残っています。こちらは `/api/rental-apply` を新しく作る必要があるので、別途対応します。
+**お客様が送るフォームは、これで全部 `/api/*` を通ります。**
+最後に残っていた `rent.html` の 8RENT申込も `/api/rental-apply` へ移しました。
 
 **本番へ入れる順番（この順でないとフォームが一時的に止まります）**
 
@@ -2630,7 +2654,7 @@ Stripeをつなぐのは**`契約準備` の先**です。`契約準備 → 契�
 ### `/rent` ＝ 8RENT（借りる）
 
 トップからレンタル特化の説明をすべて引き取ったページです。中身は以前のトップとほぼ同じで、
-レンタル商品の一覧・カテゴリー・条件検索・商品詳細・申込（`inv_rental_request_create`）が入っています。
+レンタル商品の一覧・カテゴリー・条件検索・商品詳細・申込（`/api/rental-apply`）が入っています。
 **申込の作法は変えていません**：実在庫数を出さない／希望台数を伺う／申込の時点で個体は押さえない。
 
 同じ機種を購入もできる場合は、カードに「購入 ¥○○／購入を相談する」の1行が出ます
