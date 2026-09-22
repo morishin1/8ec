@@ -3724,7 +3724,8 @@ function itemListings(it) {
     </div>` : ''}
     <div class="table-wrap"><table class="t">
       <thead><tr><th>販売サイト</th><th>出品状態</th><th class="r">販売価格</th>
-        <th>SKU・商品管理番号</th><th>商品URL</th>${canEdit() ? '<th></th>' : ''}</tr></thead>
+        <th>SKU・商品管理番号</th><th>商品URL<div class="meta">お客様が見るページ</div></th>
+        ${canEdit() ? '<th>管理画面<div class="meta">担当者が登録・更新する画面</div></th><th></th>' : ''}</tr></thead>
       <tbody>${rows.map(({ c, x }) => `<tr>
         <td class="nowrap"><span class="tag ch ${x.state === LISTED ? 'on' : ''}">${esc(c.short)}</span> ${esc(c.label)}</td>
         <td class="nowrap">${x.state
@@ -3733,9 +3734,10 @@ function itemListings(it) {
             x.fromProduct ? '<div class="meta">型番まとめての設定</div>' : ''}</td>
         <td class="num r">${x.price == null ? '<span class="meta">—</span>' : yen(x.price)}</td>
         <td class="num">${esc(x.sku || '') || '<span class="meta">—</span>'}</td>
-        <td>${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener" class="meta">開く</a>`
+        <td>${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer" class="meta">開く</a>`
                     : '<span class="meta">—</span>'}</td>
-        ${canEdit() ? `<td class="nowrap"><button class="btn sm ghost"
+        ${canEdit() ? `<td>${adminCell(it.product_code, c.key)}</td>
+        <td class="nowrap"><button class="btn sm ghost"
           onclick="sheetListing('${esc(it.id)}','${c.key}')">編集</button></td>` : ''}
       </tr>`).join('')}</tbody>
     </table></div>`;
@@ -3746,6 +3748,7 @@ function sheetListing(id, ch) {
   const c = CHANNELS.find(x => x.key === ch) || { label: ch, short: ch };
   const own = listingsOf(id).find(x => x.channel === ch);
   const up = channelsOf(it.product_code).find(x => x.channel === ch);
+  const up2 = up || {};          // 管理画面URLは型番×販売サイトに1つ
   const x = own || {};
   const n = (v) => (v == null || v === '') ? '' : String(v);
   openSheet({
@@ -3763,10 +3766,12 @@ function sheetListing(id, ch) {
         planOf(it) == null ? '—' : yen(planOf(it))}</b></div>
       <label class="field" style="margin:10px 0"><span>SKU・商品管理番号</span>
         <input class="input" id="lsSku" value="${esc(x.sku || '')}" placeholder="そのサイトでの商品コード"></label>
-      <label class="field" style="margin-bottom:10px"><span>商品URL</span>
+      <label class="field" style="margin-bottom:10px"><span>商品URL（お客様が見るページ）</span>
         <input class="input" id="lsUrl" value="${esc(x.url || '')}" placeholder="https://…"></label>
       <label class="field"><span>メモ（任意）</span>
-        <input class="input" id="lsNote" value="${esc(x.note || '')}"></label>`,
+        <input class="input" id="lsNote" value="${esc(x.note || '')}"></label>
+      ${ADMIN_SEARCH_CHANNELS.indexOf(ch) >= 0 ? `<p class="meta" style="margin-top:8px">
+        管理画面URLは、表の［管理URLを${up2.admin_url ? '直す' : '登録'}］から（別に保存します）。</p>` : ''}`,
     run: (state) => saveListing(id, null, ch, state, {
       price: numField('lsPrice'), sku: ($('lsSku') || {}).value,
       url: ($('lsUrl') || {}).value, note: ($('lsNote') || {}).value
@@ -3776,13 +3781,14 @@ function sheetListing(id, ch) {
 
 /* 出品情報の保存はDBの関数を通す。状態が変わったときだけ履歴に残る */
 async function saveListing(itemId, code, ch, state, more) {
+  // 返り値は「保存できたか」。呼ぶ側はこれを見てから次へ進む
   const { data, error } = await sb.rpc('inv_listing_set', {
     p_item_id: itemId || null, p_code: code || null, p_channel: ch,
     p_state: state || null, p_sku: (more || {}).sku || null,
     p_price: (more || {}).price == null ? null : (more || {}).price,
     p_url: (more || {}).url || null, p_note: (more || {}).note || null
   });
-  if (error) { toast('保存できませんでした：' + error.message); return; }
+  if (error) { toast('保存できませんでした：' + error.message); return false; }
   // 未出品にしたときは行を消している。中身が空の返りは「消えた」とみなす
   const row = (data && data.id != null) ? data : null;
   const same = (v) => itemId ? v.item_id === itemId && v.channel === ch
@@ -3795,6 +3801,7 @@ async function saveListing(itemId, code, ch, state, more) {
   await refreshTx();
   render();
   toast(row ? `${chanLabel(ch)}の出品情報を保存しました` : `${chanLabel(ch)}を未出品にしました`);
+  return true;
 }
 
 /* 売れた・捨てたのに出たままになっている出品を、まとめて出品停止にする */
@@ -4524,8 +4531,9 @@ function tabSales(p) {
     ${listingUrlNote(p)}
     <div class="table-wrap"><table class="t">
       <thead><tr><th>販売サイト</th>${ind ? '<th class="r">出品中</th><th class="r">販売できる数量</th>' : ''}
-        <th>型番まとめての設定</th><th>SKU</th><th class="r">販売価格</th><th>商品URL</th>
-        ${canEdit() ? '<th></th>' : ''}</tr></thead>
+        <th>型番まとめての設定</th><th>SKU</th><th class="r">販売価格</th>
+        <th>商品URL<div class="meta">お客様が見るページ</div></th>
+        ${canEdit() ? '<th>管理画面<div class="meta">担当者が登録・更新する画面</div></th><th></th>' : ''}</tr></thead>
       <tbody>${CHANNELS.map(c => {
         const x = channelsOf(p.code).find(v => v.channel === c.key) || {};
         const n = units.filter(i => (listingOf(i, c.key) || {}).state === LISTED).length;
@@ -4544,8 +4552,9 @@ function tabSales(p) {
                 : '<span class="meta">—</span>')}</td>
           <td class="num">${esc(x.sku || '') || '<span class="meta">—</span>'}</td>
           <td class="num r">${x.price == null ? '<span class="meta">—</span>' : yen(x.price)}</td>
-          <td>${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener" class="meta" style="word-break:break-all">開く</a>` : '<span class="meta">—</span>'}</td>
-          ${canEdit() ? `<td class="nowrap"><button class="btn sm ghost" onclick="sheetChannel('${esc(p.code)}','${c.key}')">編集</button></td>` : ''}
+          <td>${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer" class="meta" style="word-break:break-all">開く</a>` : '<span class="meta">—</span>'}</td>
+          ${canEdit() ? `<td>${adminCell(p.code, c.key)}</td>
+          <td class="nowrap"><button class="btn sm ghost" onclick="sheetChannel('${esc(p.code)}','${c.key}')">編集</button></td>` : ''}
         </tr>`;
       }).join('')}</tbody></table></div>
     ${ind ? (units.length ? `<div class="sec">1台ずつの出品先</div>
@@ -4631,27 +4640,14 @@ function sheetChannel(code, ch) {
         <input class="input" id="lsSku" value="${esc(x.sku || '')}" placeholder="そのサイトでの商品コード"></label>
       <label class="field" style="margin-bottom:10px"><span>商品URL</span>
         <input class="input" id="lsUrl" value="${esc(x.url || '')}" placeholder="https://…"></label>
-      <label class="field" style="margin-bottom:10px"><span>管理画面URL（任意）</span>
-        <input class="input" id="lsAdmin" value="${esc(x.admin_url || '')}" placeholder="https://…（販売サイトの管理画面で開いたURL）">
-        <span class="meta">売れたあとに在庫を直しにいく先です。<strong>実際に管理画面で開いたURLを貼ってください。</strong>
-          空なら販売サイトごとの設定（管理画面のトップ・ひな形）を使います。</span></label>
       <label class="field"><span>メモ</span>
-        <input class="input" id="lsNote" value="${esc(x.note || '')}"></label>`,
-    run: async (state) => {
-      await saveListing(null, code, ch, state, {
-        price: numField('lsPrice'), sku: ($('lsSku') || {}).value,
-        url: ($('lsUrl') || {}).value, note: ($('lsNote') || {}).value
-      });
-      // 管理画面URLは出品情報とは別の列なので、専用のRPCで入れ直す
-      const admin = (($('lsAdmin') || {}).value || '').trim();
-      const cur = ((channelsOf(code).find(v => v.channel === ch) || {}).admin_url || '').trim();
-      if (admin !== cur) {
-        const { error } = await sb.rpc('inv_listing_admin_url_set', { p_code: code, p_channel: ch, p_url: admin || null });
-        if (error) { toast('管理画面URLを保存できませんでした：' + error.message); return; }
-        await loadAll();
-        render();
-      }
-    }
+        <input class="input" id="lsNote" value="${esc(x.note || '')}"></label>
+      <p class="meta" style="margin-top:8px">管理画面URLは、表の
+        ［管理URLを${x.admin_url ? '直す' : '登録'}］から（別に保存します）。</p>`,
+    run: (state) => saveListing(null, code, ch, state, {
+      price: numField('lsPrice'), sku: ($('lsSku') || {}).value,
+      url: ($('lsUrl') || {}).value, note: ($('lsNote') || {}).value
+    })
   });
 }
 
@@ -7376,12 +7372,27 @@ function closeSheet() {
 }
 async function confirmSheet() {
   if (!sheetState) return;
-  const fn = sheetState.run;
+  const cfg = sheetState;
   const val = (($('sheetVal') || {}).value || '').trim();
   // 入力が足りないときは閉じない（閉じてから知らせると入れ直しになるため）
-  if (sheetState.validate && !sheetState.validate(val)) return;
+  if (cfg.validate && !cfg.validate(val)) return;
+
+  // 保存が失敗したときに入れた値を消さないシート。run が false を返したら開いたまま
+  if (cfg.keepOpenOnError) {
+    const cta = $('sheetPanel').querySelector('.btn.cta');
+    const label = cta ? cta.textContent : '';
+    if (cta) { cta.disabled = true; cta.textContent = '保存中…'; }
+    let ok = false;
+    try { ok = await cfg.run(val); } catch (e) { ok = false; toast('保存できませんでした'); }
+    if (ok === false) {
+      if (cta) { cta.disabled = false; cta.textContent = label; }
+      return;
+    }
+    closeSheet();
+    return;
+  }
   closeSheet();
-  await fn(val);
+  await cfg.run(val);
 }
 const userOptions = () => {
   const names = [...new Set(db.items.map(i => i.user_name).filter(Boolean).concat(db.members.map(m => m.display_name)))];
@@ -7659,6 +7670,131 @@ function adminUrlOf(x, ch) {
   if (home) return { url: home, kind: 'home' };
   return { url: null, kind: 'none' };
 }
+/* ---- 管理画面で商品を探す ----
+   お客様が見る「商品URL」とは別に、店舗の担当者が商品を探して登録・更新する
+   ための導線。いまは楽天とAmazonだけに出す。
+
+   検索語は商品マスターの型番をいちばんに使い、型番が空のときだけ商品名を使う。
+   管理番号・仕入元ID・出品SKUは使わない（別の商品が出てしまう）。
+
+   検索語つきURLの形は、実際に管理画面で1度検索して確かめた人だけが
+   販売サイトの設定（admin_search_url_template）に入れる。
+   こちらで推測して組み立てることはしない。設定が空のあいだは
+   「検索語をコピーして管理画面を開く」に切り替える。 */
+const ADMIN_SEARCH_CHANNELS = ['rakuten', 'amazon'];
+
+/* 検索語。前後の空白を落とし、あいだの空白は半角1個にそろえる */
+function adminSearchTerm(p) {
+  const clean = (v) => String(v == null ? '' : v).trim().replace(/\s+/g, ' ');
+  const model = clean((p || {}).model);
+  if (model) return { q: model, from: 'model', label: '型番' };
+  const name = clean((p || {}).name);
+  if (name) return { q: name, from: 'name', label: '商品名' };
+  return { q: '', from: null, label: null };
+}
+
+/* 「探す」で開くURLを決める。
+     ・設定に検証ずみの検索URL（{q}つき）があれば、検索結果をそのまま開く
+     ・無ければ管理画面のトップを開き、検索語はクリップボードへ渡す
+   どちらも実URLを持つ <a target="_blank" rel="noopener noreferrer"> で開く。
+   window.open は使わない。noopener つきの window.open は、正しく開けた
+   ときでも null を返す仕様で、返り値からブロックの有無を判定できないため
+   （以前はここで「ポップアップがブロックされました」と誤って出していた）。 */
+function adminSearchLink(code, ch) {
+  const t = adminSearchTerm(prod(code));
+  if (!t.q) return { ready: false, why: '型番も商品名も登録されていません', term: t };
+  const st = chanSetting(ch);
+  const tpl = (st.admin_search_url_template || '').trim();
+  const home = (st.admin_home_url || '').trim();
+  if (tpl && tpl.indexOf('{q}') >= 0) {
+    return { ready: true, direct: true, term: t, url: tpl.replace(/\{q\}/g, encodeURIComponent(t.q)) };
+  }
+  if (home) return { ready: true, direct: false, term: t, url: home };
+  return { ready: false, why: chanLabel(ch) + 'の管理画面URLが未設定です（設定 → 販売サイト）', term: t };
+}
+
+/* 検索語をコピーして知らせるだけ。タブを開くのはリンク自身の仕事 */
+function adminSearchCopy(code, ch) {
+  const t = adminSearchTerm(prod(code));
+  if (!t.q) return;
+  const paste = t.label + '「' + t.q + '」をコピーしました。管理画面の検索欄に貼り付けてください';
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(t.q).then(
+      () => toast(paste),
+      () => toast('コピーできませんでした。' + t.label + 'は ' + t.q + ' です'));
+  } else {
+    toast('コピーできませんでした。' + t.label + 'は ' + t.q + ' です');
+  }
+}
+
+/* 出品先の表の「管理画面」欄。楽天・Amazonだけに出し、閲覧のみの人には出さない。
+   管理URL（admin_url）は型番×販売サイトに1つ持つので、1台ぶんの行ではなく
+   型番まとめての行から読む。 */
+function adminCell(code, ch) {
+  if (!canEdit()) return '<span class="meta">—</span>';
+  if (ADMIN_SEARCH_CHANNELS.indexOf(ch) < 0) return '<span class="meta">—</span>';
+  const link = adminSearchLink(code, ch);
+  const direct = ((channelsOf(code).find(v => v.channel === ch) || {}).admin_url || '').trim();
+  const stop = 'event.stopPropagation()';
+
+  const search = !link.ready
+    ? `<button class="btn sm ghost" disabled title="${esc(link.why)}">${
+         esc((link.term.label || '型番') + 'で探す')}</button>
+       <div class="meta">${esc(link.why)}</div>`
+    : `<a class="btn sm ghost" href="${esc(link.url)}" target="_blank" rel="noopener noreferrer"
+         onclick="${stop};${link.direct ? '' : `adminSearchCopy('${esc(code)}','${esc(ch)}')`}"
+         title="${esc(chanLabel(ch) + 'の管理画面で ' + link.term.q + ' を探します'
+                  + (link.direct ? '' : '（検索語はコピーします。検索欄に貼り付けてください）'))}"
+         >${esc(link.term.label + 'で探す')}</a>
+       <div class="meta num" style="word-break:break-all">${esc(link.term.q)}${
+         link.direct ? '' : '<br>検索語をコピーします'}</div>`;
+
+  const edit = direct
+    ? `<a class="btn sm" href="${esc(direct)}" target="_blank" rel="noopener noreferrer"
+         onclick="${stop}" title="${esc(direct)}">商品を編集</a>`
+    : '';
+  return `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-start">
+      ${edit}<div>${search}
+        <div><button class="btn sm ghost" style="margin-top:4px;font-size:11.5px"
+          onclick="${stop};sheetAdminUrl('${esc(code)}','${esc(ch)}')">管理URLを${
+            direct ? '直す' : '登録'}</button></div></div></div>`;
+}
+
+/* 管理URLだけを入れ直す。出品情報とは別の保存にして、
+   どちらかが失敗したときに「もう一方は保存できた」と取り違えないようにする。
+   失敗したときはシートを閉じない（入れた値が消えないように）。 */
+function sheetAdminUrl(code, ch) {
+  const c = CHANNELS.find(x => x.key === ch) || { key: ch, label: ch };
+  const now = ((channelsOf(code).find(v => v.channel === ch) || {}).admin_url || '').trim();
+  const host = ch === 'rakuten' ? 'item.rms.rakuten.co.jp'
+             : ch === 'amazon' ? 'sellercentral.amazon.co.jp' : '';
+  openSheet({
+    title: c.label + 'の管理画面URL', subject: code, cta: '保存',
+    keepOpenOnError: true,
+    hint: `出品先の表に［商品を編集］を出すためのURLです。
+      <strong>${esc(c.label)}の管理画面でこの商品を開いて、そのときのURLを貼ってください。</strong>
+      こちらで組み立てたURLは使いません。`,
+    body: `<label class="field"><span>管理画面URL</span>
+        <input class="input" id="auUrl" value="${esc(now)}"
+               placeholder="${host ? 'https://' + esc(host) + '/…' : 'https://…'}"></label>
+      <p class="meta" style="margin-top:8px">
+        ${host ? '<code>' + esc(host) + '</code> の https だけ受け付けます。' : ''}
+        ログイン中だけ有効な（セッションID・トークンつきの）URLは登録できません。<br>
+        空にすると［商品を編集］は出なくなります。まだ出品していない商品でも登録できます。</p>`,
+    run: async () => {
+      const url = (($('auUrl') || {}).value || '').trim();
+      if (url === now) return true;                   // 変わっていないので何もしない
+      const { error } = await sb.rpc('inv_listing_admin_url_set',
+        { p_code: code, p_channel: ch, p_url: url || null });
+      if (error) { toast('保存できませんでした：' + error.message); return false; }
+      await loadAll();
+      render();
+      toast(url ? chanLabel(ch) + 'の管理画面URLを保存しました' : chanLabel(ch) + 'の管理画面URLを消しました');
+      return true;
+    }
+  });
+}
+
 function copyText(t, msg) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(t).then(() => toast(msg || 'コピーしました'), () => toast('コピーできませんでした'));
@@ -7779,6 +7915,13 @@ function openChannelAdminSetup(ch) {
       <input class="input" id="caTpl" value="${esc(st.admin_item_url_template || '')}" placeholder="https://…?manageNumber={manage}">
       <span class="meta"><code>{manage}</code>（商品管理番号）<code>{sku}</code><code>{item_code}</code> が差し替わります。
         1商品だけ確実なURLがあるときは、商品詳細の出品編集で「管理画面URL」に直接入れてください。</span></label>
+    ${ADMIN_SEARCH_CHANNELS.indexOf(ch) >= 0 ? `
+    <label class="field" style="margin-bottom:10px"><span>検索語つきURL（ひな形・任意）</span>
+      <input class="input" id="caSearch" value="${esc(st.admin_search_url_template || '')}" placeholder="https://…?keyword={q}">
+      <span class="meta"><strong>この管理画面で1度じっさいに検索して、出てきたURLを貼ってください。</strong>
+        <code>{q}</code> が検索語（型番、無ければ商品名）に差し替わります。
+        <br>空のあいだは、出品先の［探す］は<strong>検索語をコピーして管理画面のトップを開く</strong>動きになります。
+        推測で作ったURLは入れないでください。</span></label>` : ''}
     ${st.note ? `<p class="meta">${esc(st.note)}</p>` : ''}`,
     [['閉じる', 'closeModal()', 'btn ghost'],
      ['保存', `saveChannelAdmin('${esc(ch)}')`, 'btn lime']]);
@@ -7787,12 +7930,14 @@ async function saveChannelAdmin(ch) {
   const { data, error } = await sb.rpc('inv_channel_settings_set', {
     p_channel: ch,
     p_home: (($('caHome') || {}).value || '').trim() || null,
-    p_template: (($('caTpl') || {}).value || '').trim() || null
+    p_template: (($('caTpl') || {}).value || '').trim() || null,
+    p_search: (($('caSearch') || {}).value || '').trim() || null
   });
   if (error) { toast('保存できませんでした：' + error.message); return; }
   const i = db.chanSettings.findIndex(x => x.channel === ch);
   if (data) { if (i >= 0) db.chanSettings[i] = data; else db.chanSettings.push(data); }
   closeModal();
+  render();          // 出品先の「管理画面」欄はこの設定を見ているので、すぐ描き直す
   toast(`${chanLabel(ch)}の管理画面URLを保存しました`);
 }
 
