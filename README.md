@@ -368,17 +368,33 @@ Supabase の SQL Editor で `zaiko/setup.sql` を実行します。何度実行�
 | `2026-09-21-sale-catalog.sql` | 同じ商品マスタで**販売（8EC BUY）とレンタル（8RENT）の両方**を扱えるようにする。`inventory_products` に `sale_enabled` / `sale_price` / `sale_condition` / `sale_procurement_available`、公開ビュー `inv_public_products`（レンタルぶんだけ返す `inv_public_catalog` は互換で残す）、`inv_product_sale_set()`、案件に `product_code` / `want`（商品からの購入相談）。**`sale_enabled` の既定は false なので、流しただけでは1件も販売公開されません** |
 | `2026-09-21-rakuten-order-sync.sql` | 楽天の受注取り込みを**実際に動く権限**にする。`inventory_sale_orders` は authenticated に select しか渡していないのに `inv_sale_orders_apply()` が security invoker だったため、取り込みが `permission denied` で止まっていました。関数を **security definer**（権限の確認は中の `inv_can_edit()`）にして、表は読み取り専用のまま書けるようにします。あわせて発送済みまで進めたときに**売却先（`sold_channel`）が空**だったのを直します（`inv_item_sell` を通す） |
 
+### どこまで当たっているかを調べる
+
+migration を記録する表が無いので、**本番DBがどこまで当たっているかはDBの中身から読む**しかありません。
+`zaiko/check-migrations-applied.sql` を Supabase の SQL Editor に貼って実行すると、migrationごとに
+「当たっている／★ 当たっていない／△ 途中まで」と、足りない物の名前が並びます。読み取りだけで、DBは変わりません。
+
+実際に **`2026-09-19-sale-flow.sql` の流し忘れ**が起きました（本番に `inventory_channel_settings` が無く、
+`2026-09-29-listing-admin-search.sql` が最初の `ALTER TABLE` で止まった）。本番へ何かを当てる前に、
+まずこの点検SQLを流してください。
+
 上の表は 2026-09-21 までです。これ以降のぶんは、それぞれの機能の章に置いています。
-未適用のものだけをまとめると、この順に流します。
+まだ本番へ当てていないものは、この順に流します（点検SQLの結果に合わせて増減します）。
 
 | ファイル | 中身 | 詳しくはREADMEのこの章 |
 |---|---|---|
+| `2026-09-19-sale-flow.sql` | **流し忘れていた土台。** 売却先・管理画面URL・`inventory_channel_settings`。これが無いと次の09-29が動かない | 上の表 |
 | `2026-09-29-listing-admin-search.sql` | 出品先の表に**管理画面で商品を探す**導線（`admin_search_url_template`）を足す | 「管理画面で商品を探す」 |
 | `2026-09-30-listing-admin-anon-revoke.sql` | 上で足した3つの関数を anon から外す（次の1本に含まれますが、履歴として残します） | 同上 |
 | `2026-10-01-rpc-permission-hardening.sql` | `public.inv_*` **110本の EXECUTE を棚卸し**し、公開してよい2本以外を anon から外す | 「RPCの権限」 |
 | `2026-10-02-rental-api-only.sql` | 8RENT の申込を `anon` の直接RPCから **`/api/rental-apply` 経由**に変える | 「申込は『希望条件の送信』」 |
 | `2026-10-03-rental-no-product.sql` | **商品を決めずに**申し込めるようにする（`product_code` を NULL 可に） | 同上 |
 | `2026-10-04-rental-product-fk-set-null.sql` | 商品マスタを消しても**申込は消さない**（外部キーを `ON DELETE SET NULL` に） | 同上 |
+
+`2026-09-19-sale-flow.sql` だけは、**09-29 より前に流してください。** 09-29 が
+`inv_channel_settings_set` の引数を4つから5つに変えるので、そのあとに sale-flow を流し直すと
+「function name is not unique」で止まります（`begin`〜`commit` の中なので、止まっても丸ごと巻き戻り、
+DBは壊れません）。上から順に1回ずつ流すぶんには問題ありません。
 
 
 ### 使う人と権限
