@@ -3247,6 +3247,9 @@ const PRICING_FIELDS = [
   ['target_profit_rate', '目標利益率', '%',  true],
   ['minimum_profit_yen', '最低利益額', '円', false]
 ];
+/* 率（0.077）を画面用の％（7.7）にする。掛け算の誤差をそのまま出さない */
+const pctOf = (v) => (v == null || v === '') ? '' : String(Math.round(Number(v) * 1000000) / 10000);
+
 const pricingLabel = (ch) =>
   (PRICING_CHANNELS.find(c => c.key === ch) || {}).label || chanLabel(ch);
 
@@ -3295,25 +3298,90 @@ function normalizeUnit(u) {
   };
 }
 
+/* 配送サイズ（佐川急便の規格）。送料は販売サイトではなく
+   「配送会社 × サイズ × 地域」で決まるので、サイトの設定とは別に持つ。
+   金額はまだDBに入れない（契約運賃表がまだ無いため）。 */
+const SHIP_SIZES = ['60', '80', '100', '120', '140', '160', '170', '180', '200', 'custom'];
+const shipSizeLabel = (v) => !v ? '未設定' : (v === 'custom' ? 'その他' : v + 'サイズ');
+
 /* 設定。DBに入っている値が正。試算用の一時入力があればそれを上に重ねるが、
    DBには保存しない（ページを閉じたら消える）。 */
 let pricingDraft = {};                 // { channel: { fee_rate: '…', … } } 画面だけの値
+let shipDraft = {};                    // { サイズ: 金額 } 画面だけの送料。保存しない
 let pricingRows = null;                // 価格提案の行
 let pricingFile = '';                  // 元のCSVファイル名
+
+/* 実効手数料率の決めかた。
+     ① plans[plan]        … 契約プランが決まっているとき（ヤフオクのストア契約など）
+     ② fee_parts の合算   … 手数料が何本かに分かれているとき（楽天）
+     ③ fee_rate 列        … 1つの率だけのとき
+   pricing_mode が conservative_estimate のときは、内訳の **上限** を足した
+   「安全側の試算値」で、実契約料率ではない。画面にもCSVにもそう書く。 */
+function effectiveFee(ch) {
+  const st = chanSetting(ch) || {};
+  const rules = st.pricing_rules || {};
+  const mode = rules.pricing_mode || 'contract';
+  const plans = rules.plans || {};
+  if (rules.plan && typeof plans[rules.plan] === 'number') {
+    return { rate: plans[rules.plan], mode, how: `プラン「${rules.plan}」の料率`, parts: null };
+  }
+  const parts = rules.fee_parts || {};
+  const names = Object.keys(parts);
+  if (names.length) {
+    const hi = mode === 'conservative_estimate';
+    let sum = 0, ok = true;
+    names.forEach(k => {
+      const v = Number((parts[k] || {})[hi ? 'max' : 'min']);
+      if (isNaN(v)) ok = false; else sum += v;
+    });
+    if (ok) return { rate: sum, mode, parts,
+      how: hi ? `内訳${names.length}項目の上限を合算（保守的試算）` : `内訳${names.length}項目を合算` };
+  }
+  return { rate: st.fee_rate == null ? null : Number(st.fee_rate), mode, how: '設定した手数料率', parts: null };
+}
+const FEE_MODE_LABEL = {
+  contract: '実契約', conservative_estimate: '保守的試算', weighted_actual: '実績で重みづけ'
+};
 
 function pricingSetting(ch) {
   const db0 = chanSetting(ch) || {};
   const d = pricingDraft[ch] || {};
-  const out = { channel: ch, fromDraft: [] };
+  const fee = effectiveFee(ch);
+  const out = { channel: ch, fromDraft: [], feeHow: fee.how, feeMode: fee.mode, feeParts: fee.parts };
   PRICING_FIELDS.forEach(([k]) => {
     const raw = d[k];
     if (raw != null && String(raw).trim() !== '') {
-      const n = Number(String(raw).trim());
-      if (!isNaN(n)) { out[k] = n; out.fromDraft.push(k); return; }
+      const n = PRICING_FIELDS.find(f => f[0] === k)[3]
+        ? Math.round(Number(String(raw).trim()) * 10000) / 1000000   // ％で入るので率に戻す
+        : Number(String(raw).trim());
+      if (!isNaN(n)) {
+        out[k] = n; out.fromDraft.push(k);
+        if (k === 'fee_rate') { out.feeHow = '試算で入れた率'; out.feeMode = 'draft'; out.feeParts = null; }
+        return;
+      }
     }
-    out[k] = db0[k] == null ? null : Number(db0[k]);
+    out[k] = k === 'fee_rate' ? fee.rate : (db0[k] == null ? null : Number(db0[k]));
   });
   return out;
+}
+
+/* その個体の送料。サイトの設定より、サイズと個体の入力を先に見る。
+     ① この個体に入れた金額     ② サイズごとの試算値
+     ③ サイトの既定送料（Phase 1 の shipping_cost 列）
+   どれも無ければ null＝「送料未設定」。0円とはみなさない。 */
+function shipFor(r, ch) {
+  const own = r.shipCost;
+  if (own != null && String(own).trim() !== '' && !isNaN(Number(own))) {
+    return { cost: Number(own), how: 'この個体に入れた金額' };
+  }
+  const size = r.shipSize || '';
+  const v = shipDraft[size];
+  if (size && v != null && String(v).trim() !== '' && !isNaN(Number(v))) {
+    return { cost: Number(v), how: `${shipSizeLabel(size)}の試算値` };
+  }
+  const st = chanSetting(ch) || {};
+  if (st.shipping_cost != null) return { cost: Number(st.shipping_cost), how: 'サイトの既定送料' };
+  return { cost: null, how: size ? `${shipSizeLabel(size)}の送料が未設定` : '配送サイズが未設定' };
 }
 
 /* 1チャネルぶんの計算。設定がひとつでも未入力なら、0とみなさず計算しない。 */
@@ -3388,30 +3456,51 @@ function buildPricing(p) {
       if (cond.rank == null) flags.push('状態の記載がありません');
       if (!(cost > 0)) flags.push('原価が0円です');
       const norm = normalizeUnit({ maker: x.master.maker, model: x.master.model, spec: x.master.spec });
-      const cells = {};
-      PRICING_CHANNELS.forEach(c => {
-        const st = pricingSetting(c.key);
-        const calc = priceForChannel(cost, st);
-        const j = judgeFor(calc, cond.rank, flags, c.key);
-        cells[c.key] = { ch: c.key, st, calc, judge: j.judge, why: j.why,
-                         price: calc.ok ? calc.price : null, edited: false };
-      });
-      const listedOn = listedChannelsOf(x.sharesWith);
-      const pri = pickPriority(cells, listedOn);
-      if (pri.ask) flags.push(pri.ask);
-      rows.push({
-        key: x.key, unitNo: n + 1, lotQty: x.lot.qty,
+      const row = {
+        key: x.key, unitNo: n + 1, lotQty: x.lot.qty, code: x.sharesWith || null,
         name: x.master.name, model: x.master.model, maker: x.master.maker || '',
         spec: x.master.spec || '', serial: u.serial || '', manageId: u.id || '',
         sourceId: u.source_id || '', note: u.note || '',
         cost, lot: x.lot, bought: u.purchased_on || '',
-        cond, norm, cells, priority: pri, flags,
+        cond, norm, flags,
+        // 配送サイズの既定は商品マスタから。新規商品はまだ商品が無いので未設定
+        shipSize: (prod(x.sharesWith) || {}).shipping_size || '',
+        shipCost: null,                       // 個体ごとの上書き。空なら試算値を使う
         rawLine: (kids[n] && kids[n].line) || x.rawLine || '',
         rawRow: (kids[n] && kids[n].row) || x.rawRow || null
-      });
+      };
+      buildCells(row, listedChannelsOf(x.sharesWith));
+      rows.push(row);
     });
   });
   return rows;
+}
+
+/* その1行ぶんの、サイトごとの計算。送料やサイズを変えたときも、ここだけ作り直す。
+   基本の要確認（原価・状態・総数）は消さず、送料まわりのぶんだけ入れ替える。 */
+function buildCells(r, listedOn) {
+  const keep = (r.flags || []).filter(f => !/送料|配送サイズ|最優先チャネルの差/.test(f));
+  const flags = keep.slice();
+  const cells = {};
+  let noShip = 0;
+  PRICING_CHANNELS.forEach(c => {
+    const ship = shipFor(r, c.key);
+    if (ship.cost == null) noShip++;
+    const st = Object.assign(pricingSetting(c.key), { shipping_cost: ship.cost, shipHow: ship.how });
+    const calc = priceForChannel(r.cost, st);
+    const j = judgeFor(calc, r.cond.rank, flags, c.key);
+    cells[c.key] = { ch: c.key, st, calc, judge: j.judge, why: j.why,
+                     price: calc.ok ? calc.price : null, edited: false };
+  });
+  if (noShip) flags.push(noShip === PRICING_CHANNELS.length
+    ? (r.shipSize ? `${shipSizeLabel(r.shipSize)}の送料が未設定です` : '配送サイズが未設定です')
+    : `${noShip}サイトで送料が未設定です`);
+  r.cells = cells;
+  r.priority = pickPriority(cells, listedOn || r.listedOn || []);
+  r.listedOn = listedOn || r.listedOn || [];
+  if (r.priority.ask) flags.push(r.priority.ask);
+  r.flags = flags;
+  return r;
 }
 /* すでにそのサイトへ出しているか（既存商品への追加のとき使う）。
    新規商品（まだ商品コードが無い）のときは空。 */
@@ -3432,7 +3521,8 @@ function openPricing() {
 
 /* 未設定のチャネルがいくつあるか。1つでもあれば、画面の頭で知らせる */
 function pricingUnset() {
-  return PRICING_CHANNELS.filter(c => PRICING_FIELDS.some(([k]) => pricingSetting(c.key)[k] == null));
+  return PRICING_CHANNELS.filter(c =>
+    PRICING_FIELDS.some(([k]) => k !== 'shipping_cost' && pricingSetting(c.key)[k] == null));
 }
 
 function paintPricing(open) {
@@ -3440,7 +3530,7 @@ function paintPricing(open) {
   const body = `
     ${unset.length ? `<div class="card" style="margin-bottom:12px;background:var(--l100);border:1px solid var(--l400)">
       <strong>手数料が未設定です</strong>：${esc(unset.map(c => c.label).join('・'))}<br>
-      <span class="meta">手数料率・固定費・送料・目標利益率・最低利益額がそろったサイトだけ価格を出します。
+      <span class="meta">手数料率・固定費・目標利益率・最低利益額がそろったサイトだけ価格を出します。
         推測の数字は入れていません。下の［手数料などの設定］から入れてください。</span></div>` : ''}
     <details style="margin-bottom:12px"${unset.length ? ' open' : ''}>
       <summary style="cursor:pointer"><strong>手数料などの設定</strong>
@@ -3448,7 +3538,26 @@ function paintPricing(open) {
       <p class="meta" style="margin:8px 0">
         <strong>試算</strong>はこの画面だけの値です（保存しません。閉じると消えます）。
         ${canAdmin() ? '正式な設定は［保存］でDBに入ります。' : '保存できるのは管理者だけです。'}
-        手数料率と目標利益率は<strong>％で</strong>入れてください（10% なら <code>10</code>）。</p>
+        手数料率と<strong>原価に対する目標利益率</strong>は<strong>％で</strong>入れてください（10% なら <code>10</code>）。</p>
+      <div class="table-wrap" style="margin-bottom:10px"><table class="t"><thead><tr>
+        <th>販売サイト</th><th>いま使う手数料率</th><th>その根拠</th></tr></thead><tbody>
+        ${PRICING_CHANNELS.map(c => {
+          const st = pricingSetting(c.key);
+          return `<tr><td>${esc(c.label)}</td>
+            <td class="num">${st.fee_rate == null ? '<span class="meta">未設定</span>'
+              : (st.fee_rate * 100).toFixed(1) + '%'}</td>
+            <td><span class="tag ${st.feeMode === 'conservative_estimate' ? 'act' : 'ok'}">${
+                esc(FEE_MODE_LABEL[st.feeMode] || st.feeMode)}</span>
+              <span class="meta">　${esc(st.feeHow)}</span>
+              ${st.feeParts ? `<div class="meta">${Object.keys(st.feeParts).map(k =>
+                  `${esc(k)} ${(Number(st.feeParts[k].max) * 100).toFixed(1)}%`).join('／')}</div>` : ''}
+              ${st.feeMode === 'conservative_estimate'
+                ? '<div class="meta"><strong>実契約料率ではありません。</strong>内訳の上限を足した安全側の数字です。</div>' : ''}
+              ${canAdmin() ? `<button class="btn sm ghost" style="margin-top:4px"
+                  onclick="openFeeRules('${esc(c.key)}')">内訳・プランを直す</button>` : ''}</td>
+          </tr>`;
+        }).join('')}
+      </tbody></table></div>
       <div class="table-wrap"><table class="t"><thead><tr>
         <th>販売サイト</th>${PRICING_FIELDS.map(([, label, unit]) =>
           `<th>${esc(label)}<span class="meta">（${esc(unit)}）</span></th>`).join('')}
@@ -3460,18 +3569,36 @@ function paintPricing(open) {
               const d = (pricingDraft[c.key] || {})[k];
               const saved = (chanSetting(c.key) || {})[k];
               const shown = d != null && String(d) !== '' ? d
-                : (saved == null ? '' : (isRate ? Number(saved) * 100 : Number(saved)));
+                : (saved == null ? '' : (isRate ? pctOf(saved) : Number(saved)));
               return `<td><input class="input" style="min-width:86px" inputmode="decimal"
                   value="${esc(String(shown))}"
                   oninput="setPricingDraft('${esc(c.key)}','${esc(k)}',this.value)">
                 ${saved == null ? '<div class="meta">未設定</div>'
-                  : `<div class="meta">保存済 ${esc(String(isRate ? Number(saved) * 100 : Number(saved)))}</div>`}</td>`;
+                  : `<div class="meta">保存済 ${esc(String(isRate ? pctOf(saved) : Number(saved)))}</div>`}</td>`;
             }).join('')}
             <td>${canAdmin()
               ? `<button class="btn sm ghost" onclick="savePricingSetting('${esc(c.key)}')">保存</button>`
               : '<span class="meta">試算のみ</span>'}</td></tr>`;
         }).join('')}
       </tbody></table></div>
+    </details>
+    <details style="margin-bottom:12px" open>
+      <summary style="cursor:pointer"><strong>配送（佐川急便）</strong>
+        <span class="meta">　サイズごとの送料。試算だけで保存しません</span></summary>
+      <p class="meta" style="margin:8px 0">
+        佐川急便の運賃は<strong>契約・地域・サイズ・重量で変わる</strong>ので、金額はDBに入れていません。
+        ここに入れた金額は<strong>この画面だけ</strong>のもので、閉じると消えます。
+        入っていないサイズは<strong>「送料未設定」</strong>として価格を出しません（0円にはしません）。</p>
+      <div class="table-wrap"><table class="t"><thead><tr>
+        ${SHIP_SIZES.map(z => `<th>${esc(shipSizeLabel(z))}</th>`).join('')}
+      </tr></thead><tbody><tr>
+        ${SHIP_SIZES.map(z => `<td><input class="input" style="min-width:76px" inputmode="numeric"
+            value="${esc(String(shipDraft[z] == null ? '' : shipDraft[z]))}"
+            oninput="setShipDraft('${esc(z)}',this.value)"></td>`).join('')}
+      </tr></tbody></table></div>
+      <p class="meta" style="margin:8px 0 0">将来は
+        <strong>配送会社（佐川急便）・発送元（柏倉庫）・配送サイズ・配送先地域</strong>から
+        運賃表を引く形に広げられます。</p>
     </details>
     <div id="pricingTable">${pricingTableHtml()}</div>`;
 
@@ -3499,6 +3626,7 @@ function pricingTableHtml() {
       <strong>この画面では出品も在庫の変更もしません。</strong></p>
     <div class="table-wrap"><table class="t"><thead><tr>
       <th>商品</th><th>型番</th><th>S/N</th><th>状態</th><th>配賦原価</th>
+      <th>配送サイズ</th><th>送料</th>
       ${PRICING_CHANNELS.map(c => `<th>${esc(c.label)}</th>`).join('')}
       <th>最優先</th><th>要確認</th><th></th></tr></thead><tbody>
       ${rows.map((r, i) => `<tr>
@@ -3508,6 +3636,16 @@ function pricingTableHtml() {
         <td>${r.cond.rank ? esc(CONDITION_LABEL[r.cond.rank]) : '<span class="tag">要確認</span>'}
           <div class="meta">${esc(r.cond.why)}</div></td>
         <td class="num">${yen(r.cost)}</td>
+        <td><select class="input" style="min-width:92px" onchange="setPricingShipSize(${i},this.value)">
+            <option value=""${r.shipSize ? '' : ' selected'}>未設定</option>
+            ${SHIP_SIZES.map(z => `<option value="${esc(z)}"${r.shipSize === z ? ' selected' : ''}>${
+              esc(shipSizeLabel(z))}</option>`).join('')}
+          </select>${r.code ? '' : '<div class="meta">新規商品</div>'}</td>
+        <td><input class="input" style="min-width:86px" inputmode="numeric"
+            placeholder="${esc(shipPlaceholder(r))}"
+            value="${esc(String(r.shipCost == null ? '' : r.shipCost))}"
+            oninput="setPricingShipCost(${i},this.value)">
+          <div class="meta">${esc(shipNote(r))}</div></td>
         ${PRICING_CHANNELS.map(c => pricingCellHtml(r, i, c.key)).join('')}
         <td>${r.priority.first ? esc(pricingLabel(r.priority.first)) : '—'}
           ${r.priority.second ? `<div class="meta">次 ${esc(pricingLabel(r.priority.second))}</div>` : ''}</td>
@@ -3537,13 +3675,65 @@ function pricingCellHtml(r, i, ch) {
   </td>`;
 }
 
+/* 送料の欄に出す案内。どこから来た金額かが分かるようにする */
+function shipPlaceholder(r) {
+  const z = r.shipSize, v = z ? shipDraft[z] : null;
+  return (v != null && String(v).trim() !== '') ? String(v) : '';
+}
+function shipNote(r) {
+  const s = shipFor(r, PRICING_CHANNELS[0].key);
+  return s.cost == null ? s.how : `${yen(s.cost)}（${s.how}）`;
+}
+
+/* サイズごとの送料（試算）。入れ直すたびに全行を計算し直す */
+function setShipDraft(size, v) {
+  const t = String(v == null ? '' : v).trim();
+  if (t === '') delete shipDraft[size]; else shipDraft[size] = t;
+  if (pricingRows) {
+    pricingRows.forEach(r => buildCells(r));
+    repaintPricingTable();
+  }
+}
+/* 表を描き直す。詳細画面を開いているあいだは表が無いので、そのときは何もしない */
+function repaintPricingTable() {
+  const host = $('pricingTable');
+  if (host) host.innerHTML = pricingTableHtml();
+  return host;
+}
+/* 個体の配送サイズを変える。商品マスタは書き換えない（この画面だけ） */
+function setPricingShipSize(i, v) {
+  const r = (pricingRows || [])[i]; if (!r) return;
+  r.shipSize = v || '';
+  buildCells(r);
+  repaintPricingTable();
+}
+/* 個体ごとの送料の上書き。サイズの試算値より優先する */
+function setPricingShipCost(i, v) {
+  const r = (pricingRows || [])[i]; if (!r) return;
+  const t = String(v == null ? '' : v).trim();
+  r.shipCost = t === '' ? null : t;
+  buildCells(r);
+  // 作り直すと入力中の欄からフォーカスが外れるので、同じ欄へ戻す
+  const host = $('pricingTable');
+  if (!host) return;
+  const before = host.querySelectorAll('.t tbody tr')[i];
+  const keep = before ? before.querySelector('input[inputmode=numeric]') : null;
+  const at = keep ? keep.selectionStart : null;
+  host.innerHTML = pricingTableHtml();
+  const back = host.querySelectorAll('.t tbody tr')[i];
+  const el = back ? back.querySelector('input[inputmode=numeric]') : null;
+  if (el) { el.focus(); try { el.setSelectionRange(at, at); } catch (e) { /* 数値欄では効かないことがある */ } }
+}
+
 /* 試算の値を入れ替える。DBには保存しない */
 function setPricingDraft(ch, field, v) {
   const d = (pricingDraft[ch] = pricingDraft[ch] || {});
-  const isRate = (PRICING_FIELDS.find(f => f[0] === field) || [])[3];
   const t = String(v == null ? '' : v).trim();
-  d[field] = t === '' ? '' : (isRate ? String(Number(t) / 100) : t);
-  if (pricingRows) { pricingRows = buildPricing(importPlan); $('pricingTable').innerHTML = pricingTableHtml(); }
+  d[field] = t;                       // 打った数字のまま持つ（％→率は pricingSetting で1回だけ）
+  if (pricingRows) {
+    pricingRows.forEach(r => buildCells(r));    // 配送サイズや個体の送料は保つ
+    repaintPricingTable();
+  }
 }
 
 /* 担当者が価格を直す。利益と判定はその場で出し直す（表は作り直さない） */
@@ -3560,7 +3750,7 @@ function setPricingPrice(i, ch, v) {
 async function savePricingSetting(ch) {
   if (!canAdmin()) { toast('設定は管理者だけができます'); return; }
   const st = pricingSetting(ch);
-  const miss = PRICING_FIELDS.filter(([k]) => st[k] == null).map(([, l]) => l);
+  const miss = PRICING_FIELDS.filter(([k]) => k !== 'shipping_cost' && st[k] == null).map(([, l]) => l);
   if (miss.length) { toast(miss.join('・') + ' が空です'); return; }
   const { data, error } = await sb.rpc('inv_channel_pricing_settings_set', {
     p_channel: ch,
@@ -3574,7 +3764,7 @@ async function savePricingSetting(ch) {
   const i = db.chanSettings.findIndex(x => x.channel === ch);
   if (data) { if (i >= 0) db.chanSettings[i] = data; else db.chanSettings.push(data); }
   delete pricingDraft[ch];                 // 保存したら試算の値は要らない
-  if (pricingRows) pricingRows = buildPricing(importPlan);
+  if (pricingRows) pricingRows.forEach(r => buildCells(r));
   paintPricing(false);
   toast(`${pricingLabel(ch)}の手数料などを保存しました`);
 }
@@ -3616,6 +3806,17 @@ function openPricingDetail(i) {
       ${r.note ? `<div class="pre" style="margin-top:8px">${esc(r.note)}</div>` : ''}
     </div>
 
+    <div class="lbl" style="margin-bottom:6px">配送（佐川急便）</div>
+    <div class="sum" style="margin-bottom:12px">
+      ${row('配送サイズ', esc(shipSizeLabel(r.shipSize)))}
+      ${row('送料', (() => { const sp = shipFor(r, PRICING_CHANNELS[0].key);
+             return sp.cost == null ? '<span class="tag">送料未設定</span>' : yen(sp.cost); })())}
+      ${row('どこから来た値か', esc(shipFor(r, PRICING_CHANNELS[0].key).how))}
+      ${row('商品マスタの既定', esc(shipSizeLabel((prod(r.code) || {}).shipping_size || '')))}
+    </div>
+    <p class="meta" style="margin:-4px 0 12px">送料の金額はDBに入れていません（佐川急便の運賃は契約・地域・
+      サイズ・重量で変わるため）。この画面で入れた金額は保存されません。</p>
+
     <div class="lbl" style="margin-bottom:6px">販売サイトごとの計算</div>
     <div class="table-wrap"><table class="t"><thead><tr>
       <th>販売サイト</th><th>手数料</th><th>固定費</th><th>送料</th>
@@ -3628,9 +3829,14 @@ function openPricingDetail(i) {
         const p = profitAt(x.price, r.cost, x.st);
         return `<tr>
           <td>${esc(c.label)}${x.st.fromDraft.length ? '<div class="meta">試算の値</div>' : ''}</td>
-          <td class="num">${(x.st.fee_rate * 100).toFixed(1)}%</td>
+          <td class="num">${(x.st.fee_rate * 100).toFixed(1)}%
+            <div class="meta">${esc(FEE_MODE_LABEL[x.st.feeMode] || x.st.feeMode)}</div>
+            <div class="meta">${esc(x.st.feeHow)}</div>
+            ${x.st.feeParts ? `<div class="meta">${Object.keys(x.st.feeParts).map(k =>
+                `${esc(k)} ${(Number(x.st.feeParts[k].max) * 100).toFixed(1)}%`).join('＋')}</div>` : ''}</td>
           <td class="num">${yen(x.st.fixed_cost)}</td>
-          <td class="num">${yen(x.st.shipping_cost)}</td>
+          <td class="num">${x.st.shipping_cost == null ? '<span class="tag">未設定</span>' : yen(x.st.shipping_cost)}
+            <div class="meta">${esc(x.st.shipHow || '')}</div></td>
           <td class="num">${yen(Math.round(x.calc.target))}</td>
           <td class="num">${yen(Math.ceil(x.calc.floor))}</td>
           <td class="num"><strong>${x.price == null ? '—' : yen(x.price)}</strong>${
@@ -3643,10 +3849,12 @@ function openPricingDetail(i) {
       }).join('')}
     </tbody></table></div>
     <p class="meta" style="margin:10px 0">
-      目標利益額 ＝ max(配賦原価 × 目標利益率, 最低利益額)<br>
+      目標利益額 ＝ max(配賦原価 × <strong>原価に対する目標利益率</strong>, 最低利益額)<br>
       最低販売価格 ＝ (配賦原価 ＋ 固定費 ＋ 送料 ＋ 目標利益額) ÷ (1 − 手数料率)<br>
       推奨価格 ＝ 最低販売価格を切り上げ（1万円未満は100円／5万円未満は500円／それ以上は1,000円単位）<br>
-      <strong>相場は見ていません</strong>（市場データなし・原価基準）。</p>
+      <strong>相場は見ていません</strong>（市場データなし・原価基準）。<br>
+      「保守的試算」と出ているサイトの手数料率は<strong>実契約料率ではなく</strong>、内訳の上限を足した
+      安全側の数字です（実際の手数料はこれより低くなることがあります）。</p>
 
     <div class="card">
       <div class="lbl" style="margin-bottom:3px">最優先チャネル</div>
@@ -3662,6 +3870,89 @@ function openPricingDetail(i) {
     [['価格の一覧にもどる', 'paintPricing(true)', 'btn ghost']]);
 }
 
+/* 手数料の内訳・プランを直す（管理者だけ）。
+   ここで変えると実効手数料率が変わるので、何がどう効くかを画面に書いておく。 */
+function openFeeRules(ch) {
+  if (!canAdmin()) { toast('設定は管理者だけができます'); return; }
+  const rules = JSON.parse(JSON.stringify((chanSetting(ch) || {}).pricing_rules || {}));
+  feeRulesEdit = { ch, rules };
+  const parts = rules.fee_parts || {};
+  const plans = rules.plans || {};
+  openModal(`${pricingLabel(ch)}の手数料`, `
+    <p class="meta" style="margin-bottom:12px">実効手数料率は
+      <strong>① プランの料率 ② 内訳の合算 ③ 設定した手数料率</strong> の順で決まります。</p>
+
+    <label class="field" style="margin-bottom:12px"><span>この率の扱い</span>
+      <select class="input" id="frMode">
+        ${['contract', 'conservative_estimate', 'weighted_actual'].map(m =>
+          `<option value="${m}"${(rules.pricing_mode || 'contract') === m ? ' selected' : ''}>${
+            esc(FEE_MODE_LABEL[m])}</option>`).join('')}
+      </select>
+      <span class="meta"><strong>保守的試算</strong>を選ぶと、内訳の<strong>上限</strong>を足した安全側の率を使い、
+        画面とCSVに「実契約料率ではない」と出ます。</span></label>
+
+    ${Object.keys(plans).length ? `<label class="field" style="margin-bottom:12px"><span>契約プラン</span>
+      <select class="input" id="frPlan">
+        <option value="">使わない</option>
+        ${Object.keys(plans).map(k => `<option value="${esc(k)}"${rules.plan === k ? ' selected' : ''}>${
+          esc(k)}（${(Number(plans[k]) * 100).toFixed(1)}%）</option>`).join('')}
+      </select>
+      <span class="meta">プランを選ぶと、その料率が内訳より優先されます。</span></label>` : ''}
+
+    ${Object.keys(parts).length ? `<div class="lbl" style="margin-bottom:6px">手数料の内訳</div>
+      <div class="table-wrap" style="margin-bottom:10px"><table class="t"><thead><tr>
+        <th>項目</th><th>下限（%）</th><th>上限（%）</th></tr></thead><tbody>
+        ${Object.keys(parts).map((k, n) => `<tr>
+          <td>${esc(k)}${parts[k].note ? `<div class="meta">${esc(parts[k].note)}</div>` : ''}</td>
+          <td><input class="input" style="min-width:80px" inputmode="decimal" id="frMin${n}"
+              value="${esc(pctOf(parts[k].min))}"></td>
+          <td><input class="input" style="min-width:80px" inputmode="decimal" id="frMax${n}"
+              value="${esc(pctOf(parts[k].max))}"></td>
+        </tr>`).join('')}
+      </tbody></table></div>` : ''}
+
+    ${rules.excluded ? `<div class="card" style="margin-bottom:10px">
+      <div class="lbl" style="margin-bottom:3px">わざと入れていないもの</div>
+      ${Object.keys(rules.excluded).map(k =>
+        `<div class="meta">・<strong>${esc(k)}</strong>：${esc(rules.excluded[k])}</div>`).join('')}
+      </div>` : ''}
+    ${rules.monthly_fixed_yen ? `<p class="meta">月額の固定費 ${yen(rules.monthly_fixed_yen)} は
+      <strong>1件あたりに割っていません</strong>。画面の想定利益は、これを回収する前の数字です。</p>` : ''}`,
+    [['もどる', 'paintPricing(true)', 'btn ghost'],
+     ['保存', `saveFeeRules()`, 'btn lime']]);
+}
+let feeRulesEdit = null;
+
+async function saveFeeRules() {
+  if (!feeRulesEdit) return;
+  const { ch, rules } = feeRulesEdit;
+  const out = JSON.parse(JSON.stringify(rules));
+  out.pricing_mode = (($('frMode') || {}).value || 'contract');
+  if ($('frPlan')) {
+    const v = ($('frPlan').value || '').trim();
+    if (v) out.plan = v; else delete out.plan;
+  }
+  const parts = out.fee_parts || null;
+  if (parts) {
+    const keys = Object.keys(parts);
+    for (let n = 0; n < keys.length; n++) {
+      const lo = Number((($(`frMin${n}`) || {}).value || '').trim());
+      const hi = Number((($(`frMax${n}`) || {}).value || '').trim());
+      if (isNaN(lo) || isNaN(hi)) { toast(`${keys[n]} は数で入れてください`); return; }
+      if (lo < 0 || hi < lo) { toast(`${keys[n]} は 0 ≦ 下限 ≦ 上限 で入れてください`); return; }
+      parts[keys[n]].min = Math.round(lo * 10000) / 1000000;
+      parts[keys[n]].max = Math.round(hi * 10000) / 1000000;
+    }
+  }
+  const { data, error } = await sb.rpc('inv_channel_pricing_rules_set', { p_channel: ch, p_rules: out });
+  if (error) { toast('保存できませんでした：' + error.message); return; }
+  const i = db.chanSettings.findIndex(x => x.channel === ch);
+  if (data) { if (i >= 0) db.chanSettings[i] = data; else db.chanSettings.push(data); }
+  if (pricingRows) pricingRows.forEach(r => buildCells(r));
+  paintPricing(true);
+  toast(`${pricingLabel(ch)}の手数料を保存しました`);
+}
+
 /* ---- 出品用CSV ------------------------------------------------------------
    元のCSVの列をそのまま左に残し、右に計算した列を足す。UTF-8＋BOM。 */
 function pricingCsvRows() {
@@ -3669,9 +3960,10 @@ function pricingCsvRows() {
   const head = H.concat(['元CSVの行',
     '親_落札価格', '親_落札料', 'ロット仕入原価', '原価配賦方法', '配賦原価',
     '正規化メーカー', '正規化カテゴリ', '正規化型番', '検索用商品名', '出品用商品名',
-    '状態ランク', '状態要約']);
+    '状態ランク', '状態要約', '配送会社', '配送サイズ', '送料', '送料の出どころ']);
   PRICING_CHANNELS.forEach(c => head.push(
-    `${c.label}_出品判定`, `${c.label}_最低価格`, `${c.label}_推奨価格`, `${c.label}_想定利益`));
+    `${c.label}_出品判定`, `${c.label}_手数料率`, `${c.label}_手数料の根拠`,
+    `${c.label}_最低価格`, `${c.label}_推奨価格`, `${c.label}_想定利益`));
   head.push('最優先チャネル', '第2候補チャネル', '価格算定方式', '値付け根拠', '要確認');
 
   const out = [head];
@@ -3686,13 +3978,19 @@ function pricingCsvRows() {
       r.cost,
       r.norm.maker || '要確認', '要確認', r.norm.model || '要確認',
       marketQuery(r.maker, r.model), r.norm.listTitle,
-      r.cond.rank || '要確認', r.cond.why
+      r.cond.rank || '要確認', r.cond.why,
+      '佐川急便', shipSizeLabel(r.shipSize),
+      (() => { const sp = shipFor(r, PRICING_CHANNELS[0].key);
+               return sp.cost == null ? '送料未設定' : sp.cost; })(),
+      shipFor(r, PRICING_CHANNELS[0].key).how
     ]);
     PRICING_CHANNELS.forEach(c => {
       const x = r.cells[c.key];
-      if (!x.calc.ok) { line.push(x.why, '', '', ''); return; }
+      const rate = x.st.fee_rate == null ? '' : (x.st.fee_rate * 100).toFixed(1) + '%';
+      const how = (FEE_MODE_LABEL[x.st.feeMode] || x.st.feeMode || '') + '：' + (x.st.feeHow || '');
+      if (!x.calc.ok) { line.push(x.why, rate, how, '', '', ''); return; }
       const p = profitAt(x.price, r.cost, x.st);
-      line.push(x.judge, Math.ceil(x.calc.floor),
+      line.push(x.judge, rate, how, Math.ceil(x.calc.floor),
                 x.price == null ? '' : x.price,
                 p.profit == null ? '' : Math.round(p.profit));
     });
@@ -4462,6 +4760,7 @@ function tabInfo(p) {
     ${ind ? prodPrices(p) : ''}
     ${ind ? rentalBox(p) : ''}
     ${ind ? saleBox(p) : ''}
+    ${ind ? shippingBox(p) : ''}
     ${ind ? imagesBox(p) : ''}
     ${p.spec ? `<div class="sec">スペック</div><div class="pre">${esc(p.spec)}</div>` : ''}
     ${p.note ? `<div class="sec">備考</div><div class="pre">${esc(p.note)}</div>` : ''}
@@ -4643,6 +4942,43 @@ function saleBox(p) {
       ref.plan ? '参考：販売予定価格 ' + yen(ref.plan) : '',
       '参考価格は自動で入りません。法人向けに出す価格はここで決めてください。'
     ].filter(Boolean).join('　')}</p>`;
+}
+
+/* 商品詳細に出す配送サイズ（佐川急便）。
+   送料は「配送会社 × サイズ × 地域」で決まるので、販売サイトの設定とは分けて
+   商品に持たせる。金額はここでは持たない（契約運賃表ができてから別に持つ）。 */
+function shippingBox(p) {
+  if (p.shipping_size === undefined) return '';   // migration未適用のDBでは出さない
+  return `<div class="prices" style="margin-top:16px">
+    <div><div class="lbl">配送サイズ（佐川急便）</div>
+      <div class="v" style="font-size:15px">${esc(shipSizeLabel(p.shipping_size || ''))}</div></div>
+    <button class="btn sm ghost" onclick="sheetShipSize('${esc(p.code)}')" ${dis()}>配送サイズを変える</button>
+  </div>
+  <p class="meta" style="margin-top:6px">出品価格を計算するときの<strong>既定のサイズ</strong>です。
+    送料の金額はまだ登録していないので、価格提案の画面で入れてください。</p>`;
+}
+function sheetShipSize(code) {
+  const p = prod(code); if (!p) return;
+  openSheet({
+    title: '配送サイズ', subject: code, cta: '保存',
+    hint: '佐川急便の規格です。運賃は契約・地域・重量で変わるので、金額はここでは持ちません。',
+    body: `<label class="field"><span>サイズ</span>
+      <select class="input" id="sheetVal">
+        <option value=""${p.shipping_size ? '' : ' selected'}>未設定</option>
+        ${SHIP_SIZES.map(z => `<option value="${esc(z)}"${p.shipping_size === z ? ' selected' : ''}>${
+          esc(shipSizeLabel(z))}</option>`).join('')}
+      </select></label>`,
+    run: async (v) => {
+      const { data, error } = await sb.rpc('inv_product_shipping_size_set', {
+        p_code: code, p_size: v || null
+      });
+      if (error) { toast('保存できませんでした：' + error.message); return; }
+      const m = prod(code); if (m && data) m.shipping_size = data.shipping_size;
+      await refreshTx();
+      render();
+      toast(`配送サイズを ${shipSizeLabel(v)} にしました`);
+    }
+  });
 }
 
 function sheetSaleSet(code) {
