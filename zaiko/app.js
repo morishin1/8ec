@@ -130,6 +130,7 @@ const db = {
   contracts: [], cItems: [],             // 契約・契約明細（Phase 3-a）
   invoices: [], payments: [],            // 請求・入金（Phase 3-b）
   fulLines: [], fulfillments: [],        // 手配の一覧・確保した実物（Phase 3-c）
+  shipTariffs: [],          // いま使っている運賃表（inventory_shipping_tariffs）
   stats: null               // 今月の経営数値（inv_dashboard_stats）
 };
 const ui = {
@@ -565,9 +566,10 @@ async function loadAll() {
     sb.from('inv_contract_invoice_list').select('*').order('id', { ascending: true }).limit(LOAD_LIMIT),
     sb.from('inventory_contract_payments').select('*').limit(LOAD_LIMIT),
     sb.from('inv_contract_fulfillment_list').select('*').limit(LOAD_LIMIT),
-    sb.from('inventory_contract_fulfillments').select('*').limit(LOAD_LIMIT)
+    sb.from('inventory_contract_fulfillments').select('*').limit(LOAD_LIMIT),
+    sb.from('inventory_shipping_tariffs').select('*').eq('active', true).limit(5)
   ];
-  const [c, l, i, p, t, s, ch, im, rr, cl, cs, ds, dl, qh, qi, qt, kh, ki, vh, vp, fl, fm] = await Promise.all(q);
+  const [c, l, i, p, t, s, ch, im, rr, cl, cs, ds, dl, qh, qi, qt, kh, ki, vh, vp, fl, fm, sh] = await Promise.all(q);
   const bad = [c, l, i, p, t, s, ch, im].find(r => r.error);
   if (bad) { showSetup(bad.error); return false; }
   db.imports = im.data || [];
@@ -590,6 +592,8 @@ async function loadAll() {
   // 手配。migration未適用でも他の画面が動くよう、取れなければ空にする
   db.fulLines = fl.error ? [] : (fl.data || []);
   db.fulfillments = fm.error ? [] : (fm.data || []);
+  // 運賃表。migration未適用でも他の画面が動くよう、取れなければ null にする
+  db.shipTariffs = sh.error ? [] : (sh.data || []);
 
   db.cats = c.data || [];
   db.locs = l.data || [];
@@ -3298,16 +3302,79 @@ function normalizeUnit(u) {
   };
 }
 
-/* 配送サイズ（佐川急便の規格）。送料は販売サイトではなく
-   「配送会社 × サイズ × 地域」で決まるので、サイトの設定とは別に持つ。
-   金額はまだDBに入れない（契約運賃表がまだ無いため）。 */
-const SHIP_SIZES = ['60', '80', '100', '120', '140', '160', '170', '180', '200', 'custom'];
-const shipSizeLabel = (v) => !v ? '未設定' : (v === 'custom' ? 'その他' : v + 'サイズ');
+/* 配送（佐川急便）。送料は販売サイトではなく「配送会社 × サイズ × 地域」で決まる。
+   運賃表は inventory_shipping_tariffs に持ち、**税別**で入っている。
+   価格計算に使うのは、実際に負担する**税込**の送料。 */
+const SHIP_SIZES_FALLBACK = ['60', '80', '100', '140', '160', '170', '180', '200', '220', '240', '260'];
+const SHIP_BASE_REGION = '関東';      // 仕入の時点では届け先が決まっていないので、ここを基準にする
+const SHIP_ASK = '要確認';            // 沖縄・離島など、自動計算しないもの
+
+const shipTariff = () => (db.shipTariffs || []).find(t => t.carrier === 'sagawa') || null;
+const shipSizes = () => {
+  const t = shipTariff();
+  const a = t && Array.isArray(t.sizes) && t.sizes.length ? t.sizes : SHIP_SIZES_FALLBACK;
+  return a.concat(['custom']);
+};
+const shipRegions = () => {
+  const t = shipTariff();
+  const first = t && t.sizes && t.sizes.length ? (t.rates || {})[t.sizes[0]] : null;
+  return first ? Object.keys(first) : [];
+};
+const shipSizeLabel = (v) => !v ? '未設定' : (v === 'custom' ? 'その他（要確認）' : v + 'サイズ');
+const regionOfPref = (pref) => ((shipTariff() || {}).regions || {})[pref] || null;
+const shipPrefs = () => Object.keys((shipTariff() || {}).regions || {});
+
+/* 税別 → 税込。掛け算の誤差で1円ずれないよう、いったん丸めてから切り上げる。
+   利益を多く見せないよう、端数は切り上げ（負担する側なので安全側）。 */
+function taxIn(ex, taxRate) {
+  if (ex == null || ex === '') return null;
+  const r = (taxRate == null || taxRate === '') ? 0.10 : Number(taxRate);
+  return Math.ceil(Math.round(Number(ex) * (1 + r) * 1000) / 1000);
+}
+/* 運賃表から引く。サイズと地域がそろっていなければ null（0円にはしない） */
+function tariffRate(size, region) {
+  const t = shipTariff();
+  if (!t || !size || size === 'custom' || !region || region === SHIP_ASK) return null;
+  const ex = ((t.rates || {})[size] || {})[region];
+  if (ex == null) return null;
+  return { ex: Number(ex), taxRate: Number(t.tax_rate == null ? 0.10 : t.tax_rate),
+           inTax: taxIn(ex, t.tax_rate), status: t.rate_status, label: t.label, size, region };
+}
+const RATE_STATUS_LABEL = { provisional: '暫定（過去資料）', contract: '現行契約' };
+
+/* 実際の注文の送料。届け先の都道府県から地域を引いて、運賃表から出す。
+   価格提案（仕入の時点）は届け先が決まっていないので関東を基準にしているが、
+   注文が決まったらここで出し直す。**沖縄・離島・着払・即日・夜間割増は出さない**。
+     shippingForOrder({ size: '100', pref: '大阪' })
+       → { ok:true, region:'関西', ex:1090, taxRate:0.1, cost:1199, status:'provisional' }
+     出せないときは { ok:false, why:'…' } を返す（0円にはしない）。 */
+function shippingForOrder(o) {
+  const size = (o || {}).size || '';
+  // 「北海道」の道、「京都」の都を落とすと引けなくなるので、まず書かれたとおりで引く
+  const raw = String((o || {}).pref || '').trim();
+  let pref = raw;
+  if (raw && !regionOfPref(pref)) {
+    const cut = raw.replace(/[都道府県]$/, '');
+    if (regionOfPref(cut)) pref = cut;
+  }
+  const t = shipTariff();
+  if (!t) return { ok: false, why: '運賃表が登録されていません' };
+  if (!size) return { ok: false, why: '配送サイズが決まっていません' };
+  if (size === 'custom') return { ok: false, why: '運賃表にないサイズです（要確認）' };
+  if (!pref) return { ok: false, why: '届け先の都道府県が決まっていません' };
+  const region = regionOfPref(pref);
+  if (!region) return { ok: false, why: `${pref}は運賃表にありません（沖縄・離島は要確認）` };
+  const x = tariffRate(size, region);
+  if (!x) return { ok: false, why: `${shipSizeLabel(size)}・${region}の運賃が表にありません` };
+  return { ok: true, carrier: t.carrier, service: t.service, payment: t.payment,
+           pref, region, size, ex: x.ex, taxRate: x.taxRate, cost: x.inTax, status: x.status };
+}
 
 /* 設定。DBに入っている値が正。試算用の一時入力があればそれを上に重ねるが、
    DBには保存しない（ページを閉じたら消える）。 */
 let pricingDraft = {};                 // { channel: { fee_rate: '…', … } } 画面だけの値
 let shipDraft = {};                    // { サイズ: 金額 } 画面だけの送料。保存しない
+let shipRegion = SHIP_BASE_REGION;     // 価格提案で使う基準の配送先地域。仕入の時点では関東
 let pricingRows = null;                // 価格提案の行
 let pricingFile = '';                  // 元のCSVファイル名
 
@@ -3365,23 +3432,34 @@ function pricingSetting(ch) {
   return out;
 }
 
-/* その個体の送料。サイトの設定より、サイズと個体の入力を先に見る。
-     ① この個体に入れた金額     ② サイズごとの試算値
-     ③ サイトの既定送料（Phase 1 の shipping_cost 列）
-   どれも無ければ null＝「送料未設定」。0円とはみなさない。 */
+/* その個体の送料（税込）。人が入れた金額 → 運賃表 → サイトの既定、の順で見る。
+     ① この個体に入れた金額（税込として扱う）
+     ② サイズごとの試算値（税込として扱う）
+     ③ 運賃表（サイズ × 配送先地域）の税別運賃を税込にしたもの
+     ④ サイトの既定送料（Phase 1 の shipping_cost 列）
+   どれも無ければ null＝「送料未設定」。**0円とはみなさない**。 */
 function shipFor(r, ch) {
+  const size = r.shipSize || '';
+  const region = r.shipRegion || shipRegion;
   const own = r.shipCost;
   if (own != null && String(own).trim() !== '' && !isNaN(Number(own))) {
-    return { cost: Number(own), how: 'この個体に入れた金額' };
+    return { cost: Number(own), how: 'この個体に入れた金額（税込）', size, region };
   }
-  const size = r.shipSize || '';
   const v = shipDraft[size];
   if (size && v != null && String(v).trim() !== '' && !isNaN(Number(v))) {
-    return { cost: Number(v), how: `${shipSizeLabel(size)}の試算値` };
+    return { cost: Number(v), how: `${shipSizeLabel(size)}の試算値（税込）`, size, region };
   }
+  const t = tariffRate(size, region);
+  if (t) return { cost: t.inTax, ex: t.ex, taxRate: t.taxRate, status: t.status, size, region,
+    how: `運賃表 ${region}・${shipSizeLabel(size)}　税別${yen(t.ex)} → 税込${yen(t.inTax)}` +
+         (t.status === 'provisional' ? '（暫定）' : '') };
   const st = chanSetting(ch) || {};
-  if (st.shipping_cost != null) return { cost: Number(st.shipping_cost), how: 'サイトの既定送料' };
-  return { cost: null, how: size ? `${shipSizeLabel(size)}の送料が未設定` : '配送サイズが未設定' };
+  if (st.shipping_cost != null) return { cost: Number(st.shipping_cost), how: 'サイトの既定送料', size, region };
+  return { cost: null, size, region,
+    how: region === SHIP_ASK ? '沖縄・離島などは自動計算しません（要確認）'
+       : !size ? '配送サイズが未設定'
+       : size === 'custom' ? '運賃表にないサイズです（要確認）'
+       : `${shipSizeLabel(size)}・${region}の運賃が表にありません` };
 }
 
 /* 1チャネルぶんの計算。設定がひとつでも未入力なら、0とみなさず計算しない。 */
@@ -3582,24 +3660,7 @@ function paintPricing(open) {
         }).join('')}
       </tbody></table></div>
     </details>
-    <details style="margin-bottom:12px" open>
-      <summary style="cursor:pointer"><strong>配送（佐川急便）</strong>
-        <span class="meta">　サイズごとの送料。試算だけで保存しません</span></summary>
-      <p class="meta" style="margin:8px 0">
-        佐川急便の運賃は<strong>契約・地域・サイズ・重量で変わる</strong>ので、金額はDBに入れていません。
-        ここに入れた金額は<strong>この画面だけ</strong>のもので、閉じると消えます。
-        入っていないサイズは<strong>「送料未設定」</strong>として価格を出しません（0円にはしません）。</p>
-      <div class="table-wrap"><table class="t"><thead><tr>
-        ${SHIP_SIZES.map(z => `<th>${esc(shipSizeLabel(z))}</th>`).join('')}
-      </tr></thead><tbody><tr>
-        ${SHIP_SIZES.map(z => `<td><input class="input" style="min-width:76px" inputmode="numeric"
-            value="${esc(String(shipDraft[z] == null ? '' : shipDraft[z]))}"
-            oninput="setShipDraft('${esc(z)}',this.value)"></td>`).join('')}
-      </tr></tbody></table></div>
-      <p class="meta" style="margin:8px 0 0">将来は
-        <strong>配送会社（佐川急便）・発送元（柏倉庫）・配送サイズ・配送先地域</strong>から
-        運賃表を引く形に広げられます。</p>
-    </details>
+    ${shippingPanelHtml()}
     <div id="pricingTable">${pricingTableHtml()}</div>`;
 
   if (open) {
@@ -3608,8 +3669,72 @@ function paintPricing(open) {
       ['出品用CSVを出力', 'downloadPricingCsv()', 'btn lime', 'btnPriceCsv']
     ]);
   } else {
-    $('modalBody').innerHTML = body;
+    const host = $('modalBody');
+    if (host) host.innerHTML = body;
   }
+}
+
+/* 配送のパネル。運賃表があればそれを見せ、無ければ手で入れてもらう */
+function shippingPanelHtml() {
+  const t = shipTariff();
+  const regions = shipRegions();
+  const sizes = shipSizes();
+  return `<details style="margin-bottom:12px"${t ? '' : ' open'}>
+    <summary style="cursor:pointer"><strong>配送（佐川急便）</strong>
+      <span class="meta">　${t ? esc(`${t.service}・${t.payment}の運賃表`) : '運賃表がまだありません'}</span></summary>
+    ${t && t.rate_status === 'provisional' ? `<div class="card"
+      style="margin:8px 0;background:var(--l100);border:1px solid var(--l400)">
+      <strong>この運賃表は暫定です。</strong>
+      <span class="meta">${esc(t.source_note || '')}　現行契約の表が確認できたら差し替えてください。</span></div>` : ''}
+    <p class="meta" style="margin:8px 0">
+      運賃表は<strong>税別</strong>で持っています。価格計算には<strong>税込</strong>（税率
+      ${t ? (Number(t.tax_rate) * 100).toFixed(0) : '10'}%）にした金額を使います。
+      <strong>沖縄・離島・着払・即日配送・夜間割増は自動計算しません</strong>（要確認）。</p>
+
+    <label class="field" style="margin-bottom:10px;max-width:420px">
+      <span>価格提案で使う配送先（基準）</span>
+      <select class="input" onchange="setShipRegion(this.value)">
+        ${regions.map(z => `<option value="${esc(z)}"${shipRegion === z ? ' selected' : ''}>${
+          esc(z)}${z === SHIP_BASE_REGION ? '（基準）' : ''}</option>`).join('')}
+        <option value="${SHIP_ASK}"${shipRegion === SHIP_ASK ? ' selected' : ''}>沖縄・離島など（要確認）</option>
+      </select>
+      <span class="meta">仕入の時点では届け先が決まっていないので、<strong>${esc(SHIP_BASE_REGION)}向け</strong>を
+        基準にしています。実際の注文では届け先の都道府県から引き直します。</span></label>
+
+    ${t ? `<div class="table-wrap"><table class="t"><thead><tr>
+      <th>サイズ</th>${regions.map(z => `<th>${esc(z)}</th>`).join('')}</tr></thead><tbody>
+      ${(t.sizes || []).map(z => `<tr${shipRegion === z ? '' : ''}>
+        <td>${esc(shipSizeLabel(z))}</td>
+        ${regions.map(g => {
+          const x = tariffRate(z, g);
+          return `<td class="num"${g === shipRegion ? ' style="font-weight:700"' : ''}>${
+            x ? yen(x.inTax) : '—'}<div class="meta">税別 ${x ? yen(x.ex) : '—'}</div></td>`;
+        }).join('')}
+      </tr>`).join('')}
+    </tbody></table></div>` : ''}
+
+    <div class="lbl" style="margin:12px 0 6px">運賃表で出せないサイズの送料（試算）</div>
+    <p class="meta" style="margin-bottom:6px">ここに入れた金額は<strong>税込</strong>として扱い、
+      運賃表より優先します。<strong>この画面だけ</strong>のもので保存しません。</p>
+    <div class="table-wrap"><table class="t"><thead><tr>
+      ${sizes.map(z => `<th>${esc(shipSizeLabel(z))}</th>`).join('')}
+    </tr></thead><tbody><tr>
+      ${sizes.map(z => `<td><input class="input" style="min-width:76px" inputmode="numeric"
+          value="${esc(String(shipDraft[z] == null ? '' : shipDraft[z]))}"
+          oninput="setShipDraft('${esc(z)}',this.value)"></td>`).join('')}
+    </tr></tbody></table></div>
+
+    <p class="meta" style="margin:8px 0 0">将来は
+      <strong>配送会社（佐川急便）・発送元（柏倉庫）・配送サイズ・配送先地域</strong>から
+      自動で引きます。いまは<strong>発送元は柏倉庫</strong>を前提にしています。</p>
+  </details>`;
+}
+
+/* 基準の配送先を変える。保存はしない */
+function setShipRegion(v) {
+  shipRegion = v || SHIP_BASE_REGION;
+  if (pricingRows) pricingRows.forEach(r => buildCells(r));
+  paintPricing(false);
 }
 
 function pricingTableHtml() {
@@ -3638,7 +3763,7 @@ function pricingTableHtml() {
         <td class="num">${yen(r.cost)}</td>
         <td><select class="input" style="min-width:92px" onchange="setPricingShipSize(${i},this.value)">
             <option value=""${r.shipSize ? '' : ' selected'}>未設定</option>
-            ${SHIP_SIZES.map(z => `<option value="${esc(z)}"${r.shipSize === z ? ' selected' : ''}>${
+            ${shipSizes().map(z => `<option value="${esc(z)}"${r.shipSize === z ? ' selected' : ''}>${
               esc(shipSizeLabel(z))}</option>`).join('')}
           </select>${r.code ? '' : '<div class="meta">新規商品</div>'}</td>
         <td><input class="input" style="min-width:86px" inputmode="numeric"
@@ -3678,11 +3803,15 @@ function pricingCellHtml(r, i, ch) {
 /* 送料の欄に出す案内。どこから来た金額かが分かるようにする */
 function shipPlaceholder(r) {
   const z = r.shipSize, v = z ? shipDraft[z] : null;
-  return (v != null && String(v).trim() !== '') ? String(v) : '';
+  if (v != null && String(v).trim() !== '') return String(v);
+  const t = tariffRate(z, r.shipRegion || shipRegion);
+  return t ? String(t.inTax) : '';
 }
 function shipNote(r) {
   const s = shipFor(r, PRICING_CHANNELS[0].key);
-  return s.cost == null ? s.how : `${yen(s.cost)}（${s.how}）`;
+  if (s.cost == null) return s.how;
+  return s.ex == null ? `${yen(s.cost)}（${s.how}）`
+    : `${yen(s.cost)} 税込／${esc(s.region)}${s.status === 'provisional' ? '・暫定' : ''}`;
 }
 
 /* サイズごとの送料（試算）。入れ直すたびに全行を計算し直す */
@@ -3807,15 +3936,52 @@ function openPricingDetail(i) {
     </div>
 
     <div class="lbl" style="margin-bottom:6px">配送（佐川急便）</div>
-    <div class="sum" style="margin-bottom:12px">
-      ${row('配送サイズ', esc(shipSizeLabel(r.shipSize)))}
-      ${row('送料', (() => { const sp = shipFor(r, PRICING_CHANNELS[0].key);
-             return sp.cost == null ? '<span class="tag">送料未設定</span>' : yen(sp.cost); })())}
-      ${row('どこから来た値か', esc(shipFor(r, PRICING_CHANNELS[0].key).how))}
-      ${row('商品マスタの既定', esc(shipSizeLabel((prod(r.code) || {}).shipping_size || '')))}
-    </div>
-    <p class="meta" style="margin:-4px 0 12px">送料の金額はDBに入れていません（佐川急便の運賃は契約・地域・
-      サイズ・重量で変わるため）。この画面で入れた金額は保存されません。</p>
+    ${(() => {
+      const sp = shipFor(r, PRICING_CHANNELS[0].key);
+      const t = shipTariff() || {};
+      return `<div class="sum" style="margin-bottom:12px">
+        ${row('配送サイズ', esc(shipSizeLabel(r.shipSize)))}
+        ${row('配送先（基準）', esc(sp.region || shipRegion))}
+        ${row('送料（税別）', sp.ex == null ? '—' : yen(sp.ex))}
+        ${row('送料（税込）', sp.cost == null ? '<span class="tag">送料未設定</span>' : `<strong>${yen(sp.cost)}</strong>`)}
+      </div>
+      <div class="sum" style="margin-bottom:12px">
+        ${row('どこから来た値か', esc(sp.how))}
+        ${row('運賃表', esc(t.label || '未登録'))}
+        ${row('表の状態', esc(RATE_STATUS_LABEL[sp.status || t.rate_status] || '—'))}
+        ${row('商品マスタの既定', esc(shipSizeLabel((prod(r.code) || {}).shipping_size || '')))}
+      </div>
+      ${(sp.status || t.rate_status) === 'provisional' ? `<div class="card"
+        style="margin-bottom:12px;background:var(--l100);border:1px solid var(--l400)">
+        <strong>この運賃表は暫定です</strong>（過去の契約資料）。
+        <span class="meta">現行契約の表が確認できたら差し替えてください。</span></div>` : ''}`;
+    })()}
+    <p class="meta" style="margin:-4px 0 12px">運賃表は<strong>税別</strong>で持ち、価格計算には
+      <strong>税込</strong>にした金額を使います（端数は切り上げ）。
+      仕入の時点では届け先が決まっていないので<strong>${esc(SHIP_BASE_REGION)}向け</strong>を基準にしています。
+      <strong>沖縄・離島・着払・即日配送・夜間割増は自動計算しません。</strong></p>
+
+    ${r.shipSize && r.shipSize !== 'custom' && shipTariff() ? `
+      <details style="margin-bottom:12px">
+        <summary class="meta" style="cursor:pointer">届け先ごとの送料を見る（${
+          esc(shipSizeLabel(r.shipSize))}）</summary>
+        <div class="table-wrap" style="margin-top:8px"><table class="t"><thead><tr>
+          <th>地域</th><th>税別</th><th>税込</th><th>都道府県</th></tr></thead><tbody>
+          ${shipRegions().map(g => {
+            const x = tariffRate(r.shipSize, g);
+            const prefs = shipPrefs().filter(p2 => regionOfPref(p2) === g);
+            return `<tr><td>${esc(g)}${g === (r.shipRegion || shipRegion) ? '<div class="meta">いまの基準</div>' : ''}</td>
+              <td class="num">${x ? yen(x.ex) : '—'}</td>
+              <td class="num"${g === (r.shipRegion || shipRegion) ? ' style="font-weight:700"' : ''}>${
+                x ? yen(x.inTax) : '—'}</td>
+              <td class="meta">${esc(prefs.join('・'))}</td></tr>`;
+          }).join('')}
+          <tr><td>沖縄・離島</td><td class="num">—</td><td class="num">—</td>
+            <td class="meta">運賃表に無いので自動計算しません（要確認）</td></tr>
+        </tbody></table></div>
+        <p class="meta" style="margin-top:6px">実際の注文では、届け先の都道府県からこの表を引いて
+          正式な送料を出し直します。</p>
+      </details>` : ''}
 
     <div class="lbl" style="margin-bottom:6px">販売サイトごとの計算</div>
     <div class="table-wrap"><table class="t"><thead><tr>
@@ -3960,7 +4126,9 @@ function pricingCsvRows() {
   const head = H.concat(['元CSVの行',
     '親_落札価格', '親_落札料', 'ロット仕入原価', '原価配賦方法', '配賦原価',
     '正規化メーカー', '正規化カテゴリ', '正規化型番', '検索用商品名', '出品用商品名',
-    '状態ランク', '状態要約', '配送会社', '配送サイズ', '送料', '送料の出どころ']);
+    '状態ランク', '状態要約',
+    '配送会社', '配送サービス', '支払', '標準配送地域', '配送サイズ',
+    '標準送料_税別', '標準送料_税込', '送料の出どころ', '運賃表の状態']);
   PRICING_CHANNELS.forEach(c => head.push(
     `${c.label}_出品判定`, `${c.label}_手数料率`, `${c.label}_手数料の根拠`,
     `${c.label}_最低価格`, `${c.label}_推奨価格`, `${c.label}_想定利益`));
@@ -3978,12 +4146,16 @@ function pricingCsvRows() {
       r.cost,
       r.norm.maker || '要確認', '要確認', r.norm.model || '要確認',
       marketQuery(r.maker, r.model), r.norm.listTitle,
-      r.cond.rank || '要確認', r.cond.why,
-      '佐川急便', shipSizeLabel(r.shipSize),
-      (() => { const sp = shipFor(r, PRICING_CHANNELS[0].key);
-               return sp.cost == null ? '送料未設定' : sp.cost; })(),
-      shipFor(r, PRICING_CHANNELS[0].key).how
+      r.cond.rank || '要確認', r.cond.why
     ]);
+    const t = shipTariff() || {};
+    const sp = shipFor(r, PRICING_CHANNELS[0].key);
+    line.push('佐川急便', t.service || '', t.payment || '',
+      sp.region || shipRegion, shipSizeLabel(r.shipSize),
+      sp.ex == null ? '' : sp.ex,
+      sp.cost == null ? '送料未設定' : sp.cost,
+      sp.how,
+      RATE_STATUS_LABEL[sp.status || t.rate_status] || '');
     PRICING_CHANNELS.forEach(c => {
       const x = r.cells[c.key];
       const rate = x.st.fee_rate == null ? '' : (x.st.fee_rate * 100).toFixed(1) + '%';
@@ -4965,7 +5137,7 @@ function sheetShipSize(code) {
     body: `<label class="field"><span>サイズ</span>
       <select class="input" id="sheetVal">
         <option value=""${p.shipping_size ? '' : ' selected'}>未設定</option>
-        ${SHIP_SIZES.map(z => `<option value="${esc(z)}"${p.shipping_size === z ? ' selected' : ''}>${
+        ${shipSizes().map(z => `<option value="${esc(z)}"${p.shipping_size === z ? ' selected' : ''}>${
           esc(shipSizeLabel(z))}</option>`).join('')}
       </select></label>`,
     run: async (v) => {
