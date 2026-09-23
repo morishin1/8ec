@@ -9971,6 +9971,11 @@ begin
   if v_ch is null then
     raise exception '販売サイトを選んでください';
   end if;
+  -- 価格設定をするのはこの6サイトだけ。打ち間違いで知らない行が増えないよう、
+  -- 画面だけでなくここでも止める（inventory_channel_settings は upsert のため）
+  if v_ch not in ('rakuten', 'amazon', 'mercari', 'yahuoku', 'yahoo_free', 'own') then
+    raise exception '価格設定の対象ではない販売サイトです：%（rakuten / amazon / mercari / yahuoku / yahoo_free / own のどれかです）', v_ch;
+  end if;
 
   -- 手数料率が1以上だと、最低販売価格の割り算（1 - fee_rate）が0や負になる
   if p_fee_rate is not null and (p_fee_rate < 0 or p_fee_rate >= 1) then
