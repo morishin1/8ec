@@ -3063,6 +3063,8 @@ function planPurchase(H, idx, body, file, encoding, headRow) {
 
     const x = {
       line, key,
+      // 出品価格のCSVで元の行を書き戻すため。取込の判断には使わない
+      rawLine: line, rawRow: (lot.parent || lot.detail || {}).row || null,
       lot: { no: key, buy, fee, cost, qty, csvQty, kumi: P('構成') || '' },
       plan,
       idPrefix: idPrefixOf(model),
@@ -3072,8 +3074,11 @@ function planPurchase(H, idx, body, file, encoding, headRow) {
         kids: kids.length ? kids.map(k => ({
           id: k.id,
           serial: cell(idx, k.row, 'Ｓ／Ｎ') || null,
-          note: purchaseNote(idx, k.row) || null
-        })) : [{ id: null, serial: null, note: purchaseNote(idx, lot.detail.row) || null }]
+          note: purchaseNote(idx, k.row) || null,
+          // 出品価格のCSVで元の行をそのまま書き戻すために持っておく（取込では使わない）
+          line: k.line, row: k.row
+        })) : [{ id: null, serial: null, note: purchaseNote(idx, lot.detail.row) || null,
+                 line: lot.detail.line, row: lot.detail.row }]
       },
       sharesWith: known ? known.code : (earlier ? earlier.key : null),
       master: {
@@ -3205,6 +3210,506 @@ function badGroups(bad) {
     }
   });
   return REASON_ORDER.filter(r => g[r]).map(r => g[r]);
+}
+
+/* ---- 出品価格の自動計算（Phase 1）----------------------------------------
+   仕入CSVから読んだ配賦原価をもとに、販売サイトごとの出品価格を計算する。
+
+   していること
+     ・計算はぜんぶこのJavaScript。外部のAIサービスは使わない（APIキーも無い）
+     ・原価は**取込で配賦済みのものをそのまま使う**。ここで割り直さない
+       （個品IDの数で割り直すと、登録される原価と食い違うため）
+     ・相場は見ない。市場データが無いので「原価基準」でだけ出す
+     ・DBには一切書かない。在庫の状態も出品情報も変えない。
+       「価格を計算した」ことと「出品した」ことは別物
+
+   していないこと（Phase 2 以降）
+     ・楽天・Amazonなどの検索結果を読んで相場に寄せること
+     ・ローカルAIによる商品名・状態の整理（normalizeUnit() が差し込み口）
+   ------------------------------------------------------------------------ */
+
+/* 価格を計算する販売サイト。ヤフオクとヤフーフリマは手数料も出しかたも
+   別物なので、1つの「Yahoo」にまとめない。
+   自社EC（own）は**価格計算だけ**に使う。出品先タブには出さず、
+   inventory_channel_listings の実際の出品処理にもつないでいない。 */
+const PRICING_CHANNELS = [
+  { key: 'rakuten',    label: '楽天',         group: '' },
+  { key: 'amazon',     label: 'Amazon',       group: '' },
+  { key: 'mercari',    label: 'メルカリ',     group: '' },
+  { key: 'yahuoku',    label: 'ヤフオク',     group: 'Yahoo' },
+  { key: 'yahoo_free', label: 'ヤフーフリマ', group: 'Yahoo' },
+  { key: 'own',        label: '自社EC',       group: '' }
+];
+const PRICING_FIELDS = [
+  ['fee_rate',           '手数料率',   '%',  true],
+  ['fixed_cost',         '固定費',     '円', false],
+  ['shipping_cost',      '送料',       '円', false],
+  ['target_profit_rate', '目標利益率', '%',  true],
+  ['minimum_profit_yen', '最低利益額', '円', false]
+];
+const pricingLabel = (ch) =>
+  (PRICING_CHANNELS.find(c => c.key === ch) || {}).label || chanLabel(ch);
+
+/* 見やすい価格に切り上げる。最低販売価格より下がらないよう、必ず切り上げ。
+     10,000円未満      → 100円単位
+     10,000〜49,999円 → 500円単位
+     50,000円以上      → 1,000円単位 */
+function roundUpPrice(v) {
+  if (!(v > 0)) return null;
+  const unit = v < 10000 ? 100 : v < 50000 ? 500 : 1000;
+  return Math.ceil(v / unit) * unit;
+}
+
+/* 状態のランク。CSVの 状態・症状・詳細・備考・補足・付属品 の文字だけで決める。
+   **書いていないことを補わない**。文が空なら判定せず「要確認」にする。 */
+const CONDITION_RULES = [
+  ['J', ['ジャンク', '部品取り', 'NCNR', '通電しない', '動作不可', 'ノークレーム']],
+  ['D', ['機能未検査', '未検査', '重大', '不具合', '故障', '起動しない']],
+  ['C', ['LCD劣化', 'ドット抜け', '液晶ムラ', '割れ', 'われ', 'ヘコミ', 'へこみ',
+         '凹み', '傷', 'キズ', 'バッテリー劣化', '欠品', '変色', '剥がれ', 'はがれ']],
+  ['A', ['美品', '未使用', '新品同様', '極上']]
+];
+const CONDITION_LABEL = {
+  A: 'A 使用感少', B: 'B 通常中古', C: 'C 傷・劣化・欠品',
+  D: 'D 未検査・重大不具合', J: 'J ジャンク'
+};
+function conditionOf(text) {
+  const t = String(text || '').replace(/\s+/g, '');
+  if (!t) return { rank: null, hits: [], why: '状態の記載がありません' };
+  for (const [rank, words] of CONDITION_RULES) {
+    const hits = words.filter(w => t.indexOf(w) >= 0);
+    if (hits.length) return { rank, hits, why: hits.join('・') + ' の記載' };
+  }
+  return { rank: 'B', hits: [], why: '値下げ要因の語句は見つかりませんでした' };
+}
+
+/* ローカルAIの差し込み口（Phase 3）。
+   いまはルールだけで整える。AIが無くても全部動く、が必須条件。 */
+function normalizeUnit(u) {
+  return {
+    maker:    (u.maker || '').trim(),
+    model:    normModel(u.model || ''),
+    category: '',                                   // 仕入CSVにカテゴリは無い
+    listTitle: [ (u.maker || '').trim(), (u.model || '').trim(), u.spec || '' ]
+                 .filter(Boolean).join(' ').trim()
+  };
+}
+
+/* 設定。DBに入っている値が正。試算用の一時入力があればそれを上に重ねるが、
+   DBには保存しない（ページを閉じたら消える）。 */
+let pricingDraft = {};                 // { channel: { fee_rate: '…', … } } 画面だけの値
+let pricingRows = null;                // 価格提案の行
+let pricingFile = '';                  // 元のCSVファイル名
+
+function pricingSetting(ch) {
+  const db0 = chanSetting(ch) || {};
+  const d = pricingDraft[ch] || {};
+  const out = { channel: ch, fromDraft: [] };
+  PRICING_FIELDS.forEach(([k]) => {
+    const raw = d[k];
+    if (raw != null && String(raw).trim() !== '') {
+      const n = Number(String(raw).trim());
+      if (!isNaN(n)) { out[k] = n; out.fromDraft.push(k); return; }
+    }
+    out[k] = db0[k] == null ? null : Number(db0[k]);
+  });
+  return out;
+}
+
+/* 1チャネルぶんの計算。設定がひとつでも未入力なら、0とみなさず計算しない。 */
+function priceForChannel(cost, st) {
+  const missing = PRICING_FIELDS.filter(([k]) => st[k] == null).map(([, label]) => label);
+  if (missing.length) return { ok: false, missing };
+  if (!(cost > 0)) return { ok: false, missing: [], noCost: true };
+  const target = Math.max(cost * st.target_profit_rate, st.minimum_profit_yen);
+  const floor = (cost + st.fixed_cost + st.shipping_cost + target) / (1 - st.fee_rate);
+  const price = roundUpPrice(floor);
+  return { ok: true, missing: [], target, floor, price, ...profitAt(price, cost, st) };
+}
+/* 価格を担当者が直したときも、同じ式で利益を出し直す */
+function profitAt(price, cost, st) {
+  if (!(price > 0)) return { profit: null, rate: null };
+  const profit = price * (1 - st.fee_rate) - cost - st.fixed_cost - st.shipping_cost;
+  return { profit, rate: price ? profit / price : null };
+}
+
+/* 出品判定。市場データが無いので「売れやすさ」は推測しない。
+   赤字・状態・要確認だけで決める。 */
+function judgeFor(calc, rank, flags, ch) {
+  if (!calc.ok) return { judge: '—', why: calc.noCost ? '原価が0円です' : (calc.missing.join('・') + ' が未設定') };
+  if (!(calc.profit > 0)) return { judge: '非推奨', why: '想定利益が出ません（赤字）' };
+  if (rank === 'J') return ch === 'own'
+    ? { judge: '条件付き', why: 'ジャンク。自社ECなら状態を説明して出せます' }
+    : { judge: '非推奨', why: 'ジャンクはモールに向きません' };
+  if (rank === 'D') return { judge: '条件付き', why: '未検査・重大不具合。検品してから判断してください' };
+  if (rank == null) return { judge: '条件付き', why: '状態が分かりません' };
+  if (flags.length) return { judge: '条件付き', why: flags[0] };
+  if (calc.rate != null && calc.rate < 0.10) return { judge: '条件付き', why: '利益率が10%未満です' };
+  return { judge: '出品推奨', why: '原価基準で利益が出ます' };
+}
+
+/* 最優先チャネル。いちばん高い価格ではなく、想定利益で選ぶ。
+   差が小さいときは決めつけず「要確認」にする。
+   すでに出品しているサイトがあれば、差が小さいときだけそちらを立てる。 */
+const PRIORITY_GAP_YEN = 500;
+function pickPriority(cells, listedOn) {
+  const ok = PRICING_CHANNELS.map(c => cells[c.key]).filter(x => x.calc.ok && x.calc.profit > 0);
+  const rank = { '出品推奨': 0, '条件付き': 1, '非推奨': 2, '—': 3 };
+  const sorted = ok.slice().sort((a, b) =>
+    (rank[a.judge] - rank[b.judge]) || (b.calc.profit - a.calc.profit));
+  if (!sorted.length) return { first: '', second: '', why: '利益が出るサイトがありません', ask: '' };
+  const first = sorted[0], second = sorted[1];
+  const gap = second ? first.calc.profit - second.calc.profit : null;
+  let head = first, why = `想定利益がいちばん大きい（${yen(Math.round(first.calc.profit))}）`;
+  let ask = '';
+  if (second && gap != null && gap < PRIORITY_GAP_YEN) {
+    const already = [first, second].find(x => listedOn.indexOf(x.ch) >= 0);
+    if (already) { head = already; why = `利益の差が${yen(Math.round(gap))}と小さく、すでに出品中のサイトを優先`; }
+    else { why = `利益の差が${yen(Math.round(gap))}と小さく、決め手がありません`; ask = '最優先チャネルの差が小さい'; }
+  }
+  const rest = sorted.filter(x => x !== head);
+  return { first: head.ch, second: rest.length ? rest[0].ch : '', why, ask };
+}
+
+/* 取込で読んだデータから、1個体1行の価格提案を作る。
+   原価は取込が配賦したものをそのまま使い、ここで割り直さない。 */
+function buildPricing(p) {
+  const rows = [];
+  (p.add || []).forEach(x => {
+    const kids = (x.src.kids || []).filter(k => k.id);
+    // 総数と個品IDの数が違うのは普通にあること（セット出品）。取込は止めないが、
+    // 1台ずつの原価の根拠が弱いので、ここでは要確認にする
+    const mismatch = kids.length > 0 && kids.length !== x.lot.qty;
+    (x.units || []).forEach((u, n) => {
+      const cost = Number(u.price || 0) + Number(u.purchase_fee || 0);
+      const cond = conditionOf([u.note || '', x.extraNote || ''].join('\n'));
+      const flags = [];
+      if (mismatch) flags.push(`総数${x.lot.qty}台と個品ID${kids.length}件が違います（原価は総数で配賦済み）`);
+      if (cond.rank == null) flags.push('状態の記載がありません');
+      if (!(cost > 0)) flags.push('原価が0円です');
+      const norm = normalizeUnit({ maker: x.master.maker, model: x.master.model, spec: x.master.spec });
+      const cells = {};
+      PRICING_CHANNELS.forEach(c => {
+        const st = pricingSetting(c.key);
+        const calc = priceForChannel(cost, st);
+        const j = judgeFor(calc, cond.rank, flags, c.key);
+        cells[c.key] = { ch: c.key, st, calc, judge: j.judge, why: j.why,
+                         price: calc.ok ? calc.price : null, edited: false };
+      });
+      const listedOn = listedChannelsOf(x.sharesWith);
+      const pri = pickPriority(cells, listedOn);
+      if (pri.ask) flags.push(pri.ask);
+      rows.push({
+        key: x.key, unitNo: n + 1, lotQty: x.lot.qty,
+        name: x.master.name, model: x.master.model, maker: x.master.maker || '',
+        spec: x.master.spec || '', serial: u.serial || '', manageId: u.id || '',
+        sourceId: u.source_id || '', note: u.note || '',
+        cost, lot: x.lot, bought: u.purchased_on || '',
+        cond, norm, cells, priority: pri, flags,
+        rawLine: (kids[n] && kids[n].line) || x.rawLine || '',
+        rawRow: (kids[n] && kids[n].row) || x.rawRow || null
+      });
+    });
+  });
+  return rows;
+}
+/* すでにそのサイトへ出しているか（既存商品への追加のとき使う）。
+   新規商品（まだ商品コードが無い）のときは空。 */
+function listedChannelsOf(code) {
+  if (!code) return [];
+  return channelsOf(code).filter(x => x.state === LISTED).map(x => x.channel);
+}
+
+/* ---- 画面 ---------------------------------------------------------------- */
+
+function openPricing() {
+  if (!importPlan || importPlan.mode !== 'purchase') { toast('先に仕入CSVを取り込んでください'); return; }
+  pricingFile = (importSrc || {}).file || '';
+  pricingRows = buildPricing(importPlan);
+  if (!pricingRows.length) { toast('価格を出せる個体がありません'); return; }
+  paintPricing(true);
+}
+
+/* 未設定のチャネルがいくつあるか。1つでもあれば、画面の頭で知らせる */
+function pricingUnset() {
+  return PRICING_CHANNELS.filter(c => PRICING_FIELDS.some(([k]) => pricingSetting(c.key)[k] == null));
+}
+
+function paintPricing(open) {
+  const unset = pricingUnset();
+  const body = `
+    ${unset.length ? `<div class="card" style="margin-bottom:12px;background:var(--l100);border:1px solid var(--l400)">
+      <strong>手数料が未設定です</strong>：${esc(unset.map(c => c.label).join('・'))}<br>
+      <span class="meta">手数料率・固定費・送料・目標利益率・最低利益額がそろったサイトだけ価格を出します。
+        推測の数字は入れていません。下の［手数料などの設定］から入れてください。</span></div>` : ''}
+    <details style="margin-bottom:12px"${unset.length ? ' open' : ''}>
+      <summary style="cursor:pointer"><strong>手数料などの設定</strong>
+        <span class="meta">　サイトごとに入れます</span></summary>
+      <p class="meta" style="margin:8px 0">
+        <strong>試算</strong>はこの画面だけの値です（保存しません。閉じると消えます）。
+        ${canAdmin() ? '正式な設定は［保存］でDBに入ります。' : '保存できるのは管理者だけです。'}
+        手数料率と目標利益率は<strong>％で</strong>入れてください（10% なら <code>10</code>）。</p>
+      <div class="table-wrap"><table class="t"><thead><tr>
+        <th>販売サイト</th>${PRICING_FIELDS.map(([, label, unit]) =>
+          `<th>${esc(label)}<span class="meta">（${esc(unit)}）</span></th>`).join('')}
+        <th></th></tr></thead><tbody>
+        ${PRICING_CHANNELS.map(c => {
+          const st = pricingSetting(c.key);
+          return `<tr><td>${esc(c.label)}${c.group ? `<div class="meta">${esc(c.group)}</div>` : ''}</td>
+            ${PRICING_FIELDS.map(([k, , , isRate]) => {
+              const d = (pricingDraft[c.key] || {})[k];
+              const saved = (chanSetting(c.key) || {})[k];
+              const shown = d != null && String(d) !== '' ? d
+                : (saved == null ? '' : (isRate ? Number(saved) * 100 : Number(saved)));
+              return `<td><input class="input" style="min-width:86px" inputmode="decimal"
+                  value="${esc(String(shown))}"
+                  oninput="setPricingDraft('${esc(c.key)}','${esc(k)}',this.value)">
+                ${saved == null ? '<div class="meta">未設定</div>'
+                  : `<div class="meta">保存済 ${esc(String(isRate ? Number(saved) * 100 : Number(saved)))}</div>`}</td>`;
+            }).join('')}
+            <td>${canAdmin()
+              ? `<button class="btn sm ghost" onclick="savePricingSetting('${esc(c.key)}')">保存</button>`
+              : '<span class="meta">試算のみ</span>'}</td></tr>`;
+        }).join('')}
+      </tbody></table></div>
+    </details>
+    <div id="pricingTable">${pricingTableHtml()}</div>`;
+
+  if (open) {
+    openModal('販売価格を自動計算', body, [
+      ['取込の確認にもどる', 'showImportPreview()', 'btn ghost'],
+      ['出品用CSVを出力', 'downloadPricingCsv()', 'btn lime', 'btnPriceCsv']
+    ]);
+  } else {
+    $('modalBody').innerHTML = body;
+  }
+}
+
+function pricingTableHtml() {
+  const rows = pricingRows || [];
+  const ask = rows.filter(r => r.flags.length).length;
+  return `<div class="sum">
+      <div><div class="lbl">個体</div><div class="v">${rows.length}<span class="u">台</span></div></div>
+      <div><div class="lbl">配賦原価の合計</div><div class="v">${yen(rows.reduce((a, r) => a + r.cost, 0))}</div></div>
+      <div><div class="lbl">要確認</div><div class="v${ask ? ' err' : ''}">${ask}</div></div>
+      <div><div class="lbl">価格算定方式</div><div class="v" style="font-size:15px">原価基準</div></div>
+    </div>
+    <p class="meta" style="margin:10px 0">
+      相場は見ていません（市場データなし）。原価・手数料・送料・目標利益だけで出しています。
+      <strong>この画面では出品も在庫の変更もしません。</strong></p>
+    <div class="table-wrap"><table class="t"><thead><tr>
+      <th>商品</th><th>型番</th><th>S/N</th><th>状態</th><th>配賦原価</th>
+      ${PRICING_CHANNELS.map(c => `<th>${esc(c.label)}</th>`).join('')}
+      <th>最優先</th><th>要確認</th><th></th></tr></thead><tbody>
+      ${rows.map((r, i) => `<tr>
+        <td>${esc(r.name)}<div class="meta">${esc(r.key)}／${r.unitNo}台目</div></td>
+        <td class="num">${esc(r.model)}</td>
+        <td class="num">${esc(r.serial || '—')}</td>
+        <td>${r.cond.rank ? esc(CONDITION_LABEL[r.cond.rank]) : '<span class="tag">要確認</span>'}
+          <div class="meta">${esc(r.cond.why)}</div></td>
+        <td class="num">${yen(r.cost)}</td>
+        ${PRICING_CHANNELS.map(c => pricingCellHtml(r, i, c.key)).join('')}
+        <td>${r.priority.first ? esc(pricingLabel(r.priority.first)) : '—'}
+          ${r.priority.second ? `<div class="meta">次 ${esc(pricingLabel(r.priority.second))}</div>` : ''}</td>
+        <td>${r.flags.length
+          ? `<span class="tag act" title="${esc(r.flags.join('／'))}">要確認 ${r.flags.length}</span>`
+          : '—'}</td>
+        <td><button class="btn sm ghost" onclick="openPricingDetail(${i})">根拠</button></td>
+      </tr>`).join('')}
+    </tbody></table></div>`;
+}
+
+const JUDGE_CLASS = { '出品推奨': 'ok', '条件付き': 'act', '非推奨': 'none', '—': 'none' };
+function pricingCellHtml(r, i, ch) {
+  const c = r.cells[ch];
+  if (!c.calc.ok) {
+    return `<td><span class="meta">${esc(c.why)}</span></td>`;
+  }
+  const st = c.st;
+  const p = profitAt(c.price, r.cost, st);
+  return `<td>
+    <input class="input" style="min-width:94px" inputmode="numeric" value="${esc(String(c.price == null ? '' : c.price))}"
+      oninput="setPricingPrice(${i},'${esc(ch)}',this.value)">
+    <div class="meta">利益 ${p.profit == null ? '—' : yen(Math.round(p.profit))}
+      ${p.rate == null ? '' : `（${(p.rate * 100).toFixed(1)}%）`}</div>
+    <div><span class="tag ${JUDGE_CLASS[c.judge] || 'act'}">${esc(c.judge)}</span></div>
+    <div class="meta">最低 ${yen(Math.ceil(c.calc.floor))}${c.edited ? '／手で直しました' : ''}</div>
+  </td>`;
+}
+
+/* 試算の値を入れ替える。DBには保存しない */
+function setPricingDraft(ch, field, v) {
+  const d = (pricingDraft[ch] = pricingDraft[ch] || {});
+  const isRate = (PRICING_FIELDS.find(f => f[0] === field) || [])[3];
+  const t = String(v == null ? '' : v).trim();
+  d[field] = t === '' ? '' : (isRate ? String(Number(t) / 100) : t);
+  if (pricingRows) { pricingRows = buildPricing(importPlan); $('pricingTable').innerHTML = pricingTableHtml(); }
+}
+
+/* 担当者が価格を直す。利益と判定はその場で出し直す（表は作り直さない） */
+function setPricingPrice(i, ch, v) {
+  const r = (pricingRows || [])[i]; if (!r) return;
+  const c = r.cells[ch]; if (!c || !c.calc.ok) return;
+  const n = Number(String(v || '').replace(/[^0-9.-]/g, ''));
+  c.price = isNaN(n) || n <= 0 ? null : n;
+  c.edited = true;
+  const p = profitAt(c.price, r.cost, c.st);
+  c.judge = c.price == null ? '—' : (p.profit > 0 ? (c.price < c.calc.floor ? '条件付き' : c.judge) : '非推奨');
+}
+
+async function savePricingSetting(ch) {
+  if (!canAdmin()) { toast('設定は管理者だけができます'); return; }
+  const st = pricingSetting(ch);
+  const miss = PRICING_FIELDS.filter(([k]) => st[k] == null).map(([, l]) => l);
+  if (miss.length) { toast(miss.join('・') + ' が空です'); return; }
+  const { data, error } = await sb.rpc('inv_channel_pricing_settings_set', {
+    p_channel: ch,
+    p_fee_rate: st.fee_rate,
+    p_fixed_cost: st.fixed_cost,
+    p_shipping_cost: st.shipping_cost,
+    p_target_profit_rate: st.target_profit_rate,
+    p_minimum_profit_yen: st.minimum_profit_yen
+  });
+  if (error) { toast('保存できませんでした：' + error.message); return; }
+  const i = db.chanSettings.findIndex(x => x.channel === ch);
+  if (data) { if (i >= 0) db.chanSettings[i] = data; else db.chanSettings.push(data); }
+  delete pricingDraft[ch];                 // 保存したら試算の値は要らない
+  if (pricingRows) pricingRows = buildPricing(importPlan);
+  paintPricing(false);
+  toast(`${pricingLabel(ch)}の手数料などを保存しました`);
+}
+
+/* 1個体の「なぜこの価格になったか」。仕入 → 原価 → 手数料 → 最低販売価格 → 推奨価格 を順に出す */
+function openPricingDetail(i) {
+  const r = (pricingRows || [])[i];
+  if (!r) return;
+  const row = (label, v) => `<div><div class="lbl">${esc(label)}</div><div class="v" style="font-size:15px">${v}</div></div>`;
+  openModal(`${r.name}　${r.unitNo}台目の値付け`, `
+    <div class="sum" style="margin-bottom:12px">
+      ${row('出品番号', esc(r.key))}
+      ${row('管理番号・個品ID', esc(r.manageId || r.sourceId || '（取込時に採番）'))}
+      ${row('S/N', esc(r.serial || '—'))}
+      ${row('仕入日', esc(r.bought || '—'))}
+    </div>
+    <div class="lbl" style="margin-bottom:6px">仕入と原価</div>
+    <div class="sum" style="margin-bottom:12px">
+      ${row('落札価格', yen(r.lot.buy))}
+      ${row('落札料', yen(r.lot.fee))}
+      ${row('ロット仕入原価', yen(r.lot.cost))}
+      ${row('配賦原価', `<strong>${yen(r.cost)}</strong>`)}
+    </div>
+    <p class="meta" style="margin:-4px 0 12px">
+      ${esc(r.lot.qty)}台で等分（端数は先頭の1台）。<strong>取込が配賦した原価をそのまま使っています。</strong>
+      個品IDの数で割り直すと、登録される原価と食い違うためです。</p>
+
+    <div class="lbl" style="margin-bottom:6px">商品の整理（ルールだけ。AIは使っていません）</div>
+    <div class="sum" style="margin-bottom:12px">
+      ${row('メーカー', esc(r.norm.maker || '要確認'))}
+      ${row('型番', esc(r.norm.model || '要確認'))}
+      ${row('カテゴリ', '<span class="tag">要確認</span>')}
+      ${row('検索用', esc(marketQuery(r.maker, r.model) || '—'))}
+    </div>
+    <div class="card" style="margin-bottom:12px">
+      <div class="lbl" style="margin-bottom:3px">状態</div>
+      ${r.cond.rank ? `<strong>${esc(CONDITION_LABEL[r.cond.rank])}</strong>` : '<span class="tag">要確認</span>'}
+      <span class="meta">　${esc(r.cond.why)}</span>
+      ${r.note ? `<div class="pre" style="margin-top:8px">${esc(r.note)}</div>` : ''}
+    </div>
+
+    <div class="lbl" style="margin-bottom:6px">販売サイトごとの計算</div>
+    <div class="table-wrap"><table class="t"><thead><tr>
+      <th>販売サイト</th><th>手数料</th><th>固定費</th><th>送料</th>
+      <th>目標利益額</th><th>最低販売価格</th><th>推奨価格</th><th>想定利益</th><th>判定</th>
+    </tr></thead><tbody>
+      ${PRICING_CHANNELS.map(c => {
+        const x = r.cells[c.key];
+        if (!x.calc.ok) return `<tr><td>${esc(c.label)}</td>
+          <td colspan="8"><span class="meta">${esc(x.why)}</span></td></tr>`;
+        const p = profitAt(x.price, r.cost, x.st);
+        return `<tr>
+          <td>${esc(c.label)}${x.st.fromDraft.length ? '<div class="meta">試算の値</div>' : ''}</td>
+          <td class="num">${(x.st.fee_rate * 100).toFixed(1)}%</td>
+          <td class="num">${yen(x.st.fixed_cost)}</td>
+          <td class="num">${yen(x.st.shipping_cost)}</td>
+          <td class="num">${yen(Math.round(x.calc.target))}</td>
+          <td class="num">${yen(Math.ceil(x.calc.floor))}</td>
+          <td class="num"><strong>${x.price == null ? '—' : yen(x.price)}</strong>${
+            x.edited ? '<div class="meta">手で直しました</div>' : ''}</td>
+          <td class="num">${p.profit == null ? '—' : yen(Math.round(p.profit))}${
+            p.rate == null ? '' : `<div class="meta">${(p.rate * 100).toFixed(1)}%</div>`}</td>
+          <td><span class="tag ${JUDGE_CLASS[x.judge] || 'act'}">${esc(x.judge)}</span>
+            <div class="meta">${esc(x.why)}</div></td>
+        </tr>`;
+      }).join('')}
+    </tbody></table></div>
+    <p class="meta" style="margin:10px 0">
+      目標利益額 ＝ max(配賦原価 × 目標利益率, 最低利益額)<br>
+      最低販売価格 ＝ (配賦原価 ＋ 固定費 ＋ 送料 ＋ 目標利益額) ÷ (1 − 手数料率)<br>
+      推奨価格 ＝ 最低販売価格を切り上げ（1万円未満は100円／5万円未満は500円／それ以上は1,000円単位）<br>
+      <strong>相場は見ていません</strong>（市場データなし・原価基準）。</p>
+
+    <div class="card">
+      <div class="lbl" style="margin-bottom:3px">最優先チャネル</div>
+      ${r.priority.first ? `<strong>${esc(pricingLabel(r.priority.first))}</strong>` : '—'}
+      ${r.priority.second ? `<span class="meta">　第2候補 ${esc(pricingLabel(r.priority.second))}</span>` : ''}
+      <div class="meta">${esc(r.priority.why)}</div>
+      <div class="meta">いちばん高い価格ではなく<strong>想定利益</strong>で選びます。
+        売れやすさは市場データが無いので推測していません。</div>
+    </div>
+    ${r.flags.length ? `<div class="card" style="margin-top:10px;background:var(--l100);border:1px solid var(--l400)">
+      <div class="lbl" style="margin-bottom:3px">要確認</div>
+      ${r.flags.map(f => `<div class="meta">・${esc(f)}</div>`).join('')}</div>` : ''}`,
+    [['価格の一覧にもどる', 'paintPricing(true)', 'btn ghost']]);
+}
+
+/* ---- 出品用CSV ------------------------------------------------------------
+   元のCSVの列をそのまま左に残し、右に計算した列を足す。UTF-8＋BOM。 */
+function pricingCsvRows() {
+  const H = (importSrc || {}).H || [];
+  const head = H.concat(['元CSVの行',
+    '親_落札価格', '親_落札料', 'ロット仕入原価', '原価配賦方法', '配賦原価',
+    '正規化メーカー', '正規化カテゴリ', '正規化型番', '検索用商品名', '出品用商品名',
+    '状態ランク', '状態要約']);
+  PRICING_CHANNELS.forEach(c => head.push(
+    `${c.label}_出品判定`, `${c.label}_最低価格`, `${c.label}_推奨価格`, `${c.label}_想定利益`));
+  head.push('最優先チャネル', '第2候補チャネル', '価格算定方式', '値付け根拠', '要確認');
+
+  const out = [head];
+  (pricingRows || []).forEach(r => {
+    const raw = H.map((_, i) => (r.rawRow ? (r.rawRow[i] == null ? '' : r.rawRow[i]) : ''));
+    const line = [].concat(raw, [
+      r.rawLine === '' ? '' : String(r.rawLine),
+      r.lot.buy, r.lot.fee, r.lot.cost,
+      r.flags.some(f => f.indexOf('総数') === 0)
+        ? '要確認：総数と個品IDの件数が違います（取込と同じく総数で等分）'
+        : `総数${r.lot.qty}台で等分（端数は先頭の1台）`,
+      r.cost,
+      r.norm.maker || '要確認', '要確認', r.norm.model || '要確認',
+      marketQuery(r.maker, r.model), r.norm.listTitle,
+      r.cond.rank || '要確認', r.cond.why
+    ]);
+    PRICING_CHANNELS.forEach(c => {
+      const x = r.cells[c.key];
+      if (!x.calc.ok) { line.push(x.why, '', '', ''); return; }
+      const p = profitAt(x.price, r.cost, x.st);
+      line.push(x.judge, Math.ceil(x.calc.floor),
+                x.price == null ? '' : x.price,
+                p.profit == null ? '' : Math.round(p.profit));
+    });
+    line.push(r.priority.first ? pricingLabel(r.priority.first) : '',
+              r.priority.second ? pricingLabel(r.priority.second) : '',
+              '原価基準', r.priority.why, r.flags.join('／'));
+    out.push(line.map(v => v == null ? '' : String(v)));
+  });
+  return out;
+}
+function downloadPricingCsv() {
+  if (!pricingRows || !pricingRows.length) { toast('出せる行がありません'); return; }
+  const d = new Date();
+  const ymd = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+  const name = `${ymd}_自社落札_出品価格提案.csv`;
+  window.EightCsv.download(name, window.EightCsv.blob(window.EightCsv.build(pricingCsvRows())));
+  toast(`${name} を出しました（${pricingRows.length}行）`);
 }
 
 /* ---- 在庫一覧のカテゴリー絞り込み ----
@@ -3460,6 +3965,8 @@ function showImportPreview() {
     ${canAdmin() ? '' : '<div class="card">商品の追加は管理者だけができます。</div>'}
   `, [
     ['閉じる', 'closeModal()', 'btn ghost'],
+    // 価格を出すだけ。登録もDBへの保存もしないので、権限に関係なく押せる
+    ...(buy && p.add.length ? [['販売価格を自動計算', 'openPricing()', 'btn ghost', 'btnPricing']] : []),
     ...(p.add.length && canAdmin() ? [[buy ? `一括登録（商品 ${c.prods}・個体 ${units}）` : `${p.add.length}商品・${units}台を追加`,
                                        'applyInventoryImport()', 'btn lime', 'btnApply']] : [])
   ]);
