@@ -5733,6 +5733,12 @@ async function logRegister(kind, id, label, after) {
 
 const DEAL_STATES = ['希望受付', '在庫・調達確認', '見積', '顧客承認', '契約準備',
                      '契約', '支払条件確定', '手配', '完了', 'ご縁なし'];
+/* このうち、担当者がボタンで進めてよいのはこれだけ。
+     顧客承認・契約準備 … お客様が見積を承認すると自動で進む
+     契約から先        … ［見積から契約を作る］→ 契約の画面で進む
+   ここを全部ボタンにすると、契約書が無いまま状態だけ「契約」になり、
+   支払条件を入れる画面へたどり着けない。 */
+const DEAL_STATES_MANUAL = ['希望受付', '在庫・調達確認', '見積', 'ご縁なし'];
 const GRADE_LABEL = {
   budget: 'コスト重視（整備済み中心）', standard: '標準', latest: '最新・高性能（新品）', any: 'おまかせ'
 };
@@ -5770,10 +5776,18 @@ const dealStatusTag = (s) => {
                 '顧客承認': 'ok', '契約': 'ok', 'ご縁なし': 'none' }[s] || 'none';
   return `<span class="tag stk-${cls}">${esc(s)}</span>`;
 };
+/* 購入かレンタルか。公開フォームで選ばずに送られたら、こちらで決めたことにせず
+   「まだ決まっていない」とそのまま出す（/quote の画面と同じ言いかたにそろえる）。
+   利用期間の「ずっと使う」は購入の希望とは別の設問なので、混ぜて書かない。 */
+function wantText(w) {
+  const v = (w || '').trim();
+  return (!v || v === '未定') ? '購入／レンタル未定（提案してほしい）' : v;
+}
+
 /* お客様が書いた規模を1行にする。空の項目は出さない（「—名 —台」を並べない） */
 function dealSizeText(d) {
   return [d.purpose, d.headcount ? d.headcount + '名' : '', d.qty ? d.qty + '台' : '',
-          d.months == null ? '' : (d.months === 0 ? '買い切り希望' : d.months + 'ヶ月'),
+          d.months == null ? '' : (d.months === 0 ? 'ずっと使う（購入を検討）' : d.months + 'ヶ月'),
           d.start_date ? fmtD(d.start_date) + '開始' : '']
     .filter(Boolean).join('　') || '規模の指定なし';
 }
@@ -5793,7 +5807,7 @@ function dealBodyHtml() {
         <b style="font-size:16px">${esc(d.company || d.customer_name)}</b>
         ${d.company ? `<span class="meta">${esc(d.customer_name)} 様</span>` : ''}
         ${dealStatusTag(d.status)}
-        ${d.want ? `<span class="tag">${esc(d.want)}</span>` : ''}
+        <span class="tag">${esc(wantText(d.want))}</span>
         <span class="meta" style="margin-left:auto">${fmtDT(d.created_at)}</span>
       </div>
       ${d.product_code ? `<div style="margin-top:8px;font-size:13.5px">
@@ -5813,12 +5827,31 @@ function dealBodyHtml() {
       ${d.note ? `<div class="card" style="margin-top:10px;background:var(--n100)">
         <div class="meta" style="margin-bottom:3px">社内メモ${d.actor ? '（' + esc(d.actor) + '）' : ''}</div>
         <div style="font-size:13.5px;white-space:pre-wrap">${esc(d.note)}</div></div>` : ''}
+      ${quotesOf(d.id).some(q => q.status === '承認')
+          && ['希望受付', '在庫・調達確認', '見積'].includes(d.status)
+        ? `<div class="card" style="margin-top:8px;background:var(--l100);border:1px solid var(--l400)">
+             <div class="meta">お客様は見積を承認済みですが、案件の状態が「${esc(d.status)}」のままです。
+             画面を再読み込みしても直らないときは、担当者へ連絡してください。</div></div>` : ''}
       ${dealQuotesHtml(d)}
       ${dealContractsHtml(d)}
-      ${canEdit() ? `<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:12px">
-        ${DEAL_STATES.filter(x => x !== d.status).map(x =>
-          `<button class="btn sm ghost" onclick="setDealStatus(${d.id},'${esc(x)}')">${esc(x)}にする</button>`).join('')}
-        <button class="btn sm ghost" onclick="sheetDealNote(${d.id})">メモ</button>
+      ${canEdit() ? `<div style="margin-top:12px">
+        <div style="display:flex;gap:7px;flex-wrap:wrap">
+          ${DEAL_STATES_MANUAL.filter(x => x !== d.status).map(x =>
+            `<button class="btn sm ghost" onclick="setDealStatus(${d.id},'${esc(x)}')">${esc(x)}にする</button>`).join('')}
+          <button class="btn sm ghost" onclick="sheetDealNote(${d.id})">メモ</button>
+        </div>
+        <details style="margin-top:8px">
+          <summary class="meta" style="cursor:pointer">状態を手で直す（ふだんは使いません）</summary>
+          <div class="meta" style="margin:6px 0">
+            <b>顧客承認・契約準備</b>は、お客様が見積を承認すると自動で進みます。
+            <b>契約から先</b>は、上の［見積から契約を作る］で契約書を作ってから、契約の画面で進めます。
+            ここのボタンは状態だけを書き換えるので、契約書のないまま先へ進んでしまいます。
+          </div>
+          <div style="display:flex;gap:7px;flex-wrap:wrap">
+            ${DEAL_STATES.filter(x => x !== d.status && !DEAL_STATES_MANUAL.includes(x)).map(x =>
+              `<button class="btn sm ghost" onclick="setDealStatus(${d.id},'${esc(x)}')">${esc(x)}にする</button>`).join('')}
+          </div>
+        </details>
       </div>` : ''}
     </div>`).join('');
 }
@@ -6046,7 +6079,10 @@ function dealContractsHtml(d) {
   const cs = contractsOf(d.id);
   const approved = quotesOf(d.id).filter(q => q.status === '承認'
     && !db.contracts.some(c => c.quote_id === q.id && c.status !== '取消'));
-  if (!cs.length && !approved.length) return '';
+  // 契約の段まで進んでいる案件では、契約がまだ無くても「次に何をするか」を出す。
+  // （状態だけ「契約」にして契約書を作り忘れる、を防ぐ）
+  const reached = ['顧客承認', '契約準備', '契約', '支払条件確定', '手配', '完了'].includes(d.status);
+  if (!cs.length && !approved.length && !reached) return '';
   return `<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--rule)">
     <div class="meta" style="margin-bottom:6px">契約</div>
     ${cs.map(c => `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
@@ -6059,8 +6095,15 @@ function dealContractsHtml(d) {
       <span class="meta">${yen(c.total || 0)}（税込）</span>
       ${c.start_date ? `<span class="meta">納期 ${esc(c.start_date)}</span>` : ''}
     </div>`).join('')}
-    ${canEdit() ? approved.map(q => `<button class="btn sm ghost" onclick="createContract(${q.id})">
-      ${esc(quoteNo(q))} から契約を作る</button>`).join(' ') : ''}
+    ${cs.length ? `<div class="meta" style="margin-bottom:6px">
+      支払方法・支払条件・入金・手配は、上の契約番号をひらいて進めます。</div>` : ''}
+    ${canEdit() && approved.length ? `<div class="meta" style="margin-bottom:6px">
+        お客様の承認が届いています。ここから契約書を作ってください。</div>
+      ${approved.map(q => `<button class="btn sm lime" onclick="createContract(${q.id})">
+        ${esc(quoteNo(q))} から契約を作る</button>`).join(' ')}` : ''}
+    ${!cs.length && !approved.length ? `<div class="meta">
+      まだ契約書はありません。契約書は<b>お客様が承認した見積から作ります</b>
+      （見積を提示 → お客様が［この内容で進める］→ ここに［契約を作る］が出ます）。</div>` : ''}
   </div>`;
 }
 
@@ -8342,6 +8385,18 @@ async function doRentalAllocate(id) {
     ? `申込 #${id} に${got}台そろいました。レンタル確定に進めます`
     : `申込 #${id} に${got}台まで割り当てました（あと${r.procure_qty}台は在庫・調達待ちです）`);
 }
+
+/* 画面を開きっぱなしにしていると、その間にお客様が見積を承認しても
+   古い状態のまま見えてしまう（データを読むのはページを開いたときだけのため）。
+   別のタブから戻ってきたときに読み直す。入力中（シートが開いている）ときと、
+   読んだ直後は動かさない。 */
+let lastLoadAt = Date.now();
+document.addEventListener('visibilitychange', async () => {
+  if (document.hidden || sheetState || scan.on) return;
+  if (Date.now() - lastLoadAt < 20000) return;
+  lastLoadAt = Date.now();
+  if (await loadAll()) render();
+});
 
 /* Escapeで、開いているものを手前から順に閉じる */
 document.addEventListener('keydown', (e) => {
