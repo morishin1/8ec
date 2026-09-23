@@ -10355,23 +10355,45 @@ create table if not exists public.inventory_shipping_tariffs (
   service        text not null,                  -- 陸便
   payment        text not null,                  -- 元払
   rate_status    text not null,                  -- provisional（暫定）/ contract（現行契約）
+                                                 -- ※ 版の識別子ではなく「状態」だけを表す
   label          text,
   source_note    text,
-  effective_from date,
+  effective_from date not null,                  -- この表がいつからのものか。版の識別子
+  effective_to   date,                           -- いつまで。まだ決まっていなければ NULL
   tax_rate       numeric not null default 0.10,  -- 運賃は税別なので、税込にするための税率
   active         boolean not null default false,
   sizes          jsonb   not null default '[]'::jsonb,   -- ["60","80",…]
   regions        jsonb   not null default '{}'::jsonb,   -- {"東京":"関東",…}
   rates          jsonb   not null default '{}'::jsonb,   -- {"60":{"関東":560,…},…} 税別
   excluded       jsonb   not null default '{}'::jsonb,   -- 自動計算しないもの（理由つき）
+  source_meta    jsonb   not null default '{}'::jsonb,   -- 元資料の注意書き・サイズごとの重量上限など
   created_at     timestamptz default now(),
   updated_at     timestamptz default now(),
-  unique (carrier, service, payment, rate_status)
+  -- 版は「いつからの表か」で決める。rate_status では決めない
+  -- （同じ contract の新しい表を入れたときに、古い contract を上書きしてしまうため）
+  unique (carrier, service, payment, effective_from)
 );
 
+-- 前の版のこの migration を当てていたときのために、列と制約をそろえ直す
+alter table public.inventory_shipping_tariffs add column if not exists effective_to date;
+alter table public.inventory_shipping_tariffs
+  add column if not exists source_meta jsonb not null default '{}'::jsonb;
+alter table public.inventory_shipping_tariffs
+  drop constraint if exists inventory_shipping_tariffs_carrier_service_payment_rate_stat_key;
+
 comment on table public.inventory_shipping_tariffs is
-  '配送会社の運賃表。rates は**税別**で、税込は tax_rate から出す。
-   rate_status=provisional は過去資料からの暫定で、現行契約が確認できたら差し替える。';
+  '配送会社の運賃表。1行＝1つの版（effective_from で識別）。
+   rates は**税別**で、税込は tax_rate から出す。
+   rate_status は版の識別子ではなく状態だけを表す
+   （provisional＝過去資料・暫定／contract＝現行契約）。
+   新しい版は**別の行として足す**。古い版は消さずに残し、いつどの表で計算したかを追えるようにする。';
+comment on column public.inventory_shipping_tariffs.effective_from is
+  'この運賃表がいつからのものか。版の識別子で、同じ 配送会社×便×支払 では重複しない。';
+comment on column public.inventory_shipping_tariffs.effective_to is
+  'いつまでのものか。まだ決まっていなければ NULL。';
+comment on column public.inventory_shipping_tariffs.source_meta is
+  '元資料の注意書き（沖縄・離島・着払など）と、サイズごとの重量上限。価格計算には使わないが、
+   重量が分かっているときに上限を超えていないか確かめるために持つ。';
 
 -- 同じ 配送会社×便×支払 で「使う表」は1つだけ
 create unique index if not exists inventory_shipping_tariffs_active_idx
@@ -10394,18 +10416,20 @@ grant select on public.inventory_shipping_tariffs to authenticated;
 --     すでに同じ行があれば中身は書き換えない（担当者が直したものを消さない）。
 -- ------------------------------------------------------------
 insert into public.inventory_shipping_tariffs
-  (carrier, service, payment, rate_status, label, source_note, tax_rate, active,
-   sizes, regions, rates, excluded)
+  (carrier, service, payment, rate_status, label, source_note, effective_from, effective_to,
+   tax_rate, active, sizes, regions, rates, excluded, source_meta)
 values (
   'sagawa', '陸便', '元払', 'provisional',
-  '佐川急便 陸便・元払（暫定）',
-  '過去の契約資料（20260924_13132539-000_rikubin_tekiyo.pdf）から取り込み。現行契約の表が確認できたら差し替える。',
+  '佐川急便 陸便・元払（2018-05-01〜2019-04-30）',
+  '過去の契約資料（20260924_13132539-000_rikubin_tekiyo.pdf）から取り込み。現行契約の表が確認できたら新しい版として足す。',
+  '2018-05-01'::date, '2019-04-30'::date,
   0.10, true,
   '["60","80","100","140","160","170","180","200","220","240","260"]'::jsonb,
   '{"熊本":"南九州","宮崎":"南九州","鹿児島":"南九州","福岡":"北九州","佐賀":"北九州","長崎":"北九州","大分":"北九州","徳島":"四国","香川":"四国","愛媛":"四国","高知":"四国","鳥取":"中国","島根":"中国","岡山":"中国","広島":"中国","山口":"中国","滋賀":"関西","京都":"関西","大阪":"関西","兵庫":"関西","奈良":"関西","和歌山":"関西","富山":"北陸","石川":"北陸","福井":"北陸","岐阜":"東海","静岡":"東海","愛知":"東海","三重":"東海","新潟":"信越","長野":"信越","茨城":"関東","栃木":"関東","群馬":"関東","埼玉":"関東","千葉":"関東","東京":"関東","神奈川":"関東","山梨":"関東","宮城":"南東北","山形":"南東北","福島":"南東北","青森":"北東北","岩手":"北東北","秋田":"北東北","北海道":"北海道"}'::jsonb,
   '{"60":{"南九州":880,"北九州":880,"四国":800,"中国":720,"関西":640,"北陸":560,"東海":560,"信越":560,"関東":560,"南東北":560,"北東北":640,"北海道":880},"80":{"南九州":1080,"北九州":1080,"四国":1000,"中国":920,"関西":840,"北陸":760,"東海":760,"信越":760,"関東":760,"南東北":760,"北東北":840,"北海道":1080},"100":{"南九州":1330,"北九州":1330,"四国":1250,"中国":1170,"関西":1090,"北陸":1010,"東海":1010,"信越":1010,"関東":1010,"南東北":1010,"北東北":1090,"北海道":1330},"140":{"南九州":1670,"北九州":1670,"四国":1590,"中国":1510,"関西":1430,"北陸":1350,"東海":1350,"信越":1350,"関東":1350,"南東北":1350,"北東北":1430,"北海道":1670},"160":{"南九州":2280,"北九州":2280,"四国":2180,"中国":2080,"関西":1980,"北陸":1880,"東海":1880,"信越":1880,"関東":1880,"南東北":1880,"北東北":1980,"北海道":2280},"170":{"南九州":3600,"北九州":3300,"四国":3100,"中国":3100,"関西":2850,"北陸":2850,"東海":2850,"信越":2850,"関東":2200,"南東北":2900,"北東北":3100,"北海道":3600},"180":{"南九州":4000,"北九州":3650,"四国":3400,"中国":3400,"関西":3100,"北陸":3100,"東海":3100,"信越":3100,"関東":2450,"南東北":3200,"北東北":3400,"北海道":4050},"200":{"南九州":5000,"北九州":4550,"四国":4150,"中国":4150,"関西":3800,"北陸":3800,"東海":3800,"信越":3800,"関東":2950,"南東北":3900,"北東北":4150,"北海道":5000},"220":{"南九州":5950,"北九州":5400,"四国":4950,"中国":4950,"関西":4450,"北陸":4450,"東海":4450,"信越":4450,"関東":3450,"南東北":4600,"北東北":4900,"北海道":6350},"240":{"南九州":7900,"北九州":7100,"四国":6450,"中国":6450,"関西":5800,"北陸":5800,"東海":5800,"信越":5800,"関東":4450,"南東北":6000,"北東北":6450,"北海道":7950},"260":{"南九州":9850,"北九州":8800,"四国":8000,"中国":8000,"関西":7150,"北陸":7150,"東海":7150,"信越":7150,"関東":5450,"南東北":7400,"北東北":8000,"北海道":9950}}'::jsonb,
-  '{"沖縄":"運賃表に無いので自動計算しません。要確認","離島":"運賃表に無いので自動計算しません。要確認","着払":"正規運賃扱いのため自動計算しません。要確認","即日配送":"割増があるため自動計算しません。要確認","夜間割増":"割増があるため自動計算しません。要確認"}'::jsonb)
-on conflict (carrier, service, payment, rate_status) do nothing;
+  '{"沖縄":"別途料金のため自動計算しません。要確認","離島":"別途実費のため自動計算しません。要確認","着払":"正規運賃扱いのため自動計算しません。要確認","即日配送":"正規運賃扱いのため自動計算しません。要確認","夜間割増":"正規運賃扱いのため自動計算しません。要確認"}'::jsonb,
+  '{"notes":{"沖縄":"別途料金","離島":"別途実費","着払":"正規運賃","即日":"正規運賃","夜間割増":"正規運賃","消費税":"別途","重量上限":"50kg","サイズ上限":"260","前提個数":"月間250個を前提","高額品":"30万円以上の商品は佐川へ連絡"},"size_weight_kg":{"60":2,"80":5,"100":10,"140":20,"160":30,"170":50},"max_weight_kg":50,"max_size":"260"}'::jsonb)
+on conflict (carrier, service, payment, effective_from) do nothing;
 
 -- ------------------------------------------------------------
 -- 60-3) 運賃表を入れ替える
@@ -10430,9 +10454,19 @@ begin
   if p_doc is null or jsonb_typeof(p_doc) <> 'object' then
     raise exception '運賃表は { } の形で渡してください';
   end if;
-  foreach k in array array['carrier','service','payment','rate_status','sizes','regions','rates'] loop
+  foreach k in array array['carrier','service','payment','rate_status','effective_from',
+                           'sizes','regions','rates'] loop
     if not (p_doc ? k) then raise exception '% がありません', k; end if;
   end loop;
+  -- 版は effective_from で決まる。無いと古い表を上書きしてしまう
+  if (p_doc ->> 'effective_from') is null or (p_doc ->> 'effective_from') = '' then
+    raise exception 'effective_from（いつからの表か）を入れてください';
+  end if;
+  if p_doc ? 'effective_to' and (p_doc ->> 'effective_to') is not null
+     and (p_doc ->> 'effective_to') <> ''
+     and (p_doc ->> 'effective_to')::date < (p_doc ->> 'effective_from')::date then
+    raise exception 'effective_to は effective_from より後にしてください';
+  end if;
   if (p_doc ->> 'rate_status') not in ('provisional', 'contract') then
     raise exception 'rate_status は provisional か contract です（いまは %）', p_doc ->> 'rate_status';
   end if;
@@ -10468,33 +10502,40 @@ begin
     end if;
   end loop;
 
+  -- 新しい版は**別の行**として足す。古い版は消さず、上書きもしない。
+  -- 同じ effective_from で入れ直したときだけ、その版を直す。
   insert into public.inventory_shipping_tariffs
-    (carrier, service, payment, rate_status, label, source_note, effective_from,
-     tax_rate, sizes, regions, rates, excluded)
+    (carrier, service, payment, rate_status, label, source_note,
+     effective_from, effective_to, tax_rate, sizes, regions, rates, excluded, source_meta)
   values (
     p_doc ->> 'carrier', p_doc ->> 'service', p_doc ->> 'payment', p_doc ->> 'rate_status',
-    p_doc ->> 'label', p_doc ->> 'source_note', (p_doc ->> 'effective_from')::date,
+    p_doc ->> 'label', p_doc ->> 'source_note',
+    (p_doc ->> 'effective_from')::date, nullif(p_doc ->> 'effective_to', '')::date,
     coalesce((p_doc ->> 'tax_rate')::numeric, 0.10),
     p_doc -> 'sizes', p_doc -> 'regions', p_doc -> 'rates',
-    coalesce(p_doc -> 'excluded', '{}'::jsonb))
-  on conflict (carrier, service, payment, rate_status) do update
-    set label = excluded.label, source_note = excluded.source_note,
-        effective_from = excluded.effective_from, tax_rate = excluded.tax_rate,
-        sizes = excluded.sizes, regions = excluded.regions,
-        rates = excluded.rates, excluded = excluded.excluded
+    coalesce(p_doc -> 'excluded', '{}'::jsonb),
+    coalesce(p_doc -> 'source_meta', '{}'::jsonb))
+  on conflict (carrier, service, payment, effective_from) do update
+    set rate_status = excluded.rate_status, label = excluded.label,
+        source_note = excluded.source_note, effective_to = excluded.effective_to,
+        tax_rate = excluded.tax_rate, sizes = excluded.sizes, regions = excluded.regions,
+        rates = excluded.rates, excluded = excluded.excluded, source_meta = excluded.source_meta
   returning * into r;
 
   insert into public.inventory_transactions
     (actor, ref_kind, ref_id, label, action, before_value, after_value)
   values (public.inv_actor(), 'shipping', r.id::text, coalesce(r.label, r.carrier),
           '運賃表を入れた', '—',
-          format('%s %s %s（%s）サイズ%s件', r.carrier, r.service, r.payment, r.rate_status,
-                 jsonb_array_length(r.sizes)));
+          format('%s %s %s／%s〜%s（%s）サイズ%s件',
+                 r.carrier, r.service, r.payment, r.effective_from,
+                 coalesce(r.effective_to::text, '—'), r.rate_status, jsonb_array_length(r.sizes)));
   return r;
 end $$;
 
 comment on function public.inv_shipping_tariff_set is
-  '運賃表を入れる・入れ替える。管理者だけ。表の形が合わないものは受け取らない。
+  '運賃表の**版を足す**。管理者だけ。版は effective_from で決まり、
+   新しい版を入れても古い版は消さないし上書きもしない（同じ effective_from のときだけ直す）。
+   表の形が合わないものは受け取らない。
    入れただけでは使われない（inv_shipping_tariff_activate で切り替える）。';
 
 -- ------------------------------------------------------------

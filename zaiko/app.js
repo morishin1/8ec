@@ -3342,6 +3342,21 @@ function tariffRate(size, region) {
 }
 const RATE_STATUS_LABEL = { provisional: '暫定（過去資料）', contract: '現行契約' };
 
+/* 元資料の注意書き（沖縄は別途料金、着払は正規運賃、消費税は別途 など）と、
+   サイズごとの重量上限。価格は重量では決めないが、**分かっている重量が上限を超えていたら
+   要確認にする**ために持っている。重量が分からないときは止めない。 */
+const shipMeta = () => (shipTariff() || {}).source_meta || {};
+function shipWeightCheck(size, weightKg) {
+  const m = shipMeta();
+  const w = Number(weightKg);
+  if (!weightKg || isNaN(w) || w <= 0) return null;          // 分からなければ何も言わない
+  const max = Number(m.max_weight_kg);
+  if (max && w > max) return `重量${w}kgは上限${max}kgを超えます（要確認）`;
+  const lim = Number((m.size_weight_kg || {})[size]);
+  if (lim && w > lim) return `重量${w}kgは${shipSizeLabel(size)}の上限${lim}kgを超えます（要確認）`;
+  return null;
+}
+
 /* 実際の注文の送料。届け先の都道府県から地域を引いて、運賃表から出す。
    価格提案（仕入の時点）は届け先が決まっていないので関東を基準にしているが、
    注文が決まったらここで出し直す。**沖縄・離島・着払・即日・夜間割増は出さない**。
@@ -3366,8 +3381,11 @@ function shippingForOrder(o) {
   if (!region) return { ok: false, why: `${pref}は運賃表にありません（沖縄・離島は要確認）` };
   const x = tariffRate(size, region);
   if (!x) return { ok: false, why: `${shipSizeLabel(size)}・${region}の運賃が表にありません` };
+  const warn = shipWeightCheck(size, (o || {}).weightKg);
   return { ok: true, carrier: t.carrier, service: t.service, payment: t.payment,
-           pref, region, size, ex: x.ex, taxRate: x.taxRate, cost: x.inTax, status: x.status };
+           effectiveFrom: t.effective_from, effectiveTo: t.effective_to,
+           pref, region, size, ex: x.ex, taxRate: x.taxRate, cost: x.inTax, status: x.status,
+           warn: warn || null };
 }
 
 /* 設定。DBに入っている値が正。試算用の一時入力があればそれを上に重ねるが、
@@ -3724,8 +3742,24 @@ function shippingPanelHtml() {
           oninput="setShipDraft('${esc(z)}',this.value)"></td>`).join('')}
     </tr></tbody></table></div>
 
-    <p class="meta" style="margin:8px 0 0">将来は
-      <strong>配送会社（佐川急便）・発送元（柏倉庫）・配送サイズ・配送先地域</strong>から
+    ${(() => {
+      const m = shipMeta(), notes = m.notes || {}, w = m.size_weight_kg || {};
+      if (!Object.keys(notes).length && !Object.keys(w).length) return '';
+      return `<details style="margin-top:10px">
+        <summary class="meta" style="cursor:pointer">元の運賃表に書かれていること</summary>
+        ${Object.keys(notes).length ? `<div class="meta" style="margin-top:6px">${
+          Object.keys(notes).map(k => `<div>・<strong>${esc(k)}</strong>：${esc(notes[k])}</div>`).join('')
+        }</div>` : ''}
+        ${Object.keys(w).length ? `<div class="meta" style="margin-top:6px">
+          ・<strong>サイズごとの重量上限</strong>：${
+            Object.keys(w).map(k => `${esc(shipSizeLabel(k))} ${esc(String(w[k]))}kg`).join('／')}
+          <br>　重量が分からないときは価格計算を止めません。分かっていて上限を超えるときだけ要確認にします。</div>` : ''}
+      </details>`;
+    })()}
+    <p class="meta" style="margin:8px 0 0">${t && t.effective_from
+      ? `この版は <strong>${esc(t.effective_from)}〜${esc(t.effective_to || '（未定）')}</strong> のものです。
+         新しい表は<strong>別の版として足す</strong>ので、古い表は残ります。<br>` : ''}
+      将来は<strong>配送会社（佐川急便）・発送元（柏倉庫）・配送サイズ・配送先地域</strong>から
       自動で引きます。いまは<strong>発送元は柏倉庫</strong>を前提にしています。</p>
   </details>`;
 }
@@ -3948,7 +3982,8 @@ function openPricingDetail(i) {
       <div class="sum" style="margin-bottom:12px">
         ${row('どこから来た値か', esc(sp.how))}
         ${row('運賃表', esc(t.label || '未登録'))}
-        ${row('表の状態', esc(RATE_STATUS_LABEL[sp.status || t.rate_status] || '—'))}
+        ${row('表の状態', esc(RATE_STATUS_LABEL[sp.status || t.rate_status] || '—')
+          + (t.effective_from ? `　${t.effective_from}〜${t.effective_to || '（未定）'}` : ''))}
         ${row('商品マスタの既定', esc(shipSizeLabel((prod(r.code) || {}).shipping_size || '')))}
       </div>
       ${(sp.status || t.rate_status) === 'provisional' ? `<div class="card"
@@ -4128,7 +4163,7 @@ function pricingCsvRows() {
     '正規化メーカー', '正規化カテゴリ', '正規化型番', '検索用商品名', '出品用商品名',
     '状態ランク', '状態要約',
     '配送会社', '配送サービス', '支払', '標準配送地域', '配送サイズ',
-    '標準送料_税別', '標準送料_税込', '送料の出どころ', '運賃表の状態']);
+    '標準送料_税別', '標準送料_税込', '送料の出どころ', '運賃表の状態', '運賃表の版']);
   PRICING_CHANNELS.forEach(c => head.push(
     `${c.label}_出品判定`, `${c.label}_手数料率`, `${c.label}_手数料の根拠`,
     `${c.label}_最低価格`, `${c.label}_推奨価格`, `${c.label}_想定利益`));
@@ -4155,7 +4190,8 @@ function pricingCsvRows() {
       sp.ex == null ? '' : sp.ex,
       sp.cost == null ? '送料未設定' : sp.cost,
       sp.how,
-      RATE_STATUS_LABEL[sp.status || t.rate_status] || '');
+      RATE_STATUS_LABEL[sp.status || t.rate_status] || '',
+      t.effective_from ? `${t.effective_from}〜${t.effective_to || ''}` : '');
     PRICING_CHANNELS.forEach(c => {
       const x = r.cells[c.key];
       const rate = x.st.fee_rate == null ? '' : (x.st.fee_rate * 100).toFixed(1) + '%';
