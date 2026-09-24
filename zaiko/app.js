@@ -1591,9 +1591,13 @@ function checkCell(i, idx) {
   if (s.at) return `<span class="tag chk">確認済</span>${when}`;
   return '<span class="tag chk none">未確認</span>';
 }
-/* 「棚卸」の絞り込み。実施中は今回の棚卸で、そうでなければ最後に見たかどうかで分ける */
+/* 「棚卸」の絞り込み。実施中は今回の棚卸で、そうでなければ最後に見たかどうかで分ける。
+   手元に無いもの（売却済・廃棄）は棚卸の対象ではないので、確認済み・未確認の
+   どちらにも出さない（checkCell が「—」と出すのと同じ扱いにそろえる）。
+   「棚卸 すべて」のときは今までどおり一覧に出る。 */
 function checkFilterHit(i, idx) {
   if (!ui.fCheck) return true;
+  if (GONE.includes(i.status)) return false;
   const s = checkState(i, idx);
   if (db.stocktake) return ui.fCheck === 'done' ? s.now : s.todo;
   return ui.fCheck === 'done' ? !!s.at : !s.at;
