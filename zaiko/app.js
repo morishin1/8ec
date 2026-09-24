@@ -1075,12 +1075,12 @@ function viewList() {
             <option value="off"${ui.fRentEl === 'off' ? ' selected' : ''}>対象外だけ</option>
           </select>
           <select class="input" id="f-check" onchange="onFilter()"
-                  title="${db.stocktake ? '実施中の棚卸で現物を確認できているかで絞る' : '最後に現物を確認した記録があるかで絞る'}">
+                  title="${db.stocktake ? '実施中の棚卸で現物を確認できているかで絞る' : '今月のうちに現物を確認できているかで絞る'}">
             <option value="">棚卸 すべて</option>
             <option value="done"${ui.fCheck === 'done' ? ' selected' : ''}>${
-              db.stocktake ? '今回の棚卸：確認済み' : '確認済みだけ'}</option>
+              db.stocktake ? '今回の棚卸：確認済み' : '今月：確認済みだけ'}</option>
             <option value="todo"${ui.fCheck === 'todo' ? ' selected' : ''}>${
-              db.stocktake ? '今回の棚卸：未確認' : '未確認だけ'}</option>
+              db.stocktake ? '今回の棚卸：未確認' : '今月：未確認だけ'}</option>
           </select>`
         : `<select class="input" id="f-stock" onchange="onFilter()">
             <option value="">全在庫状態</option>
@@ -1431,7 +1431,7 @@ function unitsBodyHtml() {
         <td class="mchk-col">${marketBtns(mk.maker, mk.model, false, i.id)}</td>
         <td class="mall">${listingChips(liveOn(i))}</td>
         <td class="meta">${esc(locPath(i.location_id))}</td>
-        <td>${statusTag(i.status)}</td>
+        <td>${statusTag(i.status, false, stockStale(i, ckIdx))}</td>
         <td class="ck-col">${checkCell(i, ckIdx)}</td>
         <td>${rentalTag(i)}</td>
       </tr>`;
@@ -1577,30 +1577,65 @@ function checkState(i, idx) {
   const map = idx || stocktakeIndex();
   const inScope = db.stocktake && Object.prototype.hasOwnProperty.call(map, i.id);
   return { now: !!(inScope && map[i.id]), todo: !!(inScope && !map[i.id]),
-           inScope: !!inScope, at: i.last_checked_at || null };
+           inScope: !!inScope, at: i.last_checked_at || null,
+           thisMonth: isThisMonth(i.last_checked_at) };
 }
-/* 一覧の「棚卸」欄。実施中は今回の結果を前に出し、最後に見た日時もあわせて出す */
-function checkCell(i, idx) {
+
+/* 棚卸は月に1回まわす運用なので、「今月見たかどうか」を基準にする。
+   先月見たきりのものは、今月まだ見ていない扱いにする */
+function isThisMonth(v) {
+  if (!v) return false;
+  const d = new Date(v), n = new Date();
+  return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth();
+}
+
+/* **今月の棚卸で現物を見たか。画面の色・「棚卸」欄・絞り込みはすべてこれ1つを通す。**
+   別々に判定すると「棚卸欄では未確認なのに状態タグは確認済」というズレが起きるため。
+
+     true  … 見た（状態タグは現在色のまま）
+     false … まだ見ていない（状態タグを薄い赤にする）
+     null  … 判断しない。色も付けず、絞り込みにも出さない
+             ・実施中の棚卸の対象外（無理に未確認扱いしない）
+             ・売却済・廃棄（手元に無いので棚卸の対象ではない） */
+function checkedThisMonth(i, idx) {
+  if (!i || GONE.includes(i.status)) return null;
   const s = checkState(i, idx);
-  const when = s.at ? `<div class="meta nowrap">${esc(fmtDT(s.at))}</div>` : '';
-  // 手元に無いもの（売却済・廃棄）は棚卸の対象ではないので「未確認」とは言わない
-  if (GONE.includes(i.status)) return s.at ? `<span class="meta">—</span>${when}` : '<span class="meta">—</span>';
-  if (s.now) return `<span class="tag chk on">今回確認済</span>${when}`;
-  if (s.todo) return `<span class="tag chk todo">未確認</span>${
-    s.at ? `<div class="meta nowrap">前回 ${esc(fmtDT(s.at))}</div>` : ''}`;
-  if (s.at) return `<span class="tag chk">確認済</span>${when}`;
-  return '<span class="tag chk none">未確認</span>';
+  if (db.stocktake) return s.inScope ? s.now : null;
+  return s.thisMonth;
 }
-/* 「棚卸」の絞り込み。実施中は今回の棚卸で、そうでなければ最後に見たかどうかで分ける。
-   手元に無いもの（売却済・廃棄）は棚卸の対象ではないので、確認済み・未確認の
-   どちらにも出さない（checkCell が「—」と出すのと同じ扱いにそろえる）。
-   「棚卸 すべて」のときは今までどおり一覧に出る。 */
+/* 一覧の「棚卸」欄。実施中は今回の結果を、していないときは今月見たかどうかを出す。
+   最後に見た日時もあわせて出すので、いつのものかが分かる */
+function checkCell(i, idx) {
+  const v = checkedThisMonth(i, idx);
+  const at = i.last_checked_at || null;
+  const when = at ? `<div class="meta nowrap">${esc(fmtDT(at))}</div>` : '';
+  const last = at ? `<div class="meta nowrap">前回 ${esc(fmtDT(at))}</div>` : '';
+  // 判断しないもの（実施中の棚卸の対象外・売却済・廃棄）は「未確認」とは言わない
+  if (v === null) return `<span class="meta">—</span>${when}`;
+  if (v) return `<span class="tag chk on">${db.stocktake ? '今回確認済' : '今月確認済'}</span>${when}`;
+  if (db.stocktake) return `<span class="tag chk todo">未確認</span>${last}`;
+  return at ? `<span class="tag chk todo">今月は未確認</span>${last}`
+            : '<span class="tag chk none">未確認</span>';
+}
+/* 「棚卸」の絞り込み。欄の表示も状態タグの色も同じ checkedThisMonth() を通すので、
+   「欄では未確認なのに絞り込みには出ない」というズレが起きない。
+   判断しないもの（実施中の棚卸の対象外・売却済・廃棄）は確認済み・未確認の
+   どちらにも出さない。「棚卸 すべて」のときは今までどおり一覧に出る。 */
 function checkFilterHit(i, idx) {
   if (!ui.fCheck) return true;
-  if (GONE.includes(i.status)) return false;
-  const s = checkState(i, idx);
-  if (db.stocktake) return ui.fCheck === 'done' ? s.now : s.todo;
-  return ui.fCheck === 'done' ? !!s.at : !s.at;
+  const v = checkedThisMonth(i, idx);
+  if (v === null) return false;
+  return ui.fCheck === 'done' ? v : !v;
+}
+/* 状態タグを薄い赤にするか。**「在庫」だけ**が対象で、ほかの状態の色は変えない。
+   status そのものは変えない（色を変えているだけ）。
+     true  … 今月まだ見ていない 在庫 → 薄い赤
+     false … 今月見た 在庫        → いまの色のまま
+     null  … 色も title も付けない */
+function stockStale(i, idx) {
+  if (!i || i.status !== '在庫') return null;
+  const v = checkedThisMonth(i, idx);
+  return v === null ? null : !v;
 }
 /* 在庫一覧の上に出す棚卸の進み具合。棚卸画面と同じ数字 */
 function stocktakeBar() {
@@ -1914,8 +1949,16 @@ function prodLiveOn(p) {
   return CHANNELS.filter(c => set[c.key]).map(c => c.key);
 }
 
-function statusTag(s, big) {
-  return `<span class="tag st-${esc(s)}${big ? ' big' : ''}"><span class="ms">${STATUS_ICON[s] || 'inventory_2'}</span>${esc(s)}</span>`;
+/* 状態のタグ。stale を渡したときだけ、今月の棚卸の結果を色とtitleで添える。
+     true  … 今月まだ現物を見ていない → 薄い赤
+     false … 今月見た                 → いまの色のまま
+     渡さない/null … これまでどおり（在庫一覧以外の呼び出しは何も変わらない） */
+function statusTag(s, big, stale) {
+  const red = stale === true;
+  const title = stale == null ? ''
+    : ` title="今月の棚卸：${red ? '未確認' : '確認済'}"`;
+  return `<span class="tag st-${esc(s)}${big ? ' big' : ''}${red ? ' stale' : ''}"${title}><span class="ms">${
+    STATUS_ICON[s] || 'inventory_2'}</span>${esc(s)}</span>`;
 }
 /* 数量管理の状態。個体は「在庫」「貸出中」と1台の状態を出すが、
    こちらは数そのものなので「在庫 42」と数まで出して見分けられるようにする */

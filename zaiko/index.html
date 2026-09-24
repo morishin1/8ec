@@ -110,6 +110,9 @@ header.bar{position:sticky;top:0;z-index:30;background:var(--bg);border-bottom:1
 .tag .ms{font-size:15px}
 .tag.big{font-size:13px;padding:5px 12px}
 .tag.st-在庫{background:var(--i100);color:var(--i800)}
+/* 今月まだ現物を見ていない在庫。注意を促す程度の薄い赤で、状態そのものは変えていない。
+   色はこのリポジトリで使っている警告色（#FDECEC / #B3261E）にそろえる */
+.tag.st-在庫.stale{background:#FDECEC;color:#B3261E;box-shadow:inset 0 0 0 1px rgba(179,38,30,.35)}
 .tag.st-貸出中{background:var(--l100);color:var(--ink)}
 .tag.st-使用中{background:var(--n200);color:#111}
 .tag.st-修理中{background:var(--l200);color:#111}
