@@ -148,6 +148,7 @@ const ui = {
   drafts: {}, labelSel: {}, stScope: '', loaded: false, sel: {}, selItems: {}, fBatch: null, doneBatch: null,
   // 一覧のタブ。individual / model のほかに、販売サイトのキーと 'none'（未出品）を取る
   listMode: 'unit', fSt: '', fDiff: false, fNoPrice: false, fRental: '', fRentEl: '',
+  fCheck: '',                // 棚卸の絞り込み。'' すべて / 'done' 確認済み / 'todo' 未確認
   mTab: 'loc',               // マスター管理のタブ（保管場所／カテゴリー）
   quoteId: null,             // いま開いている見積
   contractId: null,          // いま開いている契約
@@ -935,6 +936,7 @@ function onFilter() {
   ui.fStock = ($('f-stock') || {}).value || '';
   ui.fSt = ($('f-st') || {}).value || '';
   ui.fRentEl = ($('f-rent') || {}).value || '';
+  ui.fCheck = ($('f-check') || {}).value || '';
   renderListBody();
   paintTabCounts();
 }
@@ -1045,6 +1047,7 @@ function viewList() {
       </div>
     </div>
     ${importHistLine()}
+    ${stocktakeBar()}
     ${batchBanner()}
     ${diffBar()}
     ${noPriceBar()}
@@ -1070,6 +1073,14 @@ function viewList() {
             <option value="">8RENT すべて</option>
             <option value="on"${ui.fRentEl === 'on' ? ' selected' : ''}>レンタル対象だけ</option>
             <option value="off"${ui.fRentEl === 'off' ? ' selected' : ''}>対象外だけ</option>
+          </select>
+          <select class="input" id="f-check" onchange="onFilter()"
+                  title="${db.stocktake ? '実施中の棚卸で現物を確認できているかで絞る' : '最後に現物を確認した記録があるかで絞る'}">
+            <option value="">棚卸 すべて</option>
+            <option value="done"${ui.fCheck === 'done' ? ' selected' : ''}>${
+              db.stocktake ? '今回の棚卸：確認済み' : '確認済みだけ'}</option>
+            <option value="todo"${ui.fCheck === 'todo' ? ' selected' : ''}>${
+              db.stocktake ? '今回の棚卸：未確認' : '未確認だけ'}</option>
           </select>`
         : `<select class="input" id="f-stock" onchange="onFilter()">
             <option value="">全在庫状態</option>
@@ -1255,6 +1266,7 @@ function unitNos(p) {
    数量管理の品目は個体を持たないので、1品目1行として数だけ出す。 */
 function unitsFiltered(ignoreTab) {
   const q = ui.q.trim().toLowerCase();
+  const ckIdx = stocktakeIndex();      // 棚卸の絞り込み用。1行ずつ探さず1回で作る
   const inScope = ui.fLoc ? locTree(ui.fLoc) : null;
   const batch = batchOf(ui.fBatch);
   const only = batch ? (batch.product_codes || []) : null;
@@ -1266,6 +1278,7 @@ function unitsFiltered(ignoreTab) {
     if (ui.fSt && i.status !== ui.fSt) return false;
     if (ui.fRentEl === 'on' && !i.rental_eligible) return false;
     if (ui.fRentEl === 'off' && i.rental_eligible) return false;
+    if (!checkFilterHit(i, ckIdx)) return false;
     if (inScope && !inScope.includes(i.location_id)) return false;
     if (q) {
       const hay = [i.id, i.serial, i.source_id, (m && m.model) || i.model, (m && m.name) || i.name, i.note]
@@ -1357,12 +1370,19 @@ function listingChips(on, title) {
 function unitsBodyHtml() {
   const rows = unitsFiltered();
   if (!rows.length) return `<div class="empty" style="margin-top:15px">該当する在庫はありません。</div>`;
+  const ckIdx = stocktakeIndex();      // 棚卸の確認状況。1行ずつ探さず1回で作る
   const live = rows.filter(r => r.kind === 'item' && IN_STOCK.includes(r.i.status)).length;
   const qty = rows.filter(r => r.kind === 'qty').reduce((n, r) => n + (r.m.qty || 0), 0);
   const pick = canEdit();
   const rentN = rows.filter(r => r.kind === 'item' && isRentalOn(r.i)).length;
+  // 棚卸の数え方は棚卸画面と同じ（db.stChecked）。この行は「いま出ている行のうち」を数える
+  const ckDone = db.stocktake
+    ? rows.filter(r => r.kind === 'item' && checkState(r.i, ckIdx).now).length : 0;
+  const ckTodo = db.stocktake
+    ? rows.filter(r => r.kind === 'item' && checkState(r.i, ckIdx).todo).length : 0;
   return `<div class="meta" style="margin:12px 0 4px">${rows.length} 件${
-      live ? `／うち在庫・出品中 ${live}台` : ''}${rentN ? `／8RENT対象 ${rentN}台` : ''}${qty ? `／数量品 ${qty}` : ''}</div>
+      live ? `／うち在庫・出品中 ${live}台` : ''}${rentN ? `／8RENT対象 ${rentN}台` : ''}${qty ? `／数量品 ${qty}` : ''}${
+      db.stocktake ? `／この絞り込みの中では 棚卸確認済 ${ckDone}・未確認 ${ckTodo}` : ''}</div>
     <div class="table-wrap"><table class="t">
     <thead><tr>
       ${pick ? `<th class="ck"><input type="checkbox" id="selAllItems" onclick="toggleAllItems(this.checked)"
@@ -1370,7 +1390,7 @@ function unitsBodyHtml() {
       <th>管理番号</th><th>型番</th><th>メーカー</th><th>仕入日</th>
       <th style="text-align:right">原価</th><th style="text-align:right">販売予定価格</th>
       <th class="mchk-col">価格調査</th>
-      <th>出品先</th><th>保管場所</th><th>状態</th><th>8RENT</th>
+      <th>出品先</th><th>保管場所</th><th>状態</th><th>棚卸</th><th>8RENT</th>
     </tr></thead>
     <tbody>${rows.slice(0, 600).map(r => {
       const { i, m } = r;
@@ -1389,6 +1409,7 @@ function unitsBodyHtml() {
         <td class="mall">${listingChips(liveOnProd(m.code))}</td>
         <td class="meta">${esc(locPath(m.location_id))}</td>
         <td>${qtyTag(m)}</td>
+        <td class="meta">—</td>
         <td class="meta">—</td>
       </tr>`;
       const cost = costOf(i), plan = planOf(i);
@@ -1411,6 +1432,7 @@ function unitsBodyHtml() {
         <td class="mall">${listingChips(liveOn(i))}</td>
         <td class="meta">${esc(locPath(i.location_id))}</td>
         <td>${statusTag(i.status)}</td>
+        <td class="ck-col">${checkCell(i, ckIdx)}</td>
         <td>${rentalTag(i)}</td>
       </tr>`;
     }).join('')}</tbody></table></div>
@@ -1517,6 +1539,107 @@ function rentalTag(i) {
     : '<span class="tag rent">対象外</span>';
 }
 
+/* ---- 棚卸の確認状況 --------------------------------------------------------
+   棚卸は「現物を確認した記録」でしかない。**在庫の状態・在庫数・出品状態・8RENTは
+   1つも変えない**（サーバー側の inv_item_op も last_checked_at しか書き換えない）。
+
+   もとになるのは次の2つだけで、DBには何も足していない。
+     inventory_items.last_checked_at   … いちばん最後に現物を見た日時
+     inventory_stocktake_items         … 実施中の棚卸で、対象と確認済みを持つ
+
+   **棚卸画面と在庫一覧は、同じ db.stChecked を数える。** 別々に数えると
+   「棚卸では178なのに一覧では177」ということが起きるため。 */
+
+/* 実施中の棚卸の進み具合。棚卸画面も在庫一覧もこれを呼ぶ */
+function stocktakeProgress() {
+  const all = db.stocktake ? (db.stChecked || []) : [];
+  const done = all.filter(x => x.checked_at);
+  return {
+    open: !!db.stocktake,
+    total: all.length,
+    done: done.length,
+    left: all.length - done.length,
+    pct: all.length ? Math.round(done.length / all.length * 100) : 0,
+    doneIds: done.map(x => x.item_id)
+  };
+}
+/* 実施中の棚卸で「今回確認したか」を引くための索引。1行ずつ探すと重いので1回で作る */
+function stocktakeIndex() {
+  const idx = {};
+  if (db.stocktake) (db.stChecked || []).forEach(x => { idx[x.item_id] = x.checked_at || null; });
+  return idx;
+}
+/* 1台ぶんの確認状況。
+     now  … 実施中の棚卸で確認済み（今回見た）
+     todo … 実施中の棚卸の対象だが、まだ確認していない
+     at   … いちばん最後に現物を見た日時（過去の棚卸ぶんも含む） */
+function checkState(i, idx) {
+  const map = idx || stocktakeIndex();
+  const inScope = db.stocktake && Object.prototype.hasOwnProperty.call(map, i.id);
+  return { now: !!(inScope && map[i.id]), todo: !!(inScope && !map[i.id]),
+           inScope: !!inScope, at: i.last_checked_at || null };
+}
+/* 一覧の「棚卸」欄。実施中は今回の結果を前に出し、最後に見た日時もあわせて出す */
+function checkCell(i, idx) {
+  const s = checkState(i, idx);
+  const when = s.at ? `<div class="meta nowrap">${esc(fmtDT(s.at))}</div>` : '';
+  // 手元に無いもの（売却済・廃棄）は棚卸の対象ではないので「未確認」とは言わない
+  if (GONE.includes(i.status)) return s.at ? `<span class="meta">—</span>${when}` : '<span class="meta">—</span>';
+  if (s.now) return `<span class="tag chk on">今回確認済</span>${when}`;
+  if (s.todo) return `<span class="tag chk todo">未確認</span>${
+    s.at ? `<div class="meta nowrap">前回 ${esc(fmtDT(s.at))}</div>` : ''}`;
+  if (s.at) return `<span class="tag chk">確認済</span>${when}`;
+  return '<span class="tag chk none">未確認</span>';
+}
+/* 「棚卸」の絞り込み。実施中は今回の棚卸で、そうでなければ最後に見たかどうかで分ける */
+function checkFilterHit(i, idx) {
+  if (!ui.fCheck) return true;
+  const s = checkState(i, idx);
+  if (db.stocktake) return ui.fCheck === 'done' ? s.now : s.todo;
+  return ui.fCheck === 'done' ? !!s.at : !s.at;
+}
+/* 在庫一覧の上に出す棚卸の進み具合。棚卸画面と同じ数字 */
+function stocktakeBar() {
+  const p = stocktakeProgress();
+  if (!p.open) return '';
+  return `<div class="stbar">
+    <span class="ms">fact_check</span>
+    <div style="flex:1;min-width:0">
+      <div class="t">棚卸実施中　棚卸確認済 ${p.done} / ${p.total}　未確認 ${p.left}</div>
+      <div class="prog" style="margin-top:6px"><i style="width:${p.pct}%"></i></div>
+    </div>
+    <button class="btn sm ghost" onclick="ui.fCheck='todo';go('list')">未確認だけ見る</button>
+    <button class="btn sm ghost" onclick="go('stock')">棚卸の画面へ</button>
+  </div>`;
+}
+
+/* ---- 選んだ個体のQRラベルを印刷 ----
+   QRは作り直さない。**管理番号 → 個体URL → QR** といういまの仕組みのまま、
+   すでにある管理番号のラベルをもう一度出すだけ。管理番号もURLも変えない。
+   ラベルの作りは QRラベル画面（labelKey / selectedLabels / viewLabels）に任せる。 */
+function printLabelsFor(ids, what) {
+  const live = [...new Set((ids || []).filter(Boolean))].filter(x => item(x));
+  if (!live.length) { toast('印刷できるQRがありません'); return; }
+  ui.labelSel = {};
+  live.forEach(x => { ui.labelSel[labelKey('item', x)] = true; });
+  go('labels');
+  if (live.length < ids.length) toast(`${ids.length - live.length}件は見つからないため除きました`);
+  else toast(`${what || '選んだ個体'} ${live.length}件のQRを出しました`);
+}
+/* 在庫一覧で選んだ個体 */
+function printSelectedLabels() {
+  const ids = selItemIds();
+  if (!ids.length) { toast('個体を選んでください'); return; }
+  printLabelsFor(ids, '選んだ個体');
+}
+/* いま実施中の棚卸で確認済みになった個体だけ（過去に確認した個体は入れない） */
+function printCheckedLabels() {
+  const p = stocktakeProgress();
+  if (!p.open) { toast('棚卸を実施していません'); return; }
+  if (!p.doneIds.length) { toast('まだ確認済みの個体がありません'); return; }
+  printLabelsFor(p.doneIds, '今回の棚卸で確認済み');
+}
+
 /* ---- 画面下の一括操作バー ----
    個体別のときは個体の操作、型番別のときはこれまでどおり商品の操作を出す。 */
 function refreshSelBar() {
@@ -1535,6 +1658,7 @@ function selBarItems(n) {
     `<button class="btn sm ${cls || ''}" onclick="${fn}"><span class="ms">${icon}</span>${label}</button>`;
   return `<span class="n"><span class="ms">check_box</span>${n}件選択中</span>
     <div class="selops">
+      ${b('QRラベルを印刷', 'qr_code_2', 'printSelectedLabels()')}
       ${b('販売価格を計算', 'calculate', 'openStockPricing()')}
       ${b('8RENTに出す', 'devices', 'openBulkRental()', 'lime')}
       ${b('8RENTから外す', 'devices_off', 'openBulkRentalOff()')}
@@ -6534,22 +6658,30 @@ function viewStock() {
   }
 
   const st = db.stocktake;
+  // 数え方は在庫一覧と同じ関数を通す（別々に数えて食い違わないように）
+  const p = stocktakeProgress();
   const all = db.stChecked;
   const done = all.filter(x => x.checked_at);
   const left = all.filter(x => !x.checked_at);
-  const pct = all.length ? Math.round(done.length / all.length * 100) : 0;
   return `<h1>棚卸</h1>
     <div style="display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap;margin:14px 0 6px">
-      <div class="stcount num">${done.length} <small>/ ${all.length}</small></div>
+      <div class="stcount num">${p.done} <small>/ ${p.total}</small></div>
       <div class="sub">${esc(st.scope_location_id ? locPath(st.scope_location_id) : 'すべて')}　開始 ${fmtDT(st.started_at)}</div>
     </div>
-    <div class="prog"><i style="width:${pct}%"></i></div>
+    <div class="prog"><i style="width:${p.pct}%"></i></div>
+    <div class="meta" style="margin:6px 0 2px">対象 ${p.total}台　確認済み ${p.done}台　未確認 ${p.left}台</div>
     ${guardNote()}
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <button class="btn lime" style="min-height:56px;flex:1 1 220px" onclick="openScan('stocktake')" ${dis()}>
         <span class="ms">qr_code_scanner</span>連続読取</button>
-      <button class="btn" style="min-height:56px" onclick="closeStocktake()" ${dis()}>棚卸を終了</button>
+      <button class="btn" style="min-height:56px" onclick="printCheckedLabels()" ${p.done ? '' : 'disabled'}
+        title="${p.done ? '今回の棚卸で確認済みになった個体だけをQRラベル画面へ渡します' : 'まだ確認済みの個体がありません'}">
+        <span class="ms">qr_code_2</span>確認済み${p.done}台のQRを印刷</button>
+      <button class="btn" style="min-height:56px" onclick="openCloseStocktake()" ${dis()}>棚卸を終了</button>
     </div>
+    <p class="meta" style="margin:8px 0 0">QRは<strong>新しく発行しません</strong>。
+      いまの管理番号のラベルをもう一度出すだけで、管理番号もQRのURLも変わりません。
+      棚卸は<strong>現物を確認した記録</strong>なので、在庫の状態・在庫数・出品状態・8RENTは変わりません。</p>
 
     <div class="sec">未確認（${left.length}）</div>
     ${left.length ? `<div class="unchecked">${left.map(x => {
@@ -6561,7 +6693,40 @@ function viewStock() {
     }).join('')}</div>` : '<div class="empty">すべて確認できました。「棚卸を終了」を押してください。</div>'}
 
     <div class="sec">確認済み（${done.length}）</div>
-    ${done.length ? `<div class="chips">${done.map(x => `<span>${esc(x.item_id)}</span>`).join('')}</div>` : '<div class="empty">まだありません。</div>'}`;
+    ${done.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <button class="btn sm" onclick="printCheckedLabels()">
+          <span class="ms">qr_code_2</span>この${done.length}台のQRを印刷</button>
+        <button class="btn sm ghost" onclick="ui.fCheck='done';go('list')">在庫一覧で見る</button>
+      </div>
+      <div class="chips">${done.map(x => `<span>${esc(x.item_id)}</span>`).join('')}</div>`
+      : '<div class="empty">まだありません。</div>'}`;
+}
+
+/* 終了する前に、対象・確認済み・未確認を必ず見せる。
+   未確認が残っているときは、そのまま終わってよいかを念のためもう一度きく */
+function openCloseStocktake() {
+  const p = stocktakeProgress();
+  if (!p.open) return;
+  openModal('棚卸を終了しますか', `
+    <div class="sum" style="margin-bottom:12px">
+      <div><div class="lbl">対象</div><div class="v">${p.total}<span class="u">台</span></div></div>
+      <div><div class="lbl">確認済み</div><div class="v add">${p.done}<span class="u">台</span></div></div>
+      <div><div class="lbl">未確認</div><div class="v${p.left ? ' err' : ''}">${p.left}<span class="u">台</span></div></div>
+    </div>
+    ${p.left ? `<div class="card" style="margin-bottom:12px;background:#FDECEA;border:1px solid #B3261E">
+      <strong>未確認が ${p.left}台 残っています。</strong>
+      <span class="meta">見つからなかったものは、個体詳細で状態を「不明」にしておくと、あとから追いかけられます。
+        終了しても<strong>在庫の状態・在庫数・出品状態・8RENTは変わりません</strong>。</span></div>`
+      : `<div class="card" style="margin-bottom:12px">
+      <strong>対象 ${p.total}台をすべて確認できました。</strong>
+      <span class="meta">終了しても在庫の状態・在庫数は変わりません。確認した日時（最終棚卸確認）は個体に残ります。</span></div>`}
+    ${p.done ? `<p class="meta">終了する前に、今回確認した ${p.done}台のQRをまとめて印刷できます。</p>` : ''}
+  `, [
+    ['やめる', 'closeModal()', 'btn ghost'],
+    ...(p.done ? [['確認済みのQRを印刷', 'closeModal();printCheckedLabels()', 'btn ghost']] : []),
+    [p.left ? `未確認 ${p.left}台を残して終了する` : '棚卸を終了する',
+     'closeModal();closeStocktake(true)', p.left ? 'btn danger' : 'btn lime']
+  ]);
 }
 
 async function startStocktake() {
@@ -6572,10 +6737,11 @@ async function startStocktake() {
   render();
   toast('棚卸を開始しました');
 }
-async function closeStocktake() {
+async function closeStocktake(confirmed) {
   if (!db.stocktake) return;
   const left = db.stChecked.filter(x => !x.checked_at).length;
-  if (left && !confirm(`未確認が ${left} 件あります。このまま終了しますか？`)) return;
+  // 確認のモーダル（openCloseStocktake）を通っていれば、そこで見せているので聞き直さない
+  if (!confirmed && left && !confirm(`未確認が ${left} 件あります。このまま終了しますか？`)) return;
   const { error } = await sb.rpc('inv_close_stocktake', { p_id: db.stocktake.id });
   if (error) { toast('終了できませんでした：' + error.message); return; }
   db.stocktake = null; db.stChecked = [];

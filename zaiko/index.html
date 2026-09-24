@@ -120,6 +120,13 @@ header.bar{position:sticky;top:0;z-index:30;background:var(--bg);border-bottom:1
 /* 8RENT（レンタル対象）。状態とは別の軸なので、状態タグと見分けがつく色にする */
 .tag.rent{background:var(--n100);color:var(--n600);border:1px solid var(--line)}
 .tag.rent.on{background:var(--l300);color:#111;border-color:var(--l400);font-weight:500}
+/* 棚卸の確認状況。実施中の「今回確認済」をいちばん強く出す */
+.tag.chk{background:var(--n100);color:var(--n700);border:1px solid var(--line)}
+.tag.chk.on{background:#E8F5E9;color:#1B5E20;border-color:#2E7D32;font-weight:700}
+.tag.chk.todo{background:#FFF8E1;color:#8A6D00;border-color:#E8A33D;font-weight:700}
+.tag.chk.none{background:var(--n100);color:var(--n600);border-style:dashed}
+table.t td.ck-col{white-space:nowrap}
+table.t td.ck-col .meta{font-size:11px;margin-top:2px}
 
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--r2);overflow:hidden;background:#fff}
 .seg button{border:none;background:transparent;padding:9px 16px;font-size:13.5px;cursor:pointer;min-height:40px}
@@ -198,6 +205,12 @@ table.t tr.clk:hover td{background:var(--n100)}
 /* ---- 棚卸 ---- */
 .stcount{font-size:56px;font-weight:700;line-height:1}
 .stcount small{font-size:26px;color:var(--n600);font-weight:400}
+/* 在庫一覧の上に出す棚卸の進み具合。棚卸画面と同じ数字を出す */
+.stbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 12px;
+  background:var(--l100);border:2px solid var(--l500);border-radius:var(--r2);padding:11px 14px}
+.stbar > .ms{font-size:22px;flex:0 0 auto}
+.stbar .t{font-weight:700;font-size:15px}
+.stbar .prog{margin:0}
 .prog{height:8px;background:var(--n300);border-radius:var(--r1);overflow:hidden;margin:12px 0 18px}
 .prog i{display:block;height:100%;background:var(--lime)}
 .unchecked{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
