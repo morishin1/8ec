@@ -128,6 +128,7 @@ header.bar{position:sticky;top:0;z-index:30;background:var(--bg);border-bottom:1
 .tag.chk.on{background:#E8F5E9;color:#1B5E20;border-color:#2E7D32;font-weight:700}
 .tag.chk.todo{background:#FFF8E1;color:#8A6D00;border-color:#E8A33D;font-weight:700}
 .tag.chk.none{background:var(--n100);color:var(--n600);border-style:dashed}
+.tag.chk.miss{background:#FDECEC;color:#B3261E;border-color:#B3261E;font-weight:700}
 table.t td.ck-col{white-space:nowrap}
 table.t td.ck-col .meta{font-size:11px;margin-top:2px}
 
@@ -290,11 +291,15 @@ table.t tr.clk:hover td{background:var(--n100)}
 .tabs2 button:hover{color:var(--ink)}
 .tabs2 button.on{color:var(--ink);border-bottom-color:var(--ink);font-weight:700}
 .tabs2 button.on .n{background:var(--ink);color:#fff}
-/* 棚卸の3タブ（未確認／確認済み／帳簿外現物）。スマホでも3つとも見えるように、
+/* 棚卸の4タブ（未確認／確認済み／差異／帳簿外）。スマホでも4つとも見えるように、
    狭いときはアイコンを消して余白を詰める。横スクロールで隠したくないため。 */
 @media(max-width:480px){
   .tabs2.sttabs button{padding:10px 8px;font-size:13px;gap:5px}
   .tabs2.sttabs button .ms{display:none}
+}
+@media(max-width:400px){
+  .tabs2.sttabs button{padding:10px 5px;font-size:12.5px;gap:4px}
+  .tabs2.sttabs button .n{padding:1px 5px}
 }
 
 /* ---- 在庫状態・販売チャネルのタグ ---- */
