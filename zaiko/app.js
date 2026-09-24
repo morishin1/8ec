@@ -74,8 +74,12 @@ function marketQuery(maker, model) {
   return mk ? mk + ' ' + m : m;
 }
 /* 3モールのボタン。型番が無い商品は押せないようにして、理由をツールチップに出す。
-   行クリック（商品詳細を開く）と二重に反応しないよう、伝播を止める。 */
-function marketBtns(maker, model, compact) {
+   行クリック（商品詳細を開く）と二重に反応しないよう、伝播を止める。
+
+   itemId を渡すと、いちばん右に［¥］（この1台の販売価格を計算）を足す。
+   相場を見に行くのは外のサイト、値付けは自分の原価から、という並びにしている。
+   押しても在庫・販売予定価格・出品情報は変えない（計算して見せるだけ）。 */
+function marketBtns(maker, model, compact, itemId) {
   const q = marketQuery(maker, model);
   const btns = MARKETS.map(k => q
     ? `<a class="mchk" href="${esc(k.url(q))}" target="_blank" rel="noopener noreferrer"
@@ -83,7 +87,11 @@ function marketBtns(maker, model, compact) {
          aria-label="${esc(k.label + '：' + q)}">${esc(k.mark)}</a>`
     : `<span class="mchk off" aria-disabled="true" role="img"
          title="型番を登録すると検索できます"
-         aria-label="${esc(k.label)}（型番を登録すると検索できます）">${esc(k.mark)}</span>`).join('');
+         aria-label="${esc(k.label)}（型番を登録すると検索できます）">${esc(k.mark)}</span>`).join('')
+    + (itemId ? `<button type="button" class="mchk calc"
+         onclick="event.stopPropagation();openStockPricing(['${esc(itemId)}'])"
+         title="この1台の販売価格を計算（保存しません）"
+         aria-label="この1台の販売価格を計算">¥</button>` : '');
   return compact
     ? `<div class="mchks sp" onclick="event.stopPropagation()"><span class="lbl">価格調査</span>${btns}</div>`
     : `<div class="mchks" onclick="event.stopPropagation()">${btns}</div>`;
@@ -1394,12 +1402,12 @@ function unitsBodyHtml() {
              onclick="event.stopPropagation();event.preventDefault();go('item','${esc(i.id)}')"
              title="この1台の詳細と履歴">${esc(i.id)}</a>
           ${i.source_id ? `<div class="meta">仕入元 ${esc(i.source_id)}</div>` : ''}</td>
-        <td class="nowrap">${esc(mk.model)}${marketBtns(mk.maker, mk.model, true)}</td>
+        <td class="nowrap">${esc(mk.model)}${marketBtns(mk.maker, mk.model, true, i.id)}</td>
         <td class="nowrap">${esc(mk.maker)}</td>
         <td class="meta nowrap">${i.purchased_on ? fmtD(i.purchased_on) : '—'}</td>
         <td class="num r">${cost ? yen(cost) : '<span class="meta">—</span>'}</td>
         <td class="num r">${plan == null ? '<span class="meta">—</span>' : yen(plan)}</td>
-        <td class="mchk-col">${marketBtns(mk.maker, mk.model)}</td>
+        <td class="mchk-col">${marketBtns(mk.maker, mk.model, false, i.id)}</td>
         <td class="mall">${listingChips(liveOn(i))}</td>
         <td class="meta">${esc(locPath(i.location_id))}</td>
         <td>${statusTag(i.status)}</td>
@@ -1527,6 +1535,7 @@ function selBarItems(n) {
     `<button class="btn sm ${cls || ''}" onclick="${fn}"><span class="ms">${icon}</span>${label}</button>`;
   return `<span class="n"><span class="ms">check_box</span>${n}件選択中</span>
     <div class="selops">
+      ${b('販売価格を計算', 'calculate', 'openStockPricing()')}
       ${b('8RENTに出す', 'devices', 'openBulkRental()', 'lime')}
       ${b('8RENTから外す', 'devices_off', 'openBulkRentalOff()')}
       ${b('貸出', 'assignment_ind', 'openBulkLoan()')}
@@ -3512,7 +3521,8 @@ function normalizeUnit(u) {
   return {
     maker:    (u.maker || '').trim(),
     model:    normModel(u.model || ''),
-    category: '',                                   // 仕入CSVにカテゴリは無い
+    // カテゴリは分かるときだけ入れる。仕入CSVには無く、在庫からの計算では商品マスタにある
+    category: (u.category || '').trim(),
     listTitle: [ (u.maker || '').trim(), (u.model || '').trim(), u.spec || '' ]
                  .filter(Boolean).join(' ').trim()
   };
@@ -3610,7 +3620,11 @@ let pricingDraft = {};                 // { channel: { fee_rate: '…', … } } 
 let shipDraft = {};                    // { サイズ: 金額 } 画面だけの送料。保存しない
 let shipRegion = SHIP_BASE_REGION;     // 価格提案で使う基準の配送先地域。仕入の時点では関東
 let pricingRows = null;                // 価格提案の行
-let pricingFile = '';                  // 元のCSVファイル名
+let pricingFile = '';                  // 元のCSVファイル名（取込から開いたときだけ）
+/* 価格計算の入口。計算そのものは同じ関数を通し、画面の言いかたと出し先だけ変える。
+     import … 仕入CSV取込の確認画面から。登録前の価格チェック
+     stock  … 在庫一覧から。登録後の価格計算・再計算 */
+let pricingSource = 'import';
 
 /* 実効手数料率の決めかた。
      ① plans[plan]        … 契約プランが決まっているとき（ヤフオクのストア契約など）
@@ -3767,8 +3781,10 @@ function buildPricing(p) {
       if (mismatch) flags.push(`総数${x.lot.qty}台と個品ID${kids.length}件が違います（原価は総数で配賦済み）`);
       if (cond.rank == null) flags.push('状態の記載がありません');
       if (!(cost > 0)) flags.push('原価が0円です');
-      const norm = normalizeUnit({ maker: x.master.maker, model: x.master.model, spec: x.master.spec });
+      const norm = normalizeUnit({ maker: x.master.maker, model: x.master.model, spec: x.master.spec,
+                                  category: catName(x.pickCat) });
       const row = {
+        from: 'import',
         key: x.key, unitNo: n + 1, lotQty: x.lot.qty, code: x.sharesWith || null,
         name: x.master.name, model: x.master.model, maker: x.master.maker || '',
         spec: x.master.spec || '', serial: u.serial || '', manageId: u.id || '',
@@ -3822,10 +3838,87 @@ function listedChannelsOf(code) {
   return channelsOf(code).filter(x => x.state === LISTED).map(x => x.channel);
 }
 
+/* ---- 在庫からの価格計算 ---------------------------------------------------
+   価格計算の入口は2つある。**計算そのものは同じ関数を通す**（二重実装しない）。
+
+     取込のとき  … 登録前の価格チェック。原価はCSVの配賦結果、サイズは取込画面で決めた値
+     在庫のとき  … 登録後の価格計算・再計算。原価も分類も配送サイズもDBから読む
+
+   どちらも buildCells() → shipFor() → priceForChannel() → effectiveFee() を使う。
+   ここでやるのは「1個体ぶんの材料をそろえる」ことだけ。
+
+   **この画面は在庫も販売価格も出品情報も変えない。** サイズを変えても商品マスタは
+   書き換えない（変えたのはこの画面の中だけ、という状態を保つ）。 */
+const PRICING_MAX_ITEMS = 300;         // いちどに計算する上限。表が重くなりすぎないように
+
+function buildPricingFromItems(ids) {
+  const rows = [];
+  (ids || []).forEach(id => {
+    const i = item(id);
+    if (!i) return;
+    const m = prod(i.product_code) || {};
+    const cost = costOf(i);
+    const model = m.model || i.model || '';
+    const maker = m.maker || i.maker || '';
+    // 状態は個体の備考から読む（取込のときと同じ CONDITION_RULES）
+    const cond = conditionOf(i.note || '');
+    const flags = [];
+    if (cond.rank == null) flags.push('状態の記載がありません');
+    if (!(cost > 0)) flags.push('原価が未入力です（仕入価格・手数料が空）');
+    if (GONE.includes(i.status)) flags.push(`${i.status}の個体です`);
+    const catId = i.category_id || m.category_id || null;
+    if (!catId) flags.push('商品カテゴリが未設定です');
+    const row = {
+      from: 'stock',
+      key: i.id, unitNo: 1, lotQty: 1, code: i.product_code || null,
+      name: m.name || i.name || model || i.id, model, maker,
+      spec: m.spec || '', serial: i.serial || '', manageId: i.id,
+      sourceId: i.source_id || '', note: i.note || '',
+      cost,
+      // 取込の行と同じ形にしておく（根拠の画面やCSVが同じコードで動くように）。
+      // 在庫からの計算では配賦は起きないので、そのまま1台ぶんの内訳になる
+      lot: { no: i.id, buy: Number(i.price || 0), fee: Number(i.purchase_fee || 0),
+             cost, qty: 1, csvQty: 1, kumi: '' },
+      bought: i.purchased_on || '',
+      cond,
+      norm: normalizeUnit({ maker, model, spec: m.spec, category: catName(catId) }),
+      flags,
+      catId,
+      status: i.status,
+      planPrice: planOf(i),               // いま入っている販売予定価格。比べるために持つだけ
+      // 配送サイズは商品マスタの既定。未設定ならこの画面で選んで計算し直せる
+      shipSize: m.shipping_size || '',
+      shipCost: null,                     // 個体ごとの上書き。空なら運賃表・試算値を使う
+      rawLine: '', rawRow: null
+    };
+    // 既存の出品先は個体の出品情報から読む（最優先チャネルの判断に使う）
+    buildCells(row, liveOn(i));
+    rows.push(row);
+  });
+  return rows;
+}
+
+/* 在庫一覧から開く。選んだ個体（または1台）の推奨価格を出すだけで、何も保存しない */
+function openStockPricing(ids) {
+  // 同じ管理番号が2度来ても1行にする（1台を二重に数えない）
+  const list = [...new Set((ids && ids.length ? ids : selItemIds()).filter(Boolean))];
+  if (!list.length) { toast('個体を選んでください'); return; }
+  if (list.length > PRICING_MAX_ITEMS) {
+    toast(`いちどに計算できるのは ${PRICING_MAX_ITEMS}台までです（いまは ${list.length}台）`); return;
+  }
+  const rows = buildPricingFromItems(list);
+  if (!rows.length) { toast('価格を出せる個体がありません'); return; }
+  pricingSource = 'stock';
+  pricingFile = '';
+  pricingRows = rows;
+  paintPricing(true);
+}
+
 /* ---- 画面 ---------------------------------------------------------------- */
 
 function openPricing() {
   if (!importPlan || importPlan.mode !== 'purchase') { toast('先に仕入CSVを取り込んでください'); return; }
+  pricingSource = 'import';
   pricingFile = (importSrc || {}).file || '';
   pricingRows = buildPricing(importPlan);
   if (!pricingRows.length) { toast('価格を出せる個体がありません'); return; }
@@ -3840,7 +3933,9 @@ function pricingUnset() {
 
 function paintPricing(open) {
   const unset = pricingUnset();
+  const stock = pricingSource === 'stock';
   const body = `
+    ${stock ? stockPricingHead() : ''}
     ${unset.length ? `<div class="card" style="margin-bottom:12px;background:var(--l100);border:1px solid var(--l400)">
       <strong>手数料が未設定です</strong>：${esc(unset.map(c => c.label).join('・'))}<br>
       <span class="meta">手数料率・固定費・目標利益率・最低利益額がそろったサイトだけ価格を出します。
@@ -3899,14 +3994,45 @@ function paintPricing(open) {
     <div id="pricingTable">${pricingTableHtml()}</div>`;
 
   if (open) {
-    openModal('販売価格を自動計算', body, [
-      ['取込の確認にもどる', 'showImportPreview()', 'btn ghost'],
+    openModal(stock ? '販売価格を計算（在庫から）' : '販売価格を自動計算', body, [
+      stock ? ['閉じる', 'closeModal()', 'btn ghost']
+            : ['取込の確認にもどる', 'showImportPreview()', 'btn ghost'],
       ['出品用CSVを出力', 'downloadPricingCsv()', 'btn lime', 'btnPriceCsv']
     ]);
   } else {
     const host = $('modalBody');
     if (host) host.innerHTML = body;
   }
+}
+
+/* 在庫から開いたときの見出し。**DBから何を読んだか**と、**何も保存しない**ことを先に言う。
+   足りないもの（原価・カテゴリ・配送サイズ）は件数で出して、直す先まで書く。 */
+function stockPricingHead() {
+  const rows = pricingRows || [];
+  const noCost = rows.filter(r => !(r.cost > 0)).length;
+  const noCat  = rows.filter(r => !r.catId).length;
+  const noSize = rows.filter(r => !r.shipSize).length;
+  const listed = rows.filter(r => (r.listedOn || []).length).length;
+  const gone   = rows.filter(r => GONE.includes(r.status)).length;
+  const miss = (n, what, how) => n
+    ? `<div>・<strong>${what} ${n}台</strong>　${how}</div>` : '';
+  return `<div class="card" style="margin-bottom:12px">
+    <div class="lbl" style="margin-bottom:5px">在庫から計算しています</div>
+    選んだ <strong>${rows.length}台</strong>について、いま登録されている
+    <strong>原価・商品カテゴリ・配送サイズ・既存の出品先</strong>をDBから読み、
+    <strong>佐川運賃表・各サイトの手数料・目標利益率</strong>で推奨価格を出しています。<br>
+    <strong>この画面は在庫も販売予定価格も出品情報も変えません。</strong>
+    配送サイズをここで変えても<strong>商品マスタは書き換えません</strong>
+    （変えたのはこの画面の中だけです）。
+    ${noCost || noCat || noSize ? `<div class="meta" style="margin-top:8px">
+      ${miss(noCost, '原価が未入力', '個体詳細の［値段を直す］で入れてください')}
+      ${miss(noCat, '商品カテゴリが未設定', '商品詳細で選んでください')}
+      ${miss(noSize, '配送サイズが未設定', 'この画面で選ぶとすぐ計算し直します。商品詳細で決めると次回から自動で入ります')}
+    </div>` : ''}
+    <div class="meta" style="margin-top:8px">
+      すでに出品しているサイトがある個体 ${listed}台${
+        gone ? `／手元にない個体（売却済・廃棄） ${gone}台` : ''}</div>
+  </div>`;
 }
 
 /* 配送のパネル。運賃表があればそれを見せ、無ければ手で入れてもらう */
@@ -3933,8 +4059,10 @@ function shippingPanelHtml() {
           esc(z)}${z === SHIP_BASE_REGION ? '（基準）' : ''}</option>`).join('')}
         <option value="${SHIP_ASK}"${shipRegion === SHIP_ASK ? ' selected' : ''}>沖縄・離島など（要確認）</option>
       </select>
-      <span class="meta">仕入の時点では届け先が決まっていないので、<strong>${esc(SHIP_BASE_REGION)}向け</strong>を
-        基準にしています。実際の注文では届け先の都道府県から引き直します。</span></label>
+      <span class="meta">${pricingSource === 'stock'
+        ? `届け先が決まっていない段階なので、<strong>${esc(SHIP_BASE_REGION)}向け</strong>を基準にしています。`
+        : `仕入の時点では届け先が決まっていないので、<strong>${esc(SHIP_BASE_REGION)}向け</strong>を基準にしています。`}
+        実際の注文では届け先の都道府県から引き直します。</span></label>
 
     ${t ? `<div class="table-wrap"><table class="t"><thead><tr>
       <th>サイズ</th>${regions.map(z => `<th>${esc(z)}</th>`).join('')}</tr></thead><tbody>
@@ -3991,9 +4119,11 @@ function setShipRegion(v) {
 function pricingTableHtml() {
   const rows = pricingRows || [];
   const ask = rows.filter(r => r.flags.length).length;
+  const stock = pricingSource === 'stock';
   return `<div class="sum">
       <div><div class="lbl">個体</div><div class="v">${rows.length}<span class="u">台</span></div></div>
-      <div><div class="lbl">配賦原価の合計</div><div class="v">${yen(rows.reduce((a, r) => a + r.cost, 0))}</div></div>
+      <div><div class="lbl">${stock ? '原価の合計' : '配賦原価の合計'}</div>
+        <div class="v">${yen(rows.reduce((a, r) => a + r.cost, 0))}</div></div>
       <div><div class="lbl">要確認</div><div class="v${ask ? ' err' : ''}">${ask}</div></div>
       <div><div class="lbl">価格算定方式</div><div class="v" style="font-size:15px">原価基準</div></div>
     </div>
@@ -4001,13 +4131,21 @@ function pricingTableHtml() {
       相場は見ていません（市場データなし）。原価・手数料・送料・目標利益だけで出しています。
       <strong>この画面では出品も在庫の変更もしません。</strong></p>
     <div class="table-wrap"><table class="t"><thead><tr>
-      <th>商品</th><th>型番</th><th>S/N</th><th>状態</th><th>配賦原価</th>
+      <th>商品</th><th>型番</th><th>管理番号</th><th>S/N</th><th>状態</th>
+      <th>${stock ? '原価' : '配賦原価'}</th>
       <th>配送サイズ</th><th>送料</th>
       ${PRICING_CHANNELS.map(c => `<th>${esc(c.label)}</th>`).join('')}
       <th>最優先</th><th>要確認</th><th></th></tr></thead><tbody>
       ${rows.map((r, i) => `<tr>
-        <td>${esc(r.name)}<div class="meta">${esc(r.key)}／${r.unitNo}台目</div></td>
+        <td>${esc(r.name)}<div class="meta">${stock
+            ? esc(catName(r.catId) || 'カテゴリ未設定') + (r.status ? '／' + esc(r.status) : '')
+            : esc(r.key) + '／' + r.unitNo + '台目'}</div></td>
         <td class="num">${esc(r.model)}</td>
+        <td class="num">${r.manageId
+          ? (stock ? `<a class="idlink" href="/zaiko/items/${encodeURIComponent(r.manageId)}"
+               onclick="event.preventDefault();closeModal();go('item','${esc(r.manageId)}')"
+               title="この1台の詳細と履歴">${esc(r.manageId)}</a>` : esc(r.manageId))
+          : '<span class="meta">（取込時に採番）</span>'}</td>
         <td class="num">${esc(r.serial || '—')}</td>
         <td>${r.cond.rank ? esc(CONDITION_LABEL[r.cond.rank]) : '<span class="tag">要確認</span>'}
           <div class="meta">${esc(r.cond.why)}</div></td>
@@ -4016,7 +4154,7 @@ function pricingTableHtml() {
             <option value=""${r.shipSize ? '' : ' selected'}>未設定</option>
             ${shipSizes().map(z => `<option value="${esc(z)}"${r.shipSize === z ? ' selected' : ''}>${
               esc(shipSizeLabel(z))}</option>`).join('')}
-          </select>${r.code ? '' : '<div class="meta">新規商品</div>'}</td>
+          </select>${sizeNote(r)}</td>
         <td><input class="input" style="min-width:86px" inputmode="numeric"
             placeholder="${esc(shipPlaceholder(r))}"
             value="${esc(String(r.shipCost == null ? '' : r.shipCost))}"
@@ -4049,6 +4187,15 @@ function pricingCellHtml(r, i, ch) {
     <div><span class="tag ${JUDGE_CLASS[c.judge] || 'act'}">${esc(c.judge)}</span></div>
     <div class="meta">最低 ${yen(Math.ceil(c.calc.floor))}${c.edited ? '／手で直しました' : ''}</div>
   </td>`;
+}
+
+/* 配送サイズの欄に出す一言。**商品マスタを書き換えないこと**が分かるようにする */
+function sizeNote(r) {
+  if (r.from !== 'stock') return r.code ? '' : '<div class="meta">新規商品</div>';
+  const saved = String((prod(r.code) || {}).shipping_size || '');
+  if (!r.shipSize) return '<div class="meta">商品マスタも未設定</div>';
+  if (saved === r.shipSize) return '<div class="meta">商品マスタの既定</div>';
+  return `<div class="meta"><strong>この画面だけ</strong>（マスタは ${esc(shipSizeLabel(saved))}のまま）</div>`;
 }
 
 /* 送料の欄に出す案内。どこから来た金額かが分かるようにする */
@@ -4154,15 +4301,26 @@ function openPricingDetail(i) {
   const r = (pricingRows || [])[i];
   if (!r) return;
   const row = (label, v) => `<div><div class="lbl">${esc(label)}</div><div class="v" style="font-size:15px">${v}</div></div>`;
-  openModal(`${r.name}　${r.unitNo}台目の値付け`, `
+  const stock = r.from === 'stock';
+  openModal(stock ? `${r.manageId} の値付け` : `${r.name}　${r.unitNo}台目の値付け`, `
     <div class="sum" style="margin-bottom:12px">
-      ${row('出品番号', esc(r.key))}
-      ${row('管理番号・個品ID', esc(r.manageId || r.sourceId || '（取込時に採番）'))}
+      ${stock ? row('管理番号', esc(r.manageId)) : row('出品番号', esc(r.key))}
+      ${stock ? row('商品', esc(r.code || '—'))
+              : row('管理番号・個品ID', esc(r.manageId || r.sourceId || '（取込時に採番）'))}
       ${row('S/N', esc(r.serial || '—'))}
       ${row('仕入日', esc(r.bought || '—'))}
     </div>
     <div class="lbl" style="margin-bottom:6px">仕入と原価</div>
-    <div class="sum" style="margin-bottom:12px">
+    ${stock ? `<div class="sum" style="margin-bottom:12px">
+      ${row('仕入価格', yen(r.lot.buy))}
+      ${row('手数料', yen(r.lot.fee))}
+      ${row('原価', `<strong>${yen(r.cost)}</strong>`)}
+      ${row('いまの販売予定価格', r.planPrice == null ? '<span class="meta">未定</span>' : yen(r.planPrice))}
+    </div>
+    <p class="meta" style="margin:-4px 0 12px">
+      <strong>DBに入っている原価をそのまま使っています。</strong>この画面では書き換えません。
+      直すときは個体詳細の［値段を直す］から入れてください。</p>`
+    : `<div class="sum" style="margin-bottom:12px">
       ${row('落札価格', yen(r.lot.buy))}
       ${row('落札料', yen(r.lot.fee))}
       ${row('ロット仕入原価', yen(r.lot.cost))}
@@ -4170,13 +4328,13 @@ function openPricingDetail(i) {
     </div>
     <p class="meta" style="margin:-4px 0 12px">
       ${esc(r.lot.qty)}台で等分（端数は先頭の1台）。<strong>取込が配賦した原価をそのまま使っています。</strong>
-      個品IDの数で割り直すと、登録される原価と食い違うためです。</p>
+      個品IDの数で割り直すと、登録される原価と食い違うためです。</p>`}
 
     <div class="lbl" style="margin-bottom:6px">商品の整理（ルールだけ。AIは使っていません）</div>
     <div class="sum" style="margin-bottom:12px">
       ${row('メーカー', esc(r.norm.maker || '要確認'))}
       ${row('型番', esc(r.norm.model || '要確認'))}
-      ${row('カテゴリ', '<span class="tag">要確認</span>')}
+      ${row('カテゴリ', r.norm.category ? esc(r.norm.category) : '<span class="tag">要確認</span>')}
       ${row('検索用', esc(marketQuery(r.maker, r.model) || '—'))}
     </div>
     <div class="card" style="margin-bottom:12px">
@@ -4203,6 +4361,7 @@ function openPricingDetail(i) {
           + (t.effective_from ? `　${t.effective_from}〜${t.effective_to || '（未定）'}` : ''))}
         ${row('商品マスタの既定', r.code
           ? esc(shipSizeLabel((prod(r.code) || {}).shipping_size || ''))
+            + (stock ? '<div class="meta">この画面で変えてもマスタは書き換えません</div>' : '')
           : '<span class="meta">新規商品（登録時に取込画面で決めたサイズが入ります）</span>')}
       </div>
       ${(sp.status || t.rate_status) === 'provisional' ? `<div class="card"
@@ -4376,9 +4535,16 @@ async function saveFeeRules() {
 /* ---- 出品用CSV ------------------------------------------------------------
    元のCSVの列をそのまま左に残し、右に計算した列を足す。UTF-8＋BOM。 */
 function pricingCsvRows() {
-  const H = (importSrc || {}).H || [];
-  const head = H.concat(['元CSVの行',
-    '親_落札価格', '親_落札料', 'ロット仕入原価', '原価配賦方法', '配賦原価',
+  const stock = pricingSource === 'stock';
+  // 取込から出すときは元CSVの列をそのまま左に残す。
+  // 在庫から出すときは元CSVが無いので、DBの列（管理番号・商品コードなど）を左に置く
+  const H = stock ? [] : ((importSrc || {}).H || []);
+  const left = stock
+    ? ['管理番号', '商品コード', '商品名', '型番', 'メーカー', 'S/N', '仕入元ID',
+       '保管場所', '在庫状態', '商品カテゴリ', '仕入日',
+       '仕入価格', '手数料', '原価', 'いまの販売予定価格', '既存の出品先']
+    : ['元CSVの行', '親_落札価格', '親_落札料', 'ロット仕入原価', '原価配賦方法', '配賦原価'];
+  const head = H.concat(left).concat([
     '正規化メーカー', '正規化カテゴリ', '正規化型番', '検索用商品名', '出品用商品名',
     '状態ランク', '状態要約',
     '配送会社', '配送サービス', '支払', '標準配送地域', '配送サイズ',
@@ -4391,14 +4557,23 @@ function pricingCsvRows() {
   const out = [head];
   (pricingRows || []).forEach(r => {
     const raw = H.map((_, i) => (r.rawRow ? (r.rawRow[i] == null ? '' : r.rawRow[i]) : ''));
-    const line = [].concat(raw, [
+    const it = stock ? (item(r.manageId) || {}) : {};
+    const line = [].concat(raw, stock ? [
+      r.manageId, r.code || '', r.name, r.model, r.maker, r.serial || '', r.sourceId || '',
+      locPath(it.location_id) || '', r.status || '', catName(r.catId) || '未設定',
+      r.bought || '',
+      r.lot.buy, r.lot.fee, r.cost,
+      r.planPrice == null ? '' : r.planPrice,
+      (r.listedOn || []).map(k => pricingLabel(k)).join('／')
+    ] : [
       r.rawLine === '' ? '' : String(r.rawLine),
       r.lot.buy, r.lot.fee, r.lot.cost,
       r.flags.some(f => f.indexOf('総数') === 0)
         ? '要確認：総数と個品IDの件数が違います（取込と同じく総数で等分）'
         : `総数${r.lot.qty}台で等分（端数は先頭の1台）`,
-      r.cost,
-      r.norm.maker || '要確認', '要確認', r.norm.model || '要確認',
+      r.cost
+    ], [
+      r.norm.maker || '要確認', r.norm.category || '要確認', r.norm.model || '要確認',
       marketQuery(r.maker, r.model), r.norm.listTitle,
       r.cond.rank || '要確認', r.cond.why
     ]);
@@ -4432,7 +4607,9 @@ function downloadPricingCsv() {
   if (!pricingRows || !pricingRows.length) { toast('出せる行がありません'); return; }
   const d = new Date();
   const ymd = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
-  const name = `${ymd}_自社落札_出品価格提案.csv`;
+  const name = pricingSource === 'stock'
+    ? `${ymd}_在庫_出品価格提案.csv`
+    : `${ymd}_自社落札_出品価格提案.csv`;
   window.EightCsv.download(name, window.EightCsv.blob(window.EightCsv.build(pricingCsvRows())));
   toast(`${name} を出しました（${pricingRows.length}行）`);
 }
