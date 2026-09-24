@@ -488,12 +488,70 @@ a.idlink{color:inherit;text-decoration:none;border-bottom:1px solid transparent}
 a.idlink:hover{border-bottom-color:currentColor}
 a.idlink:focus-visible{outline:2px solid var(--ink);outline-offset:2px;border-radius:2px}
 
-/* スマートフォンでは列が横に流れてしまうので、価格調査の列はたたんで
-   型番・販売予定価格のすぐ下にまとめて出す */
-@media(max-width:560px){
-  table.t th.mchk-col,table.t td.mchk-col{display:none}
-  .mchks.sp{display:flex;justify-content:flex-start;gap:4px;margin-top:7px}
-  .mchks.sp .lbl{font-size:10.5px;color:var(--n600);align-self:center;margin-right:2px}
+/* 狭い画面では在庫一覧（個体別）ごとカードに切り替えるので、
+   価格調査の列だけをたたむ必要はなくなった（下の table.t.unittbl のところ）。
+   .mchks.sp は在庫一覧の型番セルにあった二重表示をやめたので、いまは使っていない */
+.mchks.sp{display:none}
+
+/* ---- 在庫一覧（個体別）の表 ----------------------------------------------
+   13列あって横に間延びし、右の 状態・棚卸・8RENT が切れていた。
+   関係の近いものを同じセルの2段にまとめて10列にし、幅は colgroup の％で配る。
+   `table-layout: fixed` なので**表の幅は必ず親と同じ**になり、横スクロールが出ない
+   （スクロールバーを隠しているのではない）。この指定は在庫一覧の表だけに当てる。 */
+table.t.unittbl{table-layout:fixed;width:100%}
+table.t.unittbl th,table.t.unittbl td{padding:9px 6px 9px 0;vertical-align:top;word-break:break-word}
+table.t.unittbl th{vertical-align:bottom}
+table.t.unittbl th.ck,table.t.unittbl td.ck{padding-right:0}
+table.t.unittbl td.ck{padding-top:10px}      /* 1行目の高さに合わせる */
+table.t.unittbl td.col-id{font-weight:600;line-height:1.35}
+table.t.unittbl td.col-id .meta{font-weight:400}
+table.t.unittbl .mdl{font-weight:500;line-height:1.35}
+table.t.unittbl td.col-price{line-height:1.35;padding-right:12px}  /* 数字が右の欄にくっつかないように */
+table.t.unittbl td.col-market{padding-right:4px}
+table.t.unittbl td.col-market .mchks{flex-wrap:wrap;gap:3px}
+table.t.unittbl td.col-listing{white-space:normal}
+table.t.unittbl td.col-listing .malls{gap:3px}
+table.t.unittbl td.col-loc{line-height:1.45}
+/* タグは切らない。左右の余白だけ少し詰めて1行に収め、
+   それでも入らないときは折り返す（切るよりは折り返す） */
+/* タグは中身のぶんだけ。入りきらないときだけ折り返す（切るよりは折り返す）。
+   棚卸の印は class="tag chk" で、チェックボックスの .chk（display:flex）と名前が当たる。
+   あちらが後ろにあるので欄いっぱいに広がってしまうため、ここで戻している */
+table.t.unittbl td.col-status .tag,table.t.unittbl td.col-check .tag,
+table.t.unittbl td.col-rental .tag{display:inline-flex;width:max-content;max-width:100%;
+  white-space:normal;text-align:left;padding:3px 7px}
+table.t.unittbl td .meta{font-size:11px;margin-top:2px;line-height:1.45}
+table.t.unittbl td.col-check .meta{white-space:normal}
+
+/* 狭い画面では10列を押し込まず、1件1カードにする。情報は1つも隠さない */
+@media(max-width:700px){
+  table.t.unittbl,table.t.unittbl tbody,table.t.unittbl tr,table.t.unittbl td{display:block;width:auto}
+  table.t.unittbl{table-layout:auto}
+  table.t.unittbl colgroup{display:none}
+  /* 見出しの行は要らないが、「表示中をすべて選ぶ」だけはカードでも使えるように残す */
+  table.t.unittbl thead,table.t.unittbl thead tr{display:block;border:none;padding:0;margin:0;background:none}
+  table.t.unittbl thead th{display:none}
+  table.t.unittbl thead th.ck{display:flex;align-items:center;gap:9px;padding:0 0 10px;width:auto}
+  table.t.unittbl thead th.ck::after{content:"表示中をすべて選ぶ";font-size:12px;
+    color:var(--n600);letter-spacing:0;text-transform:none;font-weight:400}
+  table.t.unittbl tr{border:1px solid var(--line);border-radius:var(--r2);
+    padding:10px 12px;margin-bottom:10px;background:#fff}
+  table.t.unittbl tr.qty{background:var(--n100)}
+  table.t.unittbl tr.clk.on{background:var(--i100)}
+  /* 左に項目名、右に中身。中身が2つ3つあるときは右側だけで縦に積む */
+  table.t.unittbl td{border:none;padding:4px 0;display:grid;
+    grid-template-columns:72px minmax(0,1fr);gap:0 10px;align-items:start}
+  table.t.unittbl td::before{content:attr(data-label);grid-column:1;grid-row:1;
+    font-size:11px;color:var(--n600);padding-top:2px}
+  table.t.unittbl td > *{grid-column:2;min-width:0;justify-self:start}
+  table.t.unittbl td.ck{display:block;padding:0 0 6px;width:auto}
+  table.t.unittbl td.ck::before{content:none}
+  /* 価格だけは「¥35,600　予定 ¥46,300」と横に並べたほうが読みやすい */
+  table.t.unittbl td.col-price{display:flex;flex-wrap:wrap;align-items:baseline;
+    gap:0 10px;text-align:left}
+  table.t.unittbl td.col-price::before{flex:0 0 72px}
+  table.t.unittbl td.col-price > div{margin:0}
+  table.t.unittbl td.col-market .mchks{flex-wrap:wrap}
 }
 table.t.buy input.plan{width:116px;min-height:38px;text-align:right;padding:6px 9px;font-size:14px;display:inline-block}
 /* 数量は必ず直せる欄。直したことが分かるよう、CSVの値との差を下に出す */
