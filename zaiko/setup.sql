@@ -595,14 +595,23 @@ begin
   insert into public.inventory_stocktakes (actor, scope_location_id)
   values (public.inv_actor(), p_scope) returning * into st;
 
+  -- 帳簿在庫＝販売できる手元在庫（在庫・出品中）だけを対象にする。
+  --   貸出中・予約中・販売予約 … お客様の手元／確保済みで、現物を見に行けない
+  --   売却済・廃棄             … もう持っていない
+  --   修理中・故障・紛失・不明 … 販売可能在庫ではない
+  -- ここに混ぜると「未確認」が実態より多く出て、差異候補が意味を失う。
   insert into public.inventory_stocktake_items (stocktake_id, item_id, expected)
   select st.id, i.id, true
   from public.inventory_items i
-  where i.status <> '廃棄'
+  where i.status in ('在庫', '出品中')
     and (p_scope is null or i.location_id in (select id from public.inv_location_tree(p_scope)));
 
   return st;
 end $$;
+
+comment on function public.inv_start_stocktake is
+  '棚卸を始める。対象（帳簿在庫）は status in (''在庫'',''出品中'') の個体だけを
+   expected=true で並べる。在庫の状態は何も変えない。';
 
 /* ある保管場所と、その下にぶら下がる場所すべて */
 create or replace function public.inv_location_tree(p_id text)
@@ -1544,8 +1553,11 @@ begin
     update public.inventory_items set last_checked_at=now() where id=p_item_id returning * into it;
     select id into st_id from public.inventory_stocktakes where status='open' limit 1;
     if st_id is not null then
+      -- 帳簿に無い現物を読んだときに足す行は「帳簿外現物」（expected=false）。
+      -- すでに対象（expected=true）なら checked_at だけ更新し、true のまま触らない。
+      -- こうしないと棚卸の途中で帳簿在庫 241台が 242台へ増えてしまう。
       insert into public.inventory_stocktake_items (stocktake_id, item_id, expected, checked_at)
-      values (st_id, p_item_id, true, now())
+      values (st_id, p_item_id, false, now())
       on conflict (stocktake_id, item_id) do update set checked_at = excluded.checked_at;
     end if;
 
@@ -10627,6 +10639,184 @@ revoke all on function public.inv_shipping_tariff_activate(bigint) from public, 
 grant execute on function public.inv_shipping_tariff_activate(bigint) to authenticated;
 revoke all on function public.inv_product_shipping_size_set(text, text) from public, anon;
 grant execute on function public.inv_product_shipping_size_set(text, text) to authenticated;
+
+
+
+
+-- ============================================================
+-- 61) 月次棚卸を「帳簿在庫と現物の照合」にする
+--
+--     対象（帳簿在庫）は inv_start_stocktake が status in ('在庫','出品中') で並べる。
+--     棚卸の途中で帳簿に無い現物を読んだら、inv_item_op が expected=false で足す。
+--     数え方は
+--       帳簿在庫   expected = true
+--       確認済み   expected = true  かつ checked_at is not null
+--       未確認     帳簿在庫 − 確認済み
+--       帳簿外現物 expected = false かつ checked_at is not null
+--     stocktake_items の全件数を帳簿在庫として使わないこと。
+-- ============================================================
+
+-- ------------------------------------------------------------
+-- 61-1) 棚卸確認を取り消す
+--
+--    画面から checked_at を直接 NULL にするだけでは足りない。
+--      inventory_stocktake_items.checked_at  … 今回の確認
+--      inventory_items.last_checked_at       … 最後に現物を見た日時（在庫一覧の色）
+--      inventory_transactions                … 履歴
+--    の3つが噛み合っているので、サーバー側でまとめて整合を取る。
+--
+--    last_checked_at の戻し方
+--      inv_item_op は同じトランザクションの中で
+--        update items set last_checked_at = now()
+--        insert into transactions (occurred_at default now())
+--      を実行する。plpgsql の now() はトランザクション開始時刻なので、
+--      この2つは必ず同じ値になる。よって「今回の棚卸が始まる前の
+--      いちばん新しい 棚卸確認 履歴の occurred_at」が、そのまま
+--      前回の last_checked_at になる。
+--      履歴が無ければ NULL（＝未確認）に戻す。
+--
+--    履歴は消さない。取り消したことも '棚卸確認取消' として追記する。
+--    在庫の状態・在庫数・出品状態・8RENTは変えない。
+-- ------------------------------------------------------------
+create or replace function public.inv_stocktake_uncheck(
+  p_stocktake_id bigint,
+  p_item_id      text
+) returns public.inventory_items
+language plpgsql security invoker set search_path = public as $$
+declare
+  st     public.inventory_stocktakes;
+  it     public.inventory_items;
+  v_row  public.inventory_stocktake_items;
+  v_prev timestamptz;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+
+  select * into st from public.inventory_stocktakes where id = p_stocktake_id;
+  if not found then
+    raise exception '棚卸が見つかりません（%）', p_stocktake_id;
+  end if;
+  if st.status <> 'open' then
+    raise exception '終了した棚卸は直せません';
+  end if;
+
+  select * into v_row from public.inventory_stocktake_items
+   where stocktake_id = p_stocktake_id and item_id = p_item_id
+   for update;
+  if not found then
+    raise exception 'この棚卸の対象ではありません（%）', p_item_id;
+  end if;
+  if v_row.checked_at is null then
+    raise exception 'まだ確認していません（%）', p_item_id;
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+
+  select max(t.occurred_at) into v_prev
+    from public.inventory_transactions t
+   where t.ref_kind = 'item'
+     and t.ref_id   = p_item_id
+     and t.action   = '棚卸確認'
+     and t.occurred_at < st.started_at;
+
+  update public.inventory_stocktake_items
+     set checked_at = null
+   where stocktake_id = p_stocktake_id and item_id = p_item_id;
+
+  update public.inventory_items
+     set last_checked_at = v_prev
+   where id = p_item_id
+  returning * into it;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'item', p_item_id, it.name, '棚卸確認取消',
+          to_char(v_row.checked_at at time zone 'Asia/Tokyo', 'YYYY/MM/DD HH24:MI') || ' の確認',
+          case when v_prev is null
+               then '未確認（それ以前の棚卸確認の記録なし）'
+               else '前回 ' || to_char(v_prev at time zone 'Asia/Tokyo', 'YYYY/MM/DD HH24:MI')
+          end);
+
+  return it;
+end $$;
+
+comment on function public.inv_stocktake_uncheck is
+  '実施中の棚卸で付けた「確認済み」を取り消す。checked_at を NULL に戻し、
+   inventory_items.last_checked_at を今回の棚卸が始まる前の最新の棚卸確認へ戻す
+   （記録が無ければ NULL）。''棚卸確認取消'' を履歴に追記する。履歴は消さない。
+   在庫の状態・在庫数・出品状態・8RENT・価格は変えない。';
+
+
+-- ------------------------------------------------------------
+-- 61-2) 月次の照合結果（読み取り専用・1棚卸1行）
+--
+--    ブラウザで inventory_stocktake_items を何千行も読んで数えなくて済むように、
+--    集計はDB側でやる。新しい列は作らず、既存の3つのテーブルだけで組み立てる。
+--
+--      帳簿在庫   expected = true
+--      確認済み   expected = true  かつ checked_at is not null
+--      未確認     帳簿在庫 − 確認済み
+--      帳簿外現物 expected = false かつ checked_at is not null
+--      不明へ変更 棚卸の期間中（started_at 〜 closed_at）に status を不明にした回数
+--
+--    「不明へ変更」は期間で切った近似。履歴に棚卸IDを持たせていないので、
+--    棚卸中に別の理由で不明にしたものも混ざる。画面ではその旨を書く。
+-- ------------------------------------------------------------
+drop view if exists public.inv_stocktake_summary;
+create view public.inv_stocktake_summary as
+select
+  s.id                as stocktake_id,
+  s.started_at,
+  s.closed_at,
+  s.status,
+  s.actor,
+  s.scope_location_id,
+  c.book::integer     as book_count,
+  c.checked::integer  as checked_count,
+  (c.book - c.checked)::integer as unchecked_count,
+  c.extra::integer    as extra_count,
+  u.unknown_count::integer      as unknown_count
+from public.inventory_stocktakes s
+left join lateral (
+  select
+    count(*) filter (where i.expected)                                  as book,
+    count(*) filter (where i.expected and i.checked_at is not null)      as checked,
+    count(*) filter (where not i.expected and i.checked_at is not null)  as extra
+  from public.inventory_stocktake_items i
+  where i.stocktake_id = s.id
+) c on true
+left join lateral (
+  select count(*) as unknown_count
+  from public.inventory_transactions t
+  where t.ref_kind = 'item'
+    and t.action   = '状態変更'
+    and (t.after_value = '不明' or t.after_value like '不明／%')
+    and t.occurred_at >= s.started_at
+    and t.occurred_at <= coalesce(s.closed_at, now())
+) u on true;
+
+comment on view public.inv_stocktake_summary is
+  '棚卸1回を1行にまとめた照合結果。帳簿在庫・確認済み・未確認・帳簿外現物・
+   期間中に不明へ変更した数を返す。社内用（anonには出さない）。';
+
+
+-- ------------------------------------------------------------
+-- 61-3) 権限
+--
+--    2026-10-01-rpc-permission-hardening.sql の一括配り直しは
+--    「そのとき存在した関数」に対する1回きりの処理なので、
+--    あとから足した関数には効かない。既定では PUBLIC に EXECUTE が付き
+--    anon からも呼べてしまうため、ここで明示的に落として配り直す。
+-- ------------------------------------------------------------
+revoke all on function public.inv_stocktake_uncheck(bigint, text) from public, anon, service_role;
+grant execute on function public.inv_stocktake_uncheck(bigint, text) to authenticated;
+
+revoke all on public.inv_stocktake_summary from public, anon;
+grant select on public.inv_stocktake_summary to authenticated;
 
 
 -- ============================================================

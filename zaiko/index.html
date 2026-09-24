@@ -216,11 +216,20 @@ table.t tr.clk:hover td{background:var(--n100)}
 .stbar .prog{margin:0}
 .prog{height:8px;background:var(--n300);border-radius:var(--r1);overflow:hidden;margin:12px 0 18px}
 .prog i{display:block;height:100%;background:var(--lime)}
-.unchecked{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
-.unchecked .u{background:var(--l100);padding:11px 12px;border-radius:var(--r2);display:flex;align-items:center;gap:10px}
-.unchecked .u .ms{font-size:20px;color:var(--ink)}
-.unchecked .u .n{font-size:14px;font-weight:500}
-.unchecked .u .m{font-size:11px;color:var(--n600)}
+/* 棚卸の一覧（未確認／確認済み／帳簿外現物）。
+   現場ではスマホで見るので、表ではなく1件1行のカードにする。
+   241台ぶん縦に並ぶので、1行は低く、横スクロールは出さない。 */
+.stlist{display:grid;gap:8px}
+.stlist .r{background:var(--l100);border-radius:var(--r2);padding:10px 12px;
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.stlist .r .b{flex:1 1 240px;min-width:0}
+.stlist .r .n{font-size:14px;font-weight:700;word-break:break-word}
+.stlist .r .m{font-size:11px;color:var(--n600);margin-top:2px;word-break:break-word}
+.stlist .r .acts{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+@media(max-width:560px){
+  .stlist .r .acts{margin-left:0;width:100%}
+  .stlist .r .acts .btn{flex:1 1 0}
+}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chips span{font-size:11.5px;background:var(--n200);padding:3px 8px;border-radius:var(--r2)}
 
@@ -281,6 +290,12 @@ table.t tr.clk:hover td{background:var(--n100)}
 .tabs2 button:hover{color:var(--ink)}
 .tabs2 button.on{color:var(--ink);border-bottom-color:var(--ink);font-weight:700}
 .tabs2 button.on .n{background:var(--ink);color:#fff}
+/* 棚卸の3タブ（未確認／確認済み／帳簿外現物）。スマホでも3つとも見えるように、
+   狭いときはアイコンを消して余白を詰める。横スクロールで隠したくないため。 */
+@media(max-width:480px){
+  .tabs2.sttabs button{padding:10px 8px;font-size:13px;gap:5px}
+  .tabs2.sttabs button .ms{display:none}
+}
 
 /* ---- 在庫状態・販売チャネルのタグ ---- */
 .tag.stk-ok{background:var(--i100);color:var(--i800)}
