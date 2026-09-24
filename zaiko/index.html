@@ -484,6 +484,20 @@ table.t.buy .qn.chg{color:#8A6D00;font-weight:700}
 table.t.buy tfoot th{border-top:2px solid var(--ink);border-bottom:none;font-size:14px;
   text-transform:none;letter-spacing:0;color:var(--ink);font-weight:700;padding-top:11px}
 table.t.buy td .meta{font-size:11.5px;margin-top:2px}
+/* 取込確認画面の行ごとの分類。判定根拠を値のすぐ下に出す */
+table.t.buy td.pick{min-width:158px}
+table.t.buy td.pick select.input{width:100%;min-width:150px;min-height:38px;padding:6px 8px;font-size:13px}
+table.t.buy td.pick .why{display:inline-block;margin-top:4px;font-size:11px;padding:1px 7px;border-radius:999px;
+  border:1px solid var(--rule);color:var(--n700);background:var(--n100);white-space:nowrap}
+table.t.buy td.pick .why.w1{border-color:#2E7D32;color:#1B5E20;background:#E8F5E9}
+table.t.buy td.pick .why.w3{border-color:var(--ink);color:var(--ink);background:#fff}
+table.t.buy td.pick .why.ng{border-color:#B3261E;color:#B3261E;background:#FDECEA;font-weight:700}
+.impTodo{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 10px;
+  padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r2);background:var(--n100)}
+.impTodo .tg{font-size:13px;font-weight:700;padding:3px 11px;border-radius:999px;white-space:nowrap}
+.impTodo .tg.ok{background:#E8F5E9;color:#1B5E20}
+.impTodo .tg.warn{background:#FFF8E1;color:#8A6D00}
+.impTodo .tg.ng{background:#FDECEA;color:#B3261E}
 
 .prices{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:9px;align-items:end;
   background:var(--panel);border-radius:var(--r2);padding:12px 14px;margin:14px 0}
@@ -528,6 +542,15 @@ table.t.buy td .meta{font-size:11.5px;margin-top:2px}
 .batchbar.done{border-width:2px;padding:13px 15px}
 .batchbar.done .ms{color:#2E7D32;font-size:24px}
 .batchbar.done .bt{font-weight:700;font-size:18px}
+/* 「登録できた」で終わらせない。QRを貼るまでが1回の仕入作業だと分かるようにする */
+.nextstep{display:flex;align-items:flex-start;gap:11px;margin:0 0 14px;
+  background:#FFF8E1;border:2px solid #E8A33D;border-radius:var(--r2);padding:12px 15px}
+.nextstep .ms{font-size:24px;color:#8A6D00;flex:0 0 auto}
+.nextstep .t{font-weight:700;font-size:16px}
+.nextstep .meta{margin-top:3px}
+.regmain .rmnext{display:flex;align-items:flex-start;gap:9px;margin-top:10px;font-size:13px;
+  color:#5C4700;background:#FFF8E1;border:1px solid #E8A33D;border-radius:var(--r2);padding:10px 13px;line-height:1.7}
+.regmain .rmnext .ms{font-size:19px;color:#8A6D00;flex:0 0 auto}
 
 /* ---- トースト ---- */
 #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:95;background:var(--n900);color:#fff;

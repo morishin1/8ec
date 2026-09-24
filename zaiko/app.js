@@ -2545,6 +2545,7 @@ function batchBanner() {
   const codes = b.product_codes || [];
   const alive = codes.filter(c => prod(c)).length;
   const now = ui.doneBatch === b.id;
+  const qrLeft = (b.item_ids || []).filter(x => item(x)).length;
   return `<div class="batchbar${now ? ' done' : ''}">
     <span class="ms">${now ? 'check_circle' : 'filter_alt'}</span>
     <div style="flex:1;min-width:0">
@@ -2554,9 +2555,17 @@ function batchBanner() {
       ${(b.skips || []).length ? `<div class="meta">重複スキップ ${b.skip_count || b.skips.length}件
         <a href="#" onclick="showSkips(${b.id});return false">詳細を見る</a></div>` : ''}
     </div>
-    ${batchQrBtn(b)}
+    ${batchQrBtn(b, now ? 'lime' : 'sm')}
     <button class="btn sm ghost" onclick="clearBatch()">すべて表示</button>
-  </div>`;
+  </div>
+  ${now && qrLeft ? `<div class="nextstep">
+    <span class="ms">qr_code_2</span>
+    <div style="flex:1;min-width:0">
+      <div class="t">次にやること：QRを ${qrLeft}枚 印刷して、実物1台ずつに貼ってください</div>
+      <div class="meta">登録はまだ「データだけ」です。<strong>現物にQRを貼って保管するまでが1回の仕入作業</strong>です。
+        QRを貼ると、現物からこの画面をすぐ開けるようになります。</div>
+    </div>
+  </div>` : ''}`;
 }
 
 let importSrc = null;                  // 読み込んだCSVそのもの。読み替えを変えたら組み直す
@@ -2602,6 +2611,7 @@ async function readInventoryCsv(input) {
 
   impMap.loc = {}; impMap.cat = {};
   planPrice = {}; planQty = {};
+  impPick.cat = {}; impPick.size = {}; impPick.loc = {};
   importSrc = { mode, H, idx, body, file: file.name, encoding, headRow: head };
   replan();
   showImportPreview();
@@ -2612,7 +2622,7 @@ function replan() {
   const s = importSrc;
   if (!s) return;
   const fn = { purchase: planPurchase, legacy: planLegacy, master: planMaster }[s.mode] || planMaster;
-  importPlan = fn(s.H, s.idx, s.body, s.file, s.encoding, s.headRow);
+  importPlan = decideImportPicks(fn(s.H, s.idx, s.body, s.file, s.encoding, s.headRow));
 }
 function setImpMap(kind, value, id) {
   if (id) impMap[kind][value] = id; else delete impMap[kind][value];
@@ -3067,6 +3077,9 @@ function planPurchase(H, idx, body, file, encoding, headRow) {
 
     const x = {
       line, key,
+      // CSVの「商品名」列は出品カテゴリ（NTPC / LCD / PJ / ｻﾌﾟﾗｲ …）。
+      // 商品名には使わないが、カテゴリの自動判定にはこれが唯一の手がかりになる
+      auctionCat: P('商品名') || D('商品名') || '',
       // 出品価格のCSVで元の行を書き戻すため。取込の判断には使わない
       rawLine: line, rawRow: (lot.parent || lot.detail || {}).row || null,
       lot: { no: key, buy, fee, cost, qty, csvQty, kumi: P('構成') || '' },
@@ -3102,6 +3115,209 @@ function planPurchase(H, idx, body, file, encoding, headRow) {
     add.push(x);
   });
   return { mode: 'purchase', add, skip, bad, dups, file, encoding };
+}
+
+/* ---- 仕入CSVの自動分類（カテゴリ・配送サイズ・保管場所）--------------------
+   仕入CSVには1本の中に何種類もの商品が入っている（NTPC / LCD / PJ / レンズ …）。
+   全件に同じカテゴリを当てると誤登録になるので、**出品番号ごとに**決める。
+
+   決めかたの順番（上ほど強い）
+     1. 既存商品          … 型番がそろう商品がすでにあれば、その category_id と
+                             shipping_size をそのまま引き継ぐ（いちばん確かな根拠）
+     2. CSV内の同じ型番    … 先に決めた行と同じにする（1本のCSVの中でぶれない）
+     3. カテゴリの別名     … findCat() が引ければそれ（aliases・表示名・IDのどれでも）
+     4. 組み込みルール     … NTPC / LCD / PJ の3つだけ。増やすのは別名でやる
+     5. 配送サイズの実績   … 同じカテゴリで過去に決めたサイズが十分に偏っていれば、その値
+     6. どれでもない       … **要確認**。勝手に決めない
+
+   決めないもの
+     ・数量管理のカテゴリ（消耗品・入力機器など）には自動で寄せない。
+       仕入CSVの取込は個体管理（管理番号＋QR）が前提なので、選べるのは個体管理だけ
+     ・「レンズ」のように、ことばだけでは行き先が決まらないものは要確認のまま */
+
+/* 出品カテゴリ（仕入CSVの「商品名」列）→ 在庫カテゴリ。
+   ここに書くのは確実なものだけにする。増やしたいときは、
+   カテゴリマスターの別名（aliases）に足すほうが安全（コードを直さなくてよい）。 */
+const AUCTION_CAT_RULES = [
+  { words: ['NTPC'],                       cat: 'pc' },       // パソコン
+  { words: ['LCD', 'LCDセット', 'LCDSET'], cat: 'monitor' },  // ディスプレイ・モニター
+  { words: ['PJ'],                         cat: 'printer' }   // プリンター・プロジェクター
+];
+
+/* 取込の確認画面で行ごとに決めた値。出品番号をキーにする。
+   読み替え（impMap）を変えて組み直しても、手で直したものが消えないよう外に置く */
+const impPick = { cat: {}, loc: {}, size: {} };
+
+/* 自動分類で選べるカテゴリ。仕入CSVは個体管理しか作らないので個体管理だけ。
+   数量管理（消耗品・ケーブルなど）は、当たっても採用せず要確認にする */
+const pickableCat = (id) => {
+  const c = cat(id);
+  return !!(c && c.kind === 'individual' && catLive(c) && !catHasKids(id));
+};
+
+/* 出品カテゴリのことばから、組み込みルールでカテゴリを引く。
+   全角半角・大文字小文字・空白のゆれは normModel と同じ要領でそろえる */
+function ruleCat(word) {
+  const n = normModel(word);
+  if (!n) return null;
+  const hit = AUCTION_CAT_RULES.find(r => r.words.some(w => normModel(w) === n));
+  return hit && cat(hit.cat) ? hit.cat : null;
+}
+
+/* そのカテゴリで、これまでに実際に決められた配送サイズ。
+   十分に偏っている（過半数）ときだけ候補にする。割れていたら決めない。
+   推測ではなく「過去に担当者が選んだ実績」なので、勝手な値は入らない。 */
+const SIZE_MIN_SAMPLES = 3;            // これ未満は実績と呼べない
+function sizeFromHistory(catId) {
+  if (!catId) return null;
+  const tally = {};
+  let total = 0;
+  (db.masters || []).forEach(p => {
+    if (p.category_id !== catId) return;
+    const z = String(p.shipping_size || '').trim();
+    if (!z || z === 'custom') return;   // 未設定と「その他（要確認）」は実績に数えない
+    tally[z] = (tally[z] || 0) + 1;
+    total++;
+  });
+  if (total < SIZE_MIN_SAMPLES) return null;
+  const top = Object.keys(tally).sort((a, b) => tally[b] - tally[a])[0];
+  if (!top || tally[top] * 2 <= total) return null;   // 過半数に届かない＝割れている
+  return { size: top, n: tally[top], total };
+}
+
+/* 1行ぶんの初期候補。byModel には、このCSVで先に決まった行が型番ごとに入っている */
+function guessPick(x, byModel) {
+  const out = { cat: null, catWhy: '要確認', size: null, sizeWhy: '要確認' };
+
+  // 1) 既存商品から引き継ぐ。型番がそろえば同じ商品なので、いちばん確かな根拠
+  const known = x.sharesWith ? prod(x.sharesWith) : null;
+  if (known) {
+    if (known.category_id) { out.cat = known.category_id; out.catWhy = '既存商品から'; }
+    const z = String(known.shipping_size || '').trim();
+    if (z) { out.size = z; out.sizeWhy = '既存商品から'; }
+  }
+
+  // 2) 同じCSVの中の同じ型番。1本のCSVの中で行ごとに違う答えにならないようにする
+  const key = normModel(x.master.model || x.master.name);
+  const twin = key ? byModel[key] : null;
+  if (twin && twin !== x) {
+    if (!out.cat && twin.pickCat) { out.cat = twin.pickCat; out.catWhy = 'CSV内の同じ型番から'; }
+    if (!out.size && twin.pickSize) { out.size = twin.pickSize; out.sizeWhy = 'CSV内の同じ型番から'; }
+  }
+
+  // 3-4) 出品カテゴリのことばから。別名（aliases）が先、無ければ組み込みルール
+  if (!out.cat) {
+    const word = String(x.auctionCat || '').trim();
+    if (word) {
+      const byAlias = findCat(word, 'individual');
+      if (byAlias.id && pickableCat(byAlias.id)) { out.cat = byAlias.id; out.catWhy = 'CSVカテゴリから'; }
+      else {
+        const byRule = ruleCat(word);
+        // ルールに当たっても、数量管理・無効・子ありのカテゴリには寄せない
+        if (byRule && pickableCat(byRule)) { out.cat = byRule; out.catWhy = 'CSVカテゴリから'; }
+      }
+    }
+  }
+
+  // 5) 配送サイズは、そのカテゴリの過去の実績が偏っているときだけ
+  if (!out.size && out.cat) {
+    const h = sizeFromHistory(out.cat);
+    if (h) { out.size = h.size; out.sizeWhy = `過去の登録から（${h.n}/${h.total}件）`; }
+  }
+  return out;
+}
+
+/* 取込プランに、行ごとの分類を入れる。読み替えを変えるたびに呼び直す。
+   手で選んだものは impPick に残っているので、組み直しても消えない */
+function decideImportPicks(p) {
+  if (!p || p.mode !== 'purchase') return p;
+  const byModel = {};
+  const fallbackLoc = defaultImportLoc();
+  (p.add || []).forEach(x => {
+    const g = guessPick(x, byModel);
+    const mc = impPick.cat[x.key], ms = impPick.size[x.key], ml = impPick.loc[x.key];
+    // 空にする（要確認に戻す）のも手で選んだうちなので、impPick には残す。
+    // ただし表示は「手で選択」ではなく「要確認」にする（値が無いのだから）
+    x.pickCat = mc != null ? (mc || null) : g.cat;
+    x.pickCatWhy = mc ? '手で選択' : (mc != null ? '要確認' : g.catWhy);
+    x.pickSize = ms != null ? (ms || null) : g.size;
+    x.pickSizeWhy = ms ? '手で選択' : (ms != null ? '要確認' : g.sizeWhy);
+    x.pickLoc = ml != null ? (ml || null) : (fallbackLoc || null);
+    const key = normModel(x.master.model || x.master.name);
+    if (key && !byModel[key]) byModel[key] = x;
+  });
+  return p;
+}
+
+/* 要確認の件数。カテゴリが1件でも残っていたら一括登録は止める */
+function pickTodo(p) {
+  const add = (p && p.add) || [];
+  return {
+    cat: add.filter(x => !x.pickCat).length,
+    size: add.filter(x => !x.pickSize).length,
+    loc: add.filter(x => !x.pickLoc).length
+  };
+}
+
+/* 行ごとに手で直す。表と上のまとめを描き直す */
+function setPickCat(i, v) {
+  const x = (importPlan.add || [])[i]; if (!x) return;
+  impPick.cat[x.key] = v || '';
+  decideImportPicks(importPlan);
+  repaintPurchaseTable();
+}
+function setPickSize(i, v) {
+  const x = (importPlan.add || [])[i]; if (!x) return;
+  impPick.size[x.key] = v || '';
+  decideImportPicks(importPlan);
+  repaintPurchaseTable();
+}
+function setPickLoc(i, v) {
+  const x = (importPlan.add || [])[i]; if (!x) return;
+  impPick.loc[x.key] = v || '';
+  decideImportPicks(importPlan);
+  repaintPurchaseTable();
+}
+/* 上の欄で選んだものを全行に当てる。1種類しか入っていないCSVは、これで今までどおり */
+function applyPickToAll(kind) {
+  const p = importPlan; if (!p || !p.add.length) return;
+  const v = (($(kind === 'cat' ? 'impCat' : kind === 'size' ? 'impSize' : 'impLoc') || {}).value) || '';
+  if (!v) { toast('先に上の欄で選んでください'); return; }
+  p.add.forEach(x => { impPick[kind][x.key] = v; });
+  decideImportPicks(p);
+  repaintPurchaseTable();
+  toast(`${p.add.length}件に当てました`);
+}
+/* 自動判定に戻す。手で直したものを全部忘れる */
+function resetPicks() {
+  if (!importPlan) return;
+  impPick.cat = {}; impPick.size = {}; impPick.loc = {};
+  decideImportPicks(importPlan);
+  repaintPurchaseTable();
+  toast('自動判定に戻しました');
+}
+
+/* 取込確認画面の表とまとめを描き直す。モーダルを開き直すと
+   スクロール位置も入力中の数量も飛ぶので、必要なところだけ入れ替える */
+function repaintPurchaseTable() {
+  if (!importPlan) return;
+  const host = $('impTable');
+  if (host) host.innerHTML = purchaseTable(importPlan.add);
+  const todo = pickTodo(importPlan);
+  const bar = $('impTodo');
+  if (bar) bar.innerHTML = todoHtml(todo);
+  const btn = $('btnApply');
+  if (btn) {
+    btn.disabled = todo.cat > 0;
+    btn.title = todo.cat > 0 ? 'カテゴリが要確認の行があります' : '';
+  }
+}
+function todoHtml(todo) {
+  return `<span class="tg${todo.cat ? ' ng' : ' ok'}">カテゴリ要確認 ${todo.cat}件</span>
+    <span class="tg${todo.size ? ' warn' : ' ok'}">配送サイズ要確認 ${todo.size}件</span>
+    ${todo.cat ? '<span class="meta">カテゴリが決まるまで一括登録はできません。</span>'
+               : todo.size ? '<span class="meta">配送サイズが未確定でも登録できます（価格計算では「送料未設定」になります）。</span>'
+                           : '<span class="meta">すべて確定しています。</span>'}`;
 }
 
 /* 取り込み確認画面で販売予定価格を直す。想定利益と合計がその場で変わる。
@@ -3559,8 +3775,9 @@ function buildPricing(p) {
         sourceId: u.source_id || '', note: u.note || '',
         cost, lot: x.lot, bought: u.purchased_on || '',
         cond, norm, flags,
-        // 配送サイズの既定は商品マスタから。新規商品はまだ商品が無いので未設定
-        shipSize: (prod(x.sharesWith) || {}).shipping_size || '',
+        // 配送サイズは、取込の確認画面で決めたものを先に使う。
+        // 新規商品はまだ商品マスタが無いので、これが無いと必ず「送料未設定」になる
+        shipSize: x.pickSize || (prod(x.sharesWith) || {}).shipping_size || '',
         shipCost: null,                       // 個体ごとの上書き。空なら試算値を使う
         rawLine: (kids[n] && kids[n].line) || x.rawLine || '',
         rawRow: (kids[n] && kids[n].row) || x.rawRow || null
@@ -3984,7 +4201,9 @@ function openPricingDetail(i) {
         ${row('運賃表', esc(t.label || '未登録'))}
         ${row('表の状態', esc(RATE_STATUS_LABEL[sp.status || t.rate_status] || '—')
           + (t.effective_from ? `　${t.effective_from}〜${t.effective_to || '（未定）'}` : ''))}
-        ${row('商品マスタの既定', esc(shipSizeLabel((prod(r.code) || {}).shipping_size || '')))}
+        ${row('商品マスタの既定', r.code
+          ? esc(shipSizeLabel((prod(r.code) || {}).shipping_size || ''))
+          : '<span class="meta">新規商品（登録時に取込画面で決めたサイズが入ります）</span>')}
       </div>
       ${(sp.status || t.rate_status) === 'provisional' ? `<div class="card"
         style="margin-bottom:12px;background:var(--l100);border:1px solid var(--l400)">
@@ -4253,23 +4472,53 @@ function fixSelect(reason, value, kind) {
     <option value="">読み替えない</option>${opts}</select>`;
 }
 
-/* 仕入CSVの確認表。出すのは 商品名／型番／数量／原価／販売予定価格／想定利益 だけ。
-   「仕入れ → 原価が分かる → 売値を決める → 利益が分かる」が一目で追える並びにする。
-   販売予定価格には目安（原価×1.3）を入れておくが、その場で必ず直せる。 */
+/* 判定根拠の印。何をもってこの値になったのかが、一目で分かるようにする */
+const WHY_CLASS = { '既存商品から': 'w1', 'CSV内の同じ型番から': 'w1',
+                    'CSVカテゴリから': 'w2', '手で選択': 'w3' };
+const whyTag = (why) => why === '要確認'
+  ? '<span class="why ng">要確認</span>'
+  : `<span class="why ${WHY_CLASS[why] || 'w2'}">${esc(why)}</span>`;
+
+/* 取込確認画面の表。出品番号（＝1商品）ごとに1行。
+   カテゴリ・配送サイズ・保管場所をここで確認して直す。
+   数量・販売予定価格・原価の扱いはこれまでどおり（触っていない）。 */
 function purchaseTable(add) {
   const t = purchaseTotals(add);
+  const cats = catsFor('individual');
+  const sizes = shipSizes().filter(z => z !== 'custom');   // 取込では「その他」は選ばせない
   return `<div class="table-wrap"><table class="t buy">
     <thead><tr>
-      <th>商品名</th><th>型番</th><th class="r">数量</th>
+      <th>商品・型番</th><th>カテゴリ</th><th>配送サイズ</th><th>保管場所</th>
+      <th class="r">数量</th>
       <th class="r">1台あたり原価</th><th class="r">販売予定価格</th><th class="r">想定利益</th>
     </tr></thead>
     <tbody>${add.map((x, i) => {
       const g = gainPer(x), gl = gainLot(x);
       const set = x.lot.csvQty > x.src.kids.length;
-      return `<tr>
-        <td>${esc(x.master.name)}${set
+      const ng = !x.pickCat;
+      return `<tr${ng ? ' class="warn"' : ''}>
+        <td>${esc(x.master.name)}
+          <div class="meta">${x.master.model && x.master.model !== x.master.name ? esc(x.master.model) + '　' : ''}${
+            x.auctionCat ? `CSV「${esc(x.auctionCat)}」` : ''}</div>${set
               ? `<div class="meta">${esc(x.lot.kumi || 'セット')}　個品ID ${x.src.kids.length}件 → 管理番号は1台ずつ発行</div>` : ''}</td>
-        <td class="nowrap">${esc(x.master.model)}</td>
+        <td class="pick">
+          <select class="input" onchange="setPickCat(${i},this.value)">
+            <option value=""${x.pickCat ? '' : ' selected'}>要確認（選んでください）</option>
+            ${cats.map(c => `<option value="${esc(c.id)}"${x.pickCat === c.id ? ' selected' : ''}${
+              catHasKids(c.id) ? ' disabled' : ''}>${esc(catOptLabel(c))}</option>`).join('')}
+          </select>
+          ${whyTag(x.pickCatWhy)}</td>
+        <td class="pick">
+          <select class="input" onchange="setPickSize(${i},this.value)">
+            <option value=""${x.pickSize ? '' : ' selected'}>要確認</option>
+            ${sizes.map(z => `<option value="${esc(z)}"${x.pickSize === z ? ' selected' : ''}>${
+              esc(shipSizeLabel(z))}</option>`).join('')}
+          </select>
+          ${whyTag(x.pickSizeWhy)}</td>
+        <td class="pick">
+          <select class="input" onchange="setPickLoc(${i},this.value)">
+            ${locOptions(x.pickLoc || '', '選択してください')}
+          </select></td>
         <td class="r">
           <input class="input num qty" type="number" min="0" max="999" step="1" id="pq-${i}"
                  value="${x.lot.qty}" oninput="setPlanQty(${i},this.value)" onchange="fixPlanQty(${i})">
@@ -4286,7 +4535,7 @@ function purchaseTable(add) {
       </tr>`;
     }).join('')}</tbody>
     <tfoot><tr>
-      <th colspan="2">合計</th>
+      <th colspan="4">合計</th>
       <th class="r num" id="ptQty">${t.units}</th>
       <th class="r num" id="ptCost">${yen(t.cost)}</th>
       <th class="r num" id="ptPlan">${t.plan ? yen(t.plan) : '—'}</th>
@@ -4359,6 +4608,7 @@ function showImportPreview() {
   const repairUnits = repair.reduce((n, x) => n + x.units.length, 0);
   const zeroQty = p.add.filter(x => x.lot && x.lot.qty === 0).length;
   const noPrice = buy && p.add.length && p.add.every(x => !x.lot.cost);
+  const todo = pickTodo(p);
 
   openModal(buy ? '仕入CSV取込の確認' : '取り込む内容の確認', `
     <div class="card" style="margin-bottom:15px">
@@ -4388,9 +4638,13 @@ function showImportPreview() {
     </div>`}
 
     ${buy && p.add.length ? `<div class="lbl" style="margin-bottom:6px">取り込む商品</div>
-      ${purchaseTable(p.add)}
+      <div class="impTodo" id="impTodo">${todoHtml(todo)}</div>
+      <div id="impTable">${purchaseTable(p.add)}</div>
       <p class="meta" style="margin:-4px 0 14px">
-        <strong>数量はその場で直せます。</strong>直すと個体数・QRの発行枚数・1台あたり原価・想定利益がすぐ付いてきます。<br>
+        <strong>カテゴリ・配送サイズ・保管場所は行ごとに直せます。</strong>
+        初期値は 既存商品 → CSV内の同じ型番 → CSVのカテゴリ → 過去の登録 の順に決めています。
+        決められなかったものは<strong>要確認</strong>にしてあり、勝手に当てはめていません。<br>
+        <strong>数量もその場で直せます。</strong>直すと個体数・QRの発行枚数・1台あたり原価・想定利益がすぐ付いてきます。<br>
         1台あたり原価 ＝（落札価格 ＋ 落札料）÷ 数量。端数は先頭の1台に寄せるので、合計は仕入額と一致します。
         販売予定価格は1台あたり原価の1.3倍を目安に入れてあります（手で直したものはそのまま残します）。
         ${p.add.some(x => x.lot.csvQty > x.src.kids.length)
@@ -4398,16 +4652,28 @@ function showImportPreview() {
         ${shared ? `<br>同じ型番の <strong>${shared}件</strong> は、商品を分けずに個体だけ足します（値段は1台ずつ持ちます）。` : ''}</p>` : ''}
 
     ${buy && p.add.length ? `<div class="card" style="margin-bottom:15px">
-      <div class="lbl" style="margin-bottom:5px">カテゴリと保管場所</div>
-      仕入CSVには入っていないので、ここで選んだものを全件に当てます（あとから商品ごとに直せます）。
-      保管場所は<strong>${esc(DEFAULT_IMPORT_LOC)}</strong>を初期値にしています。
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:12px">
-        <label class="field"><span>カテゴリ *</span><select class="input" id="impCat">
+      <div class="lbl" style="margin-bottom:5px">まとめて当てる</div>
+      1種類しか入っていないCSVは、ここで選んで<strong>全行に当てる</strong>のが早いです。
+      当てたあとも行ごとに直せます。保管場所は<strong>${esc(DEFAULT_IMPORT_LOC)}</strong>を初期値にしています。
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin-top:12px">
+        <label class="field"><span>カテゴリ</span><select class="input" id="impCat">
+          <option value="">選択してください</option>
           ${catsFor('individual').map(c => `<option value="${esc(c.id)}"${catHasKids(c.id) ? ' disabled' : ''}>${
             esc(catOptLabel(c))}</option>`).join('')}
         </select></label>
-        <label class="field"><span>保管場所 *</span>
+        <label class="field"><span>配送サイズ</span><select class="input" id="impSize">
+          <option value="">選択してください</option>
+          ${shipSizes().filter(z => z !== 'custom').map(z =>
+            `<option value="${esc(z)}">${esc(shipSizeLabel(z))}</option>`).join('')}
+        </select></label>
+        <label class="field"><span>保管場所</span>
           <select class="input" id="impLoc">${locOptions(defaultImportLoc(), '選択してください')}</select></label>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <button class="btn sm ghost" onclick="applyPickToAll('cat')">カテゴリを全行に当てる</button>
+        <button class="btn sm ghost" onclick="applyPickToAll('size')">配送サイズを全行に当てる</button>
+        <button class="btn sm ghost" onclick="applyPickToAll('loc')">保管場所を全行に当てる</button>
+        <button class="btn sm ghost" onclick="resetPicks()">自動判定に戻す</button>
       </div>
       ${dropped ? `<p class="meta" style="margin:10px 0 0">個品IDが空か重複していた <strong>${dropped}行</strong> は取り込みません。</p>` : ''}
     </div>` : ''}
@@ -4476,6 +4742,12 @@ function showImportPreview() {
     ...(p.add.length && canAdmin() ? [[buy ? `一括登録（商品 ${c.prods}・個体 ${units}）` : `${p.add.length}商品・${units}台を追加`,
                                        'applyInventoryImport()', 'btn lime', 'btnApply']] : [])
   ]);
+  // カテゴリが要確認のまま登録すると分類の無い商品ができてしまうので、ここで止める。
+  // 配送サイズは未確定でも登録できる（価格計算で「送料未設定」になるだけ）
+  if (buy && todo.cat > 0) {
+    const btn = $('btnApply');
+    if (btn) { btn.disabled = true; btn.title = 'カテゴリが要確認の行があります'; }
+  }
 }
 
 async function applyInventoryImport() {
@@ -4484,7 +4756,15 @@ async function applyInventoryImport() {
   const catId = ($('impCat') || {}).value || null;
   const locId = ($('impLoc') || {}).value || null;
   const pickHere = p.mode === 'legacy' || p.mode === 'purchase';   // カテゴリと保管場所が元データに無い形
-  if (pickHere && (!catId || !locId)) { toast('カテゴリと保管場所を選んでください'); return; }
+  if (p.mode === 'purchase') {
+    // 仕入CSVは行ごとに決める。1件でも要確認が残っていたら止める
+    // （分類の無い商品ができると、あとから見分けがつかなくなる）
+    const todo = pickTodo(p);
+    if (todo.cat) { toast(`カテゴリが要確認の行が ${todo.cat}件あります`); return; }
+    if (todo.loc) { toast(`保管場所が空の行が ${todo.loc}件あります`); return; }
+  } else if (pickHere && (!catId || !locId)) {
+    toast('カテゴリと保管場所を選んでください'); return;
+  }
   closeModal();
   toast(p.mode === 'purchase' ? `仕入 ${p.add.length}件を登録しています…` : `${p.add.length}商品を取り込んでいます…`);
 
@@ -4492,9 +4772,13 @@ async function applyInventoryImport() {
   const chans = [];
   const touched = [];                      // 今回さわった商品。取込履歴に残して一覧を絞れるようにする
   let madeProds = 0;                       // 実際に新しく作った商品の数
+  let sizedProds = 0;                      // 配送サイズを入れた商品の数
   for (const x of p.add) {
     const m = Object.assign({}, x.master);
-    if (pickHere) { m.category_id = catId; m.location_id = locId; }
+    // 仕入CSVは行ごとに決めたものを使う。上の「まとめて当てる」欄は、
+    // 万一行に値が無かったときの受け皿としてだけ残す
+    if (p.mode === 'purchase') { m.category_id = x.pickCat || catId; m.location_id = x.pickLoc || locId; }
+    else if (pickHere) { m.category_id = catId; m.location_id = locId; }
     if (!m.name) m.name = m.model;
 
     // 商品は「型番で探して、無ければ作る」を関数の中で1回でやる。
@@ -4512,6 +4796,15 @@ async function applyInventoryImport() {
     // 個体の分類は商品に合わせる（置き場所は今回選んだところ）
     else if (up.data.category_id) m.category_id = up.data.category_id;
     if (touched.indexOf(m.code) < 0) touched.push(m.code);
+
+    // 配送サイズは**今回新しく作った商品だけ**に入れる。
+    // すでにある商品のサイズは担当者が決めた値なので、取込では絶対に書き換えない。
+    // 入れられなくても取込は止めない（サイズはあとから商品詳細で入れられる）
+    if (p.mode === 'purchase' && up.data.created && x.pickSize) {
+      const sz = await sb.rpc('inv_product_shipping_size_set', { p_code: m.code, p_size: x.pickSize });
+      if (sz.error) toast(`${m.name} の配送サイズを入れられませんでした：${sz.error.message}`);
+      else sizedProds++;
+    }
 
     for (const u of x.units) {
       let id = u.id;
@@ -4607,6 +4900,7 @@ async function applyInventoryImport() {
       summary: (wasBuy
         ? `新規 ${madeProds}商品／既存へ追加 ${touched.length - madeProds}商品`
           + `／原価 ${yen(t.cost)}／想定利益 ${t.priced ? yen(t.gain) : '—'}`
+          + (sizedProds ? `／配送サイズ ${sizedProds}商品` : '')
         : `新規 ${madeProds}商品`)
         + (skips.length ? `／重複スキップ ${skips.length}件` : '')
     }).select();
@@ -4615,6 +4909,7 @@ async function applyInventoryImport() {
 
   importPlan = null; importSrc = null;
   impMap.loc = {}; impMap.cat = {}; planPrice = {}; planQty = {};
+  impPick.cat = {}; impPick.size = {}; impPick.loc = {};
   await loadAll();
   // 取り込んだら商品管理一覧に戻り、今回の分だけを出す。
   // 「今回登録した商品 ○件」の帯（batchBanner）に重複スキップの件数と詳細リンクも出るので、
@@ -4622,7 +4917,9 @@ async function applyInventoryImport() {
   if (batchId) showBatch(batchId, true); else { ui.fBatch = null; ui.doneBatch = null; go('list'); }
   const listed = chanAdded ? `／出品情報 ${chanAdded}件` : '';
   const skipped = skips.length ? `／重複スキップ ${skips.length}件` : '';
+  // 「登録できた」で終わらせず、次にやること（QR）まで言い切る
   toast(wasBuy ? `商品 ${touched.length}件・個体 ${units.length}台を登録しました（原価 ${yen(t.cost)}／想定利益 ${t.priced ? yen(t.gain) : '—'}）${skipped}`
+                 + `　次はQRを${units.length}枚印刷して現物に貼ってください`
                : `${madeProds}商品・${units.length}台を取り込みました${listed}${skipped}`);
 }
 
@@ -6611,9 +6908,12 @@ function regCsvMain() {
         <div class="meta">個体 ${done.items}台　${esc(done.file)}${
           done.skips ? `　／　重複スキップ ${done.skips}件 <a href="#" onclick="showSkips(${done.id});return false">詳細を見る</a>` : ''}</div>
       </div>
-      ${batchQrBtn(batchOf(done.id))}
+      ${batchQrBtn(batchOf(done.id), 'lime')}
       <button class="btn sm ghost" onclick="showBatch(${done.id},true)">一覧で見る</button>
-    </div>` : ''}
+    </div>
+    ${done.items ? `<div class="rmnext"><span class="ms">qr_code_2</span>
+      <span>登録はまだデータだけです。<strong>QRを印刷して実物1台ずつに貼り、保管するまで</strong>が1回の仕入作業です。</span>
+    </div>` : ''}` : ''}
     ${last ? `<div class="rmlast">最終取込 ${esc(fmtDT(last.imported_at))}　${esc(last.file_name || '')}
       商品 ${last.product_count}／個体 ${last.item_count}　${esc(last.actor || '')}</div>` : ''}
   </div>`;
