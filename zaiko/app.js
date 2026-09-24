@@ -1379,7 +1379,7 @@ function listingChips(on, title) {
 
    幅は `table-layout: fixed` ＋ colgroup の％で配り、**表の幅が親の幅と必ず一致**する
    ようにしている（横スクロールを隠すのではなく、出ないようにする）。
-   狭い画面ではカードに切り替える（index.html の table.t.units のところ）。 */
+   狭い画面ではカードに切り替える（index.html の table.t.unittbl のところ）。 */
 /*            ☑    管理番号 型番   価格   価格調査 出品先 保管場所 状態  棚卸   8RENT */
 const UNIT_COLS_PICK = ['3%', '12%', '14%', '10%', '13%', '9%', '8%', '9%', '11%', '11%'];
 const UNIT_COLS      = ['12%', '15%', '10%', '13%', '9%', '9%', '9%', '12%', '11%'];
