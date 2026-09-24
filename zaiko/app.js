@@ -1367,6 +1367,23 @@ function listingChips(on, title) {
   ).join('') + '</span>';
 }
 
+/* 在庫一覧（個体別）の表。
+   列が13あって横に間延びし、右の 状態・棚卸・8RENT が切れていたので、
+   **関係の近いものを同じセルの2段にまとめて10列**にした。情報は減らしていない。
+
+     管理番号 ← 仕入元ID・仕入日
+     型番     ← メーカー
+     価格     ← 原価・販売予定価格
+
+   価格調査のボタンは型番セルにも出ていて二重だったので、専用の列だけにした。
+
+   幅は `table-layout: fixed` ＋ colgroup の％で配り、**表の幅が親の幅と必ず一致**する
+   ようにしている（横スクロールを隠すのではなく、出ないようにする）。
+   狭い画面ではカードに切り替える（index.html の table.t.unittbl のところ）。 */
+/*            ☑    管理番号 型番   価格   価格調査 出品先 保管場所 状態  棚卸   8RENT */
+const UNIT_COLS_PICK = ['3%', '12%', '14%', '10%', '13%', '9%', '8%', '9%', '11%', '11%'];
+const UNIT_COLS      = ['12%', '15%', '10%', '13%', '9%', '9%', '9%', '12%', '11%'];
+
 function unitsBodyHtml() {
   const rows = unitsFiltered();
   if (!rows.length) return `<div class="empty" style="margin-top:15px">該当する在庫はありません。</div>`;
@@ -1383,34 +1400,37 @@ function unitsBodyHtml() {
   return `<div class="meta" style="margin:12px 0 4px">${rows.length} 件${
       live ? `／うち在庫・出品中 ${live}台` : ''}${rentN ? `／8RENT対象 ${rentN}台` : ''}${qty ? `／数量品 ${qty}` : ''}${
       db.stocktake ? `／この絞り込みの中では 棚卸確認済 ${ckDone}・未確認 ${ckTodo}` : ''}</div>
-    <div class="table-wrap"><table class="t">
+    <div class="table-wrap"><table class="t unittbl">
+    <colgroup>${(pick ? UNIT_COLS_PICK : UNIT_COLS).map(w => `<col style="width:${w}">`).join('')}</colgroup>
     <thead><tr>
       ${pick ? `<th class="ck"><input type="checkbox" id="selAllItems" onclick="toggleAllItems(this.checked)"
         ${allItemsSelected(rows) ? 'checked' : ''} title="表示中の個体をすべて選ぶ"></th>` : ''}
-      <th>管理番号</th><th>型番</th><th>メーカー</th><th>仕入日</th>
-      <th style="text-align:right">原価</th><th style="text-align:right">販売予定価格</th>
-      <th class="mchk-col">価格調査</th>
-      <th>出品先</th><th>保管場所</th><th>状態</th><th>棚卸</th><th>8RENT</th>
+      <th class="col-id">管理番号</th><th class="col-model">型番・メーカー</th>
+      <th class="col-price r">価格</th>
+      <th class="col-market">価格調査</th>
+      <th class="col-listing">出品先</th><th class="col-loc">保管場所</th>
+      <th class="col-status">状態</th><th class="col-check">棚卸</th><th class="col-rental">8RENT</th>
     </tr></thead>
     <tbody>${rows.slice(0, 600).map(r => {
       const { i, m } = r;
       // 数量管理は現物1台を指す管理番号を持たない。「—」と出し、
-      // 状態も「在庫 42」と数で出して、個体管理の行と取り違えないようにする
+      // 状態も「在庫 42」と数で出して、個体管理の行と取り違えないようにする。
+      // 列の数は個体管理の行と必ずそろえる（ずれると見出しと中身が合わなくなる）
       if (r.kind === 'qty') return `<tr class="clk qty" onclick="go('prod','${esc(m.code)}')">
         ${pick ? '<td class="ck"></td>' : ''}
-        <td class="meta">—<div class="meta">数量管理</div></td>
-        <td class="nowrap">${esc(m.model || titleOf(m))}
-          <div class="meta num">${esc(m.code)}</div>${marketBtns(m.maker, m.model, true)}</td>
-        <td class="nowrap">${esc(m.maker || '')}</td>
-        <td class="meta">—</td>
-        <td class="num meta r">${yen(m.unit_price)}</td>
-        <td class="num meta r">—</td>
-        <td class="mchk-col">${marketBtns(m.maker, m.model)}</td>
-        <td class="mall">${listingChips(liveOnProd(m.code))}</td>
-        <td class="meta">${esc(locPath(m.location_id))}</td>
-        <td>${qtyTag(m)}</td>
-        <td class="meta">—</td>
-        <td class="meta">—</td>
+        <td class="col-id" data-label="管理番号"><span class="meta">—</span>
+          <div class="meta">数量管理</div></td>
+        <td class="col-model" data-label="型番"><div class="mdl">${esc(m.model || titleOf(m))}</div>
+          ${m.maker ? `<div class="meta">${esc(m.maker)}</div>` : ''}
+          <div class="meta num">${esc(m.code)}</div></td>
+        <td class="col-price r" data-label="価格"><div class="num meta">${yen(m.unit_price)}</div>
+          <div class="meta">単価</div></td>
+        <td class="col-market" data-label="価格調査">${marketBtns(m.maker, m.model)}</td>
+        <td class="col-listing mall" data-label="出品先">${listingChips(liveOnProd(m.code))}</td>
+        <td class="col-loc meta" data-label="保管場所">${esc(locPath(m.location_id))}</td>
+        <td class="col-status" data-label="状態">${qtyTag(m)}</td>
+        <td class="col-check meta" data-label="棚卸">—</td>
+        <td class="col-rental meta" data-label="8RENT">—</td>
       </tr>`;
       const cost = costOf(i), plan = planOf(i);
       // 型番・メーカーは商品マスターを優先。価格調査の検索語にも同じものを使う
@@ -1418,22 +1438,23 @@ function unitsBodyHtml() {
       return `<tr class="clk${isMismatch(i) ? ' warn' : ''}${ui.selItems[i.id] ? ' on' : ''}" data-item="${esc(i.id)}" onclick="go('item','${esc(i.id)}')">
         ${pick ? `<td class="ck" onclick="event.stopPropagation()">
           <input type="checkbox" ${ui.selItems[i.id] ? 'checked' : ''} onchange="toggleItem('${esc(i.id)}',this.checked)"></td>` : ''}
-        <td class="num" style="font-weight:600">
+        <td class="col-id num" data-label="管理番号">
           <a class="idlink" href="/zaiko/items/${encodeURIComponent(i.id)}"
              onclick="event.stopPropagation();event.preventDefault();go('item','${esc(i.id)}')"
              title="この1台の詳細と履歴">${esc(i.id)}</a>
-          ${i.source_id ? `<div class="meta">仕入元 ${esc(i.source_id)}</div>` : ''}</td>
-        <td class="nowrap">${esc(mk.model)}${marketBtns(mk.maker, mk.model, true, i.id)}</td>
-        <td class="nowrap">${esc(mk.maker)}</td>
-        <td class="meta nowrap">${i.purchased_on ? fmtD(i.purchased_on) : '—'}</td>
-        <td class="num r">${cost ? yen(cost) : '<span class="meta">—</span>'}</td>
-        <td class="num r">${plan == null ? '<span class="meta">—</span>' : yen(plan)}</td>
-        <td class="mchk-col">${marketBtns(mk.maker, mk.model, false, i.id)}</td>
-        <td class="mall">${listingChips(liveOn(i))}</td>
-        <td class="meta">${esc(locPath(i.location_id))}</td>
-        <td>${statusTag(i.status, false, stockStale(i, ckIdx))}</td>
-        <td class="ck-col">${checkCell(i, ckIdx)}</td>
-        <td>${rentalTag(i)}</td>
+          ${i.source_id ? `<div class="meta">仕入元 ${esc(i.source_id)}</div>` : ''}
+          ${i.purchased_on ? `<div class="meta">${esc(fmtD(i.purchased_on))}</div>` : ''}</td>
+        <td class="col-model" data-label="型番"><div class="mdl">${esc(mk.model)}</div>
+          ${mk.maker ? `<div class="meta">${esc(mk.maker)}</div>` : ''}</td>
+        <td class="col-price r num" data-label="価格">
+          <div>${cost ? yen(cost) : '<span class="meta">—</span>'}</div>
+          <div class="meta">予定 ${plan == null ? '—' : yen(plan)}</div></td>
+        <td class="col-market" data-label="価格調査">${marketBtns(mk.maker, mk.model, false, i.id)}</td>
+        <td class="col-listing mall" data-label="出品先">${listingChips(liveOn(i))}</td>
+        <td class="col-loc meta" data-label="保管場所">${esc(locPath(i.location_id))}</td>
+        <td class="col-status" data-label="状態">${statusTag(i.status, false, stockStale(i, ckIdx))}</td>
+        <td class="col-check" data-label="棚卸">${checkCell(i, ckIdx)}</td>
+        <td class="col-rental" data-label="8RENT">${rentalTag(i)}</td>
       </tr>`;
     }).join('')}</tbody></table></div>
     ${rows.length > 600 ? '<div class="meta" style="margin-top:8px">先頭600件だけ表示しています。絞り込んでください。</div>' : ''}`;
