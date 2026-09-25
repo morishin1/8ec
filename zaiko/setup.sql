@@ -325,10 +325,16 @@ create table if not exists public.inventory_stocktakes (
 create table if not exists public.inventory_stocktake_items (
   stocktake_id bigint not null references public.inventory_stocktakes(id) on delete cascade,
   item_id      text not null,
-  expected     boolean not null default true,
-  checked_at   timestamptz,
+  expected     boolean not null default true,   -- 棚卸開始時の帳簿在庫なら true、途中で読んだ帳簿外現物なら false
+  checked_at   timestamptz,                     -- 現物があった日時
+  missing_at   timestamptz,                     -- 現物が無いことを人が確認した日時（差異確定）
   primary key (stocktake_id, item_id)
 );
+
+comment on column public.inventory_stocktake_items.checked_at is
+  '現物があった日時。見つからなかったことを表すのには使わない（それは missing_at）。';
+comment on column public.inventory_stocktake_items.missing_at is
+  '現物が無いことを人が確認した日時（差異確定）。checked_at は「現物があった」の意味を持つので流用しない。';
 
 -- 実施中の棚卸は同時に1つだけ
 create unique index if not exists inventory_stocktakes_open_idx
@@ -595,14 +601,23 @@ begin
   insert into public.inventory_stocktakes (actor, scope_location_id)
   values (public.inv_actor(), p_scope) returning * into st;
 
+  -- 帳簿在庫＝販売できる手元在庫（在庫・出品中）だけを対象にする。
+  --   貸出中・予約中・販売予約 … お客様の手元／確保済みで、現物を見に行けない
+  --   売却済・廃棄             … もう持っていない
+  --   修理中・故障・紛失・不明 … 販売可能在庫ではない
+  -- ここに混ぜると「未確認」が実態より多く出て、差異候補が意味を失う。
   insert into public.inventory_stocktake_items (stocktake_id, item_id, expected)
   select st.id, i.id, true
   from public.inventory_items i
-  where i.status <> '廃棄'
+  where i.status in ('在庫', '出品中')
     and (p_scope is null or i.location_id in (select id from public.inv_location_tree(p_scope)));
 
   return st;
 end $$;
+
+comment on function public.inv_start_stocktake is
+  '棚卸を始める。対象（帳簿在庫）は status in (''在庫'',''出品中'') の個体だけを
+   expected=true で並べる。在庫の状態は何も変えない。';
 
 /* ある保管場所と、その下にぶら下がる場所すべて */
 create or replace function public.inv_location_tree(p_id text)
@@ -1544,9 +1559,15 @@ begin
     update public.inventory_items set last_checked_at=now() where id=p_item_id returning * into it;
     select id into st_id from public.inventory_stocktakes where status='open' limit 1;
     if st_id is not null then
+      -- 帳簿に無い現物を読んだときに足す行は「帳簿外現物」（expected=false）。
+      -- すでに対象（expected=true）なら checked_at だけ更新し、true のまま触らない。
+      -- こうしないと棚卸の途中で帳簿在庫 241台が 242台へ増えてしまう。
+      -- 現物が見つかったのだから、差異確定（missing_at）は取り消す。
+      -- ※ status は '不明' のままにする。状態を戻すかどうかは人が決めること
       insert into public.inventory_stocktake_items (stocktake_id, item_id, expected, checked_at)
-      values (st_id, p_item_id, true, now())
-      on conflict (stocktake_id, item_id) do update set checked_at = excluded.checked_at;
+      values (st_id, p_item_id, false, now())
+      on conflict (stocktake_id, item_id)
+        do update set checked_at = excluded.checked_at, missing_at = null;
     end if;
 
   else
@@ -10627,6 +10648,367 @@ revoke all on function public.inv_shipping_tariff_activate(bigint) from public, 
 grant execute on function public.inv_shipping_tariff_activate(bigint) to authenticated;
 revoke all on function public.inv_product_shipping_size_set(text, text) from public, anon;
 grant execute on function public.inv_product_shipping_size_set(text, text) to authenticated;
+
+
+
+
+-- ============================================================
+-- 61) 月次棚卸を「帳簿在庫と現物の照合」にする
+--
+--     対象（帳簿在庫）は inv_start_stocktake が status in ('在庫','出品中') で並べる。
+--     棚卸の途中で帳簿に無い現物を読んだら、inv_item_op が expected=false で足す。
+--
+--     「まだ確認していない」と「現物が無いことを確認した」は別もの。
+--     checked_at は**現物があった**の意味だけを持ち、見つからないことには流用しない。
+--     数え方は
+--       帳簿在庫     expected = true
+--       現物確認済み expected = true  かつ checked_at is not null
+--       差異確定     expected = true  かつ checked_at is null かつ missing_at is not null
+--       未確認       expected = true  かつ checked_at is null かつ missing_at is null
+--       帳簿外現物   expected = false かつ checked_at is not null
+--     stocktake_items の全件数を帳簿在庫として使わないこと。
+--     月次棚卸の完了条件は「未確認が0」＝全台が現物ありか現物なし確認済みのどちらかになること。
+-- ============================================================
+
+-- ------------------------------------------------------------
+-- 61-1) 棚卸確認を取り消す
+--
+--    画面から checked_at を直接 NULL にするだけでは足りない。
+--      inventory_stocktake_items.checked_at  … 今回の確認
+--      inventory_items.last_checked_at       … 最後に現物を見た日時（在庫一覧の色）
+--      inventory_transactions                … 履歴
+--    の3つが噛み合っているので、サーバー側でまとめて整合を取る。
+--
+--    last_checked_at の戻し方
+--      inv_item_op は同じトランザクションの中で
+--        update items set last_checked_at = now()
+--        insert into transactions (occurred_at default now())
+--      を実行する。plpgsql の now() はトランザクション開始時刻なので、
+--      この2つは必ず同じ値になる。よって「今回の棚卸が始まる前の
+--      いちばん新しい 棚卸確認 履歴の occurred_at」が、そのまま
+--      前回の last_checked_at になる。
+--      履歴が無ければ NULL（＝未確認）に戻す。
+--
+--    履歴は消さない。取り消したことも '棚卸確認取消' として追記する。
+--    在庫の状態・在庫数・出品状態・8RENTは変えない。
+-- ------------------------------------------------------------
+create or replace function public.inv_stocktake_uncheck(
+  p_stocktake_id bigint,
+  p_item_id      text
+) returns public.inventory_items
+language plpgsql security invoker set search_path = public as $$
+declare
+  st     public.inventory_stocktakes;
+  it     public.inventory_items;
+  v_row  public.inventory_stocktake_items;
+  v_prev timestamptz;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+
+  select * into st from public.inventory_stocktakes where id = p_stocktake_id;
+  if not found then
+    raise exception '棚卸が見つかりません（%）', p_stocktake_id;
+  end if;
+  if st.status <> 'open' then
+    raise exception '終了した棚卸は直せません';
+  end if;
+
+  select * into v_row from public.inventory_stocktake_items
+   where stocktake_id = p_stocktake_id and item_id = p_item_id
+   for update;
+  if not found then
+    raise exception 'この棚卸の対象ではありません（%）', p_item_id;
+  end if;
+  if v_row.checked_at is null then
+    raise exception 'まだ確認していません（%）', p_item_id;
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+
+  select max(t.occurred_at) into v_prev
+    from public.inventory_transactions t
+   where t.ref_kind = 'item'
+     and t.ref_id   = p_item_id
+     and t.action   = '棚卸確認'
+     and t.occurred_at < st.started_at;
+
+  update public.inventory_stocktake_items
+     set checked_at = null
+   where stocktake_id = p_stocktake_id and item_id = p_item_id;
+
+  update public.inventory_items
+     set last_checked_at = v_prev
+   where id = p_item_id
+  returning * into it;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'item', p_item_id, it.name, '棚卸確認取消',
+          to_char(v_row.checked_at at time zone 'Asia/Tokyo', 'YYYY/MM/DD HH24:MI') || ' の確認',
+          case when v_prev is null
+               then '未確認（それ以前の棚卸確認の記録なし）'
+               else '前回 ' || to_char(v_prev at time zone 'Asia/Tokyo', 'YYYY/MM/DD HH24:MI')
+          end);
+
+  return it;
+end $$;
+
+comment on function public.inv_stocktake_uncheck is
+  '実施中の棚卸で付けた「確認済み」を取り消す。checked_at を NULL に戻し、
+   inventory_items.last_checked_at を今回の棚卸が始まる前の最新の棚卸確認へ戻す
+   （記録が無ければ NULL）。''棚卸確認取消'' を履歴に追記する。履歴は消さない。
+   在庫の状態・在庫数・出品状態・8RENT・価格は変えない。';
+
+
+-- ------------------------------------------------------------
+-- 61-2) 差異確定：現物が見つからないことを人が確認した
+--
+--    画面から inv_item_op('状態変更','不明') を呼ぶだけでは、
+--    その棚卸で「処理が済んだ」ことが残らない（checked_at も missing_at も NULL のまま）。
+--    それだと未確認一覧に残り続け、未確認の数も減らない。
+--    1トランザクションで
+--      missing_at = now()
+--      inventory_items.status = '不明'
+--      履歴に追記
+--    をまとめてやる。
+--
+--    '不明' が販売可能数・8RENT可能数・販売予約可能数から外れる仕組み
+--    （どれも status='在庫' だけを数えている）には手を入れていない。
+-- ------------------------------------------------------------
+create or replace function public.inv_stocktake_mark_missing(
+  p_stocktake_id bigint,
+  p_item_id      text
+) returns public.inventory_items
+language plpgsql security invoker set search_path = public as $$
+declare
+  st     public.inventory_stocktakes;
+  it     public.inventory_items;
+  v_row  public.inventory_stocktake_items;
+  v_was  text;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+
+  select * into st from public.inventory_stocktakes where id = p_stocktake_id;
+  if not found then
+    raise exception '棚卸が見つかりません（%）', p_stocktake_id;
+  end if;
+  if st.status <> 'open' then
+    raise exception '終了した棚卸は直せません';
+  end if;
+
+  select * into v_row from public.inventory_stocktake_items
+   where stocktake_id = p_stocktake_id and item_id = p_item_id
+   for update;
+  if not found then
+    raise exception 'この棚卸の対象ではありません（%）', p_item_id;
+  end if;
+  if not v_row.expected then
+    raise exception '帳簿外の現物は差異確定できません（%）', p_item_id;
+  end if;
+  if v_row.checked_at is not null then
+    raise exception 'すでに現物を確認しています。先に「未確認に戻す」を押してください（%）', p_item_id;
+  end if;
+  if v_row.missing_at is not null then
+    raise exception 'すでに差異確定しています（%）', p_item_id;
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+  -- お客様への約束が生きている個体は、先に返却・キャンセルしてもらう
+  if it.status in ('予約中', '販売予約', '貸出中') then
+    raise exception '% のため差異確定できません（先に返却・キャンセルしてください）', it.status;
+  end if;
+  if it.status in ('売却済', '廃棄') then
+    raise exception '% は棚卸の対象ではありません', it.status;
+  end if;
+  if it.status = '不明' then
+    raise exception 'すでに不明です（%）', p_item_id;
+  end if;
+
+  v_was := it.status;          -- 取り消すときはここへ戻す
+
+  update public.inventory_stocktake_items
+     set missing_at = now()
+   where stocktake_id = p_stocktake_id and item_id = p_item_id;
+
+  update public.inventory_items
+     set status = '不明', user_name = null, loaned_at = null
+   where id = p_item_id
+  returning * into it;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'item', p_item_id, it.name, '棚卸差異確定',
+          v_was, '不明／棚卸で現物が見つからない');
+
+  return it;
+end $$;
+
+comment on function public.inv_stocktake_mark_missing is
+  '棚卸で「現物が見つからない」と人が確定したときだけ呼ぶ。missing_at を立て、
+   個体の状態を ''不明'' にし、''棚卸差異確定'' を履歴に追記する。
+   未確認のまま自動で呼ばれることはない。予約中・販売予約・貸出中は拒否する。';
+
+
+-- ------------------------------------------------------------
+-- 61-3) 差異確定の取消（誤操作を戻す）
+--
+--    missing_at を消して未処理へ戻し、状態を差異確定の前へ戻す。
+--    ただし**まだ '不明' のままのときだけ**戻す。あとから人が別の状態に
+--    変えていたら、それを上書きしないでそのままにする。
+-- ------------------------------------------------------------
+create or replace function public.inv_stocktake_unmark_missing(
+  p_stocktake_id bigint,
+  p_item_id      text
+) returns public.inventory_items
+language plpgsql security invoker set search_path = public as $$
+declare
+  st     public.inventory_stocktakes;
+  it     public.inventory_items;
+  v_row  public.inventory_stocktake_items;
+  v_back text;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+
+  select * into st from public.inventory_stocktakes where id = p_stocktake_id;
+  if not found then
+    raise exception '棚卸が見つかりません（%）', p_stocktake_id;
+  end if;
+  if st.status <> 'open' then
+    raise exception '終了した棚卸は直せません';
+  end if;
+
+  select * into v_row from public.inventory_stocktake_items
+   where stocktake_id = p_stocktake_id and item_id = p_item_id
+   for update;
+  if not found then
+    raise exception 'この棚卸の対象ではありません（%）', p_item_id;
+  end if;
+  if v_row.missing_at is null then
+    raise exception '差異確定していません（%）', p_item_id;
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+
+  update public.inventory_stocktake_items
+     set missing_at = null
+   where stocktake_id = p_stocktake_id and item_id = p_item_id;
+
+  -- '不明' のままなら、差異確定する前の状態へ戻す。
+  -- 戻り先は推測せず、差異確定のときに履歴へ残した before_value をそのまま使う。
+  -- 棚卸の対象は 在庫・出品中 だけなので、それ以外が入っていたら在庫に寄せる。
+  if it.status = '不明' then
+    select t.before_value into v_back
+      from public.inventory_transactions t
+     where t.ref_kind = 'item' and t.ref_id = p_item_id
+       and t.action = '棚卸差異確定'
+       and t.occurred_at >= st.started_at
+     order by t.occurred_at desc
+     limit 1;
+    if v_back is null or v_back not in ('在庫', '出品中') then
+      v_back := '在庫';
+    end if;
+    update public.inventory_items set status = v_back where id = p_item_id
+    returning * into it;
+  else
+    -- 人があとから別の状態にしている。上書きしない
+    v_back := it.status || '（そのまま）';
+  end if;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'item', p_item_id, it.name, '棚卸差異確定取消',
+          '不明', v_back);
+
+  return it;
+end $$;
+
+comment on function public.inv_stocktake_unmark_missing is
+  '差異確定を取り消して未処理へ戻す。状態が ''不明'' のままのときだけ、
+   差異確定のときに履歴へ残した元の状態（在庫／出品中）へ戻す。
+   人があとから別の状態にしていたら上書きしない。履歴は消さず追記する。';
+
+
+-- ------------------------------------------------------------
+-- 61-4) 月次の照合結果（読み取り専用・1棚卸1行）
+--
+--    ブラウザで inventory_stocktake_items を何千行も読んで数えなくて済むように、
+--    集計はDB側でやる。
+--
+--      帳簿在庫   expected = true
+--      確認済み   expected = true  かつ checked_at is not null
+--      差異確定   expected = true  かつ checked_at is null かつ missing_at is not null
+--      未確認     expected = true  かつ checked_at is null かつ missing_at is null
+--      帳簿外現物 expected = false かつ checked_at is not null
+--
+--    差異確定は**その棚卸の missing_at から正確に数える**。履歴を期間で切って
+--    推測したりはしない（棚卸以外の理由で不明にしたものが混ざるため）。
+-- ------------------------------------------------------------
+drop view if exists public.inv_stocktake_summary;
+create view public.inv_stocktake_summary as
+select
+  s.id                 as stocktake_id,
+  s.started_at,
+  s.closed_at,
+  s.status,
+  s.actor,
+  s.scope_location_id,
+  c.book::integer      as book_count,
+  c.checked::integer   as checked_count,
+  c.missing::integer   as missing_count,
+  (c.book - c.checked - c.missing)::integer as unchecked_count,
+  c.extra::integer     as extra_count
+from public.inventory_stocktakes s
+left join lateral (
+  select
+    count(*) filter (where i.expected)                                  as book,
+    count(*) filter (where i.expected and i.checked_at is not null)      as checked,
+    count(*) filter (where i.expected and i.checked_at is null
+                       and i.missing_at is not null)                     as missing,
+    count(*) filter (where not i.expected and i.checked_at is not null)  as extra
+  from public.inventory_stocktake_items i
+  where i.stocktake_id = s.id
+) c on true;
+
+comment on view public.inv_stocktake_summary is
+  '棚卸1回を1行にまとめた照合結果。帳簿在庫・現物確認済み・差異確定・未確認・帳簿外現物を返す。
+   差異確定はその棚卸の missing_at から数えるので、履歴を期間で切った近似ではない。
+   社内用（anonには出さない）。';
+
+
+-- ------------------------------------------------------------
+-- 61-5) 権限
+--
+--    2026-10-01-rpc-permission-hardening.sql の一括配り直しは
+--    「そのとき存在した関数」に対する1回きりの処理なので、
+--    あとから足した関数には効かない。既定では PUBLIC に EXECUTE が付き
+--    anon からも呼べてしまうため、ここで明示的に落として配り直す。
+-- ------------------------------------------------------------
+revoke all on function public.inv_stocktake_uncheck(bigint, text) from public, anon, service_role;
+grant execute on function public.inv_stocktake_uncheck(bigint, text) to authenticated;
+
+revoke all on function public.inv_stocktake_mark_missing(bigint, text) from public, anon, service_role;
+grant execute on function public.inv_stocktake_mark_missing(bigint, text) to authenticated;
+
+revoke all on function public.inv_stocktake_unmark_missing(bigint, text) from public, anon, service_role;
+grant execute on function public.inv_stocktake_unmark_missing(bigint, text) to authenticated;
+
+revoke all on public.inv_stocktake_summary from public, anon;
+grant select on public.inv_stocktake_summary to authenticated;
 
 
 -- ============================================================

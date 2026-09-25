@@ -131,7 +131,8 @@ let sb = null;
 let me = { email: '', name: '', role: 'viewer' };
 const db = {
   cats: [], locs: [], masters: [], items: [], channels: [],
-  tx: [], stocktake: null, stChecked: [], stPast: [], members: [], imports: [], rentalReqs: [],
+  tx: [], stocktake: null, stChecked: [], stPast: [], stSummary: [],  // stSummary は inv_stocktake_summary（1棚卸1行の照合結果）
+  members: [], imports: [], rentalReqs: [],
   chanSettings: [],         // 販売サイトごとの管理画面URL（inventory_channel_settings）
   deals: [],                // 3分診断（/quote）から届いた案件
   quotes: [], qItems: [], qTotals: [],   // 見積・明細・合計
@@ -149,6 +150,7 @@ const ui = {
   // 一覧のタブ。individual / model のほかに、販売サイトのキーと 'none'（未出品）を取る
   listMode: 'unit', fSt: '', fDiff: false, fNoPrice: false, fRental: '', fRentEl: '',
   fCheck: '',                // 棚卸の絞り込み。'' すべて / 'done' 確認済み / 'todo' 未確認
+  stTab: 'todo',             // 棚卸画面のタブ。'todo' 未確認 / 'done' 確認済み / 'extra' 帳簿外現物
   mTab: 'loc',               // マスター管理のタブ（保管場所／カテゴリー）
   quoteId: null,             // いま開いている見積
   contractId: null,          // いま開いている契約
@@ -576,9 +578,10 @@ async function loadAll() {
     sb.from('inventory_contract_payments').select('*').limit(LOAD_LIMIT),
     sb.from('inv_contract_fulfillment_list').select('*').limit(LOAD_LIMIT),
     sb.from('inventory_contract_fulfillments').select('*').limit(LOAD_LIMIT),
-    sb.from('inventory_shipping_tariffs').select('*').eq('active', true).limit(5)
+    sb.from('inventory_shipping_tariffs').select('*').eq('active', true).limit(5),
+    sb.from('inv_stocktake_summary').select('*').order('started_at', { ascending: false }).limit(24)
   ];
-  const [c, l, i, p, t, s, ch, im, rr, cl, cs, ds, dl, qh, qi, qt, kh, ki, vh, vp, fl, fm, sh] = await Promise.all(q);
+  const [c, l, i, p, t, s, ch, im, rr, cl, cs, ds, dl, qh, qi, qt, kh, ki, vh, vp, fl, fm, sh, ss] = await Promise.all(q);
   const bad = [c, l, i, p, t, s, ch, im].find(r => r.error);
   if (bad) { showSetup(bad.error); return false; }
   db.imports = im.data || [];
@@ -603,6 +606,9 @@ async function loadAll() {
   db.fulfillments = fm.error ? [] : (fm.data || []);
   // 運賃表。migration未適用でも他の画面が動くよう、取れなければ null にする
   db.shipTariffs = sh.error ? [] : (sh.data || []);
+  // 棚卸の照合結果。DB側で数えたものをそのまま使う（ブラウザで何千行も数えない）。
+  // migration未適用でも他の画面が動くよう、取れなければ空にする
+  db.stSummary = ss.error ? [] : (ss.data || []);
 
   db.cats = c.data || [];
   db.locs = l.data || [];
@@ -868,9 +874,8 @@ function viewDash() {
     .concat(db.masters.filter(p => p.kind === 'individual' && stockOf(p).inStock <= 0));
   const order = qtyMasters.filter(needsOrder);
   const broken = live.filter(i => i.status === '修理中' || i.status === '故障');
-  // 棚卸で「まだ確認していない」件数
-  const checkedIds = db.stChecked.filter(x => x.checked_at).map(x => x.item_id);
-  const stLeft = db.stocktake ? db.stChecked.length - checkedIds.length : 0;
+  // 棚卸で「まだ確認していない」件数。棚卸画面・在庫一覧と同じ数え方を通す
+  const stLeft = stocktakeProgress().left;
   // 売却済みなのに売価が入っていない個体。0件なら「要確認」に出さない
   const noPrice = Number((db.stats || {}).sold_price_missing || 0);
 
@@ -1564,41 +1569,88 @@ function rentalTag(i) {
    棚卸は「現物を確認した記録」でしかない。**在庫の状態・在庫数・出品状態・8RENTは
    1つも変えない**（サーバー側の inv_item_op も last_checked_at しか書き換えない）。
 
-   もとになるのは次の2つだけで、DBには何も足していない。
+   もとになるのは次の2つだけで、DBには列を1つも足していない。
      inventory_items.last_checked_at   … いちばん最後に現物を見た日時
      inventory_stocktake_items         … 実施中の棚卸で、対象と確認済みを持つ
 
    **棚卸画面と在庫一覧は、同じ db.stChecked を数える。** 別々に数えると
-   「棚卸では178なのに一覧では177」ということが起きるため。 */
+   「棚卸では178なのに一覧では177」ということが起きるため。
 
-/* 実施中の棚卸の進み具合。棚卸画面も在庫一覧もこれを呼ぶ */
-function stocktakeProgress() {
+   **「まだ確認していない」と「現物が無いことを確認した」は別もの。**
+   `checked_at` は**現物があった**の意味だけを持ち、見つからないことには流用しない
+   （それは `missing_at`）。数え方は expected と2つの日時で分ける。
+
+     帳簿在庫     expected = true                      … 棚卸開始時の 在庫・出品中
+     現物確認済み expected = true  かつ checked_at あり … 現物を見つけた
+     差異確定     expected = true  かつ checked_at なし かつ missing_at あり
+                                                        … 現物が無いことを人が確認した
+     未確認       expected = true  かつ どちらも なし   … まだ処理していない
+     帳簿外現物   expected = false かつ checked_at あり … 帳簿に無いのに現物があった
+
+   **行の総数を帳簿在庫にしない。** 途中で帳簿外の現物を読んでも
+   帳簿在庫 241台が 242台へ増えないようにするため。
+   月次棚卸の完了条件は**未確認が0**＝全台が「現物あり」か「現物なしを確認済み」のどちらかになること。 */
+
+/* 実施中の棚卸の進み具合。棚卸画面も在庫一覧もQR読取の件数もこれを呼ぶ。
+   expected は棚卸開始時に true で入る。帳簿外現物だけ false（inv_item_op が足す）。
+   古いデータで expected が入っていない行は、帳簿在庫として数える（=== false で見る） */
+function stocktakeBuckets() {
   const all = db.stocktake ? (db.stChecked || []) : [];
-  const done = all.filter(x => x.checked_at);
+  const book = all.filter(x => x.expected !== false);
   return {
-    open: !!db.stocktake,
-    total: all.length,
-    done: done.length,
-    left: all.length - done.length,
-    pct: all.length ? Math.round(done.length / all.length * 100) : 0,
-    doneIds: done.map(x => x.item_id)
+    book,
+    done:    book.filter(x => x.checked_at),                       // 現物確認済み
+    missing: book.filter(x => !x.checked_at && x.missing_at),      // 差異確定
+    todo:    book.filter(x => !x.checked_at && !x.missing_at),     // 未確認
+    extra:   all.filter(x => x.expected === false && x.checked_at) // 帳簿外現物
   };
 }
-/* 実施中の棚卸で「今回確認したか」を引くための索引。1行ずつ探すと重いので1回で作る */
+function stocktakeProgress() {
+  const { book, done, missing, todo, extra } = stocktakeBuckets();
+  const handled = done.length + missing.length;
+  return {
+    open: !!db.stocktake,
+    total: book.length,       // 帳簿在庫
+    done: done.length,        // 現物確認済み
+    missing: missing.length,  // 差異確定
+    left: todo.length,        // 未確認（まだ処理していない）
+    extra: extra.length,      // 帳簿外現物
+    handled,                  // 棚卸処理済み＝現物確認済み＋差異確定
+    pct: book.length ? Math.round(handled / book.length * 100) : 0,
+    rate: book.length ? (handled / book.length * 100).toFixed(1) : '0.0',
+    doneIds: done.map(x => x.item_id),
+    missingIds: missing.map(x => x.item_id),
+    todoIds: todo.map(x => x.item_id),
+    extraIds: extra.map(x => x.item_id)
+  };
+}
+/* 実施中の棚卸の状況を引くための索引。1行ずつ探すと重いので1回で作る。
+   **日時だけでなく expected も持つ。** 持たないと帳簿外現物（expected=false）が
+   在庫一覧で「今回確認済み」に混ざってしまう。 */
 function stocktakeIndex() {
   const idx = {};
-  if (db.stocktake) (db.stChecked || []).forEach(x => { idx[x.item_id] = x.checked_at || null; });
+  if (db.stocktake) (db.stChecked || []).forEach(x => {
+    idx[x.item_id] = { checkedAt: x.checked_at || null,
+                       missingAt: x.missing_at || null,
+                       expected: x.expected !== false };
+  });
   return idx;
 }
 /* 1台ぶんの確認状況。
-     now  … 実施中の棚卸で確認済み（今回見た）
-     todo … 実施中の棚卸の対象だが、まだ確認していない
-     at   … いちばん最後に現物を見た日時（過去の棚卸ぶんも含む） */
+     now     … 実施中の棚卸で現物を確認できた（今回見た）
+     todo    … 実施中の棚卸の帳簿在庫だが、まだ処理していない
+     missing … 実施中の棚卸で差異確定した（現物が無いことを確認した）
+     at      … いちばん最後に現物を見た日時（過去の棚卸ぶんも含む）
+   **帳簿外現物（expected=false）は帳簿在庫とは別軸**なので inScope に入れない。
+   今回確認済み・今回未確認のどちらにも数えない。 */
 function checkState(i, idx) {
   const map = idx || stocktakeIndex();
-  const inScope = db.stocktake && Object.prototype.hasOwnProperty.call(map, i.id);
-  return { now: !!(inScope && map[i.id]), todo: !!(inScope && !map[i.id]),
-           inScope: !!inScope, at: i.last_checked_at || null,
+  const row = db.stocktake ? map[i.id] : null;
+  const inScope = !!(row && row.expected);
+  return { now: !!(inScope && row.checkedAt),
+           todo: !!(inScope && !row.checkedAt && !row.missingAt),
+           missing: !!(inScope && !row.checkedAt && row.missingAt),
+           inScope, at: i.last_checked_at || null,
            thisMonth: isThisMonth(i.last_checked_at) };
 }
 
@@ -1617,11 +1669,17 @@ function isThisMonth(v) {
      false … まだ見ていない（状態タグを薄い赤にする）
      null  … 判断しない。色も付けず、絞り込みにも出さない
              ・実施中の棚卸の対象外（無理に未確認扱いしない）
+             ・帳簿外現物（帳簿在庫とは別軸。どちらにも数えない）
+             ・差異確定（現物が無いことを確認済み。「まだ見ていない」ではない）
              ・売却済・廃棄（手元に無いので棚卸の対象ではない） */
 function checkedThisMonth(i, idx) {
   if (!i || GONE.includes(i.status)) return null;
   const s = checkState(i, idx);
-  if (db.stocktake) return s.inScope ? s.now : null;
+  if (db.stocktake) {
+    if (!s.inScope) return null;
+    if (s.missing) return null;   // 処理は済んでいる。未確認に混ぜない
+    return s.now;
+  }
   return s.thisMonth;
 }
 /* 一覧の「棚卸」欄。実施中は今回の結果を、していないときは今月見たかどうかを出す。
@@ -1631,7 +1689,10 @@ function checkCell(i, idx) {
   const at = i.last_checked_at || null;
   const when = at ? `<div class="meta nowrap">${esc(fmtDT(at))}</div>` : '';
   const last = at ? `<div class="meta nowrap">前回 ${esc(fmtDT(at))}</div>` : '';
-  // 判断しないもの（実施中の棚卸の対象外・売却済・廃棄）は「未確認」とは言わない
+  // 差異確定は「未確認」ではなく「処理済み」。そうと分かるように別の印を出す
+  if (db.stocktake && checkState(i, idx).missing)
+    return `<span class="tag chk miss">差異確定</span>${last}`;
+  // 判断しないもの（実施中の棚卸の対象外・帳簿外現物・売却済・廃棄）は「未確認」とは言わない
   if (v === null) return `<span class="meta">—</span>${when}`;
   if (v) return `<span class="tag chk on">${db.stocktake ? '今回確認済' : '今月確認済'}</span>${when}`;
   if (db.stocktake) return `<span class="tag chk todo">未確認</span>${last}`;
@@ -1665,10 +1726,12 @@ function stocktakeBar() {
   return `<div class="stbar">
     <span class="ms">fact_check</span>
     <div style="flex:1;min-width:0">
-      <div class="t">棚卸実施中　棚卸確認済 ${p.done} / ${p.total}　未確認 ${p.left}</div>
+      <div class="t">棚卸実施中　帳簿在庫 ${p.total}　現物確認済み ${p.done}　差異確定 ${p.missing}　未確認 ${p.left}${
+        p.extra ? `　帳簿外現物 ${p.extra}` : ''}　処理済み ${p.handled} / ${p.total}</div>
       <div class="prog" style="margin-top:6px"><i style="width:${p.pct}%"></i></div>
     </div>
     <button class="btn sm ghost" onclick="ui.fCheck='todo';go('list')">未確認だけ見る</button>
+    <button class="btn sm ghost" onclick="ui.fCheck='done';go('list')">確認済みだけ見る</button>
     <button class="btn sm ghost" onclick="go('stock')">棚卸の画面へ</button>
   </div>`;
 }
@@ -6696,13 +6759,78 @@ function viewLoan() {
       </div>`).join('')}</div>` : '<div class="empty">貸し出せる在庫がありません。</div>'}`;
 }
 
-/* ===== 8. 棚卸 ===== */
+/* ===== 8. 棚卸 =====
+   月次の棚卸は「帳簿在庫と現物の照合」。
+   **システム上は売れる在庫なのに、現物が無い**ものを見つけて、残さないための画面。
+
+   帳簿在庫     … 棚卸を始めた時点の 在庫・出品中（inv_start_stocktake が expected=true で並べる）
+   現物確認済み … そのうち現物を見つけたもの（checked_at）
+   差異確定     … 現物が無いことを人が確認したもの（missing_at・状態は不明になる）
+   未確認       … まだどちらにも処理していないもの
+   帳簿外現物   … 帳簿に無いのに現物があったもの（QR等で読むと expected=false で足される）
+
+   **未確認が0になれば、帳簿在庫の全台が「現物あり」か「現物なしを確認済み」の
+   どちらかに確定した**ということ。これを月次棚卸の完了条件にしている。
+   帳簿在庫の数は棚卸の途中で増えない。帳簿外の現物を読んでも別枠で数える。
+   QRが貼られていない個体は［確認］ボタンで確認する。QRを読むのと同じ
+   inv_item_op('棚卸確認') を通るので、どちらでも同じ記録になる。
+   この画面は在庫の状態・在庫数・出品状態・8RENT・価格を1つも変えない。 */
+
+/* 棚卸の一覧の1行。型番・管理番号・メーカー・保管場所・状態と、右にボタン */
+function stRow(itemId, note, acts) {
+  const it = item(itemId);
+  const head = it ? (it.model || it.name || itemId) : itemId;
+  const bits = it
+    ? [esc(itemId), esc(it.maker || ''), esc(locPath(it.location_id))].filter(Boolean)
+    : [esc(itemId), '（この個体は見つかりません）'];
+  return `<div class="r">
+    <div class="b">
+      <div class="n">${esc(head)}</div>
+      <div class="m">${bits.join('　')}${note ? `　${note}` : ''}</div>
+    </div>
+    ${it ? statusTag(it.status) : ''}
+    <div class="acts">${acts}</div>
+  </div>`;
+}
+
+/* これまでの棚卸。数えるのはDB側（inv_stocktake_summary）。
+   ブラウザで stocktake_items を何千行も読んで数えたりはしない */
+function pastStocktakeTable() {
+  const rows = (db.stSummary || []).filter(x => x.status !== 'open');
+  if (!rows.length) {
+    return db.stPast.length
+      ? `<div class="empty">集計（inv_stocktake_summary）がまだ読めません。migrationの適用後に出ます。</div>`
+      : '<div class="empty">まだ実施していません。</div>';
+  }
+  return `<div class="table-wrap"><table class="t">
+    <thead><tr><th>実施</th><th>範囲</th><th>担当</th>
+      <th class="r num">帳簿在庫</th><th class="r num">現物確認済み</th><th class="r num">差異確定</th>
+      <th class="r num">未確認</th><th class="r num">帳簿外現物</th></tr></thead>
+    <tbody>${rows.map(s => `<tr>
+      <td class="nowrap meta">${fmtDT(s.started_at)}</td>
+      <td>${esc(s.scope_location_id ? locPath(s.scope_location_id) : 'すべて')}</td>
+      <td class="meta">${esc(s.actor || '')}</td>
+      <td class="r num">${s.book_count}</td>
+      <td class="r num">${s.checked_count}</td>
+      <td class="r num${s.missing_count ? ' minus' : ''}">${s.missing_count}</td>
+      <td class="r num${s.unchecked_count ? ' minus' : ''}">${s.unchecked_count}</td>
+      <td class="r num">${s.extra_count}</td></tr>`).join('')}</tbody></table></div>
+    <p class="meta" style="margin:8px 0 0">「差異確定」は、その棚卸で現物が無いことを人が確認した台数です
+      （<code>missing_at</code> から数えています。履歴を期間で切った推測ではありません）。
+      「未確認」が0なら、帳簿在庫の全台が現物ありか現物なし確認済みのどちらかに確定しています。</p>`;
+}
+
 function viewStock() {
   if (!db.stocktake) {
     const scope = ui.stScope;
-    const n = db.items.filter(i => i.status !== '廃棄' && (!scope || locTree(scope).includes(i.location_id))).length;
+    // 対象は帳簿在庫（在庫・出品中）。貸出中・予約中・販売予約・売却済・廃棄は
+    // そもそも現物を確認しに行けないので数えない（inv_start_stocktake と同じ条件）
+    const n = db.items.filter(i => IN_STOCK.includes(i.status)
+      && (!scope || locTree(scope).includes(i.location_id))).length;
     return `<h1>棚卸</h1>
-      <p class="sub" style="margin:8px 0 18px">対象を決めて始めると、その範囲の機器が「未確認」に並びます。QRを連続で読み取って確認していきます。</p>
+      <p class="sub" style="margin:8px 0 18px">帳簿の在庫（<strong>在庫・出品中</strong>）が
+        本当に手元にあるかを照合します。始めると、その範囲が「未確認」に並びます。
+        QRを連続で読み取るか、［確認］を押して潰していきます。</p>
       ${guardNote()}
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;max-width:620px">
         <select class="input" style="flex:1 1 220px" onchange="ui.stScope=this.value;render()">
@@ -6712,38 +6840,80 @@ function viewStock() {
         </select>
       </div>
       <button class="btn lime" style="min-height:56px;margin-top:12px" onclick="startStocktake()" ${dis()}>
-        <span class="ms">play_circle</span>棚卸開始（対象 ${n}件）</button>
+        <span class="ms">play_circle</span>棚卸開始（帳簿在庫 ${n}台）</button>
+      <p class="meta" style="margin:8px 0 0">貸出中・予約中・販売予約・売却済・廃棄は対象に入りません
+        （現物を確認しに行けないため）。未確認の数にも混ざりません。</p>
 
       <div class="sec">これまでの棚卸</div>
-      ${db.stPast.length ? `<div class="table-wrap"><table class="t">
-        <thead><tr><th>実施</th><th>範囲</th><th>担当</th><th>確認</th></tr></thead>
-        <tbody>${db.stPast.map(s => `<tr>
-          <td class="nowrap meta">${fmtDT(s.started_at)}</td>
-          <td>${esc(s.scope_location_id ? locPath(s.scope_location_id) : 'すべて')}</td>
-          <td class="meta">${esc(s.actor || '')}</td>
-          <td class="meta">—</td></tr>`).join('')}</tbody></table></div>`
-        : '<div class="empty">まだ実施していません。</div>'}`;
+      ${pastStocktakeTable()}`;
   }
 
   const st = db.stocktake;
-  // 数え方は在庫一覧と同じ関数を通す（別々に数えて食い違わないように）
+  // 数え方も一覧の仕分けも stocktakeBuckets / stocktakeProgress 1本に通す
   const p = stocktakeProgress();
-  const all = db.stChecked;
-  const done = all.filter(x => x.checked_at);
-  const left = all.filter(x => !x.checked_at);
-  return `<h1>棚卸</h1>
-    <div style="display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap;margin:14px 0 6px">
-      <div class="stcount num">${p.done} <small>/ ${p.total}</small></div>
-      <div class="sub">${esc(st.scope_location_id ? locPath(st.scope_location_id) : 'すべて')}　開始 ${fmtDT(st.started_at)}</div>
+  const b = stocktakeBuckets();
+  const tab = ['done', 'missing', 'extra'].includes(ui.stTab) ? ui.stTab : 'todo';
+  const when = new Date(st.started_at);
+
+  const list = tab === 'todo'
+    ? (b.todo.length ? `<div class="stlist">${b.todo.map(x => {
+        const it = item(x.item_id);
+        const last = it && it.last_checked_at ? `前回確認 ${fmtDT(it.last_checked_at)}` : '前回確認なし';
+        return stRow(x.item_id, `<span class="meta">${last}</span>`,
+          `<button class="btn sm lime" onclick="checkItem('${esc(x.item_id)}')" ${dis()}>確認</button>
+           <button class="btn sm ghost" onclick="openMissing('${esc(x.item_id)}')" ${dis()}>見つからない</button>`);
+      }).join('')}</div>`
+      : `<div class="empty">未確認は0台です。帳簿在庫 ${p.total}台すべてについて、
+          現物があったか、現物が無いことを確認したかのどちらかに確定しました。
+          「棚卸を終了」を押してください。</div>`)
+    : tab === 'done'
+    ? (b.done.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <button class="btn sm" onclick="printCheckedLabels()">
+          <span class="ms">qr_code_2</span>この${b.done.length}台のQRを印刷</button>
+        <button class="btn sm ghost" onclick="ui.fCheck='done';go('list')">在庫一覧で見る</button>
+      </div>
+      <div class="stlist">${b.done.map(x => stRow(x.item_id,
+        `<span class="meta">確認 ${fmtDT(x.checked_at)}</span>`,
+        `<button class="btn sm ghost" onclick="openUncheck('${esc(x.item_id)}')" ${dis()}>未確認に戻す</button>`
+      )).join('')}</div>`
+      : '<div class="empty">まだありません。</div>')
+    : tab === 'missing'
+    ? (b.missing.length ? `<p class="meta" style="margin:0 0 10px">現物が無いことを人が確認したものです。
+        <strong>状態は「不明」になっています</strong>（販売可能数・8RENT可能数・販売予約可能数から外れます）。
+        見つかったら［差異確定を取り消す］で元の状態へ戻せます。</p>
+      <div class="stlist">${b.missing.map(x => stRow(x.item_id,
+        `<span class="meta">差異確定 ${fmtDT(x.missing_at)}</span>`,
+        `<button class="btn sm ghost" onclick="openUnmissing('${esc(x.item_id)}')" ${dis()}>差異確定を取り消す</button>`
+      )).join('')}</div>`
+      : '<div class="empty">ありません。</div>')
+    : (b.extra.length ? `<p class="meta" style="margin:0 0 10px">帳簿（在庫・出品中）に無いのに現物があったものです。
+        <strong>帳簿在庫 ${p.total}台には数えていません。</strong>状態が違っていないか個体詳細で確かめてください。</p>
+      <div class="stlist">${b.extra.map(x => stRow(x.item_id,
+        `<span class="meta">確認 ${fmtDT(x.checked_at)}</span>`,
+        `<button class="btn sm ghost" onclick="openUncheck('${esc(x.item_id)}')" ${dis()}>この読み取りを取り消す</button>`
+      )).join('')}</div>`
+      : '<div class="empty">ありません。</div>');
+
+  return `<h1>${when.getMonth() + 1}月の棚卸</h1>
+    <div class="sum" style="margin:14px 0 10px">
+      <div><div class="lbl">帳簿在庫</div><div class="v">${p.total}<span class="u">台</span></div></div>
+      <div><div class="lbl">現物確認済み</div><div class="v add">${p.done}<span class="u">台</span></div></div>
+      <div><div class="lbl">差異確定</div><div class="v${p.missing ? ' minus' : ''}">${p.missing}<span class="u">台</span></div></div>
+      <div><div class="lbl">未確認</div><div class="v${p.left ? ' err' : ''}">${p.left}<span class="u">台</span></div></div>
+      <div><div class="lbl">帳簿外現物</div><div class="v">${p.extra}<span class="u">台</span></div></div>
     </div>
     <div class="prog"><i style="width:${p.pct}%"></i></div>
-    <div class="meta" style="margin:6px 0 2px">対象 ${p.total}台　確認済み ${p.done}台　未確認 ${p.left}台</div>
+    <div class="meta" style="margin:6px 0 2px">
+      <strong>棚卸処理済み ${p.handled} / ${p.total}（${p.rate}%）</strong>　
+      ${esc(st.scope_location_id ? locPath(st.scope_location_id) : 'すべて')}　開始 ${fmtDT(st.started_at)}<br>
+      残り <strong>${p.left}台</strong>。未確認は「まだ現物を確認できていない帳簿在庫」で、紛失という意味ではありません。
+      現物が無いと確定したものは［見つからない］で差異確定にしてください（自動では不明にしません）。</div>
     ${guardNote()}
-    <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
       <button class="btn lime" style="min-height:56px;flex:1 1 220px" onclick="openScan('stocktake')" ${dis()}>
         <span class="ms">qr_code_scanner</span>連続読取</button>
       <button class="btn" style="min-height:56px" onclick="printCheckedLabels()" ${p.done ? '' : 'disabled'}
-        title="${p.done ? '今回の棚卸で確認済みになった個体だけをQRラベル画面へ渡します' : 'まだ確認済みの個体がありません'}">
+        title="${p.done ? '今回の棚卸で確認済みになった帳簿在庫だけをQRラベル画面へ渡します' : 'まだ確認済みの個体がありません'}">
         <span class="ms">qr_code_2</span>確認済み${p.done}台のQRを印刷</button>
       <button class="btn" style="min-height:56px" onclick="openCloseStocktake()" ${dis()}>棚卸を終了</button>
     </div>
@@ -6751,43 +6921,52 @@ function viewStock() {
       いまの管理番号のラベルをもう一度出すだけで、管理番号もQRのURLも変わりません。
       棚卸は<strong>現物を確認した記録</strong>なので、在庫の状態・在庫数・出品状態・8RENTは変わりません。</p>
 
-    <div class="sec">未確認（${left.length}）</div>
-    ${left.length ? `<div class="unchecked">${left.map(x => {
-      const it = item(x.item_id) || { name: x.item_id, location_id: null };
-      return `<div class="u"><span class="ms">help</span>
-        <div style="flex:1;min-width:0"><div class="n">${esc(it.name)}</div>
-          <div class="m">${esc(x.item_id)}　${esc(locPath(it.location_id))}</div></div>
-        <button class="btn sm" onclick="checkItem('${esc(x.item_id)}')" ${dis()}>確認</button></div>`;
-    }).join('')}</div>` : '<div class="empty">すべて確認できました。「棚卸を終了」を押してください。</div>'}
-
-    <div class="sec">確認済み（${done.length}）</div>
-    ${done.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-        <button class="btn sm" onclick="printCheckedLabels()">
-          <span class="ms">qr_code_2</span>この${done.length}台のQRを印刷</button>
-        <button class="btn sm ghost" onclick="ui.fCheck='done';go('list')">在庫一覧で見る</button>
-      </div>
-      <div class="chips">${done.map(x => `<span>${esc(x.item_id)}</span>`).join('')}</div>`
-      : '<div class="empty">まだありません。</div>'}`;
+    <div class="tabs2 sttabs" style="margin-top:22px">
+      <button class="${tab === 'todo' ? 'on' : ''}" onclick="setStTab('todo')">
+        <span class="ms">help</span>未確認<span class="n">${b.todo.length}</span></button>
+      <button class="${tab === 'done' ? 'on' : ''}" onclick="setStTab('done')">
+        <span class="ms">check_circle</span>確認済み<span class="n">${b.done.length}</span></button>
+      <button class="${tab === 'missing' ? 'on' : ''}" onclick="setStTab('missing')">
+        <span class="ms">search_off</span>差異<span class="n">${b.missing.length}</span></button>
+      <button class="${tab === 'extra' ? 'on' : ''}" onclick="setStTab('extra')">
+        <span class="ms">new_releases</span>帳簿外<span class="n">${b.extra.length}</span></button>
+    </div>
+    ${list}`;
 }
+function setStTab(k) { ui.stTab = k; render(); }
 
 /* 終了する前に、対象・確認済み・未確認を必ず見せる。
    未確認が残っているときは、そのまま終わってよいかを念のためもう一度きく */
 function openCloseStocktake() {
   const p = stocktakeProgress();
   if (!p.open) return;
+  const todo = stocktakeBuckets().todo;
   openModal('棚卸を終了しますか', `
     <div class="sum" style="margin-bottom:12px">
-      <div><div class="lbl">対象</div><div class="v">${p.total}<span class="u">台</span></div></div>
-      <div><div class="lbl">確認済み</div><div class="v add">${p.done}<span class="u">台</span></div></div>
+      <div><div class="lbl">帳簿在庫</div><div class="v">${p.total}<span class="u">台</span></div></div>
+      <div><div class="lbl">現物確認済み</div><div class="v add">${p.done}<span class="u">台</span></div></div>
+      <div><div class="lbl">差異確定</div><div class="v${p.missing ? ' minus' : ''}">${p.missing}<span class="u">台</span></div></div>
       <div><div class="lbl">未確認</div><div class="v${p.left ? ' err' : ''}">${p.left}<span class="u">台</span></div></div>
+      ${p.extra ? `<div><div class="lbl">帳簿外現物</div><div class="v">${p.extra}<span class="u">台</span></div></div>` : ''}
     </div>
     ${p.left ? `<div class="card" style="margin-bottom:12px;background:#FDECEA;border:1px solid #B3261E">
       <strong>未確認が ${p.left}台 残っています。</strong>
-      <span class="meta">見つからなかったものは、個体詳細で状態を「不明」にしておくと、あとから追いかけられます。
-        終了しても<strong>在庫の状態・在庫数・出品状態・8RENTは変わりません</strong>。</span></div>`
+      <span class="meta">未確認は「まだ現物を確認できていない帳簿在庫」で、紛失とは限りません。
+        ここで探し直して［確認］するか、現物が無いと確定したものだけ［見つからない］で
+        差異確定（状態は「不明」）にしてください。<strong>自動では不明にしません。</strong>
+        終了しても<strong>在庫数・出品状態・8RENTは変わりません</strong>
+        （差異確定で「不明」にしたぶんだけ、販売可能数から外れます）。</span></div>`
       : `<div class="card" style="margin-bottom:12px">
-      <strong>対象 ${p.total}台をすべて確認できました。</strong>
-      <span class="meta">終了しても在庫の状態・在庫数は変わりません。確認した日時（最終棚卸確認）は個体に残ります。</span></div>`}
+      <strong>帳簿在庫 ${p.total}台すべてを確定しました（現物確認 ${p.done}台・差異確定 ${p.missing}台）。</strong>
+      <span class="meta">未確認は0台です。終了しても在庫数は変わりません。確認した日時（最終棚卸確認）は個体に残ります。</span></div>`}
+    ${todo.length ? `<div class="stlist" style="max-height:320px;overflow:auto;margin-bottom:12px">${
+      todo.map(x => {
+        const it = item(x.item_id);
+        const last = it && it.last_checked_at ? `前回確認 ${fmtDT(it.last_checked_at)}` : '前回確認なし';
+        return stRow(x.item_id, `<span class="meta">${last}</span>`,
+          `<button class="btn sm lime" onclick="checkItem('${esc(x.item_id)}')" ${dis()}>確認</button>
+           <button class="btn sm ghost" onclick="openMissing('${esc(x.item_id)}')" ${dis()}>見つからない</button>`);
+      }).join('')}</div>` : ''}
     ${p.done ? `<p class="meta">終了する前に、今回確認した ${p.done}台のQRをまとめて印刷できます。</p>` : ''}
   `, [
     ['やめる', 'closeModal()', 'btn ghost'],
@@ -6801,13 +6980,14 @@ async function startStocktake() {
   const { data, error } = await sb.rpc('inv_start_stocktake', { p_scope: ui.stScope || null });
   if (error) { toast('棚卸を開始できませんでした：' + error.message); return; }
   db.stocktake = data;
+  ui.stTab = 'todo';                 // 始めたら必ず「未確認」から
   await loadStocktakeItems();
   render();
   toast('棚卸を開始しました');
 }
 async function closeStocktake(confirmed) {
   if (!db.stocktake) return;
-  const left = db.stChecked.filter(x => !x.checked_at).length;
+  const left = stocktakeProgress().left;   // 数え方は1本に統一（差異確定は未確認に入れない）
   // 確認のモーダル（openCloseStocktake）を通っていれば、そこで見せているので聞き直さない
   if (!confirmed && left && !confirm(`未確認が ${left} 件あります。このまま終了しますか？`)) return;
   const { error } = await sb.rpc('inv_close_stocktake', { p_id: db.stocktake.id });
@@ -6815,6 +6995,10 @@ async function closeStocktake(confirmed) {
   db.stocktake = null; db.stChecked = [];
   const s = await sb.from('inventory_stocktakes').select('*').order('started_at', { ascending: false }).limit(20);
   if (!s.error) { db.stPast = (s.data || []).filter(x => x.status !== 'open'); }
+  // 「これまでの棚卸」に今回の結果を出す。数えるのはDB側（inv_stocktake_summary）
+  const sm = await sb.from('inv_stocktake_summary').select('*')
+    .order('started_at', { ascending: false }).limit(24);
+  if (!sm.error) db.stSummary = sm.data || [];
   render();
   toast('棚卸を終了しました');
 }
@@ -9766,6 +9950,131 @@ async function checkItem(id) {
   toast(id + ' を確認済みにしました');
 }
 
+/* 棚卸確認を取り消す。checked_at を消すだけでは
+     inventory_items.last_checked_at（在庫一覧の色）
+     inventory_transactions（履歴）
+   と噛み合わなくなるので、サーバー側の inv_stocktake_uncheck にまとめてやらせる。
+   在庫の状態・在庫数・出品状態・8RENTは変えない。履歴も消さない。 */
+function openUncheck(id) {
+  if (!db.stocktake) { toast('棚卸を実施していません'); return; }
+  const row = (db.stChecked || []).find(x => x.item_id === id);
+  if (!row || !row.checked_at) { toast('この個体はまだ確認していません'); return; }
+  const it = item(id);
+  openModal('この棚卸確認を取り消しますか？', `
+    <div class="card" style="margin-bottom:12px">
+      <div><span class="k">管理番号</span>${esc(id)}</div>
+      <div><span class="k">型番</span>${esc((it && (it.model || it.name)) || '—')}</div>
+      <div><span class="k">今回の確認</span>${fmtDT(row.checked_at)}</div>
+    </div>
+    <p class="meta"><strong>在庫状態そのものは変更しません。</strong>今回の棚卸では「未確認」に戻します。
+      最終棚卸確認の日時は、今回の棚卸が始まる前の記録へ戻します（記録が無ければ未確認）。
+      履歴は消さず「棚卸確認取消」として残します。</p>
+    ${row.expected === false
+      ? '<p class="meta">この個体は帳簿外現物なので、取り消すとこの棚卸の一覧から消えます。</p>' : ''}
+  `, [['やめる', 'closeModal()', 'btn ghost'],
+      ['未確認に戻す', `closeModal();uncheckItem('${esc(id)}')`, 'btn danger']]);
+}
+async function uncheckItem(id) {
+  if (!db.stocktake) return;
+  const { data, error } = await sb.rpc('inv_stocktake_uncheck',
+    { p_stocktake_id: db.stocktake.id, p_item_id: id });
+  if (error) { toast(error.message || '取り消せませんでした'); return; }
+  const i = db.items.findIndex(x => x.id === id);
+  if (i >= 0 && data) db.items[i] = data;
+  await loadStocktakeItems();
+  await refreshTx();
+  render();
+  toast(id + ' を未確認に戻しました');
+}
+
+/* 棚卸で「現物が見つからない」と**人が確定したときだけ**差異確定にする。
+   押しただけでは変えないし、未確認のまま終了しても自動では確定しない。
+
+   `inv_item_op('状態変更','不明')` を画面から呼ぶだけでは、その棚卸で
+   **処理が済んだことが残らない**（checked_at も missing_at も NULL のまま）ため、
+   未確認一覧に残り続けて未確認の数も減らなかった。専用RPCで
+     missing_at = now()
+     inventory_items.status = '不明'
+     履歴に追記
+   を1トランザクションでやる。
+
+   「不明」は販売可能数・8RENT可能数・販売予約可能数（どれも status='在庫' だけを
+   数えている）から自動的に外れる。**その数え方には手を入れていない。**
+   お客様への約束が生きている個体（予約中・販売予約・貸出中）は、先に
+   返却・キャンセルしてもらう必要があるのでここでは確定しない（サーバー側でも弾く）。 */
+const MISSING_NG = ['予約中', '販売予約', '貸出中', '売却済', '廃棄'];
+function openMissing(id) {
+  if (!db.stocktake) { toast('棚卸を実施していません'); return; }
+  const it = item(id);
+  if (!it) { toast('個体が見つかりません'); return; }
+  if (MISSING_NG.includes(it.status)) {
+    toast(`${it.status} のものは差異確定できません（先に返却・キャンセルしてください）`);
+    return;
+  }
+  openModal('この個体は現物が見つかりませんでしたか？', `
+    <div class="card" style="margin-bottom:12px">
+      <div><span class="k">管理番号</span>${esc(id)}</div>
+      <div><span class="k">型番</span>${esc(it.model || it.name || '—')}</div>
+      <div><span class="k">メーカー</span>${esc(it.maker || '—')}</div>
+      <div><span class="k">保管場所</span>${esc(locPath(it.location_id))}</div>
+      <div><span class="k">いまの状態</span>${esc(it.status)}</div>
+    </div>
+    <p class="meta">この棚卸で<strong>差異確定</strong>にし、状態を「不明」にします。
+      未確認の数から外れ、［差異］タブへ移ります。
+      在庫数・出品状態・8RENTの設定そのものは変えませんが、
+      「不明」は販売可能数・8RENT可能数・販売予約可能数から外れます（数えているのは「在庫」だけのため）。
+      見つかったら［差異確定を取り消す］で元の状態へ戻せます。</p>
+  `, [['キャンセル', 'closeModal()', 'btn ghost'],
+      ['不明にする', `closeModal();markMissing('${esc(id)}')`, 'btn danger']]);
+}
+async function markMissing(id) {
+  if (!db.stocktake) return;
+  const { data, error } = await sb.rpc('inv_stocktake_mark_missing',
+    { p_stocktake_id: db.stocktake.id, p_item_id: id });
+  if (error) { toast(error.message || '差異確定できませんでした'); return; }
+  const i = db.items.findIndex(x => x.id === id);
+  if (i >= 0 && data) db.items[i] = data;
+  await loadStocktakeItems();
+  await refreshTx();
+  render();
+  toast(id + ' を差異確定（不明）にしました');
+}
+
+/* 差異確定の取消。誤操作を戻せるようにする。
+   状態が「不明」のままのときだけ、差異確定の前の状態（在庫／出品中）へ戻す。
+   人があとから別の状態にしていたら上書きしない（サーバー側で判断する）。 */
+function openUnmissing(id) {
+  if (!db.stocktake) { toast('棚卸を実施していません'); return; }
+  const row = (db.stChecked || []).find(x => x.item_id === id);
+  if (!row || !row.missing_at) { toast('この個体は差異確定していません'); return; }
+  const it = item(id);
+  openModal('差異確定を取り消しますか？', `
+    <div class="card" style="margin-bottom:12px">
+      <div><span class="k">管理番号</span>${esc(id)}</div>
+      <div><span class="k">型番</span>${esc((it && (it.model || it.name)) || '—')}</div>
+      <div><span class="k">差異確定</span>${fmtDT(row.missing_at)}</div>
+      <div><span class="k">いまの状態</span>${esc((it && it.status) || '—')}</div>
+    </div>
+    <p class="meta">この棚卸では「未確認」に戻します。状態が<strong>「不明」のままなら</strong>、
+      差異確定の前の状態（在庫／出品中）へ戻します。
+      あとから別の状態にしている場合は、その状態のままにします。
+      履歴は消さず「棚卸差異確定取消」として残します。</p>
+  `, [['やめる', 'closeModal()', 'btn ghost'],
+      ['差異確定を取り消す', `closeModal();unmarkMissing('${esc(id)}')`, 'btn danger']]);
+}
+async function unmarkMissing(id) {
+  if (!db.stocktake) return;
+  const { data, error } = await sb.rpc('inv_stocktake_unmark_missing',
+    { p_stocktake_id: db.stocktake.id, p_item_id: id });
+  if (error) { toast(error.message || '取り消せませんでした'); return; }
+  const i = db.items.findIndex(x => x.id === id);
+  if (i >= 0 && data) db.items[i] = data;
+  await loadStocktakeItems();
+  await refreshTx();
+  render();
+  toast(id + ' の差異確定を取り消しました');
+}
+
 /* ---------------------------------------------------------------- QRスキャナ */
 let scan = { on: false, mode: 'lookup', stream: null, raf: null, last: {}, canvas: null, done: 0 };
 
@@ -9799,8 +10108,12 @@ function reopenScan() {
 function updateScanCount() {
   const el = $('scanCount');
   if (scan.mode === 'stocktake' && db.stocktake) {
-    const done = db.stChecked.filter(x => x.checked_at).length;
-    el.textContent = `確認済み ${done} / ${db.stChecked.length}`;
+    // 数え方は棚卸画面と同じ stocktakeProgress()。帳簿在庫が分母で、
+    // 帳簿外現物を読んでも分母は増えない（別枠で出す）
+    const p = stocktakeProgress();
+    el.textContent = `現物確認済み ${p.done} / 帳簿在庫 ${p.total}`
+      + (p.missing ? `　差異確定 ${p.missing}` : '')
+      + (p.extra ? `　帳簿外 ${p.extra}` : '');
     el.style.display = '';
   } else if (scan.mode === 'in' || scan.mode === 'out') {
     el.textContent = `${scan.mode === 'in' ? '入庫' : '出庫'} ${scan.done}件`;
