@@ -2719,7 +2719,7 @@ function importOneBody() {
   const cats = catsFor(ind ? 'individual' : 'quantity');
   return `
     <p class="meta" style="margin-bottom:2px">CSVに無いものを、この場で1件だけ登録します。</p>
-    ${regFieldsBody(ind, cats, 'setQuickKind')}
+    ${regFieldsBody(ind, cats, 'setQuickKind', 'import')}
     <p class="meta" style="margin-top:4px">発行予定の${ind ? '管理番号' : '商品コード'}: <b id="idPreview" class="num">—</b></p>
     ${canAdmin() ? '' : '<div class="card" style="margin-top:10px">商品の登録は管理者だけができます。</div>'}
   `;
@@ -7255,8 +7255,13 @@ function catParentOptions(sel, selfId) {
     .map(c => `<option value="${esc(c.id)}"${sel === c.id ? ' selected' : ''}>${esc(catOptLabel(c))}</option>`).join('');
 }
 
-function sheetCatEdit(id) {
+/* opt.defKind … 新規のときの管理方式の初期値（商品登録から足したとき、その画面に合わせる）
+   opt.after   … 保存したあとに呼ぶ。引数は保存されたカテゴリーID
+   どちらも省略できる。マスター管理からはこれまでどおり sheetCatEdit(id) で呼ぶ。 */
+function sheetCatEdit(id, opt) {
+  opt = opt || {};
   const c = id ? cat(id) : null;
+  const defKind = c ? c.kind : (opt.defKind || 'individual');
   openSheet({
     title: c ? 'カテゴリーを直す' : 'カテゴリーを足す', subject: c ? c.id : '新規', cta: '保存',
     hint: c
@@ -7269,8 +7274,8 @@ function sheetCatEdit(id) {
       <div class="ie2">
         <label class="field"><span>管理方式</span>
           <select class="input" id="mcKind">
-            <option value="individual"${!c || c.kind === 'individual' ? ' selected' : ''}>個体管理（1台ずつ）</option>
-            <option value="quantity"${c && c.kind === 'quantity' ? ' selected' : ''}>数量管理（数が増減）</option>
+            <option value="individual"${defKind === 'individual' ? ' selected' : ''}>個体管理（1台ずつ）</option>
+            <option value="quantity"${defKind === 'quantity' ? ' selected' : ''}>数量管理（数が増減）</option>
           </select></label>
         <label class="field"><span>表示順</span>
           <input class="input num" type="number" id="mcSort" value="${esc(c ? (c.sort_no || 0) : '')}" placeholder="空なら最後"></label>
@@ -7293,15 +7298,20 @@ function sheetCatEdit(id) {
       if (!(($('mcName') || {}).value || '').trim()) { toast('表示名を入れてください'); return false; }
       return true;
     },
-    run: () => saveMasterCat(id)
+    run: async () => {
+      const savedId = await saveMasterCat(id);
+      if (opt.after) opt.after(savedId);
+    }
   });
 }
+/* 保存したカテゴリーIDを返す（新規のときはDB側で作られたID）。
+   商品登録フォームがそれを自動で選ぶために使う。失敗したときは null。 */
 async function saveMasterCat(id) {
   if (masterBusy) return;
   masterBusy = true;
   try {
     const sort = (($('mcSort') || {}).value || '').trim();
-    const { error } = await sb.rpc('inv_category_save', {
+    const { data, error } = await sb.rpc('inv_category_save', {
       p_id: id || (($('mcId') || {}).value || '').trim() || null,
       p_name: (($('mcName') || {}).value || '').trim(),
       p_kind: ($('mcKind') || {}).value || 'individual',
@@ -7312,9 +7322,10 @@ async function saveMasterCat(id) {
       p_public: !!(($('mcPub') || {}).checked),
       p_prefix: (($('mcPrefix') || {}).value || '').trim() || null
     });
-    if (error) { toast(error.message || '保存できませんでした'); return; }
+    if (error) { toast(error.message || '保存できませんでした'); return null; }
     await reloadMasters();
     toast(id ? 'カテゴリーを直しました' : 'カテゴリーを足しました');
+    return (data && data.id) || id || null;
   } finally { masterBusy = false; }
 }
 async function toggleCat(id) {
@@ -7551,7 +7562,7 @@ function viewReg() {
     <div class="sec regsub">1件ずつ商品登録</div>
     <p class="meta" style="margin:-8px 0 0">CSVに載らないものを手で足すときに使います。
       商品取込の画面からも同じ内容を入れられます。</p>
-    ${regFieldsBody(ind, cats, 'setRegKind')}
+    ${regFieldsBody(ind, cats, 'setRegKind', 'reg')}
     <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:18px">
       <button class="btn pri" onclick="doRegister()" ${canAdmin() ? '' : 'disabled'}>
         <span class="ms">add</span>登録してQR発行</button>
@@ -7559,14 +7570,78 @@ function viewReg() {
     </div>`;
 }
 
-/* 1件ずつの登録フォーム。商品登録画面と、商品取込モーダルの「1件だけ登録」タブの
-   両方から使う（項目がずれないよう1か所にまとめる）。kindFn は個体管理／数量管理の
-   切り替えボタンが呼ぶ関数名（呼び出し側で描き直しかたが違うため） */
+/* ---- 1件ずつの登録フォーム ------------------------------------------------
+   商品登録画面と、商品取込モーダルの「1件だけ登録」タブの両方から使う
+   （項目がずれないよう1か所にまとめる）。kindFn は個体管理／数量管理の
+   切り替えボタンが呼ぶ関数名、where は描き直しかたの違い（'reg' / 'import'）。
+
+   **同じ id の入力欄が画面に2つ出ることがある。** 商品登録画面から商品取込を開くと、
+   モーダルの後ろに登録フォームが残ったままなので `r-name` などが2つになる。
+   `document.getElementById` は先に出てくるほう（＝後ろの画面側）を返すので、
+   モーダルが開いているあいだはモーダルの中を見るようにする。 */
+function regRoot() {
+  const m = $('modal');
+  return (m && m.classList.contains('on') && m.querySelector('#r-cat')) ? m : document;
+}
+const regEl = (id) => regRoot().querySelector('#r-' + id);
+
+/* 登録フォームに入っている内容。カテゴリを足す・直すと reloadMasters() から
+   render() が走ってフォームが描き直されるので、いったんここへ退避して戻す。
+   **入力途中の内容を消さないための要**。 */
+const REG_FIELDS = ['name', 'cat', 'loc', 'maker', 'model', 'spec',
+                    'serial', 'buy', 'price', 'qty', 'min', 'unit', 'note'];
+function regSnapshot() {
+  const d = {};
+  REG_FIELDS.forEach(k => { const e = regEl(k); if (e) d[k] = e.value; });
+  return d;
+}
+function regRestore(draft, wantCat) {
+  if (!draft) return;
+  REG_FIELDS.forEach(k => {
+    const e = regEl(k);
+    if (e && draft[k] !== undefined && k !== 'cat') e.value = draft[k];
+  });
+  const sel = regEl('cat');
+  if (sel) {
+    const want = wantCat || draft.cat || '';
+    sel.value = want;
+    // 管理方式を変えて保存すると、いまのフォーム（個体／数量）の候補に出てこない
+    if (want && sel.value !== want) {
+      sel.value = draft.cat || '';
+      toast('このフォームの管理方式と違うので、カテゴリは選び直してください');
+    }
+  }
+  paintRegCatBtn();
+  previewId();
+}
+/* ［選択中を編集］はカテゴリを選んでいるときだけ押せる */
+function paintRegCatBtn() {
+  const sel = regEl('cat');
+  const btn = regRoot().querySelector('#r-catEdit');
+  if (btn) btn.disabled = !canAdmin() || !(sel && sel.value);
+}
+/* カテゴリを足す・直す。マスター管理と同じ sheetCatEdit / saveMasterCat / inv_category_save を
+   そのまま使う（カテゴリ管理の処理を2つ持たない）。画面は移動しない。 */
+function openRegCat(where, id) {
+  if (!canAdmin()) { toast('カテゴリーを足せるのは管理者だけです'); return; }
+  if (id === '') { toast('先にカテゴリを選んでください'); return; }
+  const draft = regSnapshot();                 // 入力途中の内容を退避
+  sheetCatEdit(id || null, {
+    // 個体管理の画面から足したら個体管理、数量管理の画面からなら数量管理を初期値にする
+    defKind: ui.regKind === 'ind' ? 'individual' : 'quantity',
+    after: (savedId) => {
+      // モーダル側はここで描き直す（render() は後ろの画面しか直さない）
+      if (where === 'import') paintImportModal();
+      regRestore(draft, savedId || id || draft.cat);
+    }
+  });
+}
+
 const regField = (id, label, type, extra) =>
   `<label class="field"><span>${esc(label)}</span><input class="input" id="r-${id}" ${type ? `type="${type}"` : ''} ${extra || ''}></label>`;
 const regTextarea = (id, label) =>
   `<label class="field" style="grid-column:1/-1"><span>${esc(label)}</span><textarea class="input" id="r-${id}" rows="2"></textarea></label>`;
-function regFieldsBody(ind, cats, kindFn) {
+function regFieldsBody(ind, cats, kindFn, where) {
   return `
     <div class="seg" style="margin:15px 0">
       <button class="${ind ? 'on' : ''}" onclick="${kindFn}('ind')">個体管理</button>
@@ -7577,10 +7652,17 @@ function regFieldsBody(ind, cats, kindFn) {
       : '数が増減する消耗品などです。1品目＝1レコードで、在庫数を持ちます。'}</p>
     <div class="fields">
       ${regField('name', '商品名 *')}
-      <label class="field"><span>カテゴリ *</span><select class="input" id="r-cat" onchange="previewId()">
+      <label class="field"><span>カテゴリ *</span>
+        <select class="input" id="r-cat" onchange="previewId();paintRegCatBtn()">
         <option value="">選択してください</option>
         ${cats.map(c => `<option value="${esc(c.id)}"${catHasKids(c.id) ? ' disabled' : ''}>${
-          esc(catOptLabel(c))}${catHasKids(c.id) ? '（下から選んでください）' : ''}</option>`).join('')}</select></label>
+          esc(catOptLabel(c))}${catHasKids(c.id) ? '（下から選んでください）' : ''}</option>`).join('')}</select>
+        ${canAdmin() ? `<div class="catbtns">
+          <button type="button" class="btn sm ghost" onclick="openRegCat('${where || 'reg'}', null)">
+            <span class="ms">add</span>カテゴリを追加</button>
+          <button type="button" class="btn sm ghost" id="r-catEdit" disabled
+            onclick="openRegCat('${where || 'reg'}', (regEl('cat')||{}).value)">選択中を編集</button>
+        </div>` : ''}</label>
       <label class="field"><span>保管場所 *</span><select class="input" id="r-loc">${locOptions('', '選択してください')}</select></label>
       ${regField('maker', 'メーカー')}
       ${regField('model', '型番')}
@@ -7591,10 +7673,11 @@ function regFieldsBody(ind, cats, kindFn) {
     </div>`;
 }
 
-/* 採番カウンタは読むだけで予告する。実際の採番は登録のときに1回だけ */
+/* 採番カウンタは読むだけで予告する。実際の採番は登録のときに1回だけ。
+   同じ id が2つ出ることがあるので、いま操作しているフォームの中だけを見る */
 async function previewId() {
-  const el = $('idPreview'); if (!el) return;
-  const pre = ui.regKind === 'ind' ? ((cat(($('r-cat') || {}).value) || {}).code_prefix || 'IT') : 'SKU';
+  const el = regRoot().querySelector('#idPreview'); if (!el) return;
+  const pre = ui.regKind === 'ind' ? ((cat((regEl('cat') || {}).value) || {}).code_prefix || 'IT') : 'SKU';
   const { data } = await sb.from('inventory_counters').select('next_no').eq('prefix', pre).maybeSingle();
   const n = (data && data.next_no) || 1;
   el.textContent = pre + '-' + String(n).padStart(ui.regKind === 'ind' ? 5 : 4, '0');
@@ -7616,7 +7699,8 @@ async function findOrCreateMaster(fields, kind) {
 }
 
 async function doRegister() {
-  const g = id => (($('r-' + id) || {}).value || '').trim();
+  // いま操作しているフォーム（モーダルが開いていればモーダル側）から読む
+  const g = id => ((regEl(id) || {}).value || '').trim();
   const name = g('name'), catId = g('cat'), locId = g('loc');
   if (!name || !catId || !locId) { toast('商品名・カテゴリ・保管場所は必ず入れてください'); return; }
   const ind = ui.regKind === 'ind';
