@@ -150,6 +150,7 @@ const ui = {
   // 一覧のタブ。individual / model のほかに、販売サイトのキーと 'none'（未出品）を取る
   listMode: 'unit', fSt: '', fDiff: false, fNoPrice: false, fRental: '', fRentEl: '',
   fCheck: '',                // 棚卸の絞り込み。'' すべて / 'done' 確認済み / 'todo' 未確認
+  fQr: '',                   // QR印刷の絞り込み。'' すべて / 'yes' 印刷済み / 'no' 未印刷
   stTab: 'todo',             // 棚卸画面のタブ。'todo' 未確認 / 'done' 確認済み / 'extra' 帳簿外現物
   mTab: 'loc',               // マスター管理のタブ（保管場所／カテゴリー）
   quoteId: null,             // いま開いている見積
@@ -942,6 +943,7 @@ function onFilter() {
   ui.fSt = ($('f-st') || {}).value || '';
   ui.fRentEl = ($('f-rent') || {}).value || '';
   ui.fCheck = ($('f-check') || {}).value || '';
+  ui.fQr = ($('f-qr') || {}).value || '';
   renderListBody();
   paintTabCounts();
 }
@@ -1086,6 +1088,11 @@ function viewList() {
               db.stocktake ? '今回の棚卸：確認済み' : '今月：確認済みだけ'}</option>
             <option value="todo"${ui.fCheck === 'todo' ? ' selected' : ''}>${
               db.stocktake ? '今回の棚卸：未確認' : '今月：未確認だけ'}</option>
+          </select>
+          <select class="input" id="f-qr" onchange="onFilter()" title="QRラベルを印刷したかで絞る">
+            <option value="">QR すべて</option>
+            <option value="no"${ui.fQr === 'no' ? ' selected' : ''}>未印刷だけ</option>
+            <option value="yes"${ui.fQr === 'yes' ? ' selected' : ''}>QR印刷済みだけ</option>
           </select>`
         : `<select class="input" id="f-stock" onchange="onFilter()">
             <option value="">全在庫状態</option>
@@ -1284,6 +1291,7 @@ function unitsFiltered(ignoreTab) {
     if (ui.fRentEl === 'on' && !i.rental_eligible) return false;
     if (ui.fRentEl === 'off' && i.rental_eligible) return false;
     if (!checkFilterHit(i, ckIdx)) return false;
+    if (!qrFilterHit(i)) return false;
     if (inScope && !inScope.includes(i.location_id)) return false;
     if (q) {
       const hay = [i.id, i.serial, i.source_id, (m && m.model) || i.model, (m && m.name) || i.name, i.note]
@@ -1444,9 +1452,12 @@ function unitsBodyHtml() {
         ${pick ? `<td class="ck" onclick="event.stopPropagation()">
           <input type="checkbox" ${ui.selItems[i.id] ? 'checked' : ''} onchange="toggleItem('${esc(i.id)}',this.checked)"></td>` : ''}
         <td class="col-id num" data-label="管理番号">
-          <a class="idlink" href="/zaiko/items/${encodeURIComponent(i.id)}"
-             onclick="event.stopPropagation();event.preventDefault();go('item','${esc(i.id)}')"
-             title="この1台の詳細と履歴">${esc(i.id)}</a>
+          <div class="idline">
+            <a class="idlink" href="/zaiko/items/${encodeURIComponent(i.id)}"
+               onclick="event.stopPropagation();event.preventDefault();go('item','${esc(i.id)}')"
+               title="この1台の詳細と履歴">${esc(i.id)}</a>
+            ${qrIcon(i)}
+          </div>
           ${i.source_id ? `<div class="meta">仕入元 ${esc(i.source_id)}</div>` : ''}
           ${i.purchased_on ? `<div class="meta">${esc(fmtD(i.purchased_on))}</div>` : ''}</td>
         <td class="col-model" data-label="型番"><div class="mdl">${esc(mk.model)}</div>
@@ -1563,6 +1574,44 @@ function rentalTag(i) {
   return i.rental_eligible
     ? '<span class="tag rent on"><span class="ms">devices</span>レンタル対象</span>'
     : '<span class="tag rent">対象外</span>';
+}
+
+/* ---- QRラベルの印刷状態 ------------------------------------------------------
+   **在庫一覧と棚卸は、この1つの関数を通して同じ色を出す。** 別々に判定すると
+   「一覧では緑なのに棚卸では灰」というズレが起きるため。
+
+   ブラウザは「実際に紙が出たか」を保証できない（印刷ダイアログをキャンセルしても
+   afterprint は発火する）。なので**印刷操作をした時点**を発行済みとして記録し、
+   出なかったときは押し直してもらう（再印刷は止めない。回数と日時が更新される）。
+
+     ふつうの色の印刷アイコン … 未印刷
+     色付きの印刷アイコン     … QR印刷済み
+
+   文字は常時出さない。詳しいこと（初回・回数・最終）はホバーとタップで見せる。 */
+const qrPrinted = (i) => !!(i && (i.qr_print_count || 0) > 0);
+
+/* アイコンに出す説明。PCはホバー、スマホはタップでシートに同じ内容を出す */
+function qrHint(i) {
+  if (!qrPrinted(i)) return 'QR未印刷　押すとQRラベルを印刷できます';
+  const n = i.qr_print_count || 1;
+  const first = i.qr_printed_at ? fmtDT(i.qr_printed_at) : '—';
+  const last = i.qr_printed_last ? fmtDT(i.qr_printed_last) : first;
+  return n > 1
+    ? `QR印刷済み　印刷回数 ${n}回　最終印刷 ${last}`
+    : `QR印刷済み　${first}`;
+}
+/* 在庫一覧でも棚卸でも、出すのはこの1つ。列も文字も増やさない */
+function qrIcon(i) {
+  if (!i) return '';
+  const on = qrPrinted(i);
+  return `<button type="button" class="qrp${on ? ' on' : ''}" title="${esc(qrHint(i))}"
+    aria-label="${esc(qrHint(i))}"
+    onclick="event.stopPropagation();openQrPrint('${esc(i.id)}')"><span class="ms">print</span></button>`;
+}
+/* 絞り込み。'' すべて / 'no' 未印刷 / 'yes' 印刷済み */
+function qrFilterHit(i) {
+  if (!ui.fQr) return true;
+  return ui.fQr === 'yes' ? qrPrinted(i) : !qrPrinted(i);
 }
 
 /* ---- 棚卸の確認状況 --------------------------------------------------------
@@ -1749,6 +1798,80 @@ function printLabelsFor(ids, what) {
   if (live.length < ids.length) toast(`${ids.length - live.length}件は見つからないため除きました`);
   else toast(`${what || '選んだ個体'} ${live.length}件のQRを出しました`);
 }
+/* ---- QR印刷アイコンを押したとき --------------------------------------------
+   未印刷 … そのままQRラベル画面へ（印刷すれば印刷済みになる）
+   印刷済み … すぐ再印刷せず、まず印刷情報を見せる。そこから［再印刷］できる。
+   **再印刷は止めない。** 紙が出なかったときのために、何度でも押し直せる。 */
+function openQrPrint(id) {
+  const it = item(id);
+  if (!it) { toast('個体が見つかりません'); return; }
+  if (!qrPrinted(it)) { printLabelsFor([id], 'この1台'); return; }
+  const n = it.qr_print_count || 1;
+  openModal('QR印刷済み', `
+    <div class="card" style="margin-bottom:12px">
+      <div><span class="k">管理番号</span>${esc(id)}</div>
+      <div><span class="k">型番</span>${esc(it.model || it.name || '—')}</div>
+      <div><span class="k">初回印刷</span>${it.qr_printed_at ? fmtDT(it.qr_printed_at) : '—'}</div>
+      ${n > 1 ? `<div><span class="k">印刷回数</span>${n}回</div>
+        <div><span class="k">最終印刷</span>${it.qr_printed_last ? fmtDT(it.qr_printed_last) : '—'}</div>` : ''}
+      <div><span class="k">印刷者</span>${esc(qrPrinters(id) || '—')}</div>
+    </div>
+    <p class="meta">記録しているのは<strong>印刷ボタンを押した時点</strong>です。
+      実際に紙が出たかはブラウザからは分からないので、出ていなければ［再印刷］してください。
+      管理番号もQRのURLも変わりません。</p>
+  `, [['閉じる', 'closeModal()', 'btn ghost'],
+      ...(canEdit() ? [['再印刷', `closeModal();printLabelsFor(['${esc(id)}'],'この1台')`, 'btn lime']] : [])]);
+}
+/* 印刷した人は履歴（inventory_transactions）から拾う。列には持たない */
+function qrPrinters(id) {
+  const names = db.tx
+    .filter(t => t.ref_kind === 'item' && t.ref_id === id && String(t.action).indexOf('QR') === 0)
+    .map(t => t.actor).filter(Boolean);
+  return [...new Set(names)].join('、');
+}
+
+/* ---- 印刷状態を書き換える唯一の入口（画面側） ----
+   mode は 'print'（印刷操作）／'set'（既存の貼付済みを合わせる・管理者）／
+   'clear'（未印刷に戻す・管理者）。サーバー側の inv_qr_print_mark と同じ。 */
+async function markQrPrinted(ids, mode, note) {
+  const list = [...new Set((ids || []).filter(Boolean))];
+  if (!list.length) return false;
+  const { data, error } = await sb.rpc('inv_qr_print_mark',
+    { p_item_ids: list, p_mode: mode || 'print', p_note: note || null });
+  if (error) { toast(error.message || '記録できませんでした'); return false; }
+  (data || []).forEach(row => {
+    const k = db.items.findIndex(x => x.id === row.id);
+    if (k >= 0) db.items[k] = row;
+  });
+  return true;
+}
+/* すでに現物へQRが貼ってある既存在庫を、印刷済みに合わせる（実際の印刷はしない） */
+function openQrMark(on) {
+  const ids = selItemIds();
+  if (!ids.length) { toast('個体を選んでください'); return; }
+  if (!canAdmin()) { toast('この操作は管理者だけができます'); return; }
+  const n = ids.filter(id => qrPrinted(item(id))).length;
+  openModal(on ? 'QR印刷済みにしますか' : 'QR未印刷に戻しますか', `
+    <p>選んだ <strong>${ids.length}台</strong> を${on ? '「QR印刷済み」にします' : '「未印刷」に戻します'}。</p>
+    <p class="meta">${on
+      ? `<strong>実際の印刷はしません。</strong>すでに現物へQRが貼ってある既存在庫を、
+         画面の表示に合わせるための操作です。
+         ${n ? `このうち ${n}台 はすでに印刷済みなので、そのままにします（回数は増やしません）。` : ''}`
+      : '押し間違えたときの取り消しです。初回・最終・回数をすべて消します。'}
+      在庫の状態・在庫数・管理番号・QRのURL・棚卸は変わりません。履歴には残します。</p>
+  `, [['やめる', 'closeModal()', 'btn ghost'],
+      [on ? 'QR印刷済みにする' : '未印刷に戻す',
+       `closeModal();doQrMark(${on ? 'true' : 'false'})`, on ? 'btn lime' : 'btn danger']]);
+}
+async function doQrMark(on) {
+  const ids = selItemIds();
+  if (!await markQrPrinted(ids, on ? 'set' : 'clear',
+      on ? '既存QRの貼付済みを登録' : null)) return;
+  await refreshTx();
+  render();
+  toast(`${ids.length}台を${on ? 'QR印刷済みにしました' : '未印刷に戻しました'}`);
+}
+
 /* 在庫一覧で選んだ個体 */
 function printSelectedLabels() {
   const ids = selItemIds();
@@ -1789,6 +1912,8 @@ function selBarItems(n) {
       ${b('売却', 'paid', 'openBulkSell()')}
       ${b('修理', 'build', 'openBulkRepair()')}
       ${b('棚卸', 'fact_check', 'openBulkCheck()')}
+      ${canAdmin() ? b('QR印刷済みにする', 'print', 'openQrMark(true)') : ''}
+      ${canAdmin() ? b('QR未印刷に戻す', 'print_disabled', 'openQrMark(false)') : ''}
       ${canAdmin() ? b('廃棄', 'delete', 'openBulkScrap()', 'danger') : ''}
     </div>
     <button class="btn sm ghost" onclick="clearItemSel()">選択解除</button>`;
@@ -6785,7 +6910,7 @@ function stRow(itemId, note, acts) {
     : [esc(itemId), '（この個体は見つかりません）'];
   return `<div class="r">
     <div class="b">
-      <div class="n">${esc(head)}</div>
+      <div class="n">${esc(head)}${it ? qrIcon(it) : ''}</div>
       <div class="m">${bits.join('　')}${note ? `　${note}` : ''}</div>
     </div>
     ${it ? statusTag(it.status) : ''}
@@ -9391,6 +9516,20 @@ function selectedLabels() {
     out.push({ id: l.id, name: l.name, loc: locPath(l.id), url: locUrl(l.id) }));
   return out;
 }
+/* 印刷ボタンを押したら、選んでいる**個体**を印刷済みとして記録してから印刷する。
+   ブラウザは紙が出たかを保証できないので、記録するのは「印刷操作をした」ことだけ。
+   出なかったらもう一度押せばよい（回数と日時が更新される）。
+   数量品と棚のラベルには印刷状態を持たせていないので、個体だけを記録する。 */
+async function doPrintLabels() {
+  const ids = db.items.filter(i => ui.labelSel[labelKey('item', i.id)]).map(i => i.id);
+  if (ids.length && canEdit()) {
+    const ok = await markQrPrinted(ids, 'print');
+    if (ok) await refreshTx();
+  }
+  window.print();
+  if (ids.length && canEdit()) render();   // 印刷のあとアイコンを緑にする
+}
+
 function viewLabels() {
   const sel = selectedLabels();
   const pick = (kind, id, label, sub) => {
@@ -9404,7 +9543,7 @@ function viewLabels() {
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
         <button class="btn sm ghost" onclick="pickAll(true)">すべて選択</button>
         <button class="btn sm ghost" onclick="pickAll(false)">選択解除</button>
-        <button class="btn lime" onclick="window.print()" ${sel.length ? '' : 'disabled'}>
+        <button class="btn lime" onclick="doPrintLabels()" ${sel.length ? '' : 'disabled'}>
           <span class="ms">print</span>${sel.length}件を印刷・PDF出力</button>
       </div>
       <div class="sec" style="margin-top:20px">機器（個体）</div>
