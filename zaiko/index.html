@@ -401,6 +401,28 @@ table.t tr.clk.on:hover td{background:var(--i200)}
 #selbar .selops{display:flex;gap:8px;flex-wrap:wrap;flex:1;justify-content:center}
 #selbar .selops .btn{white-space:nowrap;min-height:38px;padding:7px 12px;font-size:13px;flex-direction:row}
 #selbar .selops .btn .ms{font-size:17px}
+/* たたみメニュー（レンタル／その他）。常時出すボタンを5つまでに抑えるためのもので、
+   機能は1つも減らしていない。バーは画面下に固定なので、メニューは上に開く。
+   色もボタンの形も既存のものをそのまま使う。 */
+#selbar .selmenu{position:relative}
+#selbar .selmenu > .btn .cv{font-size:16px;margin-left:-3px;transition:transform .12s}
+#selbar .selmenu.on > .btn{background:var(--i100)}
+#selbar .selmenu.on > .btn .cv{transform:rotate(180deg)}
+#selbar .selpop{display:none;position:absolute;left:0;bottom:calc(100% + 9px);z-index:2;
+  min-width:214px;padding:6px;background:#fff;border:1px solid var(--line);
+  border-radius:var(--r2);box-shadow:var(--sh-lg);text-align:left}
+#selbar .selmenu.on .selpop{display:block}
+#selbar .selpop .h{font-size:11px;font-weight:700;color:var(--n500);padding:6px 8px 4px}
+#selbar .selpop .sep{height:1px;background:var(--rule);margin:5px 4px}
+#selbar .selpop .mi{display:flex;align-items:center;gap:9px;width:100%;min-height:38px;
+  padding:7px 9px;border:0;background:none;border-radius:var(--r2);cursor:pointer;
+  font:inherit;font-size:13.5px;font-weight:500;color:var(--text);text-align:left;white-space:nowrap}
+#selbar .selpop .mi .ms{font-size:18px;color:var(--n600)}
+#selbar .selpop .mi:hover{background:var(--i100)}
+#selbar .selpop .mi:disabled{color:var(--n400);cursor:not-allowed;background:none}
+#selbar .selpop .mi:disabled .ms{color:var(--n400)}
+#selbar .selpop .mi.danger,#selbar .selpop .mi.danger .ms{color:#B3261E}
+#selbar .selpop .mi.danger:hover{background:#FDECEC}
 /* バーが出ている間は、最後の行がバーに隠れないように下を空ける */
 body.selbar-on{padding-bottom:104px}
 /* スマホは「件数＋選択解除」で1段、操作ボタンで2段程度に折り返す */
@@ -412,7 +434,20 @@ body.selbar-on{padding-bottom:104px}
   #selbar > .btn.ghost{order:1}
   #selbar .selops{order:2;flex:1 1 100%;justify-content:flex-start;gap:6px}
   #selbar .selops .btn{padding:6px 9px;font-size:12.5px;min-height:36px}
+  /* 狭い画面では、メニューをボタンではなくバーの幅に合わせて開く（右にはみ出さない） */
+  #selbar .selmenu{position:static}
+  #selbar .selpop{left:12px;right:12px;min-width:0}
   body.selbar-on{padding-bottom:136px}
+}
+/* 360px級の狭い端末でも、操作ボタンが2段に収まるように詰める（棚卸タブと同じ考えかた） */
+@media(max-width:400px){
+  #selbar{padding:8px 10px;gap:7px}
+  #selbar .selops{gap:5px}
+  #selbar .selops .btn{padding:6px 7px;font-size:12px;gap:5px;min-height:34px}
+  #selbar .selops .btn .ms{font-size:16px}
+  #selbar .selmenu > .btn .cv{font-size:14px}
+  #selbar .selpop{left:10px;right:10px}
+  body.selbar-on{padding-bottom:128px}
 }
 
 .bulkrow{border-bottom:1px solid var(--rule);padding:12px 0}
