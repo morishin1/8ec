@@ -1967,24 +1967,96 @@ function refreshSelBar() {
   if (!on) { bar.innerHTML = ''; return; }
   bar.innerHTML = unit ? selBarItems(n) : selBarProds(n);
 }
+/* 選んだ個体が、いまどの操作を受けられるか。
+   **反対の操作を同時に並べないため**だけに使う（実際にどれを処理するかは
+   これまでどおり各 openBulk*() が selBreakdown() で数え直して確認画面に出す）。 */
+function selCaps() {
+  const rows = selItemRows();
+  return {
+    n:         rows.length,
+    priceTodo: rows.filter(i => !priceChecked(i)).length,
+    priceDone: rows.filter(i => priceChecked(i)).length,
+    rentOn:    rows.filter(i => !i.rental_eligible && !GONE.includes(i.status)).length,
+    rentOff:   rows.filter(i => i.rental_eligible).length,
+    qrTodo:    rows.filter(i => !qrPrinted(i)).length,
+    qrDone:    rows.filter(i => qrPrinted(i)).length
+  };
+}
+
+/* ---- バーのたたみメニュー ----
+   バーは画面下に固定なので上に開く。開けるのは1つだけ。
+   中身を押したとき・外を押したとき・Escape で閉じる。 */
+function closeSelMenus() {
+  document.querySelectorAll('#selbar .selmenu.on').forEach(el => {
+    el.classList.remove('on');
+    const btn = el.querySelector('.btn');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  });
+}
+function toggleSelMenu(id) {
+  const el = $(id); if (!el) return;
+  const was = el.classList.contains('on');
+  closeSelMenus();
+  if (was) return;
+  el.classList.add('on');
+  const btn = el.querySelector('.btn');
+  if (btn) btn.setAttribute('aria-expanded', 'true');
+}
+
+/* ---- 画面下の一括操作バー（個体別） ----
+   **常時出すのは5つまで。** 機能は1つも減らしていない。
+   よく使う3つ（販売価格を計算／価格を確認／QRラベルを印刷）を同じ見た目で並べ、
+   反対の操作（8RENTに出す⇔外す など）と低頻度・管理者向けのものはたたむ。
+   呼ぶ関数はこれまでと同じで、権限の判定も canAdmin() / canEdit() のまま。 */
 function selBarItems(n) {
+  const c = selCaps();
+  const admin = canAdmin();
   const b = (label, icon, fn, cls) =>
     `<button class="btn sm ${cls || ''}" onclick="${fn}"><span class="ms">${icon}</span>${label}</button>`;
+  /* メニューの1行。押せないときは理由を title に出す（消さずに残す） */
+  const mi = (label, icon, fn, off, why, cls) =>
+    `<button class="mi${cls ? ' ' + cls : ''}"${off ? ' disabled' : ''}
+       title="${esc(off ? why : label)}"
+       onclick="closeSelMenus();${fn}"><span class="ms">${icon}</span>${label}</button>`;
+  const menu = (id, label, icon, inner) =>
+    `<div class="selmenu" id="${id}">
+       <button class="btn sm" aria-haspopup="true" aria-expanded="false"
+         onclick="event.stopPropagation();toggleSelMenu('${id}')"><span class="ms">${icon}</span>${label}<span
+         class="ms cv">expand_more</span></button>
+       <div class="selpop" onclick="event.stopPropagation()">${inner}</div>
+     </div>`;
+
+  /* 8RENT はレンタル機能。バーでは初見でも分かる「レンタル」、中ではブランド名を使う */
+  const rent = menu('selmRent', 'レンタル', 'devices', `
+    <div class="h">8RENT</div>
+    ${mi('8RENTに出す', 'devices', 'openBulkRental()',
+         !c.rentOn, '選んだ個体はすべて8RENT対象です（売却済・廃棄は出せません）')}
+    ${mi('8RENTから外す', 'devices_off', 'openBulkRentalOff()',
+         !c.rentOff, '選んだ中に8RENT対象の個体がありません')}`);
+
+  const more = menu('selmMore', 'その他', 'more_horiz', `
+    <div class="h">在庫操作</div>
+    ${mi('貸出', 'assignment_ind', 'openBulkLoan()')}
+    ${mi('売却', 'paid', 'openBulkSell()')}
+    ${mi('修理', 'build', 'openBulkRepair()')}
+    ${mi('棚卸', 'fact_check', 'openBulkCheck()')}
+    ${admin ? `<div class="h">管理</div>
+      ${mi('価格の確認を外す', 'money_off', 'openPriceCheck(false)',
+           !c.priceDone, '選んだ中に価格確認済みの個体がありません')}
+      ${mi('QR印刷済みにする', 'print', 'openQrMark(true)',
+           !c.qrTodo, '選んだ個体はすべてQR印刷済みです')}
+      ${mi('QR未印刷に戻す', 'print_disabled', 'openQrMark(false)',
+           !c.qrDone, '選んだ中にQR印刷済みの個体がありません')}
+      <div class="sep"></div>
+      ${mi('廃棄', 'delete', 'openBulkScrap()', false, '', 'danger')}` : ''}`);
+
   return `<span class="n"><span class="ms">check_box</span>${n}件選択中</span>
     <div class="selops">
-      ${b('QRラベルを印刷', 'qr_code_2', 'printSelectedLabels()')}
       ${b('販売価格を計算', 'calculate', 'openStockPricing()')}
-      ${b('8RENTに出す', 'devices', 'openBulkRental()', 'lime')}
-      ${b('8RENTから外す', 'devices_off', 'openBulkRentalOff()')}
-      ${b('貸出', 'assignment_ind', 'openBulkLoan()')}
-      ${b('売却', 'paid', 'openBulkSell()')}
-      ${b('修理', 'build', 'openBulkRepair()')}
-      ${b('棚卸', 'fact_check', 'openBulkCheck()')}
-      ${canAdmin() ? b('価格を確認済みにする', 'price_check', 'openPriceCheck(true)', 'lime') : ''}
-      ${canAdmin() ? b('価格の確認を外す', 'money_off', 'openPriceCheck(false)') : ''}
-      ${canAdmin() ? b('QR印刷済みにする', 'print', 'openQrMark(true)') : ''}
-      ${canAdmin() ? b('QR未印刷に戻す', 'print_disabled', 'openQrMark(false)') : ''}
-      ${canAdmin() ? b('廃棄', 'delete', 'openBulkScrap()', 'danger') : ''}
+      ${admin && c.priceTodo ? b('価格を確認', 'price_check', 'openPriceCheck(true)') : ''}
+      ${b('QRラベルを印刷', 'qr_code_2', 'printSelectedLabels()')}
+      ${rent}
+      ${more}
     </div>
     <button class="btn sm ghost" onclick="clearItemSel()">選択解除</button>`;
 }
@@ -10769,6 +10841,10 @@ async function doRentalAllocate(id) {
    別のタブから戻ってきたときに読み直す。入力中（シートが開いている）ときと、
    読んだ直後は動かさない。 */
 let lastLoadAt = Date.now();
+/* 一括操作バーのメニューは、外を押したら閉じる
+   （開くボタンとメニューの中は stopPropagation しているので、ここへは来ない） */
+document.addEventListener('click', () => closeSelMenus());
+
 document.addEventListener('visibilitychange', async () => {
   if (document.hidden || sheetState || scan.on) return;
   if (Date.now() - lastLoadAt < 20000) return;
@@ -10779,6 +10855,7 @@ document.addEventListener('visibilitychange', async () => {
 /* Escapeで、開いているものを手前から順に閉じる */
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
+  if (document.querySelector('#selbar .selmenu.on')) { closeSelMenus(); return; }
   if ($('modal').classList.contains('on')) { closeModal(); return; }
   if ($('sheet').classList.contains('on')) { closeSheet(); return; }
   if (scan.on) closeScan();
