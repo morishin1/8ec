@@ -242,15 +242,20 @@ create table if not exists public.inventory_items (
   qr_printed_at   timestamptz,                     -- QRラベルを最初に印刷操作した日時。NULLなら未印刷
   qr_printed_last timestamptz,                     -- 最後に印刷操作した日時（再印刷で更新）
   qr_print_count  integer not null default 0,      -- 印刷操作の回数。0なら未印刷
+  price_checked_at timestamptz,                    -- 価格を確認した日時。NULLなら未確認
+  price_checked_by text,                           -- 価格を確認した人
   created_at      timestamptz default now(),
   updated_at      timestamptz default now()
 );
 
 comment on column public.inventory_items.qr_print_count is
   'QRラベルの印刷操作の回数。0 なら未印刷。画面はこの値だけで色を決める。';
+comment on column public.inventory_items.price_checked_at is
+  '価格を確認した日時。NULL なら未確認。価格を変えると自動で NULL に戻る。';
 
 create index if not exists inventory_items_status_idx on public.inventory_items (status, location_id);
 create index if not exists inventory_items_qr_print_idx on public.inventory_items (qr_print_count);
+create index if not exists inventory_items_price_check_idx on public.inventory_items (price_checked_at);
 create index if not exists inventory_items_loc_idx    on public.inventory_items (location_id);
 create index if not exists inventory_items_cat_idx    on public.inventory_items (category_id);
 
@@ -10883,6 +10888,7 @@ declare
   it     public.inventory_items;
   v_row  public.inventory_stocktake_items;
   v_back text;
+  v_note text := '';
 begin
   if not public.inv_can_edit() then
     raise exception '操作する権限がありません（閲覧のみ）';
@@ -10929,6 +10935,13 @@ begin
     if v_back is null or v_back not in ('在庫', '出品中') then
       v_back := '在庫';
     end if;
+    -- 価格が未確認の個体は「出品中」へは戻せない（→ 63) 価格の確認）。
+    -- ここで例外にすると差異確定の取消そのものができなくなるので、在庫へ戻して
+    -- 履歴にその理由を残す。出品し直すときは、先に価格を確認してもらう。
+    if v_back = '出品中' and it.price_checked_at is null then
+      v_back := '在庫';
+      v_note := '（価格が未確認のため、出品中ではなく在庫へ戻しました）';
+    end if;
     update public.inventory_items set status = v_back where id = p_item_id
     returning * into it;
   else
@@ -10939,7 +10952,7 @@ begin
   insert into public.inventory_transactions
     (actor, ref_kind, ref_id, label, action, before_value, after_value)
   values (public.inv_actor(), 'item', p_item_id, it.name, '棚卸差異確定取消',
-          '不明', v_back);
+          '不明', v_back || v_note);
 
   return it;
 end $$;
@@ -10947,7 +10960,8 @@ end $$;
 comment on function public.inv_stocktake_unmark_missing is
   '差異確定を取り消して未処理へ戻す。状態が ''不明'' のままのときだけ、
    差異確定のときに履歴へ残した元の状態（在庫／出品中）へ戻す。
-   人があとから別の状態にしていたら上書きしない。履歴は消さず追記する。';
+   人があとから別の状態にしていたら上書きしない。履歴は消さず追記する。
+   戻り先が ''出品中'' でも価格が未確認なら、在庫へ戻して理由を履歴に残す。';
 
 
 -- ------------------------------------------------------------
@@ -11144,6 +11158,141 @@ comment on function public.inv_qr_print_mark is
 -- ------------------------------------------------------------
 revoke all on function public.inv_qr_print_mark(text[], text, text) from public, anon, service_role;
 grant execute on function public.inv_qr_print_mark(text[], text, text) to authenticated;
+
+
+
+
+-- ============================================================
+-- 63) 価格の確認（未確認のまま出品しない）
+--
+--     値段を入れる人と、その値段でよいと決める人を分ける。
+--     **新しい role も権限種別も承認フローも申請テーブルも作らない。**
+--     いまの admin / member をそのまま使う。
+--
+--       member … 価格の入力も販売価格の計算もできる（これまでどおり）
+--       admin  … それに加えて「価格確認済み」にできる
+--
+--     持つのは price_checked_at / price_checked_by の2列だけ。
+--     価格を変えたら確認は自動で外れ、未確認のものは「出品中」にできない。
+--     どちらもトリガーで効かせる（RPCの中だけだと直接UPDATEで抜けられるため）。
+-- ============================================================
+
+-- ------------------------------------------------------------
+-- 63-1) 価格が変わったら確認を外す／未確認のまま出品中にしない
+--
+--    **トリガーにするのは、抜け道を作らないため。**
+--    authenticated は inventory_items を直接 UPDATE できるので、
+--    RPCの中だけで見ていると、画面のコードを1行足すだけで回避できてしまう。
+--    どの経路から更新しても必ずここを通る。
+--
+--    価格を変えた更新では、同じ文で price_checked_at を立てても外す
+--    （安全側。確認は値段が決まったあとに、別の操作としてやってもらう）。
+-- ------------------------------------------------------------
+create or replace function public.inv_price_check_guard()
+returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  -- 価格（仕入・手数料・販売予定）が変わったら、確認は外れる
+  if new.price         is distinct from old.price
+  or new.purchase_fee  is distinct from old.purchase_fee
+  or new.plan_price    is distinct from old.plan_price then
+    new.price_checked_at := null;
+    new.price_checked_by := null;
+  end if;
+
+  -- 未確認のまま「出品中」にはできない（すでに出品中のものはそのまま）
+  if new.status = '出品中' and old.status is distinct from '出品中'
+     and new.price_checked_at is null then
+    raise exception '価格が未確認です。管理者が価格を確認してから出品中にしてください（%）', new.id;
+  end if;
+
+  return new;
+end $$;
+
+comment on function public.inv_price_check_guard is
+  '価格を変えたら確認を外す。未確認の個体を「出品中」にさせない。
+   どの経路の UPDATE でも通るようにトリガーにしている。';
+
+drop trigger if exists inventory_items_price_check on public.inventory_items;
+create trigger inventory_items_price_check before update on public.inventory_items
+  for each row execute function public.inv_price_check_guard();
+
+
+-- ------------------------------------------------------------
+-- 63-2) 確認済みにする・外す（管理者だけ）
+--
+--    member は価格の入力も計算もできるが、ここだけは admin。
+--    新しい role は作らず、既存の inv_is_admin() を見る。
+-- ------------------------------------------------------------
+create or replace function public.inv_price_check_set(
+  p_item_ids text[],
+  p_on       boolean default true,
+  p_note     text default null
+) returns setof public.inventory_items
+language plpgsql security invoker set search_path = public as $$
+declare
+  it     public.inventory_items;
+  v_id   text;
+  v_who  text := public.inv_actor();
+  fmt    text := 'FM9,999,999,999';
+begin
+  if not public.inv_is_admin() then
+    raise exception '価格を確認できるのは管理者だけです';
+  end if;
+  if p_item_ids is null or array_length(p_item_ids, 1) is null then
+    raise exception '対象が選ばれていません';
+  end if;
+
+  foreach v_id in array p_item_ids loop
+    select * into it from public.inventory_items where id = v_id for update;
+    if not found then
+      raise exception '商品が見つかりません（%）', v_id;
+    end if;
+
+    -- すでに同じ状態なら触らない（履歴を水増ししない）
+    if (p_on and it.price_checked_at is not null)
+    or (not p_on and it.price_checked_at is null) then
+      return next it;
+      continue;
+    end if;
+
+    update public.inventory_items
+       set price_checked_at = case when p_on then now() else null end,
+           price_checked_by = case when p_on then v_who else null end
+     where id = v_id returning * into it;
+
+    insert into public.inventory_transactions
+      (actor, ref_kind, ref_id, label, action, before_value, after_value)
+    values (v_who, 'item', v_id, it.name,
+            case when p_on then '価格確認' else '価格確認取消' end,
+            case when p_on then '未確認' else '確認済み' end,
+            (case when p_on then '確認済み' else '未確認' end)
+              || '／原価 ' || to_char(coalesce(it.cost, 0), fmt) || '円・予定 '
+              || coalesce(to_char(it.plan_price, fmt) || '円', '未定')
+              || coalesce('／' || nullif(btrim(coalesce(p_note, '')), ''), ''));
+
+    return next it;
+  end loop;
+end $$;
+
+comment on function public.inv_price_check_set is
+  '価格を確認済みにする（または外す）。管理者だけ。価格そのものは変えない。
+   価格を変えるとトリガーが確認を自動で外すので、確認は値段を決めたあとに行う。';
+
+
+-- ------------------------------------------------------------
+-- 63-3) 権限
+--
+--    2026-10-01-rpc-permission-hardening.sql の一括配り直しは
+--    「そのとき存在した関数」への1回きりの処理なので、あとから足した関数には効かない。
+--    既定では PUBLIC に EXECUTE が付き anon からも呼べてしまうため、明示的に配り直す。
+--    管理者かどうかは関数の中で inv_is_admin() が見る。
+--    トリガー関数は直接呼ばせない。
+-- ------------------------------------------------------------
+revoke all on function public.inv_price_check_set(text[], boolean, text) from public, anon, service_role;
+grant execute on function public.inv_price_check_set(text[], boolean, text) to authenticated;
+
+revoke all on function public.inv_price_check_guard() from public, anon, authenticated, service_role;
 
 
 -- ============================================================
