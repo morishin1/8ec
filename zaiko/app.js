@@ -5672,6 +5672,118 @@ function openModal(title, body, buttons) {
 function closeModal() { $('modal').classList.remove('on'); }
 
 /* ===== 3. 個体の詳細（QRを読んだ直後の画面） ===== */
+/* ---- 個体詳細の［編集］ ----------------------------------------------------
+   直せるのは2種類だけで、**どちらの表のものかを画面でも分ける**。
+
+     この個体   … 保管場所・シリアル番号・仕入日・備考
+     商品マスタ … 商品名・メーカー・型番・カテゴリ・スペック（同じ商品の全個体に効く）
+
+   **すでに専用の操作があるものはここに出さない。**
+     在庫状態・利用者 → ［貸出］［返却］［修理・故障］［売却］［廃棄］
+     値段             → ［値段を直す］
+     棚卸             → ［棚卸確認］
+     8RENT・出品      → 既存の8RENT操作・出品先の［編集］
+     管理番号・商品コード・仕入元ID・QR・価格の確認 → 変えない
+
+   保管場所とカテゴリは自由入力にせず、既存の locOptions() と
+   商品登録と同じカテゴリーマスタ（catsFor / catOptLabel）から選ぶ。 */
+function sheetItemEdit(id) {
+  const it = item(id); if (!it) return;
+  if (!canEdit()) { toast('変更する権限がありません（閲覧のみ）'); return; }
+  const m = prod(it.product_code);
+  const cats = catsFor(m ? m.kind : 'individual', (m || it).category_id);
+  const v = (x) => esc(x == null ? '' : String(x));
+  openSheet({
+    title: '基本情報を編集', subject: id, cta: '保存', keepOpenOnError: true,
+    hint: '状態・値段・棚卸・8RENT・出品は、それぞれの操作から直してください。',
+    body: `
+      <div class="sec" style="margin:0 0 10px">この個体</div>
+      <label class="field" style="margin-bottom:10px"><span>保管場所</span>
+        <select class="input" id="ieLoc">${locOptions(it.location_id, '選択してください')}</select></label>
+      <label class="field" style="margin-bottom:10px"><span>シリアル番号</span>
+        <input class="input" id="ieSerial" value="${v(it.serial)}" placeholder="本体に書かれている番号"></label>
+      <label class="field" style="margin-bottom:10px"><span>仕入日</span>
+        <input class="input" type="date" id="ieBuy" value="${v(it.purchased_on)}"></label>
+      <label class="field"><span>備考</span>
+        <textarea class="input" id="ieNote" rows="2">${v(it.note)}</textarea></label>
+
+      <div class="sec" style="margin:18px 0 4px">商品情報</div>
+      <p class="meta" style="margin:0 0 10px">
+        <strong>この変更は同じ商品に紐づく全個体へ反映されます。</strong>
+        ${m ? `${esc(m.code)}（この商品の個体 ${itemsOf(m.code).length}台）` : ''}</p>
+      ${m ? `
+      <label class="field" style="margin-bottom:10px"><span>商品名</span>
+        <input class="input" id="ieName" value="${v(m.name)}"></label>
+      <label class="field" style="margin-bottom:10px"><span>メーカー</span>
+        <input class="input" id="ieMaker" value="${v(m.maker)}"></label>
+      <label class="field" style="margin-bottom:10px"><span>型番</span>
+        <input class="input" id="ieModel" value="${v(m.model)}"></label>
+      <label class="field" style="margin-bottom:10px"><span>カテゴリ</span>
+        <select class="input" id="ieCat"><option value="">選択してください</option>
+        ${cats.map(c => `<option value="${esc(c.id)}"${
+          c.id === m.category_id ? ' selected' : ''}>${esc(catOptLabel(c))}</option>`).join('')}</select></label>
+      <label class="field"><span>スペック</span>
+        <textarea class="input" id="ieSpec" rows="3">${v(m.spec)}</textarea></label>`
+      : '<p class="meta">この個体に商品マスタが結びついていないので、商品情報は直せません。</p>'}`,
+    run: () => saveItemEdit(id)
+  });
+}
+
+/* 保存。個体とマスタで**呼ぶ関数を分ける**（同じ値を両方の表へ書かない）。
+   どちらも既存の考えかたどおりDBの関数を通し、履歴は関数側が残す。 */
+async function saveItemEdit(id) {
+  const it = item(id); if (!it) return false;
+  const m = prod(it.product_code);
+  const val = (k) => { const el = $(k); return el ? el.value.trim() : null; };
+
+  if (m) {
+    const name = val('ieName'), model = val('ieModel');
+    if (!name && !model) { toast('商品名か型番のどちらかは入れてください'); return false; }
+    if (!val('ieCat')) { toast('カテゴリを選んでください'); return false; }
+  }
+  if (!val('ieLoc')) { toast('保管場所を選んでください'); return false; }
+
+  // 1) この個体（保管場所が変わるときは、関数の中で既存の「移動」を通す）
+  const r1 = await sb.rpc('inv_item_edit', {
+    p_item_id: id, p_location_id: val('ieLoc'), p_serial: val('ieSerial') || null,
+    p_purchased_on: val('ieBuy') || null, p_note: val('ieNote') || null
+  });
+  if (r1.error) { toast('保存できませんでした：' + r1.error.message); return false; }
+
+  // 2) 商品マスタ（同じ商品の全個体に効く）
+  let r2 = null;
+  if (m) {
+    r2 = await sb.rpc('inv_product_edit', {
+      p_code: m.code, p_name: val('ieName') || null, p_maker: val('ieMaker') || null,
+      p_model: val('ieModel') || null, p_category_id: val('ieCat') || null,
+      p_spec: val('ieSpec') || null
+    });
+    if (r2.error) { toast('商品情報を保存できませんでした：' + r2.error.message); return false; }
+  }
+
+  // 3) 手元の写しを入れ替える。マスタを直したときは同じ商品の個体も読み直す
+  if (r1.data) { const k = db.items.findIndex(x => x.id === id); if (k >= 0) db.items[k] = r1.data; }
+  if (r2 && r2.data) {
+    const k = db.masters.findIndex(x => x.code === r2.data.code);
+    if (k >= 0) db.masters[k] = r2.data;
+    await refreshItems(m.code);
+  }
+  await refreshTx();
+  render();
+  toast('基本情報を保存しました');
+  return true;
+}
+
+/* マスタを直すと、その商品の個体に持たせている表示用の写しも変わるので読み直す */
+async function refreshItems(code) {
+  const { data, error } = await sb.from('inventory_items').select('*').eq('product_code', code);
+  if (error || !data) return;
+  data.forEach(row => {
+    const k = db.items.findIndex(x => x.id === row.id);
+    if (k >= 0) db.items[k] = row; else db.items.push(row);
+  });
+}
+
 function viewItem() {
   const it = item(ui.itemId);
   if (!it) return `<div class="empty">該当する機器が見つかりません（${esc(ui.itemId || '')}）</div>`;
@@ -5692,6 +5804,8 @@ function viewItem() {
         ${statusTag(it.status, true)}
         <span id="itemRentTag">${GONE.includes(it.status) ? '' : rentalTag(it)}</span>
         ${isLong(it) ? '<span class="tag" style="background:var(--l200)">長期貸出 ' + daysSince(it.loaned_at) + '日</span>' : ''}
+        ${canEdit() ? `<button class="btn sm ghost" style="margin-left:auto"
+          onclick="sheetItemEdit('${esc(it.id)}')"><span class="ms">edit</span>編集</button>` : ''}
       </div>
       <div class="info">
         <div><span class="k">保管場所</span>${esc(locPath(it.location_id)) || '—'}</div>
