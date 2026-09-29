@@ -5729,8 +5729,11 @@ function sheetItemEdit(id) {
   });
 }
 
-/* 保存。個体とマスタで**呼ぶ関数を分ける**（同じ値を両方の表へ書かない）。
-   どちらも既存の考えかたどおりDBの関数を通し、履歴は関数側が残す。 */
+/* 保存。**呼ぶのは inv_item_basic_edit() の1回だけ。**
+   個体とマスタを別々に呼ぶと、個体だけ保存されてマスタで失敗する、という
+   半端な状態が起きうる（RPC 1回ごとに取引が閉じるため）。1回にまとめれば
+   その中は1つの取引になり、どこで失敗しても何も変わらない。
+   中で何をするか（移動・写しの更新・履歴）はDBの関数が持つ。 */
 async function saveItemEdit(id) {
   const it = item(id); if (!it) return false;
   const m = prod(it.product_code);
@@ -5743,45 +5746,32 @@ async function saveItemEdit(id) {
   }
   if (!val('ieLoc')) { toast('保管場所を選んでください'); return false; }
 
-  // 1) この個体（保管場所が変わるときは、関数の中で既存の「移動」を通す）
-  const r1 = await sb.rpc('inv_item_edit', {
-    p_item_id: id, p_location_id: val('ieLoc'), p_serial: val('ieSerial') || null,
-    p_purchased_on: val('ieBuy') || null, p_note: val('ieNote') || null
+  const { data, error } = await sb.rpc('inv_item_basic_edit', {
+    p_item_id: id,
+    p_location_id: val('ieLoc'), p_serial: val('ieSerial') || null,
+    p_purchased_on: val('ieBuy') || null, p_note: val('ieNote') || null,
+    p_name: val('ieName') || null, p_maker: val('ieMaker') || null,
+    p_model: val('ieModel') || null, p_category_id: val('ieCat') || null,
+    p_spec: val('ieSpec') || null
   });
-  if (r1.error) { toast('保存できませんでした：' + r1.error.message); return false; }
+  // 失敗したときは1文字も変わっていない。シートは開いたままで、入れた値も残す
+  if (error) { toast('保存できませんでした：' + error.message); return false; }
 
-  // 2) 商品マスタ（同じ商品の全個体に効く）
-  let r2 = null;
-  if (m) {
-    r2 = await sb.rpc('inv_product_edit', {
-      p_code: m.code, p_name: val('ieName') || null, p_maker: val('ieMaker') || null,
-      p_model: val('ieModel') || null, p_category_id: val('ieCat') || null,
-      p_spec: val('ieSpec') || null
-    });
-    if (r2.error) { toast('商品情報を保存できませんでした：' + r2.error.message); return false; }
+  // 手元の写しを入れ替える。items はマスタが変わったときだけ返ってくる
+  const out = data || {};
+  if (out.item) { const k = db.items.findIndex(x => x.id === id); if (k >= 0) db.items[k] = out.item; }
+  if (out.product) {
+    const k = db.masters.findIndex(x => x.code === out.product.code);
+    if (k >= 0) db.masters[k] = out.product;
   }
-
-  // 3) 手元の写しを入れ替える。マスタを直したときは同じ商品の個体も読み直す
-  if (r1.data) { const k = db.items.findIndex(x => x.id === id); if (k >= 0) db.items[k] = r1.data; }
-  if (r2 && r2.data) {
-    const k = db.masters.findIndex(x => x.code === r2.data.code);
-    if (k >= 0) db.masters[k] = r2.data;
-    await refreshItems(m.code);
-  }
+  (out.items || []).forEach(row => {
+    const k = db.items.findIndex(x => x.id === row.id);
+    if (k >= 0) db.items[k] = row; else db.items.push(row);
+  });
   await refreshTx();
   render();
   toast('基本情報を保存しました');
   return true;
-}
-
-/* マスタを直すと、その商品の個体に持たせている表示用の写しも変わるので読み直す */
-async function refreshItems(code) {
-  const { data, error } = await sb.from('inventory_items').select('*').eq('product_code', code);
-  if (error || !data) return;
-  data.forEach(row => {
-    const k = db.items.findIndex(x => x.id === row.id);
-    if (k >= 0) db.items[k] = row; else db.items.push(row);
-  });
 }
 
 function viewItem() {

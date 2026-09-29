@@ -22,10 +22,16 @@
 --   **保管場所は既存の inv_item_op('移動') をそのまま呼ぶ。**
 --   移動の検証も履歴もあちらが持っているので、ここで書き直さない。
 --
+--   **画面が呼ぶのは inv_item_basic_edit() の1回だけ。**
+--   個体とマスタを別々に呼ぶと、片方だけ保存された半端な状態が起きうる
+--     （個体は保存できたがマスタで失敗した、など）。
+--   関数を1回呼べば、その中は1つの取引になるので、途中で失敗すれば何も変わらない。
+--
 --   このmigrationでやること
---     1) inv_item_edit()    … この個体の4項目
---     2) inv_product_edit() … 商品マスタの5項目（同じ商品の全個体に効く）
---     3) 権限
+--     1) inv_item_edit()       … この個体の4項目（中で使う）
+--     2) inv_product_edit()    … 商品マスタの5項目（中で使う。同じ商品の全個体に効く）
+--     3) inv_item_basic_edit() … **画面が呼ぶのはこれ1つ。**上の2つをまとめて1回で終える
+--     4) 権限
 --
 --   在庫数・状態・価格・棚卸・8RENT・QRには触らない。
 --   履歴（inventory_transactions）は追記のみで、1行も消さない。
@@ -33,7 +39,7 @@
 
 
 -- ------------------------------------------------------------
--- 1) この個体を直す
+-- 1) この個体を直す（inv_item_basic_edit の中で使う）
 --
 --    保管場所が変わるときは inv_item_op('移動') を呼ぶ（同じ取引の中なので、
 --    移動だけ成功して残りが失敗する、ということは起きない）。
@@ -105,7 +111,7 @@ comment on function public.inv_item_edit is
 
 
 -- ------------------------------------------------------------
--- 2) 商品マスタを直す
+-- 2) 商品マスタを直す（inv_item_basic_edit の中で使う）
 --
 --    **同じ商品コードにぶら下がる全個体に効く。** 画面でもそう書く。
 --    個体側にある name / maker / model / category_id は表示用の写しなので、
@@ -187,18 +193,111 @@ comment on function public.inv_product_edit is
 
 
 -- ------------------------------------------------------------
--- 3) 権限
+-- 3) 画面が呼ぶのはこれ1つ（個体とマスタをまとめて1回で終える）
+--
+--    **片方だけ保存される状態を作らないための関数。**
+--    ブラウザから inv_item_edit と inv_product_edit を続けて呼ぶと、
+--    1つめが成功して2つめが失敗したときに個体だけ保存されてしまう
+--    （RPC 1回ごとに取引が閉じるため）。
+--    1回の呼び出しにまとめれば、その中はまるごと1つの取引になり、
+--    途中でどこが失敗しても**何も変わらない**。
+--
+--    新しい判断はここに置かない。権限も履歴も移動も、上の2つと
+--    既存の inv_item_op('移動') がそのまま持つ。ここは順番に呼ぶだけ。
+--
+--    返すのは画面が描き直すのに要るものだけ。
+--      item     … 直した1台
+--      product  … 商品マスタ（マスタが変わったときだけ）
+--      items    … 同じ商品の個体（**マスタが変わったときだけ**。
+--                  表示用の写しが変わるので画面の手元も入れ替える）
+-- ------------------------------------------------------------
+create or replace function public.inv_item_basic_edit(
+  p_item_id      text,
+  p_location_id  text default null,
+  p_serial       text default null,
+  p_purchased_on date default null,
+  p_note         text default null,
+  p_name         text default null,
+  p_maker        text default null,
+  p_model        text default null,
+  p_category_id  text default null,
+  p_spec         text default null
+) returns jsonb
+language plpgsql security invoker set search_path = public as $$
+declare
+  it      public.inventory_items;
+  was     public.inventory_products;
+  pr      public.inventory_products;
+  v_moved boolean := false;
+begin
+  if not public.inv_can_edit() then
+    raise exception '変更する権限がありません（閲覧のみ）';
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+  if coalesce(it.product_code, '') <> '' then
+    select * into was from public.inventory_products where code = it.product_code;
+  end if;
+
+  -- 1) この個体（保管場所が変わるときは、この中で既存の inv_item_op('移動') を通る）
+  it := public.inv_item_edit(p_item_id, p_location_id, p_serial, p_purchased_on, p_note);
+
+  -- 2) 商品マスタ。商品が結びついていない個体では何もしない
+  if was.code is not null then
+    pr := public.inv_product_edit(was.code, p_name, p_maker, p_model, p_category_id, p_spec);
+    v_moved := (pr.name        is distinct from was.name)
+            or (pr.maker       is distinct from was.maker)
+            or (pr.model       is distinct from was.model)
+            or (pr.category_id is distinct from was.category_id);
+    -- マスタが変わると個体側の写しも変わるので、返す1台を読み直す
+    if v_moved then
+      select * into it from public.inventory_items where id = p_item_id;
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'item', to_jsonb(it),
+    'product', case when pr.code is null then null else to_jsonb(pr) end,
+    -- 写しが変わったときだけ。毎回だと同じ商品の台数ぶん無駄に返すことになる
+    'items', case when v_moved
+      then coalesce((select jsonb_agg(to_jsonb(x)) from public.inventory_items x
+                      where x.product_code = was.code), '[]'::jsonb)
+      else null end);
+end $$;
+
+comment on function public.inv_item_basic_edit is
+  '個体詳細の［編集］の保存。**画面が呼ぶのはこれ1つだけ。**
+   inv_item_edit と inv_product_edit を1回の呼び出し＝1つの取引でまとめて行うので、
+   片方だけ保存された状態にならない。判断は足さず、順番に呼ぶだけ。';
+
+
+-- ------------------------------------------------------------
+-- 4) 権限
 --
 --    2026-10-01-rpc-permission-hardening.sql の一括配り直しは
 --    「そのとき存在した関数」への1回きりの処理なので、あとから足した関数には効かない。
 --    既定では PUBLIC に EXECUTE が付き anon からも呼べてしまうため、明示的に配り直す。
---    どちらも関数の中で inv_can_edit() が見る（viewer は弾かれる）。
+--    3つとも関数の中で inv_can_edit() が見る（viewer は弾かれる）。
+--
+--    inv_item_edit / inv_product_edit も authenticated に渡したままにする。
+--    security invoker なので、呼ぶ人に EXECUTE が無いと
+--    inv_item_basic_edit の中からも呼べなくなるため（security definer は使わない。
+--    この仕組みの関数はすべて invoker ＋ inv_can_edit() でそろえている）。
+--    画面から呼ぶのは inv_item_basic_edit だけにしている。
 -- ------------------------------------------------------------
 revoke all on function public.inv_item_edit(text, text, text, date, text) from public, anon, service_role;
 grant execute on function public.inv_item_edit(text, text, text, date, text) to authenticated;
 
 revoke all on function public.inv_product_edit(text, text, text, text, text, text) from public, anon, service_role;
 grant execute on function public.inv_product_edit(text, text, text, text, text, text) to authenticated;
+
+revoke all on function public.inv_item_basic_edit(text, text, text, date, text, text, text, text, text, text)
+  from public, anon, service_role;
+grant execute on function public.inv_item_basic_edit(text, text, text, date, text, text, text, text, text, text)
+  to authenticated;
 
 
 -- ------------------------------------------------------------
@@ -207,7 +306,15 @@ grant execute on function public.inv_product_edit(text, text, text, text, text, 
 select '関数がある' as kind,
        case when to_regprocedure('public.inv_item_edit(text,text,text,date,text)') is not null
              and to_regprocedure('public.inv_product_edit(text,text,text,text,text,text)') is not null
-            then 'OK 2つとも' else 'NG' end as result
+             and to_regprocedure('public.inv_item_basic_edit(text,text,text,date,text,text,text,text,text,text)') is not null
+            then 'OK 3つとも' else 'NG' end as result
+union all
+select '保存は1回で終わる',
+       case when pg_get_functiondef('public.inv_item_basic_edit(text,text,text,date,text,text,text,text,text,text)'::regprocedure)
+                 like '%public.inv_item_edit(p_item_id%'
+             and pg_get_functiondef('public.inv_item_basic_edit(text,text,text,date,text,text,text,text,text,text)'::regprocedure)
+                 like '%public.inv_product_edit(was.code%'
+            then 'OK 中で2つとも呼んでいる' else 'NG' end
 union all
 select '個体は4項目だけ直す',
        case when pg_get_functiondef('public.inv_item_edit(text,text,text,date,text)'::regprocedure)
@@ -244,11 +351,13 @@ union all
 select 'anonは呼べない',
        case when has_function_privilege('anon', 'public.inv_item_edit(text,text,text,date,text)', 'execute')
               or has_function_privilege('anon', 'public.inv_product_edit(text,text,text,text,text,text)', 'execute')
+              or has_function_privilege('anon', 'public.inv_item_basic_edit(text,text,text,date,text,text,text,text,text,text)', 'execute')
             then 'NG anonが呼べる' else 'OK' end
 union all
 select '社員は呼べる',
        case when has_function_privilege('authenticated', 'public.inv_item_edit(text,text,text,date,text)', 'execute')
              and has_function_privilege('authenticated', 'public.inv_product_edit(text,text,text,text,text,text)', 'execute')
+             and has_function_privilege('authenticated', 'public.inv_item_basic_edit(text,text,text,date,text,text,text,text,text,text)', 'execute')
             then 'OK' else 'NG' end
 union all
 select 'シリアル番号が空の個体数',
