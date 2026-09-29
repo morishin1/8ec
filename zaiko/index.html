@@ -143,12 +143,16 @@ header.bar{position:sticky;top:0;z-index:30;background:var(--bg);border-bottom:1
 /* 8RENT（レンタル対象）。状態とは別の軸なので、状態タグと見分けがつく色にする */
 .tag.rent{background:var(--n100);color:var(--n600);border:1px solid var(--line)}
 .tag.rent.on{background:var(--l300);color:#111;border-color:var(--l400);font-weight:500}
-/* 棚卸の確認状況。実施中の「今回確認済」をいちばん強く出す */
+/* 棚卸の確認状況。**色だけで見分けられるように、4つとも塗る。**
+   在庫の状態（「在庫」など）とは別の軸なので、文字も色も分けて出す。
+     確認 緑 ／ 未確認 黄 ／ 差異 赤 ／ 対象外 灰
+   使っているのは在庫一覧のほかの印と同じ色（Success系・Warning系・Danger系・グレー）で、
+   棚卸のために新しい色は足していない。 */
 .tag.chk{background:var(--n100);color:var(--n700);border:1px solid var(--line)}
 .tag.chk.on{background:#E8F5E9;color:#1B5E20;border-color:#2E7D32;font-weight:700}
 .tag.chk.todo{background:#FFF8E1;color:#8A6D00;border-color:#E8A33D;font-weight:700}
-.tag.chk.none{background:var(--n100);color:var(--n600);border-style:dashed}
 .tag.chk.miss{background:#FDECEC;color:#B3261E;border-color:#B3261E;font-weight:700}
+.tag.chk.out{background:var(--n100);color:var(--n600);border-color:var(--line)}
 table.t td.ck-col{white-space:nowrap}
 table.t td.ck-col .meta{font-size:11px;margin-top:2px}
 
