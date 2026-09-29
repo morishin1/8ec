@@ -1757,22 +1757,40 @@ function checkedThisMonth(i, idx) {
   }
   return s.thisMonth;
 }
-/* 一覧の「棚卸」欄。実施中は今回の結果を、していないときは今月見たかどうかを出す。
-   最後に見た日時もあわせて出すので、いつのものかが分かる */
+/* 一覧の「棚卸」欄。**出す文字は4つだけにして、色だけで見分けられるようにする。**
+
+     確認    緑   実施中の棚卸で現物を見た／棚卸をしていないときは今月見た
+     未確認  黄   まだ現物を見ていない
+     差異    赤   現物が無いことを人が確定した（差異確定）
+     対象外  灰   今回の棚卸の対象ではない
+
+   在庫の状態（「在庫」など）と棚卸の状態を、色と文字で分けて出す。
+   「今回確認済」「今月は未確認」のような長い文字は使わない。ただし何を指しているかは
+   ホバーで読めるようにしておく。日時はタグの下に小さく残すので、いつのものかは分かる。
+
+   **判定そのものは変えていない。** checkedThisMonth() / checkState() /
+   stocktakeIndex() / stocktakeProgress() はそのままで、ここは見た目と文字だけ。
+   「対象外」に落ちるのは checkedThisMonth() が null を返すもの
+   （実施中の棚卸の帳簿在庫に入っていない／帳簿外現物／売却済・廃棄）だけで、
+   **本当に対象外のものを「確認」に変えることはしない。** */
 function checkCell(i, idx) {
   const v = checkedThisMonth(i, idx);
   const at = i.last_checked_at || null;
   const when = at ? `<div class="meta nowrap">${esc(fmtDT(at))}</div>` : '';
   const last = at ? `<div class="meta nowrap">前回 ${esc(fmtDT(at))}</div>` : '';
-  // 差異確定は「未確認」ではなく「処理済み」。そうと分かるように別の印を出す
+  const tag = (cls, text, title) => `<span class="tag chk ${cls}" title="${esc(title)}">${text}</span>`;
+  // 差異確定は「未確認」ではなく処理済み。赤で別に出す
   if (db.stocktake && checkState(i, idx).missing)
-    return `<span class="tag chk miss">差異確定</span>${last}`;
-  // 判断しないもの（実施中の棚卸の対象外・帳簿外現物・売却済・廃棄）は「未確認」とは言わない
-  if (v === null) return `<span class="meta">—</span>${when}`;
-  if (v) return `<span class="tag chk on">${db.stocktake ? '今回確認済' : '今月確認済'}</span>${when}`;
-  if (db.stocktake) return `<span class="tag chk todo">未確認</span>${last}`;
-  return at ? `<span class="tag chk todo">今月は未確認</span>${last}`
-            : '<span class="tag chk none">未確認</span>';
+    return tag('miss', '差異', '棚卸で現物が見つからないと確定したもの') + last;
+  // 判断しないもの（実施中の棚卸の帳簿在庫に入っていない・帳簿外現物・売却済・廃棄）
+  if (v === null)
+    return tag('out', '対象外', db.stocktake ? '今回の棚卸の対象ではありません'
+                                             : '棚卸の対象ではありません') + when;
+  if (v)
+    return tag('on', '確認', db.stocktake ? '今回の棚卸で現物を確認しました'
+                                          : '今月、現物を確認しています') + when;
+  return tag('todo', '未確認', db.stocktake ? 'まだ現物を確認していません'
+                                            : '今月はまだ現物を確認していません') + last;
 }
 /* 「棚卸」の絞り込み。欄の表示も状態タグの色も同じ checkedThisMonth() を通すので、
    「欄では未確認なのに絞り込みには出ない」というズレが起きない。
