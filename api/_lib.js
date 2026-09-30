@@ -59,6 +59,57 @@ async function rpc(fn, args) {
   return { ok: r.ok, status: r.status, out };
 }
 
+/** 表をサーバー鍵で読み書きする（PostgREST）。path は /rest/v1/ から先 */
+async function rest(path, opts) {
+  if (!SUPABASE_SECRET_KEY) throw new Error("no-server-key");
+  const o = opts || {};
+  const headers = {
+    apikey: SUPABASE_SECRET_KEY,
+    Authorization: "Bearer " + SUPABASE_SECRET_KEY,
+    "Content-Type": "application/json",
+  };
+  if (o.prefer) headers.Prefer = o.prefer;
+  const r = await fetch(SUPABASE_URL + "/rest/v1/" + path, {
+    method: o.method || "GET",
+    headers,
+    body: o.body === undefined ? undefined : JSON.stringify(o.body),
+  });
+  const out = await r.json().catch(() => null);
+  return { ok: r.ok, status: r.status, out, headers: r.headers };
+}
+
+/* ── 社内の人かどうか（ログインが要るAPIだけが使う） ──
+   ブラウザが送ってきたアクセストークン（Bearer）をSupabaseで確かめ、
+   そのメールを inventory_members で引く。/zaiko と同じ判定で、
+   表に無いログインは「閲覧」。一般（member）と管理者（admin）だけを通す。
+   画面でボタンを隠すだけにしないため、操作のたびにここを通す。 */
+const STAFF_ROLES = ["admin", "member"];
+async function staffFromRequest(req) {
+  const h = (req && req.headers) || {};
+  const m = String(h.authorization || h.Authorization || "").match(/^Bearer\s+([A-Za-z0-9._-]{20,4096})$/);
+  if (!m) return { ok: false, status: 401, error: "ログインしてください" };
+  if (!SUPABASE_SECRET_KEY) return { ok: false, status: 503, error: "サーバーの設定がまだです" };
+  let user = null;
+  try {
+    const r = await fetch(SUPABASE_URL + "/auth/v1/user", {
+      headers: { apikey: SUPABASE_SECRET_KEY, Authorization: "Bearer " + m[1] },
+    });
+    user = r.ok ? await r.json().catch(() => null) : null;
+  } catch (e) {
+    user = null;
+  }
+  const email = user && typeof user.email === "string" ? user.email : "";
+  if (!email) return { ok: false, status: 401, error: "ログインの期限が切れました。もう一度ログインしてください" };
+  const q = await rest("inventory_members?select=role,display_name&email=eq." + encodeURIComponent(email));
+  if (!q.ok) return { ok: false, status: 503, error: "権限を確かめられませんでした" };
+  const row = Array.isArray(q.out) && q.out[0] ? q.out[0] : null;
+  const role = (row && row.role) || "viewer";
+  if (STAFF_ROLES.indexOf(role) < 0) {
+    return { ok: false, status: 403, error: "閲覧権限では操作できません（一般・管理者のみ）" };
+  }
+  return { ok: true, email, role, name: (row && row.display_name) || email };
+}
+
 /** 相手を数えるための鍵。IPそのものは残さない */
 function clientKey(req) {
   const h = (req && req.headers) || {};
@@ -124,7 +175,7 @@ function slackEscape(s) {
 }
 
 module.exports = {
-  SUPABASE_URL, hasKey, keyMissing, rpc,
+  SUPABASE_URL, hasKey, keyMissing, rpc, rest, staffFromRequest,
   clientKey, tooFast, accessCheck, tooMany,
   cleanToken, clean, slackEscape,
 };

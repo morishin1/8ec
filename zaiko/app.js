@@ -123,6 +123,8 @@ const MENU = [
   ['labels', 'qr_code_2', 'QRラベル', '/labels'],
   ['deals', 'request_quote', '案件', '/deals'],
   ['rental', 'car_rental', '8RENT申込', '/rental-requests'],
+  // SNS投稿準備。一般・管理者だけ（中身は zaiko/sns.js。サーバー側 /api/sns でも役割を見る）
+  ['sns', 'campaign', 'SNS投稿', '/sns', 'edit'],
   // マスター管理はメニューにも管理者だけ出す（画面側でも権限を見る）
   ['master', 'tune', 'マスター管理', '/masters', 'admin']
 ];
@@ -154,6 +156,7 @@ const ui = {
   mTab: 'loc',               // マスター管理のタブ（保管場所／カテゴリー）
   quoteId: null,             // いま開いている見積
   contractId: null,          // いま開いている契約
+  snsNo: null,               // いま開いているSNS投稿（投稿No か 'new'）
   fDeal: ''                  // 案件の状態の絞り込み
 };
 
@@ -656,6 +659,7 @@ function parsePath() {
   if (seg[0] === 'locations' && seg[1]) return { screen: 'loc', locId: decodeURIComponent(seg[1]) };
   if (seg[0] === 'quotes' && seg[1]) return { screen: 'quote', quoteId: Number(seg[1]) || null };
   if (seg[0] === 'contracts' && seg[1]) return { screen: 'contract', contractId: Number(seg[1]) || null };
+  if (seg[0] === 'sns') return { screen: 'sns', snsNo: seg[1] === 'new' ? 'new' : (Number(seg[1]) || null) };
   const byPath = { list: 'list', in: 'in', out: 'out', loan: 'loan', stock: 'stock', locations: 'locs',
                    masters: 'master', history: 'hist', register: 'reg', labels: 'labels',
                    deals: 'deals', 'rental-requests': 'rental' };
@@ -689,6 +693,7 @@ function pathFor(screen, id) {
   if (screen === 'quote') return BASE + '/quotes/' + encodeURIComponent(id);
   if (screen === 'contract') return BASE + '/contracts/' + encodeURIComponent(id);
   if (screen === 'loc') return BASE + '/locations/' + encodeURIComponent(id);
+  if (screen === 'sns') return BASE + '/sns' + (id ? '/' + encodeURIComponent(id) : '');
   const m = MENU.find(x => x[0] === screen);
   return BASE + (m ? m[3] : '') + (screen === 'list' ? listQuery() : '');
 }
@@ -699,7 +704,8 @@ function go(screen, id) {
   closeSheet();
   applyRoute({ screen, itemId: screen === 'item' ? id : null, prodId: screen === 'prod' ? id : null,
                locId: screen === 'loc' ? id : null, quoteId: screen === 'quote' ? Number(id) : null,
-               contractId: screen === 'contract' ? Number(id) : null });
+               contractId: screen === 'contract' ? Number(id) : null,
+               snsNo: screen === 'sns' ? (id || null) : null });
   window.scrollTo(0, 0);
 }
 window.addEventListener('popstate', () => route(false));
@@ -711,6 +717,7 @@ function applyRoute(r) {
   ui.locId = r.locId || null;
   ui.quoteId = r.quoteId || null;
   ui.contractId = r.contractId || null;
+  ui.snsNo = r.snsNo || null;
   if (r.listMode) ui.listMode = r.listMode;
   renderMenu();
   render();
@@ -774,7 +781,8 @@ async function loadOne(r) {
 
 /* ---------------------------------------------------------------- メニュー */
 function renderMenu() {
-  $('menu').innerHTML = MENU.filter(([, , , , need]) => need !== 'admin' || canAdmin()).map(([key, icon, label]) =>
+  $('menu').innerHTML = MENU.filter(([, , , , need]) =>
+    (need !== 'admin' || canAdmin()) && (need !== 'edit' || canEdit())).map(([key, icon, label]) =>
     `<button class="${ui.screen === key ? 'on' : ''}" onclick="go('${key}')"><span class="ms">${icon}</span>${esc(label)}</button>`
   ).join('');
   $('siteName').textContent = db.locs.length ? (locsOrdered().find(l => l.kind === 'site') || {}).name || '' : '';
@@ -788,7 +796,8 @@ function render() {
     dash: viewDash, list: viewList, item: viewItem, prod: viewProd, in: viewIn, out: viewOut,
     loan: viewLoan, stock: viewStock, locs: viewLocs, loc: viewLoc, master: viewMaster,
     hist: viewHist, reg: viewReg, labels: viewLabels,
-    deals: viewDeals, rental: viewRentalRequests, quote: viewQuote, contract: viewContract
+    deals: viewDeals, rental: viewRentalRequests, quote: viewQuote, contract: viewContract,
+    sns: viewSns
   }[ui.screen] || viewDash;
   v.innerHTML = fn();
   if (ui.screen === 'labels') bindLabelPicks();
