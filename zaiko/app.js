@@ -147,6 +147,8 @@ const ui = {
   q: '', fCat: '', fMaker: '', fLoc: '', fStock: '',
   fAction: '', hq: '', regKind: 'ind', made: null, tab: 'info',
   drafts: {}, labelSel: {}, stScope: '', loaded: false, sel: {}, selItems: {}, fBatch: null, doneBatch: null,
+  // QRラベル画面へ渡した個体（{label, ids}）。上の「対象／未印刷／印刷済み」を数えるのに使う
+  labelScope: null,
   // 一覧のタブ。individual / model のほかに、販売サイトのキーと 'none'（未出品）を取る
   listMode: 'unit', fSt: '', fDiff: false, fNoPrice: false, fRental: '', fRentEl: '',
   fCheck: '',                // 棚卸の絞り込み。'' すべて / 'done' 確認済み / 'todo' 未確認
@@ -1807,14 +1809,24 @@ function stocktakeBar() {
    QRは作り直さない。**管理番号 → 個体URL → QR** といういまの仕組みのまま、
    すでにある管理番号のラベルをもう一度出すだけ。管理番号もURLも変えない。
    ラベルの作りは QRラベル画面（labelKey / selectedLabels / viewLabels）に任せる。 */
-function printLabelsFor(ids, what) {
+function printLabelsFor(ids, what, opt) {
   const live = [...new Set((ids || []).filter(Boolean))].filter(x => item(x));
   if (!live.length) { toast('印刷できるQRがありません'); return; }
+  // すでに現物へ貼ってあるものを刷り直さなくてよいように、印刷済みは**初期選択から外す**。
+  // 消すのではなく外すだけなので、刷り直したければその場でチェックを戻せる。
+  // 判定は在庫一覧・棚卸とまったく同じ qrPrinted()（qr_print_count）を通す。
+  const skip = !!(opt && opt.skipPrinted);
+  const pick = skip ? live.filter(x => !qrPrinted(item(x))) : live;
   ui.labelSel = {};
-  live.forEach(x => { ui.labelSel[labelKey('item', x)] = true; });
+  pick.forEach(x => { ui.labelSel[labelKey('item', x)] = true; });
+  // 上に出す「対象／未印刷／印刷済み」は、選んだ数ではなく**渡した数**で数える
+  ui.labelScope = { label: what || '選んだ個体', ids: live };
   go('labels');
-  if (live.length < ids.length) toast(`${ids.length - live.length}件は見つからないため除きました`);
-  else toast(`${what || '選んだ個体'} ${live.length}件のQRを出しました`);
+  if (live.length < ids.length) { toast(`${ids.length - live.length}件は見つからないため除きました`); return; }
+  const off = live.length - pick.length;
+  toast(skip && off
+    ? `${what || '選んだ個体'} ${live.length}件のうち、未印刷の ${pick.length}件を選びました（印刷済み ${off}件は外しています）`
+    : `${what || '選んだ個体'} ${live.length}件のQRを出しました`);
 }
 /* ---- QR印刷アイコンを押したとき --------------------------------------------
    未印刷 … そのままQRラベル画面へ（印刷すれば印刷済みになる）
@@ -1901,7 +1913,7 @@ function printCheckedLabels() {
   const p = stocktakeProgress();
   if (!p.open) { toast('棚卸を実施していません'); return; }
   if (!p.doneIds.length) { toast('まだ確認済みの個体がありません'); return; }
-  printLabelsFor(p.doneIds, '今回の棚卸で確認済み');
+  printLabelsFor(p.doneIds, '今回の棚卸で確認済み', { skipPrinted: true });
 }
 
 /* ---- 画面下の一括操作バー ----
@@ -2940,6 +2952,7 @@ function printBatchQr(id) {
   if (!live.length) { toast('印刷できるQRがありません'); return; }
   ui.labelSel = {};
   live.forEach(x => { ui.labelSel[labelKey('item', x)] = true; });
+  ui.labelScope = { label: '今回登録したQR', ids: live };
   go('labels');
   if (live.length < ids.length) toast(`${ids.length - live.length}件は削除済みのため除きました`);
 }
@@ -9515,7 +9528,34 @@ function bindLabelPicks() {
     el.addEventListener('change', () => { ui.labelSel[el.dataset.pick] = el.checked; render(); });
   });
 }
+/* ---- QRラベル画面に出す「印刷状態」 ----------------------------------------
+   **チェックボックスとは別物。** チェックは「今回印刷する対象」、こちらは
+   「現物にQRが貼ってあるはずか」。印刷前にいちばん知りたいのはこちらなので、
+   同じ行に並べて出す。
+
+     ふつうの色の 🖨 ＋ 未印刷
+     色付きの 🖨   ＋ 印刷済み
+
+   判定は在庫一覧・棚卸とまったく同じ qrPrinted()（qr_print_count）を通す。
+   **新しい印刷状態は作らない。** 押せるボタンにはしない（行ごと <label> なので、
+   押すとチェックが動いてしまう）。詳しいことはホバーで出す。 */
+function qrStateTag(i) {
+  if (!i) return '';
+  const on = qrPrinted(i);
+  return `<span class="qrst${on ? ' on' : ''}" title="${esc(qrHint(i))}"><span class="ms">print</span>${
+    on ? '印刷済み' : '未印刷'}</span>`;
+}
+/* 上に出すまとめ。数えるのは「この画面へ渡した個体」（無ければ画面に出ている個体ぜんぶ）。
+   選んだ数ではない（選んだ数は印刷ボタンに出ている） */
+function labelQrCounts() {
+  const sc = ui.labelScope;
+  const rows = sc ? sc.ids.map(item).filter(Boolean) : db.items.filter(i => i.status !== '廃棄');
+  const done = rows.filter(qrPrinted).length;
+  return { label: sc ? sc.label : '機器（個体）', total: rows.length, done, todo: rows.length - done };
+}
 function pickAll(on) {
+  // 画面ぜんぶを選び直したので、渡された個体という枠は外す
+  ui.labelScope = null;
   ui.labelSel = {};
   if (on) {
     db.items.filter(i => i.status !== '廃棄').forEach(i => ui.labelSel[labelKey('item', i.id)] = true);
@@ -9550,14 +9590,25 @@ async function doPrintLabels() {
 
 function viewLabels() {
   const sel = selectedLabels();
-  const pick = (kind, id, label, sub) => {
+  // 個体の行にだけ、チェックとは別に印刷状態を出す（数量品と棚は印刷状態を持たない）
+  const pick = (kind, id, label, sub, it) => {
     const k = labelKey(kind, id);
     return `<label><input type="checkbox" data-pick="${esc(k)}" ${ui.labelSel[k] ? 'checked' : ''}>
-      <span style="min-width:0"><b class="num">${esc(id)}</b> ${esc(label)}<br><span class="meta">${esc(sub)}</span></span></label>`;
+      <span style="min-width:0"><b class="num">${esc(id)}</b> ${esc(label)}<br><span class="meta">${esc(sub)}</span>${
+        it ? '<br>' + qrStateTag(it) : ''}</span></label>`;
   };
+  const c = labelQrCounts();
   return `<div data-noprint>
       <h1>QRラベル</h1>
       <p class="sub" style="margin:8px 0 12px">ラベルは実寸 40×30mm です。A4に並べても、ラベルプリンタでも同じ版で印刷できます。</p>
+      <div class="qrsum">
+        <span><b>${esc(c.label)}</b> ${c.total}台</span>
+        <span class="qrst">${'<span class="ms">print</span>'}未印刷 ${c.todo}台</span>
+        <span class="qrst on">${'<span class="ms">print</span>'}印刷済み ${c.done}台</span>
+      </div>
+      <p class="meta" style="margin:0 0 12px">チェックは<strong>今回印刷するもの</strong>、
+        🖨 は<strong>現物にQRが貼ってあるはずか</strong>です（別のことを表しています）。
+        ${ui.labelScope && c.done ? '印刷済みは最初から選んでいません。刷り直すときはチェックを入れてください。' : ''}</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
         <button class="btn sm ghost" onclick="pickAll(true)">すべて選択</button>
         <button class="btn sm ghost" onclick="pickAll(false)">選択解除</button>
@@ -9565,7 +9616,7 @@ function viewLabels() {
           <span class="ms">print</span>${sel.length}件を印刷・PDF出力</button>
       </div>
       <div class="sec" style="margin-top:20px">機器（個体）</div>
-      <div class="picks">${db.items.filter(i => i.status !== '廃棄').map(i => pick('item', i.id, i.name, locPath(i.location_id))).join('') || '<div class="meta">ありません</div>'}</div>
+      <div class="picks">${db.items.filter(i => i.status !== '廃棄').map(i => pick('item', i.id, i.name, locPath(i.location_id), i)).join('') || '<div class="meta">ありません</div>'}</div>
       <div class="sec">数量品</div>
       <div class="picks">${db.masters.map(p => pick('prod', p.code, titleOf(p), placeOf(p))).join('') || '<div class="meta">ありません</div>'}</div>
       <div class="sec">棚</div>
