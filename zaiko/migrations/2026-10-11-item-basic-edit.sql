@@ -33,6 +33,7 @@
 --     3) inv_item_basic_edit() … **画面が呼ぶのはこれ1つ。**上の2つをまとめて1回で終える
 --     4) 権限
 --
+--   直せるのは**管理者だけ**（inv_is_admin()）。
 --   在庫数・状態・価格・棚卸・8RENT・QRには触らない。
 --   履歴（inventory_transactions）は追記のみで、1行も消さない。
 -- ============================================================
@@ -62,8 +63,8 @@ declare
   v_diff  text[] := '{}';
   v_show  text;
 begin
-  if not public.inv_can_edit() then
-    raise exception '変更する権限がありません（閲覧のみ）';
+  if not public.inv_is_admin() then
+    raise exception '基本情報を直せるのは管理者だけです';
   end if;
 
   select * into it from public.inventory_items where id = p_item_id for update;
@@ -138,8 +139,8 @@ declare
   v_diff  text[] := '{}';
   v_show  text := 'なし';
 begin
-  if not public.inv_can_edit() then
-    raise exception '変更する権限がありません（閲覧のみ）';
+  if not public.inv_is_admin() then
+    raise exception '基本情報を直せるのは管理者だけです';
   end if;
 
   select * into pr from public.inventory_products where code = p_code for update;
@@ -230,8 +231,8 @@ declare
   pr      public.inventory_products;
   v_moved boolean := false;
 begin
-  if not public.inv_can_edit() then
-    raise exception '変更する権限がありません（閲覧のみ）';
+  if not public.inv_is_admin() then
+    raise exception '基本情報を直せるのは管理者だけです';
   end if;
 
   select * into it from public.inventory_items where id = p_item_id;
@@ -280,7 +281,10 @@ comment on function public.inv_item_basic_edit is
 --    2026-10-01-rpc-permission-hardening.sql の一括配り直しは
 --    「そのとき存在した関数」への1回きりの処理なので、あとから足した関数には効かない。
 --    既定では PUBLIC に EXECUTE が付き anon からも呼べてしまうため、明示的に配り直す。
---    3つとも関数の中で inv_can_edit() が見る（viewer は弾かれる）。
+--    3つとも関数の中で inv_is_admin() が見る。
+--    商品名・型番・カテゴリは**同じ商品の全個体に効く**ので、直せるのは管理者だけ。
+--    倉庫メンバーは移動・棚卸確認・入出庫・販売済みなど、既存の操作をそのまま使う。
+--    新しい権限は作らず、すでにある inv_is_admin() を見ている。
 --
 --    inv_item_edit / inv_product_edit も authenticated に渡したままにする。
 --    security invoker なので、呼ぶ人に EXECUTE が無いと
@@ -354,7 +358,16 @@ select 'anonは呼べない',
               or has_function_privilege('anon', 'public.inv_item_basic_edit(text,text,text,date,text,text,text,text,text,text)', 'execute')
             then 'NG anonが呼べる' else 'OK' end
 union all
-select '社員は呼べる',
+select '直せるのは管理者だけ',
+       case when pg_get_functiondef('public.inv_item_basic_edit(text,text,text,date,text,text,text,text,text,text)'::regprocedure)
+                 like '%if not public.inv_is_admin() then%'
+             and pg_get_functiondef('public.inv_item_edit(text,text,text,date,text)'::regprocedure)
+                 like '%if not public.inv_is_admin() then%'
+             and pg_get_functiondef('public.inv_product_edit(text,text,text,text,text,text)'::regprocedure)
+                 like '%if not public.inv_is_admin() then%'
+            then 'OK' else 'NG' end
+union all
+select '社員は呼べる（中で管理者かを見る）',
        case when has_function_privilege('authenticated', 'public.inv_item_edit(text,text,text,date,text)', 'execute')
              and has_function_privilege('authenticated', 'public.inv_product_edit(text,text,text,text,text,text)', 'execute')
              and has_function_privilege('authenticated', 'public.inv_item_basic_edit(text,text,text,date,text,text,text,text,text,text)', 'execute')

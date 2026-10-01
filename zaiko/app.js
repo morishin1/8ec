@@ -5689,7 +5689,9 @@ function closeModal() { $('modal').classList.remove('on'); }
    商品登録と同じカテゴリーマスタ（catsFor / catOptLabel）から選ぶ。 */
 function sheetItemEdit(id) {
   const it = item(id); if (!it) return;
-  if (!canEdit()) { toast('変更する権限がありません（閲覧のみ）'); return; }
+  // 商品名・型番・カテゴリは同じ商品の全個体に効くので、直せるのは管理者だけ。
+  // 倉庫メンバーは移動・棚卸確認・入出庫・販売済みなど、既存の操作をそのまま使う
+  if (!canAdmin()) { toast('基本情報を直せるのは管理者だけです'); return; }
   const m = prod(it.product_code);
   const cats = catsFor(m ? m.kind : 'individual', (m || it).category_id);
   const v = (x) => esc(x == null ? '' : String(x));
@@ -5735,6 +5737,7 @@ function sheetItemEdit(id) {
    その中は1つの取引になり、どこで失敗しても何も変わらない。
    中で何をするか（移動・写しの更新・履歴）はDBの関数が持つ。 */
 async function saveItemEdit(id) {
+  if (!canAdmin()) { toast('基本情報を直せるのは管理者だけです'); return false; }
   const it = item(id); if (!it) return false;
   const m = prod(it.product_code);
   const val = (k) => { const el = $(k); return el ? el.value.trim() : null; };
@@ -5794,7 +5797,7 @@ function viewItem() {
         ${statusTag(it.status, true)}
         <span id="itemRentTag">${GONE.includes(it.status) ? '' : rentalTag(it)}</span>
         ${isLong(it) ? '<span class="tag" style="background:var(--l200)">長期貸出 ' + daysSince(it.loaned_at) + '日</span>' : ''}
-        ${canEdit() ? `<button class="btn sm ghost" style="margin-left:auto"
+        ${canAdmin() ? `<button class="btn sm ghost" style="margin-left:auto"
           onclick="sheetItemEdit('${esc(it.id)}')"><span class="ms">edit</span>編集</button>` : ''}
       </div>
       <div class="info">

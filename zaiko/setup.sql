@@ -11337,8 +11337,8 @@ declare
   v_diff  text[] := '{}';
   v_show  text;
 begin
-  if not public.inv_can_edit() then
-    raise exception '変更する権限がありません（閲覧のみ）';
+  if not public.inv_is_admin() then
+    raise exception '基本情報を直せるのは管理者だけです';
   end if;
 
   select * into it from public.inventory_items where id = p_item_id for update;
@@ -11413,8 +11413,8 @@ declare
   v_diff  text[] := '{}';
   v_show  text := 'なし';
 begin
-  if not public.inv_can_edit() then
-    raise exception '変更する権限がありません（閲覧のみ）';
+  if not public.inv_is_admin() then
+    raise exception '基本情報を直せるのは管理者だけです';
   end if;
 
   select * into pr from public.inventory_products where code = p_code for update;
@@ -11505,8 +11505,8 @@ declare
   pr      public.inventory_products;
   v_moved boolean := false;
 begin
-  if not public.inv_can_edit() then
-    raise exception '変更する権限がありません（閲覧のみ）';
+  if not public.inv_is_admin() then
+    raise exception '基本情報を直せるのは管理者だけです';
   end if;
 
   select * into it from public.inventory_items where id = p_item_id;
@@ -11555,7 +11555,10 @@ comment on function public.inv_item_basic_edit is
 --    2026-10-01-rpc-permission-hardening.sql の一括配り直しは
 --    「そのとき存在した関数」への1回きりの処理なので、あとから足した関数には効かない。
 --    既定では PUBLIC に EXECUTE が付き anon からも呼べてしまうため、明示的に配り直す。
---    3つとも関数の中で inv_can_edit() が見る（viewer は弾かれる）。
+--    3つとも関数の中で inv_is_admin() が見る。
+--    商品名・型番・カテゴリは**同じ商品の全個体に効く**ので、直せるのは管理者だけ。
+--    倉庫メンバーは移動・棚卸確認・入出庫・販売済みなど、既存の操作をそのまま使う。
+--    新しい権限は作らず、すでにある inv_is_admin() を見ている。
 --
 --    inv_item_edit / inv_product_edit も authenticated に渡したままにする。
 --    security invoker なので、呼ぶ人に EXECUTE が無いと
