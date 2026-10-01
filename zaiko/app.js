@@ -723,7 +723,18 @@ function go(screen, id) {
 }
 window.addEventListener('popstate', () => route(false));
 
+/* 管理者だけの画面。**ナビから隠すだけにしない。**
+   URLを直接開いても、ここで倉庫作業ホームへ戻す（判定は既存の canAdmin()）。 */
+const ADMIN_SCREENS = ['reg', 'labels', 'deals', 'rental', 'master', 'members', 'hist', 'prod'];
+const SCREEN_NAME = { reg: '商品登録', labels: 'QRラベル', deals: '案件', rental: '8RENT申込',
+                      master: 'マスター管理', members: 'メンバー管理', hist: '履歴', prod: '商品詳細' };
 function applyRoute(r) {
+  // 管理者向けの画面を管理者以外が開いたら、黙らずに知らせてホームへ戻す
+  if (ADMIN_SCREENS.indexOf(r.screen) >= 0 && !canAdmin()) {
+    toast(`${SCREEN_NAME[r.screen] || 'この画面'}は管理者だけが使えます`);
+    r = { screen: 'dash' };
+    if (location.pathname !== BASE + '/') history.replaceState(null, '', BASE + '/');
+  }
   ui.screen = r.screen;
   ui.itemId = r.itemId || null;
   ui.prodId = r.prodId || null;
@@ -1044,7 +1055,11 @@ function listFiltered() {
   });
 }
 
-function setListMode(m) { ui.listMode = m; ui.sel = {}; ui.selItems = {}; ui.fDiff = false; go('list'); }
+function setListMode(m) {
+  // 型番別・販売チャネル別は管理者だけ。倉庫メンバーは個体別のまま
+  if (!canAdmin()) m = 'unit';
+  ui.listMode = m; ui.sel = {}; ui.selItems = {}; ui.fDiff = false; go('list');
+}
 
 /* いま選んでいるタブが販売サイト（または未出品）なら、そのキーを返す */
 const chanTab = () => (isChanKey(ui.listMode) || ui.listMode === 'none') ? ui.listMode : '';
@@ -1093,6 +1108,7 @@ function viewList() {
     : tab === 'none'
     ? 'どの販売サイトにも出していない在庫です。<strong>ここから出品先を決めていきます。</strong>'
     : tab ? `<strong>${esc(chanLabel(tab))}に出品中</strong>の在庫だけを出しています。ほかのサイトにも出していれば、出品先の欄に並びます。`
+    : !canAdmin() ? '<strong>実物1台＝1行</strong>で並べています。行を押すと、その1台の画面が開きます。'
     : unit ? '<strong>実物1台＝1行</strong>で並べています。行をクリックすると、その1台の詳細と履歴が見られます。'
            : '<strong>型番でまとめて</strong>数だけ見ています。行をクリックすると、個体の一覧や販売情報まで見られます。';
   return `
@@ -1102,6 +1118,7 @@ function viewList() {
       <div class="listtools">
         <button class="btn sm ghost" onclick="exportInventoryCsv()">
           <span class="ms">download</span>CSVダウンロード</button>
+        ${canAdmin() ? `
         <button class="btn sm lime" onclick="openImport()" ${canAdmin() ? '' : 'disabled'}
           title="${canAdmin() ? 'CSVでまとめて／1件ずつ、どちらもここから' : '追加できる権限がありません'}">
           <span class="ms">upload_file</span>商品取込</button>
@@ -1112,15 +1129,12 @@ function viewList() {
           <span class="ms">sync</span>楽天商品を同期</button>
         <button class="btn sm ghost" onclick="openRakutenOrders()" ${canAdmin() ? '' : 'disabled'}
           title="${canAdmin() ? '楽天RMSの注文を取り込み、売れた台数を在庫から引く' : '取り込める権限がありません'}">
-          <span class="ms">receipt_long</span>楽天の注文を取り込む</button>
+          <span class="ms">receipt_long</span>楽天の注文を取り込む</button>` : ''}
       </div>
     </div>
-    ${importHistLine()}
+    ${canAdmin() ? importHistLine() : ''}
     ${stocktakeBar()}
-    ${batchBanner()}
-    ${diffBar()}
-    ${noPriceBar()}
-    ${listTabs()}
+    ${canAdmin() ? batchBanner() + diffBar() + noPriceBar() + listTabs() : ''}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:4px">
       <input class="input" id="f-q" value="${esc(ui.q)}" oninput="onFilter()"
              placeholder="${unit ? '管理番号・型番・S/N…' : '型番・商品名・管理番号…'}">
@@ -1138,11 +1152,11 @@ function viewList() {
             <option value="">すべての状態</option>
             ${STATUSES.map(s => `<option${ui.fSt === s ? ' selected' : ''}>${esc(s)}</option>`).join('')}
           </select>
-          <select class="input" id="f-rent" onchange="onFilter()" title="8RENT（レンタル）に出している個体で絞る">
+          ${canAdmin() ? `<select class="input" id="f-rent" onchange="onFilter()" title="8RENT（レンタル）に出している個体で絞る">
             <option value="">8RENT すべて</option>
             <option value="on"${ui.fRentEl === 'on' ? ' selected' : ''}>レンタル対象だけ</option>
             <option value="off"${ui.fRentEl === 'off' ? ' selected' : ''}>対象外だけ</option>
-          </select>
+          </select>` : ''}
           <select class="input" id="f-check" onchange="onFilter()"
                   title="${db.stocktake ? '実施中の棚卸で現物を確認できているかで絞る' : '今月のうちに現物を確認できているかで絞る'}">
             <option value="">棚卸 すべて</option>
@@ -1458,6 +1472,10 @@ function listingChips(on, title) {
 /*            ☑    管理番号 型番   価格   価格調査 出品先 保管場所 状態  棚卸   8RENT */
 const UNIT_COLS_PICK = ['3%', '12%', '14%', '10%', '13%', '9%', '8%', '9%', '11%', '11%'];
 const UNIT_COLS      = ['12%', '15%', '10%', '13%', '9%', '9%', '9%', '12%', '11%'];
+/* 倉庫メンバーの在庫一覧は 管理番号・型番・保管場所・状態・棚卸 の5列だけ。
+   価格・価格調査・出品先・8RENT は出さない（管理者の一覧はこれまでどおり） */
+const WARE_COLS_PICK = ['4%', '26%', '26%', '18%', '13%', '13%'];
+const WARE_COLS      = ['27%', '27%', '19%', '14%', '13%'];
 
 function unitsBodyHtml() {
   const rows = unitsFiltered();
@@ -1466,6 +1484,7 @@ function unitsBodyHtml() {
   const live = rows.filter(r => r.kind === 'item' && IN_STOCK.includes(r.i.status)).length;
   const qty = rows.filter(r => r.kind === 'qty').reduce((n, r) => n + (r.m.qty || 0), 0);
   const pick = canEdit();
+  const full = canAdmin();        // 価格・価格調査・出品先・8RENT を出すのは管理者だけ
   const rentN = rows.filter(r => r.kind === 'item' && isRentalOn(r.i)).length;
   // 棚卸の数え方は棚卸画面と同じ（db.stChecked）。この行は「いま出ている行のうち」を数える
   const ckDone = db.stocktake
@@ -1473,18 +1492,20 @@ function unitsBodyHtml() {
   const ckTodo = db.stocktake
     ? rows.filter(r => r.kind === 'item' && checkState(r.i, ckIdx).todo).length : 0;
   return `<div class="meta" style="margin:12px 0 4px">${rows.length} 件${
-      live ? `／うち在庫・出品中 ${live}台` : ''}${rentN ? `／8RENT対象 ${rentN}台` : ''}${qty ? `／数量品 ${qty}` : ''}${
+      live ? `／うち在庫・出品中 ${live}台` : ''}${full && rentN ? `／8RENT対象 ${rentN}台` : ''}${qty ? `／数量品 ${qty}` : ''}${
       db.stocktake ? `／この絞り込みの中では 棚卸確認済 ${ckDone}・未確認 ${ckTodo}` : ''}</div>
     <div class="table-wrap"><table class="t unittbl">
-    <colgroup>${(pick ? UNIT_COLS_PICK : UNIT_COLS).map(w => `<col style="width:${w}">`).join('')}</colgroup>
+    <colgroup>${(full ? (pick ? UNIT_COLS_PICK : UNIT_COLS)
+                       : (pick ? WARE_COLS_PICK : WARE_COLS)).map(w => `<col style="width:${w}">`).join('')}</colgroup>
     <thead><tr>
       ${pick ? `<th class="ck"><input type="checkbox" id="selAllItems" onclick="toggleAllItems(this.checked)"
         ${allItemsSelected(rows) ? 'checked' : ''} title="表示中の個体をすべて選ぶ"></th>` : ''}
       <th class="col-id">管理番号</th><th class="col-model">型番・メーカー</th>
-      <th class="col-price r">価格</th>
+      ${full ? `<th class="col-price r">価格</th>
       <th class="col-market">価格調査</th>
-      <th class="col-listing">出品先</th><th class="col-loc">保管場所</th>
-      <th class="col-status">状態</th><th class="col-check">棚卸</th><th class="col-rental">8RENT</th>
+      <th class="col-listing">出品先</th>` : ''}<th class="col-loc">保管場所</th>
+      <th class="col-status">状態</th><th class="col-check">棚卸</th>${
+        full ? '<th class="col-rental">8RENT</th>' : ''}
     </tr></thead>
     <tbody>${rows.slice(0, 600).map(r => {
       const { i, m } = r;
@@ -1498,14 +1519,14 @@ function unitsBodyHtml() {
         <td class="col-model" data-label="型番"><div class="mdl">${esc(m.model || titleOf(m))}</div>
           ${m.maker ? `<div class="meta">${esc(m.maker)}</div>` : ''}
           <div class="meta num">${esc(m.code)}</div></td>
-        <td class="col-price r" data-label="価格"><div class="num meta">${yen(m.unit_price)}</div>
+        ${full ? `<td class="col-price r" data-label="価格"><div class="num meta">${yen(m.unit_price)}</div>
           <div class="meta">単価</div></td>
         <td class="col-market" data-label="価格調査">${marketBtns(m.maker, m.model)}</td>
-        <td class="col-listing mall" data-label="出品先">${listingChips(liveOnProd(m.code))}</td>
+        <td class="col-listing mall" data-label="出品先">${listingChips(liveOnProd(m.code))}</td>` : ''}
         <td class="col-loc meta" data-label="保管場所">${esc(locPath(m.location_id))}</td>
         <td class="col-status" data-label="状態">${qtyTag(m)}</td>
         <td class="col-check meta" data-label="棚卸">—</td>
-        <td class="col-rental meta" data-label="8RENT">—</td>
+        ${full ? '<td class="col-rental meta" data-label="8RENT">—</td>' : ''}
       </tr>`;
       const cost = costOf(i), plan = planOf(i);
       // 型番・メーカーは商品マスターを優先。価格調査の検索語にも同じものを使う
@@ -1524,21 +1545,22 @@ function unitsBodyHtml() {
           ${i.purchased_on ? `<div class="meta">${esc(fmtD(i.purchased_on))}</div>` : ''}</td>
         <td class="col-model" data-label="型番"><div class="mdl">${esc(mk.model)}</div>
           ${mk.maker ? `<div class="meta">${esc(mk.maker)}</div>` : ''}</td>
-        <td class="col-price r num" data-label="価格">
+        ${full ? `<td class="col-price r num" data-label="価格">
           <div>${cost ? yen(cost) : '<span class="meta">—</span>'}</div>
           <div class="meta">予定 ${plan == null ? '—' : yen(plan)}</div></td>
         <td class="col-market" data-label="価格調査">${marketBtns(mk.maker, mk.model, false, i.id)}</td>
-        <td class="col-listing mall" data-label="出品先">${listingChips(liveOn(i))}</td>
+        <td class="col-listing mall" data-label="出品先">${listingChips(liveOn(i))}</td>` : ''}
         <td class="col-loc meta" data-label="保管場所">${esc(locPath(i.location_id))}</td>
         <td class="col-status" data-label="状態">${statusTag(i.status, false, stockStale(i, ckIdx))}</td>
         <td class="col-check" data-label="棚卸">${checkCell(i, ckIdx)}</td>
-        <td class="col-rental" data-label="8RENT">${rentalTag(i)}</td>
+        ${full ? `<td class="col-rental" data-label="8RENT">${rentalTag(i)}</td>` : ''}
       </tr>`;
     }).join('')}</tbody></table></div>
     ${rows.length > 600 ? '<div class="meta" style="margin-top:8px">先頭600件だけ表示しています。絞り込んでください。</div>' : ''}`;
 }
 
 function listBodyHtml() {
+  if (!canAdmin()) return unitsBodyHtml();   // 倉庫メンバーは個体別だけ
   if (ui.listMode !== 'model') return unitsBodyHtml();
   const rows = listFiltered();
   if (!rows.length) return `<div class="empty" style="margin-top:15px">該当する商品はありません。</div>`;
@@ -1992,6 +2014,16 @@ function refreshSelBar() {
 function selBarItems(n) {
   const b = (label, icon, fn, cls) =>
     `<button class="btn sm ${cls || ''}" onclick="${fn}"><span class="ms">${icon}</span>${label}</button>`;
+  // 倉庫メンバーは3つだけ。価格・8RENT・修理・QR状態・廃棄は管理者の操作
+  if (!canAdmin()) {
+    return `<span class="n"><span class="ms">check_box</span>${n}件選択中</span>
+      <div class="selops">
+        ${b('移動', 'move_down', 'openBulkMoveSel()')}
+        ${b('棚卸確認', 'fact_check', 'openBulkCheck()')}
+        ${b('販売済みにする', 'local_shipping', 'openBulkSellWarehouse()', 'lime')}
+      </div>
+      <button class="btn sm ghost" onclick="clearItemSel()">選択解除</button>`;
+  }
   return `<span class="n"><span class="ms">check_box</span>${n}件選択中</span>
     <div class="selops">
       ${b('QRラベルを印刷', 'qr_code_2', 'printSelectedLabels()')}
@@ -2187,6 +2219,49 @@ async function doBulk(action) {
   await loadAll();
   render();
   showBulkResult(action, data || {});
+}
+
+/* ---- 倉庫メンバーのまとめて操作 --------------------------------------------
+   どちらも**新しいRPCは作らない**。
+     移動        … 既存の inv_item_op('移動') を1台ずつ（棚の「まとめて移動」と同じやり方）
+     販売済みにする … 既存の doBulk('売却') をそのまま。売値の欄を出さないので null で通る
+   倉庫メンバーは売値を決めないので、価格の入力は置かない。 */
+function openBulkMoveSel() {
+  const b = selBreakdown(GONE);
+  if (!b.n) return;
+  openSheet({
+    title: 'まとめて移動', subject: `${b.n}台`, cta: '移動を記録',
+    hint: `選んだ <strong>${b.n}台</strong>の保管場所を変えます。${
+      b.ng ? `<br><span class="meta">${esc(b.note)} は手元にないので動かせません。</span>` : ''}`,
+    body: `<label class="field"><span>移動先</span>
+      <select class="input" id="sheetVal">${locOptions('', '選択してください')}</select></label>`,
+    validate: (v) => { if (!v) { toast('移動先を選んでください'); return false; } return true; },
+    run: async (locId) => {
+      const rows = selItemRows().filter(i => !GONE.includes(i.status));
+      let ok = 0;
+      for (const it of rows) {
+        const { data, error } = await sb.rpc('inv_item_op',
+          { p_item_id: it.id, p_action: '移動', p_value: locId, p_note: null });
+        if (!error) { const k = db.items.findIndex(x => x.id === it.id); if (k >= 0 && data) db.items[k] = data; ok++; }
+      }
+      ui.selItems = {};
+      await refreshTx();
+      render();
+      toast(`${ok}台を ${locPath(locId)} に移しました`);
+    }
+  });
+}
+function openBulkSellWarehouse() {
+  const b = selBreakdown(['予約中', '貸出中', '売却済', '廃棄']);
+  if (!b.n) return;
+  openModal('選んだ商品を販売済みにしますか？', `
+    ${bulkHead(`選んだ <strong>${b.n}台</strong>のうち、<strong>${b.ok}台</strong>を販売済（売却済）にします。
+      <div class="meta" style="margin-top:4px">在庫から外れます。履歴は残ります。</div>
+      ${b.ng ? `<div class="meta" style="margin-top:4px">${esc(b.note)} はそのまま販売済にできません。</div>` : ''}`, 'warn')}
+    <p class="meta"><strong>売値はここでは入れません。</strong>あとから管理者が入れます。</p>
+    <label class="field" style="margin-top:12px"><span>メモ（任意）</span>
+      <input class="input" id="blNote" placeholder="例 まとめて出荷"></label>
+  `, [['キャンセル', 'closeModal()', 'btn ghost'], ['販売済みにする', "doBulk('売却')", 'btn pri']]);
 }
 
 /* 成功件数・失敗件数・失敗理由を出す。全部成功なら短く1行で伝える */
