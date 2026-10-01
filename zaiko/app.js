@@ -575,6 +575,34 @@ function showSetup(err) {
 
 /* ---------------------------------------------------------------- 読み込み */
 
+/* ---- 倉庫メンバー・閲覧に渡す列 ---------------------------------------------
+   `select('*')` だと、使わない列まで倉庫のスマホへ降りてくる。
+   倉庫の画面（viewHome / viewList / viewItemWarehouse / 棚卸 / 移動 / 出荷）が
+   実際に読む列だけを並べる。**原価・価格・仕入先・仕入元・備考は入れない。**
+   管理者は `select('*')` のまま（取得内容は1つも変えない）。 */
+
+/* 個体。viewItemWarehouse（写真・型番・S/N・保管場所・利用者・状態・棚卸）、
+   在庫一覧の倉庫5列、棚卸の stRow、移動・貸出・返却・販売済みの判定に使うもの。
+   入れないもの： price / plan_price / sold_price / sold_channel / purchase_fee
+                  （価格系）、source_id（仕入元）、note / legacy_note（管理用の備考）、
+                  purchased_on（仕入日）、rental_eligible（8RENTは管理者の画面だけ） */
+const WARE_ITEM_COLS = ['id', 'name', 'maker', 'model', 'serial', 'product_code',
+  'category_id', 'location_id', 'status', 'user_name', 'loaned_at', 'last_checked_at',
+  'qr_print_count', 'qr_printed_at', 'qr_printed_last'].join(',');
+
+/* 商品マスター。倉庫では商品名・型番・メーカー・スペック・写真と、
+   数量管理の行（在庫数）にだけ使う。
+   入れないもの： supplier（仕入先）、unit_price（単価）、sale_* / rental_price_month ほか
+                  販売・レンタルの設定、description 系、note / legacy_note */
+const WARE_PROD_COLS = ['code', 'name', 'maker', 'model', 'spec', 'kind',
+  'category_id', 'location_id', 'qty', 'min_qty',
+  'image_url', 'images', 'rental_image_url', 'rental_images'].join(',');
+
+/* 履歴。倉庫ホームの「今日の作業」が数えるのに使う3つだけ。
+   before_value / after_value（旧値・新値。価格も入る）と ref_kind / ref_id / label は渡さない */
+const WARE_TX_COLS = ['id', 'actor', 'action', 'occurred_at'].join(',');
+
+
 /* 一覧まわりのデータ。QRで直接開いたときは、詳細を描いたあとに裏で走らせる */
 async function loadAll() {
   /* 倉庫メンバー・閲覧は、倉庫で使うものだけを読む。
@@ -584,9 +612,10 @@ async function loadAll() {
   const q = [
     sb.from('inventory_categories').select('*').order('sort_no'),
     sb.from('inventory_locations').select('*').order('sort_no'),
-    sb.from('inventory_items').select('*').limit(LOAD_LIMIT),
-    sb.from('inventory_products').select('*').limit(LOAD_LIMIT),
-    sb.from('inventory_transactions').select('*').order('occurred_at', { ascending: false }).limit(300),
+    sb.from('inventory_items').select(full ? '*' : WARE_ITEM_COLS).limit(LOAD_LIMIT),
+    sb.from('inventory_products').select(full ? '*' : WARE_PROD_COLS).limit(LOAD_LIMIT),
+    sb.from('inventory_transactions').select(full ? '*' : WARE_TX_COLS)
+      .order('occurred_at', { ascending: false }).limit(300),
     sb.from('inventory_stocktakes').select('*').order('started_at', { ascending: false }).limit(20),
     sb.from('inv_stocktake_summary').select('*').order('started_at', { ascending: false }).limit(24)
   ];
@@ -672,8 +701,10 @@ async function loadStocktakeItems() {
 }
 
 async function refreshTx() {
+  // 読み直しでも列は増やさない（倉庫メンバーには WARE_TX_COLS だけ）
   const { data, error } = await sb.from('inventory_transactions')
-    .select('*').order('occurred_at', { ascending: false }).limit(300);
+    .select(canAdmin() ? '*' : WARE_TX_COLS)
+    .order('occurred_at', { ascending: false }).limit(300);
   if (!error) db.tx = data || [];
 }
 
@@ -780,9 +811,16 @@ async function route(first) {
   applyRoute(r);
 }
 
+/* QRから1件だけ先に取る。ここも role で分ける。
+   倉庫メンバー・閲覧の画面（viewItemWarehouse）に出品情報は1つも出さないので、
+   inventory_channels / inventory_channel_listings は**問い合わせ自体を作らない**。
+   取る列も倉庫で使うものだけ（WARE_ITEM_COLS / WARE_PROD_COLS）。
+   管理者はこれまでどおり全部取る。 */
 async function loadOne(r) {
+  const full = canAdmin();
   const res = r.screen === 'item'
-    ? await sb.from('inventory_items').select('*').eq('id', r.itemId).maybeSingle()
+    ? await sb.from('inventory_items').select(full ? '*' : WARE_ITEM_COLS)
+        .eq('id', r.itemId).maybeSingle()
     : await sb.from('inventory_products').select('*').eq('code', r.prodId).maybeSingle();
   if (res.error) { showSetup(res.error); return false; }
   if (!res.data) return false;
@@ -799,20 +837,26 @@ async function loadOne(r) {
     // 個体の画面は商品名などをマスタから出すので、その1件も取る。
     // 出品情報は1台ぶんと商品まるごとの両方（1台ぶんが無ければ商品の行を当てるため）
     if (res.data.product_code) {
-      const [m, chs, cls] = await Promise.all([
-        sb.from('inventory_products').select('*').eq('code', res.data.product_code).maybeSingle(),
+      const chQ = !full ? [] : [
         sb.from('inventory_channels').select('*').eq('product_code', res.data.product_code),
         sb.from('inventory_channel_listings').select('*').eq('product_code', res.data.product_code)
-      ]);
+      ];
+      const [m, chs = {}, cls = {}] = await Promise.all([
+        sb.from('inventory_products').select(full ? '*' : WARE_PROD_COLS)
+          .eq('code', res.data.product_code).maybeSingle()
+      ].concat(chQ));
       if (m.data) db.masters = [m.data];
       db.channels = (chs.data || []).concat(cls.error ? [] : (cls.data || []));
-    } else {
+    } else if (full) {
       const chs = await sb.from('inventory_channels').select('*').eq('item_id', res.data.id);
       db.channels = chs.data || [];
+    } else {
+      db.channels = [];
     }
   } else {
     db.masters = [res.data];
-    // 商品の画面はぶら下がる個体と販売情報まで見せる
+    // 商品の画面（prod）は ADMIN_SCREENS。guardRoute() で管理者以外はここへ来ない。
+    // ぶら下がる個体と販売情報まで見せる
     const [its, chs, cls] = await Promise.all([
       sb.from('inventory_items').select('*').eq('product_code', res.data.code).limit(LOAD_LIMIT),
       sb.from('inventory_channels').select('*').eq('product_code', res.data.code),
@@ -827,7 +871,8 @@ async function loadOne(r) {
 
 /* ---------------------------------------------------------------- メニュー */
 /* 管理者は全部。そうでない人（倉庫メンバー・閲覧）は、倉庫で使うものだけを出す。
-   出していない画面もURLを直接開けば見られる（機能は消していない）。 */
+   出していない画面はURLを直接開いても開かない（guardRoute() で倉庫ホームへ戻す）。
+   機能そのものは消していない：管理者で入れば今までどおり全部使える。 */
 function renderMenu() {
   $('menu').innerHTML = MENU.filter(([, , , , need]) =>
     canAdmin() ? true : need === 'ware').map(([key, icon, label]) =>
@@ -1393,6 +1438,8 @@ function unitsFiltered(ignoreTab) {
     if (!qrFilterHit(i)) return false;
     if (inScope && !inScope.includes(i.location_id)) return false;
     if (q) {
+      // 倉庫メンバー・閲覧では source_id（仕入元）と note（管理用の備考）を取っていないので、
+      // この2つは検索の対象から自然に外れる（管理番号・S/N・型番・商品名では引ける）
       const hay = [i.id, i.serial, i.source_id, (m && m.model) || i.model, (m && m.name) || i.name, i.note]
         .filter(Boolean).join(' ').toLowerCase();
       if (hay.indexOf(q) < 0) return false;
@@ -1551,7 +1598,7 @@ function unitsBodyHtml() {
         <td class="col-check meta" data-label="棚卸">—</td>
         ${full ? '<td class="col-rental meta" data-label="8RENT">—</td>' : ''}
       </tr>`;
-      const cost = costOf(i), plan = planOf(i);
+      const cost = full ? costOf(i) : null, plan = full ? planOf(i) : null;
       // 型番・メーカーは商品マスターを優先。価格調査の検索語にも同じものを使う
       const mk = { model: (m && m.model) || i.model || '', maker: (m && m.maker) || i.maker || '' };
       return `<tr class="clk${isMismatch(i) ? ' warn' : ''}${ui.selItems[i.id] ? ' on' : ''}" data-item="${esc(i.id)}" onclick="go('item','${esc(i.id)}')">
@@ -1564,8 +1611,8 @@ function unitsBodyHtml() {
                title="この1台の詳細と履歴">${esc(i.id)}</a>
             ${qrIcon(i)}
           </div>
-          ${i.source_id ? `<div class="meta">仕入元 ${esc(i.source_id)}</div>` : ''}
-          ${i.purchased_on ? `<div class="meta">${esc(fmtD(i.purchased_on))}</div>` : ''}</td>
+          ${full && i.source_id ? `<div class="meta">仕入元 ${esc(i.source_id)}</div>` : ''}
+          ${full && i.purchased_on ? `<div class="meta">${esc(fmtD(i.purchased_on))}</div>` : ''}</td>
         <td class="col-model" data-label="型番"><div class="mdl">${esc(mk.model)}</div>
           ${mk.maker ? `<div class="meta">${esc(mk.maker)}</div>` : ''}</td>
         ${full ? `<td class="col-price r num" data-label="価格">
