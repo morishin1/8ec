@@ -7512,8 +7512,8 @@ function viewMembers() {
   }
   const rows = memberRows();
   return `<h1>メンバー管理</h1>
-    <p class="meta" style="margin:12px 0 0">※この画面は<strong>在庫管理の権限</strong>を設定します。
-      ログインアカウント自体は既存の認証方法で用意してください。</p>
+    <p class="meta" style="margin:12px 0 0">※この画面で<strong>ログインの作成・パスワードの設定</strong>と
+      <strong>在庫管理の権限</strong>をまとめて行えます。追加したらすぐログインできます。</p>
     <p class="meta" style="margin:6px 0 0">ここに無いログインは<strong>閲覧のみ</strong>の扱いになります。</p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:16px 0 6px">
       <button class="btn" onclick="sheetMember(null)"><span class="ms">person_add</span>メンバーを追加</button>
@@ -7533,6 +7533,43 @@ function viewMembers() {
       </div>`).join('') : '<div class="empty">まだ登録がありません。</div>'}</div>`;
 }
 
+/* ---- メンバー管理のサーバーAPI -----------------------------------------------
+   Supabase Auth の管理（ログインの作成・パスワード変更・削除）には**サーバー鍵**が要る。
+   **サーバー鍵はブラウザに置かない。** 置いた時点で、誰でもどのアカウントの
+   パスワードでも変えられてしまう。そこで /api/zaiko-members を通す。
+
+   送るのは自分のログイン（access token）だけ。
+   「自分が管理者かどうか」はサーバーが Supabase に聞いて確かめるので、
+   画面から role を申告したりはしない（してもサーバーは見ない）。 */
+async function memberApi(payload) {
+  let token = null;
+  try {
+    const { data } = await sb.auth.getSession();
+    token = data && data.session && data.session.access_token;
+  } catch (e) {}
+  if (!token) { toast('ログインし直してください'); return null; }
+  let r, out;
+  try {
+    r = await fetch('/api/zaiko-members', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify(payload)
+    });
+    out = await r.json().catch(() => null);
+  } catch (e) { toast('通信できませんでした'); return null; }
+  if (!r.ok) { toast((out && out.error) || '処理できませんでした'); return null; }
+  return out || {};
+}
+
+/* 入れた2つが同じで、長さが足りているか。**値はここでしか触らない** */
+function pwCheck(a, b) {
+  if (!a) return 'パスワードを入力してください';
+  if (a.length < 8) return 'パスワードは8文字以上にしてください';
+  if (/\s/.test(a)) return 'パスワードに空白は使えません';
+  if (a !== b) return 'パスワードが一致しません';
+  return null;
+}
+
 /* 追加と編集。メールアドレスは主キーなので、編集では変えない
    （変えたいときは外して、新しいメールで足してもらう） */
 function sheetMember(email) {
@@ -7543,7 +7580,7 @@ function sheetMember(email) {
     title: m ? 'メンバーを編集' : 'メンバーを追加', subject: m ? m.email : '', cta: '保存',
     keepOpenOnError: true,
     hint: m ? 'メールアドレスは変えられません。変えるときは一度外して、新しいメールで足してください。'
-            : 'ログインアカウントは別に用意してください。ここで決めるのは在庫管理での権限です。',
+            : 'ログインを作って、在庫管理の権限も同時に登録します。',
     body: `
       <label class="field" style="margin-bottom:10px"><span>氏名</span>
         <input class="input" id="mbName" value="${esc((m || {}).display_name || '')}" placeholder="例 山田 太郎"></label>
@@ -7553,9 +7590,90 @@ function sheetMember(email) {
       <label class="field"><span>権限</span>
         <select class="input" id="mbRole">${ROLES.map(([v, label]) =>
           `<option value="${v}"${(m || {}).role === v ? ' selected' : ''}>${esc(label)}</option>`).join('')}</select></label>
-      ${isMe ? '<p class="meta" style="margin-top:10px"><strong>これはあなた自身です。</strong>自分を管理者から外すこと・自分のアクセスを外すことはできません（別の管理者に頼んでください）。</p>' : ''}`,
+      ${m ? '' : `
+      <div class="sec" style="margin:18px 0 10px">初期パスワード</div>
+      <label class="field" style="margin-bottom:10px"><span>初期パスワード</span>
+        <input class="input" type="password" id="mbPw" autocomplete="new-password"
+          placeholder="8文字以上"></label>
+      <label class="field"><span>初期パスワード（確認）</span>
+        <input class="input" type="password" id="mbPw2" autocomplete="new-password"></label>
+      <p class="meta" style="margin:10px 0 0">追加すると<strong>すぐログインできます</strong>。
+        ログインIDはメールアドレスの @ より前（例 <span class="num">yamada</span>）です。
+        本人に伝えて、ログイン後に変えてもらってください。</p>`}
+      ${isMe ? '<p class="meta" style="margin-top:10px"><strong>これはあなた自身です。</strong>自分を管理者から外すこと・自分のアクセスを外すことはできません（別の管理者に頼んでください）。</p>' : ''}
+      ${m ? `
+      <div class="sec" style="margin:18px 0 10px">ログイン</div>
+      <div id="pwBox">${pwBoxHtml(m.email, false)}</div>
+      ${isMe ? '' : `<button type="button" class="btn sm danger" style="margin-top:14px"
+        onclick="openAuthDelete('${esc(m.email)}')">
+        <span class="ms">no_accounts</span>ログインアカウントを削除</button>`}` : ''}`,
     run: () => saveMember(m ? m.email : null)
   });
+}
+
+/* ［パスワードを変更］を押すまで欄を出さない。**いまのパスワードは出さない**
+   （Supabase もハッシュしか持っていないので、そもそも読み出せない）。
+   できるのは「新しいものを入れ直す」ことだけ。 */
+function pwBoxHtml(email, open) {
+  if (!open) {
+    return `<button type="button" class="btn sm ghost" onclick="togglePw('${esc(email)}',true)">
+      <span class="ms">key</span>パスワードを変更</button>
+      <p class="meta" style="margin:8px 0 0">いまのパスワードは表示できません。新しいものを入れ直します。</p>`;
+  }
+  return `<label class="field" style="margin-bottom:10px"><span>新しいパスワード</span>
+      <input class="input" type="password" id="pwNew" autocomplete="new-password" placeholder="8文字以上"></label>
+    <label class="field"><span>新しいパスワード（確認）</span>
+      <input class="input" type="password" id="pwNew2" autocomplete="new-password"></label>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button type="button" class="btn sm" onclick="changePw('${esc(email)}')">変更する</button>
+      <button type="button" class="btn sm ghost" onclick="togglePw('${esc(email)}',false)">やめる</button>
+    </div>`;
+}
+function togglePw(email, open) {
+  const box = $('pwBox'); if (!box) return;
+  box.innerHTML = pwBoxHtml(email, open);
+  if (open) { const el = $('pwNew'); if (el) el.focus(); }
+}
+
+/* パスワードだけを変える。シートの氏名・権限は保存しない（別の操作） */
+async function changePw(email) {
+  if (!canAdmin()) { toast('パスワードを変えられるのは管理者だけです'); return; }
+  const a = (($('pwNew') || {}).value || ''), b = (($('pwNew2') || {}).value || '');
+  const bad = pwCheck(a, b);
+  if (bad) { toast(bad); return; }
+  const out = await memberApi({ action: 'password', email, password: a });
+  if (!out) return;
+  togglePw(email, false);
+  await refreshTx();
+  toast('パスワードを変えました');
+}
+
+/* ログインアカウントの削除。**在庫管理の権限を外すのとは別の操作。**
+   誤操作が重いので、メールアドレスを打ち直してもらう */
+function openAuthDelete(email) {
+  if (!canAdmin()) { toast('ログインを消せるのは管理者だけです'); return; }
+  if (email === me.email) { toast('自分自身のログインは消せません'); return; }
+  const m = (db.members || []).find(x => x.email === email);
+  openModal('ログインアカウントを削除しますか？', `
+    <p style="font-size:17px;font-weight:700;margin:0 0 4px">${esc((m || {}).display_name || '')}</p>
+    <div class="meta">${esc(email)}</div>
+    <p class="meta" style="margin-top:12px"><strong>この人はログインできなくなります。</strong>
+      在庫管理の権限（この一覧）は別で、残ったままです。先に［アクセスを外す］もしてください。</p>
+    <p class="meta" style="margin-top:10px">履歴（誰が何をしたか）は消えません。</p>
+    <label class="field" style="margin-top:12px"><span>確認のため、メールアドレスを入力してください</span>
+      <input class="input" id="adConfirm" autocomplete="off" placeholder="${esc(email)}"></label>
+  `, [['キャンセル', 'closeModal()', 'btn ghost'],
+      ['ログインを削除', `doAuthDelete('${esc(email)}')`, 'btn danger']]);
+}
+async function doAuthDelete(email) {
+  const typed = (($('adConfirm') || {}).value || '').trim().toLowerCase();
+  if (typed !== email) { toast('メールアドレスが一致しません'); return; }
+  const out = await memberApi({ action: 'auth-delete', email, confirm: email });
+  if (!out) return;
+  closeModal(); closeSheet();
+  await refreshTx();
+  render();
+  toast(`${email} のログインを削除しました`);
 }
 async function saveMember(email) {
   const name = (($('mbName') || {}).value || '').trim();
@@ -7574,18 +7692,31 @@ async function saveMember(email) {
   }
 
   const row = { email: mail, display_name: name, role };
-  const { data, error } = email
-    ? await sb.from('inventory_members').update({ display_name: name, role }).eq('email', mail).select().maybeSingle()
-    : await sb.from('inventory_members').insert(row).select().maybeSingle();
-  if (error) { toast('保存できませんでした：' + error.message); return false; }
-
-  const saved = data || row;
+  let saved = null;
+  if (email) {
+    // 既存メンバーの編集。氏名と権限だけ。パスワードは別の操作（changePw）
+    const { data, error } = await sb.from('inventory_members')
+      .update({ display_name: name, role }).eq('email', mail).select().maybeSingle();
+    if (error) { toast('保存できませんでした：' + error.message); return false; }
+    saved = data || row;
+  } else {
+    // 追加。**ログインの作成と権限の登録をサーバーで一度に行う**
+    // （鍵が要るのでブラウザからは Auth を触らない）
+    const pw = (($('mbPw') || {}).value || ''), pw2 = (($('mbPw2') || {}).value || '');
+    const bad = pwCheck(pw, pw2);
+    if (bad) { toast(bad); return false; }
+    const out = await memberApi({ action: 'create', email: mail, name, role, password: pw });
+    if (!out) return false;
+    saved = out.member || row;
+    if (out.note) toast(out.note);
+  }
   const k = (db.members || []).findIndex(x => x.email === mail);
   if (k >= 0) db.members[k] = saved; else db.members.push(saved);
-  await logMember(mail, name, email ? '権限変更' : 'メンバー追加',
-    was ? roleLabel(was.role) : 'なし', roleLabel(role));
+  // 追加のぶんの履歴はサーバーが残している（二重に書かない）
+  if (email) await logMember(mail, name, '権限変更', was ? roleLabel(was.role) : 'なし', roleLabel(role));
+  else await refreshTx();
   render();
-  toast(email ? 'メンバーを保存しました' : 'メンバーを追加しました');
+  toast(email ? 'メンバーを保存しました' : `${name} を追加しました（すぐログインできます）`);
   return true;
 }
 
