@@ -87,7 +87,11 @@
       "destination": "/zaiko/index.html"
     },
     {
-      "source": "/zaiko/(list|in|out|loan|stock|locations|masters|members|history|register|labels|deals|rental-requests)",
+      "source": "/zaiko/(list|in|out|loan|stock|locations|masters|members|history|register|labels|deals|rental-requests|sns)",
+      "destination": "/zaiko/index.html"
+    },
+    {
+      "source": "/zaiko/sns/(.*)",
       "destination": "/zaiko/index.html"
     },
     {
