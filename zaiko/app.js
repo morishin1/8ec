@@ -7147,10 +7147,15 @@ async function sellItem(id, dest, price, note) {
 
    **戻る状態は画面で決めない。** 既存の履歴（inventory_transactions）の
    action='売却' の before_value に、売却の直前の状態がそのまま残っている。
-   それを読むのはサーバーの inv_item_sell_undo_target() 1か所だけで、
+   それを読むのはサーバーの inv_item_sell_undo_info() 1か所だけで、
    確認画面も取消の本体も同じものを通る（判定の二重実装をしない）。
      在庫 → 売却済 → 取消 → 在庫 ／ 出品中 → … → 出品中 ／ 販売予約 → … → 販売予約
-   履歴から分からないときは、推測して戻さずに「取り消せません」と出す。
+   履歴から分からないとき（履歴が無い／すでに取り消し済みの売却しか無い／売却前が
+   貸出中・社内使用）は、推測して戻さずに「取り消せません」と出す。
+
+   モールの受注明細（inventory_sale_orders）にこの個体が割り当たっていたら、
+   その注文番号を確認画面に出す。取り消すと **8EC の中の割り当てだけ**を外して
+   「個体の割り当て待ち」へ戻す（外部のモールへは何も送らない）。
 
    権限は既存の canEdit()（管理者・倉庫メンバー）。viewer は使えない。
    サーバー側も inv_can_edit() で止めるので、画面だけの判定にはしていない。 */
@@ -7162,15 +7167,20 @@ async function sheetSellUndo(id) {
   if (!canUndoSell(it)) { toast(`${it.status} のものは取り消せません（売却済だけ）`); return; }
   const m = prod(it.product_code);
 
-  // 戻る状態をサーバーに聞く（読むだけ。ここでは何も変わらない）
-  const { data: back, error } = await sb.rpc('inv_item_sell_undo_target', { p_item_id: id });
+  // 戻る状態と、紐付いているモールの受注明細をサーバーに聞く
+  // （読むだけ。ここでは何も変わらない。判定はサーバーの1か所だけに置く）
+  const { data: info, error } = await sb.rpc('inv_item_sell_undo_info', { p_item_id: id });
   if (error) { toast(error.message || '戻る状態を調べられませんでした'); return; }
+  const back = (info || {}).back;
+  const orders = ((info || {}).orders) || [];
   if (!back) {
     openModal('この販売済みは取り消せません', `
       <p><strong>どこへ戻すかを履歴から決められないので、取り消せません。</strong></p>
-      <p class="meta" style="margin-top:10px">次のどちらかです。</p>
+      <p class="meta" style="margin-top:10px">次のどれかです。</p>
       <ul class="meta" style="margin:6px 0 0;padding-left:20px">
         <li>売却の履歴が残っていない（状態が手で直されたものなど）</li>
+        <li>いちばん新しい売却は<strong>すでに取り消し済み</strong>で、いまの「売却済」に
+          対応する売却の履歴が無い</li>
         <li>売却前が<strong>貸出中・社内使用</strong>だった。売却のときに利用者が消えているので、
           誰に貸していたかまでは戻せない</li>
       </ul>
@@ -7189,10 +7199,18 @@ async function sheetSellUndo(id) {
       ${row('現在', statusTag('売却済'))}
       ${row('戻る状態', statusTag(back))}
     </div>
-    ${it.sold_channel ? `<p class="meta" style="margin-top:12px">
+    ${orders.length ? `<div class="undoord">
+      <div class="k">この個体が割り当たっている注文</div>
+      ${orders.map(o => `<div class="r"><b>${esc(o.channel)} ${esc(o.order_number)}</b>
+        <span class="meta">明細 ${esc(o.line_number)}-${esc(o.unit_no)}　${esc(o.status)}</span></div>`).join('')}
+      <p class="meta" style="margin:8px 0 0">取り消すと、<strong>8EC の中でのこの個体の割り当てを外して
+        「個体の割り当て待ち（受注）」へ戻します</strong>。別の個体を割り当て直してください。
+        <strong>販売サイト側の注文・出品は自動では戻りません</strong>（再出品もしません）。</p>
+    </div>`
+    : (it.sold_channel ? `<p class="meta" style="margin-top:12px">
       <strong>${esc(it.sold_channel)} へ売れたものとして記録されています。</strong>
       在庫側はここで戻せますが、<strong>販売サイト側の注文や出品は自動では戻りません</strong>
-      （再出品もしません）。必要なら管理画面で直してください。</p>` : ''}
+      （再出品もしません）。必要なら管理画面で直してください。</p>` : '')}
     <p class="meta" style="margin-top:12px">売却の金額と売却先は消えます。
       これまでの「売却」の履歴は残り、「売却取消」が足されます。</p>
     <label class="undochk"><input type="checkbox" id="undoOk"
