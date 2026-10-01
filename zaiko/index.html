@@ -312,6 +312,14 @@ table.t tr.clk:hover td{background:var(--n100)}
 /* ---- 販売済みの取り消し ----
    取り違えを戻す操作なので、押す前に管理番号を確かめてもらう。
    確認のチェックを入れるまでボタンを押せないようにする（CSSは見た目だけ）。 */
+/* ---- QRから販売（販売先を選ぶと登録価格が出る） ----
+   倉庫メンバーは金額を入れない。出すのは「選んだ販売先の価格」1つだけで、
+   原価・利益・ほかの販売先の価格は出さない。 */
+.sellprice{margin-top:14px;padding:14px;border:1px solid var(--line);border-radius:10px;
+  background:var(--n100)}
+.sellprice .k{font-size:13px;color:var(--n600);margin-bottom:4px}
+.sellprice b.num{font-size:28px;font-weight:700;letter-spacing:-.01em;display:block}
+.sellprice b.none{font-size:20px;font-weight:700;color:var(--n600);display:block}
 .undoid{font-size:19px;font-weight:700;letter-spacing:.02em}
 .undochk{display:flex;gap:10px;align-items:flex-start;margin-top:14px;padding:12px;
   border:1px solid var(--line);border-radius:10px;background:var(--n100);font-size:14px;line-height:1.6}

@@ -172,7 +172,9 @@ const ui = {
   mTab: 'loc',               // マスター管理のタブ（保管場所／カテゴリー）
   quoteId: null,             // いま開いている見積
   contractId: null,          // いま開いている契約
-  fDeal: ''                  // 案件の状態の絞り込み
+  fDeal: '',                 // 案件の状態の絞り込み
+  sellCh: '',                // 倉庫からの販売で選んでいる販売先
+  sellPrice: null            // その販売先の登録価格（サーバーに聞いた1件だけ）
 };
 
 /* 仕入の置き場所はたいてい柏の倉庫なので、取込の初期値にする。
@@ -700,6 +702,16 @@ async function loadStocktakeItems() {
   if (!error) db.stChecked = data || [];
 }
 
+/* 管理者ホームの経営数値を取り直す。売却・売却取消のあとに呼ぶので、
+   同じ画面のまま戻っても今月の売上・粗利・販売台数が最新になる。
+   **数えているのはDB側（inv_dashboard_stats）。** ブラウザでは数え直さない。
+   管理者以外はそもそも持っていないので、何もしない。 */
+async function refreshStats() {
+  if (!canAdmin()) return;
+  const { data, error } = await sb.rpc('inv_dashboard_stats');
+  if (!error) db.stats = data || null;
+}
+
 async function refreshTx() {
   // 読み直しでも列は増やさない（倉庫メンバーには WARE_TX_COLS だけ）
   const { data, error } = await sb.from('inventory_transactions')
@@ -796,6 +808,9 @@ function applyRoute(r) {
   if (r.listMode) ui.listMode = r.listMode;
   renderMenu();
   render();
+  // 管理者ホームへ戻ったときは、今月の数字を取り直してから描き直す
+  // （同じ画面のまま売却・売却取消をしても最新になる。ページの再読み込みは要らない）
+  if (r.screen === 'dash' && canAdmin() && ui.loaded) refreshStats().then(render);
 }
 
 async function route(first) {
@@ -5797,11 +5812,19 @@ function viewItemWarehouse(it, m) {
    どの現物を出荷したかを確定するのが倉庫の仕事で、売値は管理者が後から入れる
    （売価未登録のまま売却済にすると、管理者のダッシュボードの「要確認」に出る）。
    処理は既存の sellItem() → inv_item_sell → inv_item_op('売却') をそのまま通す。 */
+/* 倉庫メンバーが選ぶのは**販売先だけ**。金額は入れない。
+   選んだ販売先の登録価格をサーバーに1件だけ聞いて出し、その金額でだけ確定できる。
+   **全販売先の価格をまとめて取りに行かない**（#47 の「渡すデータを最小化」のまま）。
+   価格が無い・0円以下なら確定ボタンは押せない。 */
+const SELL_CHANNELS = TAB_CHANNELS.concat(CHANNELS.filter(c => c.key === 'other'));
+const sellPriceOk = (v) => typeof v === 'number' && isFinite(v) && v > 0;
+
 function sheetSellWarehouse(id) {
   const it = item(id); if (!it) return;
   if (!canEdit()) { toast('操作する権限がありません（閲覧のみ）'); return; }
   if (!wareCanSell(it)) { toast(`${it.status} のものは販売済みにできません`); return; }
   const m = prod(it.product_code);
+  ui.sellCh = ui.sellCh && isChanKey(ui.sellCh) ? ui.sellCh : SELL_CHANNELS[0].key;
   openModal('この商品を販売済みにしますか？', `
     <p style="font-size:17px;font-weight:700;margin:0 0 10px">${esc(m ? titleOf(m) : it.name)}</p>
     <div class="winfo">
@@ -5809,23 +5832,70 @@ function sheetSellWarehouse(id) {
       <div class="wrow"><span class="k">シリアル番号</span><b>${esc(it.serial || '—')}</b></div>
       <div class="wrow"><span class="k">保管場所</span><b>${esc(locPath(it.location_id)) || '—'}</b></div>
     </div>
-    <p class="meta" style="margin-top:12px">在庫から外れます。履歴は残ります。
-      <strong>売値はここでは入れません</strong>（あとから管理者が入れます）。</p>
+    <label class="field" style="margin-top:14px"><span>販売先</span>
+      <select class="input" id="sellCh" onchange="pickSellChannel('${esc(id)}')">
+        ${SELL_CHANNELS.map(c => `<option value="${c.key}"${
+          c.key === ui.sellCh ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></label>
+    <div id="sellPrice" class="sellprice"><span class="meta">価格を調べています…</span></div>
   `, [['キャンセル', 'closeModal()', 'btn ghost'],
-      ['販売済みにする', `closeModal();doSellWarehouse('${esc(id)}')`, 'btn pri']]);
+      ['販売済みにする', `doSellWarehouse('${esc(id)}')`, 'btn pri', 'sellGo']]);
+  const go = $('sellGo'); if (go) go.disabled = true;      // 価格が出るまで押せない
+  pickSellChannel(id);
 }
+
+/* 販売先を選び直すたびに、**その1件だけ**を聞き直す */
+async function pickSellChannel(id) {
+  const box = $('sellPrice'), go = $('sellGo');
+  const key = (($('sellCh') || {}).value || '');
+  ui.sellCh = key; ui.sellPrice = null;
+  if (go) go.disabled = true;
+  if (box) box.innerHTML = '<span class="meta">価格を調べています…</span>';
+  const { data, error } = await sb.rpc('inv_item_channel_price', { p_item_id: id, p_channel: key });
+  if (key !== (($('sellCh') || {}).value || key)) return;   // 待っている間に選び直されたら捨てる
+  const v = error ? null : (data == null ? null : Number(data));
+  if (!sellPriceOk(v)) {
+    ui.sellPrice = null;
+    if (box) box.innerHTML = `<div class="k">販売価格</div><b class="none">未設定</b>
+      <p class="meta" style="margin:8px 0 0">この販売先の価格が登録されていません。
+        管理者に販売価格を設定してもらってください。</p>`;
+    if (go) { go.disabled = true; go.textContent = '販売済みにする'; }
+    return;
+  }
+  ui.sellPrice = v;
+  if (box) box.innerHTML = `<div class="k">販売価格</div><b class="num">${yen(v)}</b>`;
+  if (go) { go.disabled = false; go.textContent = `${yen(v)}で販売済みにする`; }
+}
+
 async function doSellWarehouse(id) {
   const it = item(id); if (!it) return;
+  if (!canEdit()) { toast('操作する権限がありません（閲覧のみ）'); return; }
   if (!wareCanSell(it)) { toast(`${it.status} のものは販売済みにできません`); return; }
+  const key = (($('sellCh') || {}).value || ui.sellCh || '');
+  if (!isChanKey(key)) { toast('販売先を選んでください'); return; }
+  if (!sellPriceOk(ui.sellPrice)) { toast('この販売先の価格が登録されていません'); return; }
   const m = prod(it.product_code);
   const name = m ? titleOf(m) : it.name;
-  // 売却先も売価も渡さない（null）。既存の売却処理をそのまま使う
-  const ok = await sellItem(id, null, null, null);
-  if (ok === false) return;
+
+  /* **金額は送らない。** サーバーが item_id × 販売先 から引き直した金額で売る
+     （画面に出ている数字をそのまま信じない）。売却そのものは既存の
+     inv_item_sell → inv_item_op('売却') をそのまま通る。 */
+  const { data, error } = await sb.rpc('inv_item_sell_channel',
+    { p_item_id: id, p_channel: key, p_note: null });
+  if (error) { toast(error.message || '記録できませんでした'); return; }
+  const k = db.items.findIndex(x => x.id === id);
+  if (k >= 0 && data) db.items[k] = data;
+  await refreshTx();
+  await refreshStats();
+  render();
+  const sold = (data || {}).sold_price;
   openModal('販売済みにしました', `
     <p style="font-size:17px;font-weight:700;margin:0 0 6px">
       <span class="ms" style="color:#1B5E20;vertical-align:-4px">check_circle</span> ${esc(name)}</p>
     <div class="num" style="font-size:15px">${esc(id)}</div>
+    <div class="winfo" style="margin-top:12px">
+      <div class="wrow"><span class="k">販売先</span><b>${esc(chanLabel(key))}</b></div>
+      <div class="wrow"><span class="k">販売価格</span><b class="num">${yen(sold)}</b></div>
+    </div>
     <p class="meta" style="margin-top:12px">続けて出荷するときは［次のQRを読む］を押してください。</p>
   `, [['在庫一覧へ', "closeModal();go('list')", 'btn ghost'],
       ['次のQRを読む', "closeModal();openScan('lookup')", 'btn pri']]);
@@ -7231,6 +7301,7 @@ async function doSellUndo(id) {
   const k = db.items.findIndex(x => x.id === id);
   if (k >= 0 && data) db.items[k] = data;
   await refreshTx();
+  await refreshStats();          // 取り消した売却は今月の数字から外れる
   render();
   toast(`${id} の販売済みを取り消しました（${(data || {}).status || ''}）`);
 }
