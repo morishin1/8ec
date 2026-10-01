@@ -6,7 +6,8 @@
 //   自動投稿はしない。SNSのトークンも持たない。最終投稿は人が行う。
 //
 //   ブラウザ（/zaiko）→ Vercel /api/sns →（サーバー鍵）→ Supabase / OpenAI
-//   ・操作のたびに、ログインと役割（倉庫メンバー・管理者）をここで確かめる
+//   ・操作のたびに、ログインと役割をここで確かめる。SNS投稿は**管理者だけ**
+//     （staffFromRequest は倉庫メンバーも通す共通の判定なので、その上でここで絞る）
 //   ・AIのキーはここだけで使う。ブラウザには渡さない
 //   ・AIに渡す材料は公開されているものだけ（api/_sns.js の説明を参照）
 //   ・URLはここで組み立てる。AIには書かせない
@@ -402,6 +403,7 @@ module.exports = async (req, res) => {
 
   const who = await L.staffFromRequest(req);
   if (!who.ok) return res.status(who.status).json({ error: who.error });
+  if (who.role !== "admin") return res.status(403).json({ error: "SNS投稿は管理者だけが使えます" });
 
   try {
     const out = await act(body, who);

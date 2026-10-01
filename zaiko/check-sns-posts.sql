@@ -10,14 +10,15 @@
 --   確かめること
 --     ・文を直すと、その文の「投稿済み」だけが外れる
 --     ・選んだ軸を変えたのに文がそのままなら「古い」になる
---     ・倉庫メンバー（member）は読めるが、画面から直接は書けない
---     ・閲覧（viewer）と anon には下書きが見えない
+--     ・管理者（admin）は読めるが、画面から直接は書けない
+--     ・倉庫メンバー（member）・閲覧（viewer）・anon には下書きが見えない（SNS投稿は管理者だけ）
 -- ============================================================
 begin;
 
--- 点検用の2人（rollback で消える）
+-- 点検用の3人（rollback で消える）
 insert into public.inventory_members (email, display_name, role) values
-  ('sns-check-member@example.invalid', '点検（一般）', 'member'),
+  ('sns-check-admin@example.invalid', '点検（管理者）', 'admin'),
+  ('sns-check-member@example.invalid', '点検（倉庫メンバー）', 'member'),
   ('sns-check-viewer@example.invalid', '点検（閲覧）', 'viewer')
 on conflict (email) do nothing;
 
@@ -38,15 +39,23 @@ begin
   if not r.social_stale then raise exception '軸を変えても「古い」になりません'; end if;
   reset role;
 
-  perform set_config('request.jwt.claims', '{"email":"sns-check-member@example.invalid"}', true);
+  perform set_config('request.jwt.claims', '{"email":"sns-check-admin@example.invalid"}', true);
   set local role authenticated;
   select count(*) into n from public.ec_sns_posts where id = pid;
-  if n <> 1 then raise exception '倉庫メンバー（member）が下書きを読めません'; end if;
+  if n <> 1 then raise exception '管理者（admin）が下書きを読めません'; end if;
   begin
     update public.ec_sns_posts set note = 'x' where id = pid;
     raise exception '画面（authenticated）から直接書けてしまいます。書き込みは /api/sns だけのはずです';
   exception when insufficient_privilege then null;
   end;
+  reset role;
+
+  perform set_config('request.jwt.claims', '{"email":"sns-check-member@example.invalid"}', true);
+  set local role authenticated;
+  select count(*) into n from public.ec_sns_posts where id = pid;
+  if n <> 0 then raise exception '倉庫メンバー（member）に下書きが見えます（SNS投稿は管理者だけ）'; end if;
+  select count(*) into n from public.ec_sns_hashtags;
+  if n <> 0 then raise exception '倉庫メンバー（member）にハッシュタグ候補が見えます'; end if;
   reset role;
 
   perform set_config('request.jwt.claims', '{"email":"sns-check-viewer@example.invalid"}', true);

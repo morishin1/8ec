@@ -11303,7 +11303,7 @@ revoke all on function public.ec_sns_posts_touch() from public, anon, authentica
 -- 5) RLS
 --
 --    inventory_* は「ログインしていれば誰でも読める（using true）」だが、
---    SNSの下書きは倉庫メンバー・管理者だけに絞る（閲覧のみのログインには見せない）。
+--    SNSの下書きは管理者だけに絞る（倉庫メンバー・閲覧のみのログインには見せない）。
 --    書き込みのポリシーは作らない＝画面から直接は書けない。/api/sns がサーバー鍵で書く
 --    （役割の確認・AIの呼び出し・URLの組み立てを必ずサーバーで通すため）。
 -- ------------------------------------------------------------
@@ -11313,11 +11313,11 @@ alter table public.ec_sns_generations enable row level security;
 
 drop policy if exists "ec_sns_posts staff read" on public.ec_sns_posts;
 create policy "ec_sns_posts staff read" on public.ec_sns_posts
-  for select to authenticated using (public.inv_can_edit());
+  for select to authenticated using (public.inv_is_admin());
 
 drop policy if exists "ec_sns_hashtags staff read" on public.ec_sns_hashtags;
 create policy "ec_sns_hashtags staff read" on public.ec_sns_hashtags
-  for select to authenticated using (public.inv_can_edit());
+  for select to authenticated using (public.inv_is_admin());
 
 -- 生成の記録は画面から読まない（サーバーだけ）
 

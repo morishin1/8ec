@@ -123,7 +123,6 @@ const LIST_STATES_IN = LIST_STATES.concat(['出品中止']);
 /* 5つめの印
      'admin' … 管理者だけに出す（画面側でも権限を見る）
      'ware'  … 倉庫メンバーにも出す（倉庫で現物を扱うのに要るもの）
-     'edit'  … 倉庫メンバー（member）と管理者に出す。閲覧（viewer）には出さない（SNS投稿）
    **機能を消すのではなく、ナビに出すかどうかだけ**。管理者はこれまでどおり全部出る。 */
 const MENU = [
   ['dash', 'space_dashboard', 'ホーム', '', 'ware'],
@@ -138,9 +137,8 @@ const MENU = [
   ['labels', 'qr_code_2', 'QRラベル', '/labels'],
   ['deals', 'request_quote', '案件', '/deals'],
   ['rental', 'car_rental', '8RENT申込', '/rental-requests'],
-  // SNS投稿準備。倉庫メンバー（member）と管理者だけ。閲覧（viewer）には出さない
-  // （中身は zaiko/sns.js。サーバー側 /api/sns と RLS でも同じ役割を見る）
-  ['sns', 'campaign', 'SNS投稿', '/sns', 'edit'],
+  // SNS投稿準備。管理者だけ（ADMIN_SCREENS にも入れ、/api/sns と RLS でも管理者だけ）
+  ['sns', 'campaign', 'SNS投稿', '/sns', 'admin'],
   // マスター管理・メンバー管理はメニューにも管理者だけ出す（画面側でも権限を見る）
   ['master', 'tune', 'マスター管理', '/masters', 'admin'],
   ['members', 'group', 'メンバー管理', '/members', 'admin']
@@ -783,10 +781,10 @@ window.addEventListener('popstate', () => route(false));
    **データを取りに行く前に見る。** あとから戻すと、管理者向けの画面のデータだけ
    先に取ってしまうため（loadOne より前に guardRoute() を通す）。 */
 const ADMIN_SCREENS = ['reg', 'labels', 'deals', 'rental', 'master', 'members', 'hist',
-                       'prod', 'quote', 'contract'];
+                       'prod', 'quote', 'contract', 'sns'];
 const SCREEN_NAME = { reg: '商品登録', labels: 'QRラベル', deals: '案件', rental: '8RENT申込',
                       master: 'マスター管理', members: 'メンバー管理', hist: '履歴',
-                      prod: '商品詳細', quote: '見積', contract: '契約' };
+                      prod: '商品詳細', quote: '見積', contract: '契約', sns: 'SNS投稿' };
 function guardRoute(r) {
   if (ADMIN_SCREENS.indexOf(r.screen) < 0 || canAdmin()) return r;
   toast(`${SCREEN_NAME[r.screen] || 'この画面'}は管理者だけが使えます`);
@@ -884,7 +882,7 @@ async function loadOne(r) {
    機能そのものは消していない：管理者で入れば今までどおり全部使える。 */
 function renderMenu() {
   $('menu').innerHTML = MENU.filter(([, , , , need]) =>
-    canAdmin() ? true : (need === 'ware' || (need === 'edit' && canEdit()))).map(([key, icon, label]) =>
+    canAdmin() ? true : need === 'ware').map(([key, icon, label]) =>
     `<button class="${ui.screen === key ? 'on' : ''}" onclick="go('${key}')"><span class="ms">${icon}</span>${esc(label)}</button>`
   ).join('');
   $('siteName').textContent = db.locs.length ? (locsOrdered().find(l => l.kind === 'site') || {}).name || '' : '';

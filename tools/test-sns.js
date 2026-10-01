@@ -32,8 +32,10 @@ async function t(name, fn) {
 const TOKEN = 'user-token-aaaaaaaaaaaaaaaaaaaaaaaa';
 const world = {};
 function reset() {
-  world.users = { [TOKEN]: 'staff@8grp.co.jp', 'viewer-token-bbbbbbbbbbbbbbbbbbbbbb': 'viewer@8grp.co.jp' };
-  world.members = [{ email: 'staff@8grp.co.jp', role: 'member', display_name: '担当' },
+  world.users = { [TOKEN]: 'staff@8grp.co.jp', 'viewer-token-bbbbbbbbbbbbbbbbbbbbbb': 'viewer@8grp.co.jp',
+                  'member-token-dddddddddddddddddddddd': 'ware@8grp.co.jp' };
+  world.members = [{ email: 'staff@8grp.co.jp', role: 'admin', display_name: '担当' },
+                   { email: 'ware@8grp.co.jp', role: 'member', display_name: '倉庫' },
                    { email: 'viewer@8grp.co.jp', role: 'viewer', display_name: '閲覧' }];
   world.posts = [];
   world.tags = ['#法人PC', '#PCレンタル', '#新入社員', '#キッティング'];
@@ -287,6 +289,30 @@ const AXES = { persona: 'hr_recruit', issue: 'new_hire_pc', content_type: 'issue
     const r = await call({ action: 'save', ...AXES }, 'viewer-token-bbbbbbbbbbbbbbbbbbbbbb');
     assert.strictEqual(r.status, 403);
     assert.strictEqual(world.posts.length, 0);
+  });
+  await t('認証：倉庫メンバー（member）も 403。保存も生成もしない（SNS投稿は管理者だけ）', async () => {
+    reset();
+    const M_TOKEN = 'member-token-dddddddddddddddddddddd';
+    const s = await call({ action: 'save', ...AXES }, M_TOKEN);
+    assert.strictEqual(s.status, 403);
+    assert.ok(/管理者だけ/.test(s.body.error), s.body.error);
+    assert.strictEqual(world.posts.length, 0);
+    const r = await call({ action: 'generate', id: '11111111-1111-4111-8111-000000000001' }, M_TOKEN);
+    assert.strictEqual(r.status, 403);
+    assert.strictEqual(world.openai.length, 0);
+    const m = await call({ action: 'material', source_type: 'none' }, M_TOKEN);
+    assert.strictEqual(m.status, 403);
+    assert.strictEqual(world.publicCalls.length, 0, '倉庫メンバーのために公開ページも取りに行かない');
+  });
+  await t('認証：共通の staffFromRequest は倉庫メンバーを通す（ほかの社内APIで使うため）', async () => {
+    reset();
+    const L = require('../api/_lib.js');
+    const who = await L.staffFromRequest({ headers: { authorization: 'Bearer member-token-dddddddddddddddddddddd' } });
+    assert.strictEqual(who.ok, true);
+    assert.strictEqual(who.role, 'member');
+    const v = await L.staffFromRequest({ headers: { authorization: 'Bearer viewer-token-bbbbbbbbbbbbbbbbbbbbbb' } });
+    assert.strictEqual(v.ok, false);
+    assert.strictEqual(v.status, 403);
   });
   await t('認証：inventory_members に無いログインは閲覧扱い（403）', async () => {
     reset();

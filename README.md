@@ -2317,8 +2317,9 @@ Instagram のキャプションはリンクが押せないのでURLは入れま�
 
 ### 権限
 
-- 画面に出るのは倉庫メンバー（member）・管理者だけ（メニューも同じ）。閲覧のみのログインには出しません
-- 読むのは Supabase から直接（RLSで `inv_can_edit()` の人だけ）。**書くのは必ず `/api/sns`**
+- **管理者だけ**が使えます。メニューに出るのも管理者だけで、`ADMIN_SCREENS` にも入れているので、
+  倉庫メンバー・閲覧が `/zaiko/sns` を直接開いても `guardRoute()` で作業ホームへ戻ります
+- 読むのは Supabase から直接（RLSで `inv_is_admin()` の人だけ）。**書くのは必ず `/api/sns`**
   （書き込みのポリシーはありません）。`/api/sns` は操作のたびにアクセストークンをSupabaseで確かめ、
   `inventory_members` の役割を見ます
 - `OPENAI_API_KEY` はサーバーだけで使います
