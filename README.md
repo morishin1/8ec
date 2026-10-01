@@ -403,6 +403,23 @@ Supabase の SQL Editor で `zaiko/setup.sql` を実行します。何度実行�
 管理者だけの画面を倉庫メンバーが開いても、**その画面のデータを1件も読みません**
 （あとから画面だけ戻すと、読み込みは走ってしまうため）。`go()` から来たときも `applyRoute()` が同じ判定を通します。
 
+#### 読むデータも役割で分ける
+
+`loadAll()` は `canAdmin()` を見て、**倉庫メンバー・閲覧のときは問い合わせ自体を作りません**
+（画面で隠すだけにしない）。
+
+| | 読むもの |
+|---|---|
+| 全員 | `inventory_categories` `inventory_locations` `inventory_items` `inventory_products` `inventory_transactions` `inventory_stocktakes` `inv_stocktake_summary`（＋棚卸の明細） |
+| 管理者だけ | 出品（`inventory_channels` / `inventory_channel_listings` / `inventory_channel_settings`）・取込履歴・8RENT申込・経営数値（`inv_dashboard_stats`）・案件・見積・契約・請求・入金・手配・運賃表・メンバー一覧 |
+
+倉庫メンバーのときに読むのは**7つだけ**です。
+
+#### CSVダウンロードは管理者だけ
+
+`exportInventoryCsv()` が出すのは仕入先・単価・販売状況・備考まで入る**管理用**のCSVで、
+倉庫メンバーの一覧（5列）とは中身が違います。ボタンを隠すだけでなく、関数の先頭で `canAdmin()` を見て止めます。
+
 #### 倉庫メンバーのまとめて操作
 
 | | 通る先 |

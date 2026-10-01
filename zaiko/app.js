@@ -577,6 +577,10 @@ function showSetup(err) {
 
 /* 一覧まわりのデータ。QRで直接開いたときは、詳細を描いたあとに裏で走らせる */
 async function loadAll() {
+  /* 倉庫メンバー・閲覧は、倉庫で使うものだけを読む。
+     価格・出品・案件・見積・契約・請求・手配・運賃・経営数値は画面にも出さないので、
+     **取りに行かない**（画面で隠すだけにしない）。管理者はこれまでどおり全部読む。 */
+  const full = canAdmin();
   const q = [
     sb.from('inventory_categories').select('*').order('sort_no'),
     sb.from('inventory_locations').select('*').order('sort_no'),
@@ -584,11 +588,15 @@ async function loadAll() {
     sb.from('inventory_products').select('*').limit(LOAD_LIMIT),
     sb.from('inventory_transactions').select('*').order('occurred_at', { ascending: false }).limit(300),
     sb.from('inventory_stocktakes').select('*').order('started_at', { ascending: false }).limit(20),
+    sb.from('inv_stocktake_summary').select('*').order('started_at', { ascending: false }).limit(24)
+  ];
+  /* ここから下は管理者だけ。**倉庫メンバーのときは問い合わせ自体を作らない。** */
+  const admQ = !full ? [] : [
     sb.from('inventory_channels').select('*').limit(LOAD_LIMIT),
-    sb.from('inventory_imports').select('*').order('imported_at', { ascending: false }).limit(100),
-    sb.from('inventory_rental_requests').select('*').order('created_at', { ascending: false }).limit(500),
     sb.from('inventory_channel_listings').select('*').limit(LOAD_LIMIT),
     sb.from('inventory_channel_settings').select('*'),
+    sb.from('inventory_imports').select('*').order('imported_at', { ascending: false }).limit(100),
+    sb.from('inventory_rental_requests').select('*').order('created_at', { ascending: false }).limit(500),
     sb.rpc('inv_dashboard_stats'),
     sb.from('inventory_deals').select('*').order('created_at', { ascending: false }).limit(300),
     sb.from('inventory_quotes').select('*').order('id', { ascending: false }).limit(500),
@@ -600,42 +608,40 @@ async function loadAll() {
     sb.from('inventory_contract_payments').select('*').limit(LOAD_LIMIT),
     sb.from('inv_contract_fulfillment_list').select('*').limit(LOAD_LIMIT),
     sb.from('inventory_contract_fulfillments').select('*').limit(LOAD_LIMIT),
-    sb.from('inventory_shipping_tariffs').select('*').eq('active', true).limit(5),
-    sb.from('inv_stocktake_summary').select('*').order('started_at', { ascending: false }).limit(24)
+    sb.from('inventory_shipping_tariffs').select('*').eq('active', true).limit(5)
   ];
-  const [c, l, i, p, t, s, ch, im, rr, cl, cs, ds, dl, qh, qi, qt, kh, ki, vh, vp, fl, fm, sh, ss] = await Promise.all(q);
-  const bad = [c, l, i, p, t, s, ch, im].find(r => r.error);
+  const res = await Promise.all(q.concat(admQ));
+  const [c, l, i, p, t, s, ss] = res;
+  const E = {};        // 管理者以外では読んでいないので、受け取る側は「空」として扱う
+  const [ch = E, cl = E, cs = E, im = E, rr = E, ds = E, dl = E, qh = E, qi = E, qt = E,
+         kh = E, ki = E, vh = E, vp = E, fl = E, fm = E, sh = E] = res.slice(q.length);
+  // 倉庫で必ず要るものだけ、取れなかったらセットアップ案内を出す
+  const bad = [c, l, i, p, t, s].concat(full ? [ch, im] : []).find(r => r.error);
   if (bad) { showSetup(bad.error); return false; }
-  db.imports = im.data || [];
-  // メンバー一覧は**管理者だけ**読む。倉庫メンバー・閲覧には配らない
-  // （RLSの参照は全員に開いているが、画面から要らないものは取りに行かない）
-  if (canAdmin()) {
+
+  // メンバー一覧も**管理者だけ**読む
+  if (full) {
     const mb = await sb.from('inventory_members').select('*').order('role').order('display_name');
     db.members = mb.error ? [] : (mb.data || []);
   } else { db.members = []; }
-  db.rentalReqs = rr.error ? [] : (rr.data || []);   // 未実行(setup.sql未更新)でも他が動くよう静かに空にする
+
+  // 以下はどれも「取れなければ空」。倉庫メンバーでは最初から取りに行っていない
+  db.imports = im.error ? [] : (im.data || []);
+  db.rentalReqs = rr.error ? [] : (rr.data || []);
   db.chanSettings = cs.error ? [] : (cs.data || []);
-  // 経営数値。migration未適用でも他の画面が動くよう、取れなければnullにする
-  db.stats = ds.error ? null : (ds.data || null);
-  // 案件。migration未適用でも他の画面が動くよう、取れなければ空にする
-  db.deals = dl.error ? [] : (dl.data || []);
-  // 見積。migration未適用でも他の画面が動くよう、取れなければ空にする
-  db.quotes = qh.error ? [] : (qh.data || []);
+  db.stats = ds.error ? null : (ds.data || null);     // 経営数値
+  db.deals = dl.error ? [] : (dl.data || []);         // 案件
+  db.quotes = qh.error ? [] : (qh.data || []);        // 見積
   db.qItems = qi.error ? [] : (qi.data || []);
   db.qTotals = qt.error ? [] : (qt.data || []);
-  // 契約。migration未適用でも他の画面が動くよう、取れなければ空にする
-  db.contracts = kh.error ? [] : (kh.data || []);
+  db.contracts = kh.error ? [] : (kh.data || []);     // 契約
   db.cItems = ki.error ? [] : (ki.data || []);
-  // 請求・入金。migration未適用でも他の画面が動くよう、取れなければ空にする
-  db.invoices = vh.error ? [] : (vh.data || []);
+  db.invoices = vh.error ? [] : (vh.data || []);      // 請求・入金
   db.payments = vp.error ? [] : (vp.data || []);
-  // 手配。migration未適用でも他の画面が動くよう、取れなければ空にする
-  db.fulLines = fl.error ? [] : (fl.data || []);
+  db.fulLines = fl.error ? [] : (fl.data || []);      // 手配
   db.fulfillments = fm.error ? [] : (fm.data || []);
-  // 運賃表。migration未適用でも他の画面が動くよう、取れなければ null にする
-  db.shipTariffs = sh.error ? [] : (sh.data || []);
-  // 棚卸の照合結果。DB側で数えたものをそのまま使う（ブラウザで何千行も数えない）。
-  // migration未適用でも他の画面が動くよう、取れなければ空にする
+  db.shipTariffs = sh.error ? [] : (sh.data || []);   // 運賃表
+  // 棚卸の照合結果。DB側で数えたものをそのまま使う（ブラウザで何千行も数えない）
   db.stSummary = ss.error ? [] : (ss.data || []);
 
   db.cats = c.data || [];
@@ -645,7 +651,7 @@ async function loadAll() {
   // 商品まるごとの出品情報（inventory_channel_listings）を、既存の個体別
   // 出品情報（inventory_channels）と同じ配列にまとめる。移行前（未実行）でも
   // 静かに空扱いにし、他の画面が動かなくならないようにする
-  db.channels = (ch.data || []).concat(cl.error ? [] : (cl.data || []));
+  db.channels = (ch.error ? [] : (ch.data || [])).concat(cl.error ? [] : (cl.data || []));
   reindexChannels();
   db.tx = t.data || [];
   const sts = s.data || [];
@@ -1133,9 +1139,9 @@ function viewList() {
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:15px 0 4px">
       <p class="meta" style="flex:1 1 260px">${lead}</p>
       <div class="listtools">
+        ${canAdmin() ? `
         <button class="btn sm ghost" onclick="exportInventoryCsv()">
           <span class="ms">download</span>CSVダウンロード</button>
-        ${canAdmin() ? `
         <button class="btn sm lime" onclick="openImport()" ${canAdmin() ? '' : 'disabled'}
           title="${canAdmin() ? 'CSVでまとめて／1件ずつ、どちらもここから' : '追加できる権限がありません'}">
           <span class="ms">upload_file</span>商品取込</button>
@@ -2402,7 +2408,10 @@ const CSV_MASTER = [
   ['最終更新', p => touchedAt(p) ? fmtDT(touchedAt(p)) : '']
 ];
 
+/* 仕入先・単価・販売状況・備考まで入る**管理用**のCSVなので、管理者だけ。
+   倉庫メンバーの一覧（5列）とは中身が違うため、ボタンを隠すだけにしない */
 function exportInventoryCsv() {
+  if (!canAdmin()) { toast('CSVを書き出せるのは管理者だけです'); return; }
   const rows = listFiltered();
   if (!rows.length) { toast('書き出すものがありません'); return; }
   const table = [CSV_MASTER.map(c => c[0])].concat(rows.map(r => CSV_MASTER.map(c => {
