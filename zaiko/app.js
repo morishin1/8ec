@@ -110,21 +110,26 @@ const LISTED = '出品中';
 const LIST_STATES = ['出品中', '出品停止', '売り切れ', '販売済み', '保留'];
 /* 昔のデータで使っていた言い方も読めるようにする（書くのは LIST_STATES だけ） */
 const LIST_STATES_IN = LIST_STATES.concat(['出品中止']);
+/* 5つめの印
+     'admin' … 管理者だけに出す（画面側でも権限を見る）
+     'ware'  … 倉庫メンバーにも出す（倉庫で現物を扱うのに要るもの）
+   **機能を消すのではなく、ナビに出すかどうかだけ**。管理者はこれまでどおり全部出る。 */
 const MENU = [
-  ['dash', 'space_dashboard', 'ダッシュボード', ''],
-  ['list', 'list_alt', '在庫一覧', '/list'],
-  ['in', 'login', '入庫', '/in'],
-  ['out', 'logout', '出庫', '/out'],
+  ['dash', 'space_dashboard', 'ホーム', '', 'ware'],
+  ['list', 'list_alt', '在庫一覧', '/list', 'ware'],
+  ['in', 'login', '入庫', '/in', 'ware'],
+  ['out', 'logout', '出庫', '/out', 'ware'],
   ['loan', 'swap_horiz', '貸出・返却', '/loan'],
-  ['stock', 'fact_check', '棚卸', '/stock'],
-  ['locs', 'warehouse', '保管場所', '/locations'],
+  ['stock', 'fact_check', '棚卸', '/stock', 'ware'],
+  ['locs', 'warehouse', '保管場所', '/locations', 'ware'],
   ['hist', 'history', '履歴', '/history'],
   ['reg', 'add_box', '商品登録', '/register'],
   ['labels', 'qr_code_2', 'QRラベル', '/labels'],
   ['deals', 'request_quote', '案件', '/deals'],
   ['rental', 'car_rental', '8RENT申込', '/rental-requests'],
-  // マスター管理はメニューにも管理者だけ出す（画面側でも権限を見る）
-  ['master', 'tune', 'マスター管理', '/masters', 'admin']
+  // マスター管理・メンバー管理はメニューにも管理者だけ出す（画面側でも権限を見る）
+  ['master', 'tune', 'マスター管理', '/masters', 'admin'],
+  ['members', 'group', 'メンバー管理', '/members', 'admin']
 ];
 
 let sb = null;
@@ -182,6 +187,10 @@ function fmtDT(s) { if (!s) return '—'; const d = new Date(s); return `${d.get
 function fmtD(s) { if (!s) return '—'; const d = new Date(s); return `${d.getFullYear()}/${P2(d.getMonth() + 1)}/${P2(d.getDate())}`; }
 function ymd(d) { d = d || new Date(); return `${d.getFullYear()}-${P2(d.getMonth() + 1)}-${P2(d.getDate())}`; }
 function daysSince(s) { if (!s) return 0; return Math.floor((Date.now() - new Date(s).getTime()) / 86400000); }
+/* 役割の見せかた。**DBに入っている値（admin / member / viewer）は変えない。**
+   member は「管理者の簡易版」ではなく倉庫で現物を扱う人なので、そう分かる名前にする。 */
+const ROLES = [['admin', '管理者'], ['member', '倉庫メンバー'], ['viewer', '閲覧のみ']];
+const roleLabel = (r) => (ROLES.find(x => x[0] === r) || [])[1] || r;
 function canEdit() { return me.role === 'admin' || me.role === 'member'; }
 function canAdmin() { return me.role === 'admin'; }
 
@@ -544,7 +553,7 @@ async function loadMe() {
   me.name = (data && data.display_name) || me.email;
   me.role = (data && data.role) || 'viewer';
   $('whoName').textContent = me.name;
-  $('whoRole').textContent = { admin: '管理者', member: '一般', viewer: '閲覧' }[me.role] || me.role;
+  $('whoRole').textContent = roleLabel(me.role);
 }
 
 function showSetup(err) {
@@ -588,6 +597,12 @@ async function loadAll() {
   const bad = [c, l, i, p, t, s, ch, im].find(r => r.error);
   if (bad) { showSetup(bad.error); return false; }
   db.imports = im.data || [];
+  // メンバー一覧は**管理者だけ**読む。倉庫メンバー・閲覧には配らない
+  // （RLSの参照は全員に開いているが、画面から要らないものは取りに行かない）
+  if (canAdmin()) {
+    const mb = await sb.from('inventory_members').select('*').order('role').order('display_name');
+    db.members = mb.error ? [] : (mb.data || []);
+  } else { db.members = []; }
   db.rentalReqs = rr.error ? [] : (rr.data || []);   // 未実行(setup.sql未更新)でも他が動くよう静かに空にする
   db.chanSettings = cs.error ? [] : (cs.data || []);
   // 経営数値。migration未適用でも他の画面が動くよう、取れなければnullにする
@@ -660,7 +675,7 @@ function parsePath() {
   if (seg[0] === 'quotes' && seg[1]) return { screen: 'quote', quoteId: Number(seg[1]) || null };
   if (seg[0] === 'contracts' && seg[1]) return { screen: 'contract', contractId: Number(seg[1]) || null };
   const byPath = { list: 'list', in: 'in', out: 'out', loan: 'loan', stock: 'stock', locations: 'locs',
-                   masters: 'master', history: 'hist', register: 'reg', labels: 'labels',
+                   masters: 'master', members: 'members', history: 'hist', register: 'reg', labels: 'labels',
                    deals: 'deals', 'rental-requests': 'rental' };
   const screen = byPath[seg[0]] || 'dash';
   return screen === 'list' ? { screen, listMode: modeFromQuery() } : { screen };
@@ -688,6 +703,7 @@ function pathFor(screen, id) {
   if (screen === 'item') return BASE + '/items/' + encodeURIComponent(id);
   if (screen === 'prod') return BASE + '/products/' + encodeURIComponent(id);
   if (screen === 'master') return BASE + '/masters';
+  if (screen === 'members') return BASE + '/members';
   if (screen === 'deals') return BASE + '/deals';
   if (screen === 'quote') return BASE + '/quotes/' + encodeURIComponent(id);
   if (screen === 'contract') return BASE + '/contracts/' + encodeURIComponent(id);
@@ -776,8 +792,11 @@ async function loadOne(r) {
 }
 
 /* ---------------------------------------------------------------- メニュー */
+/* 管理者は全部。そうでない人（倉庫メンバー・閲覧）は、倉庫で使うものだけを出す。
+   出していない画面もURLを直接開けば見られる（機能は消していない）。 */
 function renderMenu() {
-  $('menu').innerHTML = MENU.filter(([, , , , need]) => need !== 'admin' || canAdmin()).map(([key, icon, label]) =>
+  $('menu').innerHTML = MENU.filter(([, , , , need]) =>
+    canAdmin() ? true : need === 'ware').map(([key, icon, label]) =>
     `<button class="${ui.screen === key ? 'on' : ''}" onclick="go('${key}')"><span class="ms">${icon}</span>${esc(label)}</button>`
   ).join('');
   $('siteName').textContent = db.locs.length ? (locsOrdered().find(l => l.kind === 'site') || {}).name || '' : '';
@@ -788,8 +807,10 @@ function render() {
   refreshSelBar();
   const v = $('view');
   const fn = {
-    dash: viewDash, list: viewList, item: viewItem, prod: viewProd, in: viewIn, out: viewOut,
+    dash: canAdmin() ? viewDash : viewHome,   // 倉庫メンバーには経営画面ではなく作業ホームを出す
+    list: viewList, item: viewItem, prod: viewProd, in: viewIn, out: viewOut,
     loan: viewLoan, stock: viewStock, locs: viewLocs, loc: viewLoc, master: viewMaster,
+    members: viewMembers,
     hist: viewHist, reg: viewReg, labels: viewLabels,
     deals: viewDeals, rental: viewRentalRequests, quote: viewQuote, contract: viewContract
   }[ui.screen] || viewDash;
@@ -864,6 +885,45 @@ function plBlock() {
           n(st.stock_no_date) ? `仕入日なし ${n(st.stock_no_date)}台は除く` : '保有在庫の平均',
           st.avg_stock_days == null ? 'na' : '')}
     </div>`;
+}
+
+/* ===== 1-a. 倉庫作業ホーム（管理者以外） =====================================
+   倉庫でスマホを持っている人に、経営数値のダッシュボードは要らない。
+   いちばん使う「QRを読む」を大きく出して、あとは4つに絞る。
+   **新しい集計は作らない。** 「最近の作業」は既存の履歴（db.tx）から数えるだけ。 */
+function homeRecent() {
+  const mine = (db.tx || []).filter(t => t.actor === me.name && isToday(t.occurred_at));
+  if (!mine.length) return '';
+  const by = {};
+  mine.forEach(t => { const k = t.action || '操作'; by[k] = (by[k] || 0) + 1; });
+  const rows = Object.keys(by).sort((a, b) => by[b] - by[a]).slice(0, 4);
+  return `<div class="sec">今日の作業</div>
+    <div class="homerec">${rows.map(k =>
+      `<div><span class="k">${esc(k)}</span><b class="num">${by[k]}</b>件</div>`).join('')}</div>`;
+}
+const isToday = (v) => {
+  if (!v) return false;
+  const d = new Date(v), n = new Date();
+  return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate();
+};
+function viewHome() {
+  const p = stocktakeProgress();
+  const tile = (screen, icon, label, note) =>
+    `<button class="hometile" onclick="go('${screen}')"><span class="ms">${icon}</span>
+      <span class="t">${esc(label)}</span>${note ? `<span class="n">${note}</span>` : ''}</button>`;
+  return `<h1>倉庫作業</h1>
+    ${canEdit() ? `<button class="btn pri homeqr" onclick="openScan('lookup')">
+      <span class="ms">qr_code_scanner</span>QRコードを読み取る</button>
+      <p class="meta" style="margin:8px 0 0">現物のQRを読むと、その1台の画面が開きます。</p>`
+      : '<div class="card" style="margin:15px 0">閲覧権限では操作できません。</div>'}
+    <div class="hometiles">
+      ${tile('list', 'list_alt', '在庫一覧')}
+      ${tile('stock', 'fact_check', '棚卸', p.open ? `未確認 ${p.left}台` : '')}
+      ${tile('in', 'login', '入庫')}
+      ${tile('out', 'logout', '出庫')}
+      ${tile('locs', 'warehouse', '保管場所')}
+    </div>
+    ${homeRecent()}`;
 }
 
 function viewDash() {
@@ -5543,11 +5603,87 @@ function openModal(title, body, buttons) {
 function closeModal() { $('modal').classList.remove('on'); }
 
 /* ===== 3. 個体の詳細（QRを読んだ直後の画面） ===== */
+/* ===== 個体詳細（倉庫メンバー向け） ========================================
+   現物照合に要るものを上から順に出す。型番・スペック・シリアルを上の方へ。
+   価格・利益・出品先・8RENT・編集・廃棄・QR印刷は**出さない**（機能は消していない。
+   管理者の画面にはこれまでどおり全部ある）。
+   操作は3つに絞り、貸出・返却は**その状態のときだけ**足す。 */
+function viewItemWarehouse(it, m) {
+  const sp = m && m.spec ? m.spec : '';
+  const op = (icon, label, fn, on) =>
+    `<button class="btn" onclick="${fn}" ${on === false || !canEdit() ? 'disabled' : ''}>
+      <span class="ms">${icon}</span><span class="t">${esc(label)}</span></button>`;
+  const row = (k, v) => `<div class="wrow"><span class="k">${esc(k)}</span><b>${v}</b></div>`;
+  return `
+  <div class="ware">
+    ${itemPhoto(m)}
+    <h1>${esc(m ? titleOf(m) : it.name)}</h1>
+    <div class="wsub">${esc([(m || it).maker, (m || it).model].filter(Boolean).join(' ／ ') || '—')}</div>
+    ${sp ? `<div class="wspec">${esc(sp)}</div>` : ''}
+    <div class="winfo">
+      ${row('管理番号', `<span class="num">${esc(it.id)}</span>`)}
+      ${row('シリアル番号', esc(it.serial || '—'))}
+      ${row('保管場所', esc(locPath(it.location_id)) || '—')}
+      ${it.user_name ? row('利用者', esc(it.user_name)) : ''}
+    </div>
+    <div class="wtags">${statusTag(it.status, true)}<div>${checkCell(it)}</div></div>
+    ${guardNote()}
+    ${canEdit() && !GONE.includes(it.status) ? `<button class="btn pri wsell" onclick="sheetSellWarehouse('${esc(it.id)}')">
+      <span class="ms">local_shipping</span>販売済みにする</button>` : ''}
+    <div class="ops wops">
+      ${op('move_down', '移動', `sheetMove('${esc(it.id)}')`)}
+      ${op('fact_check', '棚卸確認', `checkItem('${esc(it.id)}')`)}
+      ${it.status === '在庫' ? op('assignment_ind', '貸出', `sheetLoan('${esc(it.id)}')`) : ''}
+      ${it.status === '貸出中' ? op('assignment_return', '返却', `sheetReturn('${esc(it.id)}')`) : ''}
+    </div>
+    <button class="btn ghost wnext" onclick="openScan('lookup')">
+      <span class="ms">qr_code_scanner</span>次のQRを読む</button>
+  </div>`;
+}
+
+/* 倉庫メンバーの「販売済みにする」。**値段は決めない。**
+   どの現物を出荷したかを確定するのが倉庫の仕事で、売値は管理者が後から入れる
+   （売価未登録のまま売却済にすると、管理者のダッシュボードの「要確認」に出る）。
+   処理は既存の sellItem() → inv_item_sell → inv_item_op('売却') をそのまま通す。 */
+function sheetSellWarehouse(id) {
+  const it = item(id); if (!it) return;
+  if (!canEdit()) { toast('操作する権限がありません（閲覧のみ）'); return; }
+  const m = prod(it.product_code);
+  openModal('この商品を販売済みにしますか？', `
+    <p style="font-size:17px;font-weight:700;margin:0 0 10px">${esc(m ? titleOf(m) : it.name)}</p>
+    <div class="winfo">
+      <div class="wrow"><span class="k">管理番号</span><b class="num">${esc(it.id)}</b></div>
+      <div class="wrow"><span class="k">シリアル番号</span><b>${esc(it.serial || '—')}</b></div>
+      <div class="wrow"><span class="k">保管場所</span><b>${esc(locPath(it.location_id)) || '—'}</b></div>
+    </div>
+    <p class="meta" style="margin-top:12px">在庫から外れます。履歴は残ります。
+      <strong>売値はここでは入れません</strong>（あとから管理者が入れます）。</p>
+  `, [['キャンセル', 'closeModal()', 'btn ghost'],
+      ['販売済みにする', `closeModal();doSellWarehouse('${esc(id)}')`, 'btn pri']]);
+}
+async function doSellWarehouse(id) {
+  const it = item(id); if (!it) return;
+  const m = prod(it.product_code);
+  const name = m ? titleOf(m) : it.name;
+  // 売却先も売価も渡さない（null）。既存の売却処理をそのまま使う
+  const ok = await sellItem(id, null, null, null);
+  if (ok === false) return;
+  openModal('販売済みにしました', `
+    <p style="font-size:17px;font-weight:700;margin:0 0 6px">
+      <span class="ms" style="color:#1B5E20;vertical-align:-4px">check_circle</span> ${esc(name)}</p>
+    <div class="num" style="font-size:15px">${esc(id)}</div>
+    <p class="meta" style="margin-top:12px">続けて出荷するときは［次のQRを読む］を押してください。</p>
+  `, [['在庫一覧へ', "closeModal();go('list')", 'btn ghost'],
+      ['次のQRを読む', "closeModal();openScan('lookup')", 'btn pri']]);
+}
+
 function viewItem() {
   const it = item(ui.itemId);
   if (!it) return `<div class="empty">該当する機器が見つかりません（${esc(ui.itemId || '')}）</div>`;
   const url = itemUrl(it.id);
   const m = prod(it.product_code);          // 商品名・型番はマスタ側が正
+  // 管理者以外（倉庫メンバー・閲覧）には、倉庫で現物を扱うための画面を出す
+  if (!canAdmin()) return viewItemWarehouse(it, m);
   const hist = db.tx.filter(t => t.ref_kind === 'item' && t.ref_id === it.id);
   const op = (icon, label, fn, pri, on) =>
     `<button class="btn ${pri ? 'pri' : ''}" onclick="${fn}" ${on === false || !canEdit() ? 'disabled' : ''}>
@@ -6733,13 +6869,14 @@ async function sellItem(id, dest, price, note) {
   const { data, error } = await sb.rpc('inv_item_sell', {
     p_item_id: id, p_channel: dest, p_price: price == null ? null : String(price), p_note: note
   });
-  if (error) { toast(error.message || '記録できませんでした'); return; }
+  if (error) { toast(error.message || '記録できませんでした'); return false; }
   const i = db.items.findIndex(x => x.id === id);
   if (i >= 0 && data) db.items[i] = data;
   await refreshTx();
   render();
   toast(`${id} を売却済にしました${dest ? `（${dest}）` : ''}`);
   warnStillListed([id], '売却済');
+  return true;
 }
 
 /* 一覧から「売れた」を記録する。個体管理は在庫の古いものから台数ぶん売却済にする。
@@ -7203,6 +7340,136 @@ const MASTER_TABS = [['loc', 'warehouse', '保管場所'], ['cat', 'category', '
 const LOC_KINDS = [['site', '拠点'], ['room', '倉庫・部屋'], ['shelf', '棚'], ['other', 'その他']];
 const LOC_KIND_LABEL = (k) => (LOC_KINDS.find(x => x[0] === k) || [k, k])[1];
 const LOC_ICON = { site: 'apartment', room: 'warehouse', shelf: 'shelves', other: 'inventory_2' };
+
+/* ===== メンバー管理（管理者だけ） ==========================================
+   **新しいテーブルも新しい権限体系も作らない。** 既存の inventory_members を
+   そのまま読み書きする。書き込みはDB側のRLS（inv_is_admin()）が止めるので、
+   画面の判定だけに頼っていない。
+
+   この画面は「在庫管理の中での権限」を決めるもので、ログインアカウントそのものは
+   作らない（Supabase Auth には触れない）。 */
+const memberRows = () => (db.members || []).slice().sort((a, b) =>
+  (['admin', 'member', 'viewer'].indexOf(a.role) - ['admin', 'member', 'viewer'].indexOf(b.role))
+  || String(a.display_name || '').localeCompare(String(b.display_name || ''), 'ja'));
+const adminCount = () => (db.members || []).filter(m => m.role === 'admin').length;
+
+function viewMembers() {
+  if (!canAdmin()) {
+    return `<h1>メンバー管理</h1>
+      <div class="card" style="margin-top:15px">メンバーを見られるのは管理者だけです。</div>`;
+  }
+  const rows = memberRows();
+  return `<h1>メンバー管理</h1>
+    <p class="meta" style="margin:12px 0 0">※この画面は<strong>在庫管理の権限</strong>を設定します。
+      ログインアカウント自体は既存の認証方法で用意してください。</p>
+    <p class="meta" style="margin:6px 0 0">ここに無いログインは<strong>閲覧のみ</strong>の扱いになります。</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:16px 0 6px">
+      <button class="btn" onclick="sheetMember(null)"><span class="ms">person_add</span>メンバーを追加</button>
+      <span class="meta">${rows.length}人（管理者 ${adminCount()}人）</span>
+    </div>
+    <div class="mblist">${rows.length ? rows.map(m => `
+      <div class="mb">
+        <div class="t"><b>${esc(m.display_name || '(名前なし)')}</b>
+          <div class="meta">${esc(m.email)}</div></div>
+        <span class="tag rl ${esc(m.role)}">${esc(roleLabel(m.role))}</span>
+        <div class="a">
+          <button class="btn sm ghost" onclick="sheetMember('${esc(m.email)}')">
+            <span class="ms">edit</span>編集</button>
+          <button class="btn sm danger" onclick="openMemberOff('${esc(m.email)}')">アクセスを外す</button>
+        </div>
+      </div>`).join('') : '<div class="empty">まだ登録がありません。</div>'}</div>`;
+}
+
+/* 追加と編集。メールアドレスは主キーなので、編集では変えない
+   （変えたいときは外して、新しいメールで足してもらう） */
+function sheetMember(email) {
+  if (!canAdmin()) { toast('メンバーを直せるのは管理者だけです'); return; }
+  const m = email ? (db.members || []).find(x => x.email === email) : null;
+  const isMe = !!(m && m.email === me.email);
+  openSheet({
+    title: m ? 'メンバーを編集' : 'メンバーを追加', subject: m ? m.email : '', cta: '保存',
+    keepOpenOnError: true,
+    hint: m ? 'メールアドレスは変えられません。変えるときは一度外して、新しいメールで足してください。'
+            : 'ログインアカウントは別に用意してください。ここで決めるのは在庫管理での権限です。',
+    body: `
+      <label class="field" style="margin-bottom:10px"><span>氏名</span>
+        <input class="input" id="mbName" value="${esc((m || {}).display_name || '')}" placeholder="例 山田 太郎"></label>
+      <label class="field" style="margin-bottom:10px"><span>メールアドレス</span>
+        <input class="input" id="mbMail" value="${esc((m || {}).email || '')}"
+          placeholder="例 yamada@8grp.co.jp"${m ? ' disabled' : ''}></label>
+      <label class="field"><span>権限</span>
+        <select class="input" id="mbRole">${ROLES.map(([v, label]) =>
+          `<option value="${v}"${(m || {}).role === v ? ' selected' : ''}>${esc(label)}</option>`).join('')}</select></label>
+      ${isMe ? '<p class="meta" style="margin-top:10px"><strong>これはあなた自身です。</strong>管理者から外すと、この画面を開けなくなります。</p>' : ''}`,
+    run: () => saveMember(m ? m.email : null)
+  });
+}
+async function saveMember(email) {
+  const name = (($('mbName') || {}).value || '').trim();
+  const mail = (email || (($('mbMail') || {}).value || '')).trim().toLowerCase();
+  const role = (($('mbRole') || {}).value || 'viewer');
+  if (!name) { toast('氏名を入れてください'); return false; }
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) { toast('メールアドレスを正しく入れてください'); return false; }
+  const was = (db.members || []).find(x => x.email === mail) || null;
+  if (!email && was) { toast('このメールアドレスはすでに登録されています'); return false; }
+  // 最後の管理者を落とさない。落とすと誰もこの画面を開けなくなる
+  if (was && was.role === 'admin' && role !== 'admin' && adminCount() <= 1) {
+    toast('最後の管理者は変えられません。先に別の管理者を足してください'); return false;
+  }
+  if (was && was.email === me.email && role !== 'admin') {
+    toast('自分自身を管理者から外すことはできません'); return false;
+  }
+
+  const row = { email: mail, display_name: name, role };
+  const { data, error } = email
+    ? await sb.from('inventory_members').update({ display_name: name, role }).eq('email', mail).select().maybeSingle()
+    : await sb.from('inventory_members').insert(row).select().maybeSingle();
+  if (error) { toast('保存できませんでした：' + error.message); return false; }
+
+  const saved = data || row;
+  const k = (db.members || []).findIndex(x => x.email === mail);
+  if (k >= 0) db.members[k] = saved; else db.members.push(saved);
+  await logMember(mail, name, email ? '権限変更' : 'メンバー追加',
+    was ? roleLabel(was.role) : 'なし', roleLabel(role));
+  render();
+  toast(email ? 'メンバーを保存しました' : 'メンバーを追加しました');
+  return true;
+}
+
+function openMemberOff(email) {
+  if (!canAdmin()) { toast('メンバーを外せるのは管理者だけです'); return; }
+  const m = (db.members || []).find(x => x.email === email); if (!m) return;
+  if (m.role === 'admin' && adminCount() <= 1) {
+    toast('最後の管理者は外せません。先に別の管理者を足してください'); return;
+  }
+  const isMe = m.email === me.email;
+  openModal('このメンバーを在庫管理から外しますか？', `
+    <p style="font-size:17px;font-weight:700;margin:0 0 4px">${esc(m.display_name || '')}</p>
+    <div class="meta">${esc(m.email)}</div>
+    <p class="meta" style="margin-top:12px">外した後は<strong>閲覧権限扱い</strong>になります。
+      ログインそのものは止まりません（アカウントは既存の認証方法で管理してください）。</p>
+    ${isMe ? '<div class="card" style="margin-top:12px;background:#FDECEC;border:1px solid #B3261E"><strong>これはあなた自身です。</strong>外すと、この画面を開けなくなります。</div>' : ''}
+  `, [['キャンセル', 'closeModal()', 'btn ghost'],
+      ['アクセスを外す', `closeModal();doMemberOff('${esc(email)}')`, 'btn danger']]);
+}
+async function doMemberOff(email) {
+  const m = (db.members || []).find(x => x.email === email); if (!m) return;
+  const { error } = await sb.from('inventory_members').delete().eq('email', email);
+  if (error) { toast('外せませんでした：' + error.message); return; }
+  db.members = (db.members || []).filter(x => x.email !== email);
+  await logMember(email, m.display_name, 'アクセス解除', roleLabel(m.role), '閲覧のみ（登録なし）');
+  render();
+  toast(`${m.display_name || email} を在庫管理から外しました`);
+}
+
+/* 誰がいつ権限を変えたかは履歴に残す。履歴は追記だけで消せない */
+async function logMember(email, name, action, before, after) {
+  await sb.from('inventory_transactions').insert({
+    actor: me.name, ref_kind: 'member', ref_id: email, label: name || email,
+    action, before_value: before, after_value: after
+  });
+  await refreshTx();
+}
 
 function viewMaster() {
   if (!canAdmin()) {
