@@ -34,6 +34,16 @@ const LOAD_LIMIT = 3000;
 const STATUSES = ['在庫', '出品中', '予約中', '販売予約', '社内使用', '貸出中', '修理中', '故障', '紛失', '売却済', '廃棄', '不明'];
 const IN_STOCK = ['在庫', '出品中'];
 const GONE = ['売却済', '廃棄'];
+/* 倉庫メンバーが「販売済みにする」を使える状態。
+   **手元にあって、そのまま出荷できるものだけ。**
+   予約中・貸出中は人との約束が残っている（先にキャンセル・返却が要る）。
+   社内使用・修理中・故障・紛失・不明は現物の扱いが決まっていない。
+   売却済・廃棄はもう在庫ではない。
+   サーバー側（inv_item_sell → inv_item_op('売却')）はこれらを止めないので、
+   **画面で先に絞る**。単体も複数選択も同じこの判定を通す。 */
+const WARE_SELLABLE = ['在庫', '出品中', '販売予約'];
+const wareCanSell = (i) => !!i && WARE_SELLABLE.indexOf(i.status) >= 0;
+
 const STATUS_ICON = {
   '在庫': 'inventory_2', '出品中': 'sell', '予約中': 'event_available', '販売予約': 'local_mall',
   '社内使用': 'person', '貸出中': 'assignment_ind',
@@ -110,23 +120,30 @@ const LISTED = '出品中';
 const LIST_STATES = ['出品中', '出品停止', '売り切れ', '販売済み', '保留'];
 /* 昔のデータで使っていた言い方も読めるようにする（書くのは LIST_STATES だけ） */
 const LIST_STATES_IN = LIST_STATES.concat(['出品中止']);
+/* 5つめの印
+     'admin' … 管理者だけに出す（画面側でも権限を見る）
+     'ware'  … 倉庫メンバーにも出す（倉庫で現物を扱うのに要るもの）
+     'edit'  … 倉庫メンバー（member）と管理者に出す。閲覧（viewer）には出さない（SNS投稿）
+   **機能を消すのではなく、ナビに出すかどうかだけ**。管理者はこれまでどおり全部出る。 */
 const MENU = [
-  ['dash', 'space_dashboard', 'ダッシュボード', ''],
-  ['list', 'list_alt', '在庫一覧', '/list'],
-  ['in', 'login', '入庫', '/in'],
-  ['out', 'logout', '出庫', '/out'],
+  ['dash', 'space_dashboard', 'ホーム', '', 'ware'],
+  ['list', 'list_alt', '在庫一覧', '/list', 'ware'],
+  ['in', 'login', '入庫', '/in', 'ware'],
+  ['out', 'logout', '出庫', '/out', 'ware'],
   ['loan', 'swap_horiz', '貸出・返却', '/loan'],
-  ['stock', 'fact_check', '棚卸', '/stock'],
-  ['locs', 'warehouse', '保管場所', '/locations'],
+  ['stock', 'fact_check', '棚卸', '/stock', 'ware'],
+  ['locs', 'warehouse', '保管場所', '/locations', 'ware'],
   ['hist', 'history', '履歴', '/history'],
   ['reg', 'add_box', '商品登録', '/register'],
   ['labels', 'qr_code_2', 'QRラベル', '/labels'],
   ['deals', 'request_quote', '案件', '/deals'],
   ['rental', 'car_rental', '8RENT申込', '/rental-requests'],
-  // SNS投稿準備。一般・管理者だけ（中身は zaiko/sns.js。サーバー側 /api/sns でも役割を見る）
+  // SNS投稿準備。倉庫メンバー（member）と管理者だけ。閲覧（viewer）には出さない
+  // （中身は zaiko/sns.js。サーバー側 /api/sns と RLS でも同じ役割を見る）
   ['sns', 'campaign', 'SNS投稿', '/sns', 'edit'],
-  // マスター管理はメニューにも管理者だけ出す（画面側でも権限を見る）
-  ['master', 'tune', 'マスター管理', '/masters', 'admin']
+  // マスター管理・メンバー管理はメニューにも管理者だけ出す（画面側でも権限を見る）
+  ['master', 'tune', 'マスター管理', '/masters', 'admin'],
+  ['members', 'group', 'メンバー管理', '/members', 'admin']
 ];
 
 let sb = null;
@@ -185,6 +202,10 @@ function fmtDT(s) { if (!s) return '—'; const d = new Date(s); return `${d.get
 function fmtD(s) { if (!s) return '—'; const d = new Date(s); return `${d.getFullYear()}/${P2(d.getMonth() + 1)}/${P2(d.getDate())}`; }
 function ymd(d) { d = d || new Date(); return `${d.getFullYear()}-${P2(d.getMonth() + 1)}-${P2(d.getDate())}`; }
 function daysSince(s) { if (!s) return 0; return Math.floor((Date.now() - new Date(s).getTime()) / 86400000); }
+/* 役割の見せかた。**DBに入っている値（admin / member / viewer）は変えない。**
+   member は「管理者の簡易版」ではなく倉庫で現物を扱う人なので、そう分かる名前にする。 */
+const ROLES = [['admin', '管理者'], ['member', '倉庫メンバー'], ['viewer', '閲覧のみ']];
+const roleLabel = (r) => (ROLES.find(x => x[0] === r) || [])[1] || r;
 function canEdit() { return me.role === 'admin' || me.role === 'member'; }
 function canAdmin() { return me.role === 'admin'; }
 
@@ -547,7 +568,7 @@ async function loadMe() {
   me.name = (data && data.display_name) || me.email;
   me.role = (data && data.role) || 'viewer';
   $('whoName').textContent = me.name;
-  $('whoRole').textContent = { admin: '管理者', member: '一般', viewer: '閲覧' }[me.role] || me.role;
+  $('whoRole').textContent = roleLabel(me.role);
 }
 
 function showSetup(err) {
@@ -559,20 +580,57 @@ function showSetup(err) {
 
 /* ---------------------------------------------------------------- 読み込み */
 
+/* ---- 倉庫メンバー・閲覧に渡す列 ---------------------------------------------
+   `select('*')` だと、使わない列まで倉庫のスマホへ降りてくる。
+   倉庫の画面（viewHome / viewList / viewItemWarehouse / 棚卸 / 移動 / 出荷）が
+   実際に読む列だけを並べる。**原価・価格・仕入先・仕入元・備考は入れない。**
+   管理者は `select('*')` のまま（取得内容は1つも変えない）。 */
+
+/* 個体。viewItemWarehouse（写真・型番・S/N・保管場所・利用者・状態・棚卸）、
+   在庫一覧の倉庫5列、棚卸の stRow、移動・貸出・返却・販売済みの判定に使うもの。
+   入れないもの： price / plan_price / sold_price / sold_channel / purchase_fee
+                  （価格系）、source_id（仕入元）、note / legacy_note（管理用の備考）、
+                  purchased_on（仕入日）、rental_eligible（8RENTは管理者の画面だけ） */
+const WARE_ITEM_COLS = ['id', 'name', 'maker', 'model', 'serial', 'product_code',
+  'category_id', 'location_id', 'status', 'user_name', 'loaned_at', 'last_checked_at',
+  'qr_print_count', 'qr_printed_at', 'qr_printed_last'].join(',');
+
+/* 商品マスター。倉庫では商品名・型番・メーカー・スペック・写真と、
+   数量管理の行（在庫数）にだけ使う。
+   入れないもの： supplier（仕入先）、unit_price（単価）、sale_* / rental_price_month ほか
+                  販売・レンタルの設定、description 系、note / legacy_note */
+const WARE_PROD_COLS = ['code', 'name', 'maker', 'model', 'spec', 'kind',
+  'category_id', 'location_id', 'qty', 'min_qty',
+  'image_url', 'images', 'rental_image_url', 'rental_images'].join(',');
+
+/* 履歴。倉庫ホームの「今日の作業」が数えるのに使う3つだけ。
+   before_value / after_value（旧値・新値。価格も入る）と ref_kind / ref_id / label は渡さない */
+const WARE_TX_COLS = ['id', 'actor', 'action', 'occurred_at'].join(',');
+
+
 /* 一覧まわりのデータ。QRで直接開いたときは、詳細を描いたあとに裏で走らせる */
 async function loadAll() {
+  /* 倉庫メンバー・閲覧は、倉庫で使うものだけを読む。
+     価格・出品・案件・見積・契約・請求・手配・運賃・経営数値は画面にも出さないので、
+     **取りに行かない**（画面で隠すだけにしない）。管理者はこれまでどおり全部読む。 */
+  const full = canAdmin();
   const q = [
     sb.from('inventory_categories').select('*').order('sort_no'),
     sb.from('inventory_locations').select('*').order('sort_no'),
-    sb.from('inventory_items').select('*').limit(LOAD_LIMIT),
-    sb.from('inventory_products').select('*').limit(LOAD_LIMIT),
-    sb.from('inventory_transactions').select('*').order('occurred_at', { ascending: false }).limit(300),
+    sb.from('inventory_items').select(full ? '*' : WARE_ITEM_COLS).limit(LOAD_LIMIT),
+    sb.from('inventory_products').select(full ? '*' : WARE_PROD_COLS).limit(LOAD_LIMIT),
+    sb.from('inventory_transactions').select(full ? '*' : WARE_TX_COLS)
+      .order('occurred_at', { ascending: false }).limit(300),
     sb.from('inventory_stocktakes').select('*').order('started_at', { ascending: false }).limit(20),
+    sb.from('inv_stocktake_summary').select('*').order('started_at', { ascending: false }).limit(24)
+  ];
+  /* ここから下は管理者だけ。**倉庫メンバーのときは問い合わせ自体を作らない。** */
+  const admQ = !full ? [] : [
     sb.from('inventory_channels').select('*').limit(LOAD_LIMIT),
-    sb.from('inventory_imports').select('*').order('imported_at', { ascending: false }).limit(100),
-    sb.from('inventory_rental_requests').select('*').order('created_at', { ascending: false }).limit(500),
     sb.from('inventory_channel_listings').select('*').limit(LOAD_LIMIT),
     sb.from('inventory_channel_settings').select('*'),
+    sb.from('inventory_imports').select('*').order('imported_at', { ascending: false }).limit(100),
+    sb.from('inventory_rental_requests').select('*').order('created_at', { ascending: false }).limit(500),
     sb.rpc('inv_dashboard_stats'),
     sb.from('inventory_deals').select('*').order('created_at', { ascending: false }).limit(300),
     sb.from('inventory_quotes').select('*').order('id', { ascending: false }).limit(500),
@@ -584,36 +642,40 @@ async function loadAll() {
     sb.from('inventory_contract_payments').select('*').limit(LOAD_LIMIT),
     sb.from('inv_contract_fulfillment_list').select('*').limit(LOAD_LIMIT),
     sb.from('inventory_contract_fulfillments').select('*').limit(LOAD_LIMIT),
-    sb.from('inventory_shipping_tariffs').select('*').eq('active', true).limit(5),
-    sb.from('inv_stocktake_summary').select('*').order('started_at', { ascending: false }).limit(24)
+    sb.from('inventory_shipping_tariffs').select('*').eq('active', true).limit(5)
   ];
-  const [c, l, i, p, t, s, ch, im, rr, cl, cs, ds, dl, qh, qi, qt, kh, ki, vh, vp, fl, fm, sh, ss] = await Promise.all(q);
-  const bad = [c, l, i, p, t, s, ch, im].find(r => r.error);
+  const res = await Promise.all(q.concat(admQ));
+  const [c, l, i, p, t, s, ss] = res;
+  const E = {};        // 管理者以外では読んでいないので、受け取る側は「空」として扱う
+  const [ch = E, cl = E, cs = E, im = E, rr = E, ds = E, dl = E, qh = E, qi = E, qt = E,
+         kh = E, ki = E, vh = E, vp = E, fl = E, fm = E, sh = E] = res.slice(q.length);
+  // 倉庫で必ず要るものだけ、取れなかったらセットアップ案内を出す
+  const bad = [c, l, i, p, t, s].concat(full ? [ch, im] : []).find(r => r.error);
   if (bad) { showSetup(bad.error); return false; }
-  db.imports = im.data || [];
-  db.rentalReqs = rr.error ? [] : (rr.data || []);   // 未実行(setup.sql未更新)でも他が動くよう静かに空にする
+
+  // メンバー一覧も**管理者だけ**読む
+  if (full) {
+    const mb = await sb.from('inventory_members').select('*').order('role').order('display_name');
+    db.members = mb.error ? [] : (mb.data || []);
+  } else { db.members = []; }
+
+  // 以下はどれも「取れなければ空」。倉庫メンバーでは最初から取りに行っていない
+  db.imports = im.error ? [] : (im.data || []);
+  db.rentalReqs = rr.error ? [] : (rr.data || []);
   db.chanSettings = cs.error ? [] : (cs.data || []);
-  // 経営数値。migration未適用でも他の画面が動くよう、取れなければnullにする
-  db.stats = ds.error ? null : (ds.data || null);
-  // 案件。migration未適用でも他の画面が動くよう、取れなければ空にする
-  db.deals = dl.error ? [] : (dl.data || []);
-  // 見積。migration未適用でも他の画面が動くよう、取れなければ空にする
-  db.quotes = qh.error ? [] : (qh.data || []);
+  db.stats = ds.error ? null : (ds.data || null);     // 経営数値
+  db.deals = dl.error ? [] : (dl.data || []);         // 案件
+  db.quotes = qh.error ? [] : (qh.data || []);        // 見積
   db.qItems = qi.error ? [] : (qi.data || []);
   db.qTotals = qt.error ? [] : (qt.data || []);
-  // 契約。migration未適用でも他の画面が動くよう、取れなければ空にする
-  db.contracts = kh.error ? [] : (kh.data || []);
+  db.contracts = kh.error ? [] : (kh.data || []);     // 契約
   db.cItems = ki.error ? [] : (ki.data || []);
-  // 請求・入金。migration未適用でも他の画面が動くよう、取れなければ空にする
-  db.invoices = vh.error ? [] : (vh.data || []);
+  db.invoices = vh.error ? [] : (vh.data || []);      // 請求・入金
   db.payments = vp.error ? [] : (vp.data || []);
-  // 手配。migration未適用でも他の画面が動くよう、取れなければ空にする
-  db.fulLines = fl.error ? [] : (fl.data || []);
+  db.fulLines = fl.error ? [] : (fl.data || []);      // 手配
   db.fulfillments = fm.error ? [] : (fm.data || []);
-  // 運賃表。migration未適用でも他の画面が動くよう、取れなければ null にする
-  db.shipTariffs = sh.error ? [] : (sh.data || []);
-  // 棚卸の照合結果。DB側で数えたものをそのまま使う（ブラウザで何千行も数えない）。
-  // migration未適用でも他の画面が動くよう、取れなければ空にする
+  db.shipTariffs = sh.error ? [] : (sh.data || []);   // 運賃表
+  // 棚卸の照合結果。DB側で数えたものをそのまま使う（ブラウザで何千行も数えない）
   db.stSummary = ss.error ? [] : (ss.data || []);
 
   db.cats = c.data || [];
@@ -623,7 +685,7 @@ async function loadAll() {
   // 商品まるごとの出品情報（inventory_channel_listings）を、既存の個体別
   // 出品情報（inventory_channels）と同じ配列にまとめる。移行前（未実行）でも
   // 静かに空扱いにし、他の画面が動かなくならないようにする
-  db.channels = (ch.data || []).concat(cl.error ? [] : (cl.data || []));
+  db.channels = (ch.error ? [] : (ch.data || [])).concat(cl.error ? [] : (cl.data || []));
   reindexChannels();
   db.tx = t.data || [];
   const sts = s.data || [];
@@ -644,8 +706,10 @@ async function loadStocktakeItems() {
 }
 
 async function refreshTx() {
+  // 読み直しでも列は増やさない（倉庫メンバーには WARE_TX_COLS だけ）
   const { data, error } = await sb.from('inventory_transactions')
-    .select('*').order('occurred_at', { ascending: false }).limit(300);
+    .select(canAdmin() ? '*' : WARE_TX_COLS)
+    .order('occurred_at', { ascending: false }).limit(300);
   if (!error) db.tx = data || [];
 }
 
@@ -664,7 +728,7 @@ function parsePath() {
   if (seg[0] === 'contracts' && seg[1]) return { screen: 'contract', contractId: Number(seg[1]) || null };
   if (seg[0] === 'sns') return { screen: 'sns', snsNo: seg[1] === 'new' ? 'new' : (Number(seg[1]) || null) };
   const byPath = { list: 'list', in: 'in', out: 'out', loan: 'loan', stock: 'stock', locations: 'locs',
-                   masters: 'master', history: 'hist', register: 'reg', labels: 'labels',
+                   masters: 'master', members: 'members', history: 'hist', register: 'reg', labels: 'labels',
                    deals: 'deals', 'rental-requests': 'rental' };
   const screen = byPath[seg[0]] || 'dash';
   return screen === 'list' ? { screen, listMode: modeFromQuery() } : { screen };
@@ -692,6 +756,7 @@ function pathFor(screen, id) {
   if (screen === 'item') return BASE + '/items/' + encodeURIComponent(id);
   if (screen === 'prod') return BASE + '/products/' + encodeURIComponent(id);
   if (screen === 'master') return BASE + '/masters';
+  if (screen === 'members') return BASE + '/members';
   if (screen === 'deals') return BASE + '/deals';
   if (screen === 'quote') return BASE + '/quotes/' + encodeURIComponent(id);
   if (screen === 'contract') return BASE + '/contracts/' + encodeURIComponent(id);
@@ -713,7 +778,23 @@ function go(screen, id) {
 }
 window.addEventListener('popstate', () => route(false));
 
+/* 管理者だけの画面。**ナビから隠すだけにしない。**
+   URLを直接開いても倉庫作業ホームへ戻す（判定は既存の canAdmin()）。
+   **データを取りに行く前に見る。** あとから戻すと、管理者向けの画面のデータだけ
+   先に取ってしまうため（loadOne より前に guardRoute() を通す）。 */
+const ADMIN_SCREENS = ['reg', 'labels', 'deals', 'rental', 'master', 'members', 'hist',
+                       'prod', 'quote', 'contract'];
+const SCREEN_NAME = { reg: '商品登録', labels: 'QRラベル', deals: '案件', rental: '8RENT申込',
+                      master: 'マスター管理', members: 'メンバー管理', hist: '履歴',
+                      prod: '商品詳細', quote: '見積', contract: '契約' };
+function guardRoute(r) {
+  if (ADMIN_SCREENS.indexOf(r.screen) < 0 || canAdmin()) return r;
+  toast(`${SCREEN_NAME[r.screen] || 'この画面'}は管理者だけが使えます`);
+  if (location.pathname !== BASE + '/') history.replaceState(null, '', BASE + '/');
+  return { screen: 'dash' };
+}
 function applyRoute(r) {
+  r = guardRoute(r);          // go() から来たときもここで止める
   ui.screen = r.screen;
   ui.itemId = r.itemId || null;
   ui.prodId = r.prodId || null;
@@ -727,7 +808,9 @@ function applyRoute(r) {
 }
 
 async function route(first) {
-  const r = parsePath();
+  // **先に role を見てから** データを取りに行く。
+  // 管理者だけの画面なら、その画面のデータは取りに行かずにホームへ戻す
+  const r = guardRoute(parsePath());
   // QRで直接開いたときは、その1件だけ先に取って描く（読取から表示までを短くする）
   if (first && (r.screen === 'item' || r.screen === 'prod')) {
     const ok = await loadOne(r);
@@ -737,9 +820,16 @@ async function route(first) {
   applyRoute(r);
 }
 
+/* QRから1件だけ先に取る。ここも role で分ける。
+   倉庫メンバー・閲覧の画面（viewItemWarehouse）に出品情報は1つも出さないので、
+   inventory_channels / inventory_channel_listings は**問い合わせ自体を作らない**。
+   取る列も倉庫で使うものだけ（WARE_ITEM_COLS / WARE_PROD_COLS）。
+   管理者はこれまでどおり全部取る。 */
 async function loadOne(r) {
+  const full = canAdmin();
   const res = r.screen === 'item'
-    ? await sb.from('inventory_items').select('*').eq('id', r.itemId).maybeSingle()
+    ? await sb.from('inventory_items').select(full ? '*' : WARE_ITEM_COLS)
+        .eq('id', r.itemId).maybeSingle()
     : await sb.from('inventory_products').select('*').eq('code', r.prodId).maybeSingle();
   if (res.error) { showSetup(res.error); return false; }
   if (!res.data) return false;
@@ -756,20 +846,26 @@ async function loadOne(r) {
     // 個体の画面は商品名などをマスタから出すので、その1件も取る。
     // 出品情報は1台ぶんと商品まるごとの両方（1台ぶんが無ければ商品の行を当てるため）
     if (res.data.product_code) {
-      const [m, chs, cls] = await Promise.all([
-        sb.from('inventory_products').select('*').eq('code', res.data.product_code).maybeSingle(),
+      const chQ = !full ? [] : [
         sb.from('inventory_channels').select('*').eq('product_code', res.data.product_code),
         sb.from('inventory_channel_listings').select('*').eq('product_code', res.data.product_code)
-      ]);
+      ];
+      const [m, chs = {}, cls = {}] = await Promise.all([
+        sb.from('inventory_products').select(full ? '*' : WARE_PROD_COLS)
+          .eq('code', res.data.product_code).maybeSingle()
+      ].concat(chQ));
       if (m.data) db.masters = [m.data];
       db.channels = (chs.data || []).concat(cls.error ? [] : (cls.data || []));
-    } else {
+    } else if (full) {
       const chs = await sb.from('inventory_channels').select('*').eq('item_id', res.data.id);
       db.channels = chs.data || [];
+    } else {
+      db.channels = [];
     }
   } else {
     db.masters = [res.data];
-    // 商品の画面はぶら下がる個体と販売情報まで見せる
+    // 商品の画面（prod）は ADMIN_SCREENS。guardRoute() で管理者以外はここへ来ない。
+    // ぶら下がる個体と販売情報まで見せる
     const [its, chs, cls] = await Promise.all([
       sb.from('inventory_items').select('*').eq('product_code', res.data.code).limit(LOAD_LIMIT),
       sb.from('inventory_channels').select('*').eq('product_code', res.data.code),
@@ -783,9 +879,12 @@ async function loadOne(r) {
 }
 
 /* ---------------------------------------------------------------- メニュー */
+/* 管理者は全部。そうでない人（倉庫メンバー・閲覧）は、倉庫で使うものだけを出す。
+   出していない画面はURLを直接開いても開かない（guardRoute() で倉庫ホームへ戻す）。
+   機能そのものは消していない：管理者で入れば今までどおり全部使える。 */
 function renderMenu() {
   $('menu').innerHTML = MENU.filter(([, , , , need]) =>
-    (need !== 'admin' || canAdmin()) && (need !== 'edit' || canEdit())).map(([key, icon, label]) =>
+    canAdmin() ? true : (need === 'ware' || (need === 'edit' && canEdit()))).map(([key, icon, label]) =>
     `<button class="${ui.screen === key ? 'on' : ''}" onclick="go('${key}')"><span class="ms">${icon}</span>${esc(label)}</button>`
   ).join('');
   $('siteName').textContent = db.locs.length ? (locsOrdered().find(l => l.kind === 'site') || {}).name || '' : '';
@@ -796,8 +895,10 @@ function render() {
   refreshSelBar();
   const v = $('view');
   const fn = {
-    dash: viewDash, list: viewList, item: viewItem, prod: viewProd, in: viewIn, out: viewOut,
+    dash: canAdmin() ? viewDash : viewHome,   // 倉庫メンバーには経営画面ではなく作業ホームを出す
+    list: viewList, item: viewItem, prod: viewProd, in: viewIn, out: viewOut,
     loan: viewLoan, stock: viewStock, locs: viewLocs, loc: viewLoc, master: viewMaster,
+    members: viewMembers,
     hist: viewHist, reg: viewReg, labels: viewLabels,
     deals: viewDeals, rental: viewRentalRequests, quote: viewQuote, contract: viewContract,
     sns: viewSns
@@ -873,6 +974,45 @@ function plBlock() {
           n(st.stock_no_date) ? `仕入日なし ${n(st.stock_no_date)}台は除く` : '保有在庫の平均',
           st.avg_stock_days == null ? 'na' : '')}
     </div>`;
+}
+
+/* ===== 1-a. 倉庫作業ホーム（管理者以外） =====================================
+   倉庫でスマホを持っている人に、経営数値のダッシュボードは要らない。
+   いちばん使う「QRを読む」を大きく出して、あとは4つに絞る。
+   **新しい集計は作らない。** 「最近の作業」は既存の履歴（db.tx）から数えるだけ。 */
+function homeRecent() {
+  const mine = (db.tx || []).filter(t => t.actor === me.name && isToday(t.occurred_at));
+  if (!mine.length) return '';
+  const by = {};
+  mine.forEach(t => { const k = t.action || '操作'; by[k] = (by[k] || 0) + 1; });
+  const rows = Object.keys(by).sort((a, b) => by[b] - by[a]).slice(0, 4);
+  return `<div class="sec">今日の作業</div>
+    <div class="homerec">${rows.map(k =>
+      `<div><span class="k">${esc(k)}</span><b class="num">${by[k]}</b>件</div>`).join('')}</div>`;
+}
+const isToday = (v) => {
+  if (!v) return false;
+  const d = new Date(v), n = new Date();
+  return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate();
+};
+function viewHome() {
+  const p = stocktakeProgress();
+  const tile = (screen, icon, label, note) =>
+    `<button class="hometile" onclick="go('${screen}')"><span class="ms">${icon}</span>
+      <span class="t">${esc(label)}</span>${note ? `<span class="n">${note}</span>` : ''}</button>`;
+  return `<h1>倉庫作業</h1>
+    ${canEdit() ? `<button class="btn pri homeqr" onclick="openScan('lookup')">
+      <span class="ms">qr_code_scanner</span>QRコードを読み取る</button>
+      <p class="meta" style="margin:8px 0 0">現物のQRを読むと、その1台の画面が開きます。</p>`
+      : '<div class="card" style="margin:15px 0">閲覧権限では操作できません。</div>'}
+    <div class="hometiles">
+      ${tile('list', 'list_alt', '在庫一覧')}
+      ${tile('stock', 'fact_check', '棚卸', p.open ? `未確認 ${p.left}台` : '')}
+      ${tile('in', 'login', '入庫')}
+      ${tile('out', 'logout', '出庫')}
+      ${tile('locs', 'warehouse', '保管場所')}
+    </div>
+    ${homeRecent()}`;
 }
 
 function viewDash() {
@@ -993,7 +1133,11 @@ function listFiltered() {
   });
 }
 
-function setListMode(m) { ui.listMode = m; ui.sel = {}; ui.selItems = {}; ui.fDiff = false; go('list'); }
+function setListMode(m) {
+  // 型番別・販売チャネル別は管理者だけ。倉庫メンバーは個体別のまま
+  if (!canAdmin()) m = 'unit';
+  ui.listMode = m; ui.sel = {}; ui.selItems = {}; ui.fDiff = false; go('list');
+}
 
 /* いま選んでいるタブが販売サイト（または未出品）なら、そのキーを返す */
 const chanTab = () => (isChanKey(ui.listMode) || ui.listMode === 'none') ? ui.listMode : '';
@@ -1042,6 +1186,7 @@ function viewList() {
     : tab === 'none'
     ? 'どの販売サイトにも出していない在庫です。<strong>ここから出品先を決めていきます。</strong>'
     : tab ? `<strong>${esc(chanLabel(tab))}に出品中</strong>の在庫だけを出しています。ほかのサイトにも出していれば、出品先の欄に並びます。`
+    : !canAdmin() ? '<strong>実物1台＝1行</strong>で並べています。行を押すと、その1台の画面が開きます。'
     : unit ? '<strong>実物1台＝1行</strong>で並べています。行をクリックすると、その1台の詳細と履歴が見られます。'
            : '<strong>型番でまとめて</strong>数だけ見ています。行をクリックすると、個体の一覧や販売情報まで見られます。';
   return `
@@ -1049,6 +1194,7 @@ function viewList() {
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:15px 0 4px">
       <p class="meta" style="flex:1 1 260px">${lead}</p>
       <div class="listtools">
+        ${canAdmin() ? `
         <button class="btn sm ghost" onclick="exportInventoryCsv()">
           <span class="ms">download</span>CSVダウンロード</button>
         <button class="btn sm lime" onclick="openImport()" ${canAdmin() ? '' : 'disabled'}
@@ -1061,15 +1207,12 @@ function viewList() {
           <span class="ms">sync</span>楽天商品を同期</button>
         <button class="btn sm ghost" onclick="openRakutenOrders()" ${canAdmin() ? '' : 'disabled'}
           title="${canAdmin() ? '楽天RMSの注文を取り込み、売れた台数を在庫から引く' : '取り込める権限がありません'}">
-          <span class="ms">receipt_long</span>楽天の注文を取り込む</button>
+          <span class="ms">receipt_long</span>楽天の注文を取り込む</button>` : ''}
       </div>
     </div>
-    ${importHistLine()}
+    ${canAdmin() ? importHistLine() : ''}
     ${stocktakeBar()}
-    ${batchBanner()}
-    ${diffBar()}
-    ${noPriceBar()}
-    ${listTabs()}
+    ${canAdmin() ? batchBanner() + diffBar() + noPriceBar() + listTabs() : ''}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:4px">
       <input class="input" id="f-q" value="${esc(ui.q)}" oninput="onFilter()"
              placeholder="${unit ? '管理番号・型番・S/N…' : '型番・商品名・管理番号…'}">
@@ -1087,11 +1230,11 @@ function viewList() {
             <option value="">すべての状態</option>
             ${STATUSES.map(s => `<option${ui.fSt === s ? ' selected' : ''}>${esc(s)}</option>`).join('')}
           </select>
-          <select class="input" id="f-rent" onchange="onFilter()" title="8RENT（レンタル）に出している個体で絞る">
+          ${canAdmin() ? `<select class="input" id="f-rent" onchange="onFilter()" title="8RENT（レンタル）に出している個体で絞る">
             <option value="">8RENT すべて</option>
             <option value="on"${ui.fRentEl === 'on' ? ' selected' : ''}>レンタル対象だけ</option>
             <option value="off"${ui.fRentEl === 'off' ? ' selected' : ''}>対象外だけ</option>
-          </select>
+          </select>` : ''}
           <select class="input" id="f-check" onchange="onFilter()"
                   title="${db.stocktake ? '実施中の棚卸で現物を確認できているかで絞る' : '今月のうちに現物を確認できているかで絞る'}">
             <option value="">棚卸 すべて</option>
@@ -1305,6 +1448,8 @@ function unitsFiltered(ignoreTab) {
     if (!qrFilterHit(i)) return false;
     if (inScope && !inScope.includes(i.location_id)) return false;
     if (q) {
+      // 倉庫メンバー・閲覧では source_id（仕入元）と note（管理用の備考）を取っていないので、
+      // この2つは検索の対象から自然に外れる（管理番号・S/N・型番・商品名では引ける）
       const hay = [i.id, i.serial, i.source_id, (m && m.model) || i.model, (m && m.name) || i.name, i.note]
         .filter(Boolean).join(' ').toLowerCase();
       if (hay.indexOf(q) < 0) return false;
@@ -1407,6 +1552,10 @@ function listingChips(on, title) {
 /*            ☑    管理番号 型番   価格   価格調査 出品先 保管場所 状態  棚卸   8RENT */
 const UNIT_COLS_PICK = ['3%', '12%', '14%', '10%', '13%', '9%', '8%', '9%', '11%', '11%'];
 const UNIT_COLS      = ['12%', '15%', '10%', '13%', '9%', '9%', '9%', '12%', '11%'];
+/* 倉庫メンバーの在庫一覧は 管理番号・型番・保管場所・状態・棚卸 の5列だけ。
+   価格・価格調査・出品先・8RENT は出さない（管理者の一覧はこれまでどおり） */
+const WARE_COLS_PICK = ['4%', '26%', '26%', '18%', '13%', '13%'];
+const WARE_COLS      = ['27%', '27%', '19%', '14%', '13%'];
 
 function unitsBodyHtml() {
   const rows = unitsFiltered();
@@ -1415,6 +1564,7 @@ function unitsBodyHtml() {
   const live = rows.filter(r => r.kind === 'item' && IN_STOCK.includes(r.i.status)).length;
   const qty = rows.filter(r => r.kind === 'qty').reduce((n, r) => n + (r.m.qty || 0), 0);
   const pick = canEdit();
+  const full = canAdmin();        // 価格・価格調査・出品先・8RENT を出すのは管理者だけ
   const rentN = rows.filter(r => r.kind === 'item' && isRentalOn(r.i)).length;
   // 棚卸の数え方は棚卸画面と同じ（db.stChecked）。この行は「いま出ている行のうち」を数える
   const ckDone = db.stocktake
@@ -1422,18 +1572,20 @@ function unitsBodyHtml() {
   const ckTodo = db.stocktake
     ? rows.filter(r => r.kind === 'item' && checkState(r.i, ckIdx).todo).length : 0;
   return `<div class="meta" style="margin:12px 0 4px">${rows.length} 件${
-      live ? `／うち在庫・出品中 ${live}台` : ''}${rentN ? `／8RENT対象 ${rentN}台` : ''}${qty ? `／数量品 ${qty}` : ''}${
+      live ? `／うち在庫・出品中 ${live}台` : ''}${full && rentN ? `／8RENT対象 ${rentN}台` : ''}${qty ? `／数量品 ${qty}` : ''}${
       db.stocktake ? `／この絞り込みの中では 棚卸確認済 ${ckDone}・未確認 ${ckTodo}` : ''}</div>
     <div class="table-wrap"><table class="t unittbl">
-    <colgroup>${(pick ? UNIT_COLS_PICK : UNIT_COLS).map(w => `<col style="width:${w}">`).join('')}</colgroup>
+    <colgroup>${(full ? (pick ? UNIT_COLS_PICK : UNIT_COLS)
+                       : (pick ? WARE_COLS_PICK : WARE_COLS)).map(w => `<col style="width:${w}">`).join('')}</colgroup>
     <thead><tr>
       ${pick ? `<th class="ck"><input type="checkbox" id="selAllItems" onclick="toggleAllItems(this.checked)"
         ${allItemsSelected(rows) ? 'checked' : ''} title="表示中の個体をすべて選ぶ"></th>` : ''}
       <th class="col-id">管理番号</th><th class="col-model">型番・メーカー</th>
-      <th class="col-price r">価格</th>
+      ${full ? `<th class="col-price r">価格</th>
       <th class="col-market">価格調査</th>
-      <th class="col-listing">出品先</th><th class="col-loc">保管場所</th>
-      <th class="col-status">状態</th><th class="col-check">棚卸</th><th class="col-rental">8RENT</th>
+      <th class="col-listing">出品先</th>` : ''}<th class="col-loc">保管場所</th>
+      <th class="col-status">状態</th><th class="col-check">棚卸</th>${
+        full ? '<th class="col-rental">8RENT</th>' : ''}
     </tr></thead>
     <tbody>${rows.slice(0, 600).map(r => {
       const { i, m } = r;
@@ -1447,16 +1599,16 @@ function unitsBodyHtml() {
         <td class="col-model" data-label="型番"><div class="mdl">${esc(m.model || titleOf(m))}</div>
           ${m.maker ? `<div class="meta">${esc(m.maker)}</div>` : ''}
           <div class="meta num">${esc(m.code)}</div></td>
-        <td class="col-price r" data-label="価格"><div class="num meta">${yen(m.unit_price)}</div>
+        ${full ? `<td class="col-price r" data-label="価格"><div class="num meta">${yen(m.unit_price)}</div>
           <div class="meta">単価</div></td>
         <td class="col-market" data-label="価格調査">${marketBtns(m.maker, m.model)}</td>
-        <td class="col-listing mall" data-label="出品先">${listingChips(liveOnProd(m.code))}</td>
+        <td class="col-listing mall" data-label="出品先">${listingChips(liveOnProd(m.code))}</td>` : ''}
         <td class="col-loc meta" data-label="保管場所">${esc(locPath(m.location_id))}</td>
         <td class="col-status" data-label="状態">${qtyTag(m)}</td>
         <td class="col-check meta" data-label="棚卸">—</td>
-        <td class="col-rental meta" data-label="8RENT">—</td>
+        ${full ? '<td class="col-rental meta" data-label="8RENT">—</td>' : ''}
       </tr>`;
-      const cost = costOf(i), plan = planOf(i);
+      const cost = full ? costOf(i) : null, plan = full ? planOf(i) : null;
       // 型番・メーカーは商品マスターを優先。価格調査の検索語にも同じものを使う
       const mk = { model: (m && m.model) || i.model || '', maker: (m && m.maker) || i.maker || '' };
       return `<tr class="clk${isMismatch(i) ? ' warn' : ''}${ui.selItems[i.id] ? ' on' : ''}" data-item="${esc(i.id)}" onclick="go('item','${esc(i.id)}')">
@@ -1469,25 +1621,26 @@ function unitsBodyHtml() {
                title="この1台の詳細と履歴">${esc(i.id)}</a>
             ${qrIcon(i)}
           </div>
-          ${i.source_id ? `<div class="meta">仕入元 ${esc(i.source_id)}</div>` : ''}
-          ${i.purchased_on ? `<div class="meta">${esc(fmtD(i.purchased_on))}</div>` : ''}</td>
+          ${full && i.source_id ? `<div class="meta">仕入元 ${esc(i.source_id)}</div>` : ''}
+          ${full && i.purchased_on ? `<div class="meta">${esc(fmtD(i.purchased_on))}</div>` : ''}</td>
         <td class="col-model" data-label="型番"><div class="mdl">${esc(mk.model)}</div>
           ${mk.maker ? `<div class="meta">${esc(mk.maker)}</div>` : ''}</td>
-        <td class="col-price r num" data-label="価格">
+        ${full ? `<td class="col-price r num" data-label="価格">
           <div>${cost ? yen(cost) : '<span class="meta">—</span>'}</div>
           <div class="meta">予定 ${plan == null ? '—' : yen(plan)}</div></td>
         <td class="col-market" data-label="価格調査">${marketBtns(mk.maker, mk.model, false, i.id)}</td>
-        <td class="col-listing mall" data-label="出品先">${listingChips(liveOn(i))}</td>
+        <td class="col-listing mall" data-label="出品先">${listingChips(liveOn(i))}</td>` : ''}
         <td class="col-loc meta" data-label="保管場所">${esc(locPath(i.location_id))}</td>
         <td class="col-status" data-label="状態">${statusTag(i.status, false, stockStale(i, ckIdx))}</td>
         <td class="col-check" data-label="棚卸">${checkCell(i, ckIdx)}</td>
-        <td class="col-rental" data-label="8RENT">${rentalTag(i)}</td>
+        ${full ? `<td class="col-rental" data-label="8RENT">${rentalTag(i)}</td>` : ''}
       </tr>`;
     }).join('')}</tbody></table></div>
     ${rows.length > 600 ? '<div class="meta" style="margin-top:8px">先頭600件だけ表示しています。絞り込んでください。</div>' : ''}`;
 }
 
 function listBodyHtml() {
+  if (!canAdmin()) return unitsBodyHtml();   // 倉庫メンバーは個体別だけ
   if (ui.listMode !== 'model') return unitsBodyHtml();
   const rows = listFiltered();
   if (!rows.length) return `<div class="empty" style="margin-top:15px">該当する商品はありません。</div>`;
@@ -1941,6 +2094,16 @@ function refreshSelBar() {
 function selBarItems(n) {
   const b = (label, icon, fn, cls) =>
     `<button class="btn sm ${cls || ''}" onclick="${fn}"><span class="ms">${icon}</span>${label}</button>`;
+  // 倉庫メンバーは3つだけ。価格・8RENT・修理・QR状態・廃棄は管理者の操作
+  if (!canAdmin()) {
+    return `<span class="n"><span class="ms">check_box</span>${n}件選択中</span>
+      <div class="selops">
+        ${b('移動', 'move_down', 'openBulkMoveSel()')}
+        ${b('棚卸確認', 'fact_check', 'openBulkCheck()')}
+        ${b('販売済みにする', 'local_shipping', 'openBulkSellWarehouse()', 'lime')}
+      </div>
+      <button class="btn sm ghost" onclick="clearItemSel()">選択解除</button>`;
+  }
   return `<span class="n"><span class="ms">check_box</span>${n}件選択中</span>
     <div class="selops">
       ${b('QRラベルを印刷', 'qr_code_2', 'printSelectedLabels()')}
@@ -2138,6 +2301,51 @@ async function doBulk(action) {
   showBulkResult(action, data || {});
 }
 
+/* ---- 倉庫メンバーのまとめて操作 --------------------------------------------
+   どちらも**新しいRPCは作らない**。
+     移動        … 既存の inv_item_op('移動') を1台ずつ（棚の「まとめて移動」と同じやり方）
+     販売済みにする … 既存の doBulk('売却') をそのまま。売値の欄を出さないので null で通る
+   倉庫メンバーは売値を決めないので、価格の入力は置かない。 */
+function openBulkMoveSel() {
+  const b = selBreakdown(GONE);
+  if (!b.n) return;
+  openSheet({
+    title: 'まとめて移動', subject: `${b.n}台`, cta: '移動を記録',
+    hint: `選んだ <strong>${b.n}台</strong>の保管場所を変えます。${
+      b.ng ? `<br><span class="meta">${esc(b.note)} は手元にないので動かせません。</span>` : ''}`,
+    body: `<label class="field"><span>移動先</span>
+      <select class="input" id="sheetVal">${locOptions('', '選択してください')}</select></label>`,
+    validate: (v) => { if (!v) { toast('移動先を選んでください'); return false; } return true; },
+    run: async (locId) => {
+      const rows = selItemRows().filter(i => !GONE.includes(i.status));
+      let ok = 0;
+      for (const it of rows) {
+        const { data, error } = await sb.rpc('inv_item_op',
+          { p_item_id: it.id, p_action: '移動', p_value: locId, p_note: null });
+        if (!error) { const k = db.items.findIndex(x => x.id === it.id); if (k >= 0 && data) db.items[k] = data; ok++; }
+      }
+      ui.selItems = {};
+      await refreshTx();
+      render();
+      toast(`${ok}台を ${locPath(locId)} に移しました`);
+    }
+  });
+}
+function openBulkSellWarehouse() {
+  // 単体と同じ判定。出せる状態（在庫・出品中・販売予約）以外は対象から外す
+  const b = selBreakdown(STATUSES.filter(x => WARE_SELLABLE.indexOf(x) < 0));
+  if (!b.n) return;
+  if (!b.ok) { toast(`販売済みにできるのは ${WARE_SELLABLE.join('・')} のものだけです`); return; }
+  openModal('選んだ商品を販売済みにしますか？', `
+    ${bulkHead(`選んだ <strong>${b.n}台</strong>のうち、<strong>${b.ok}台</strong>を販売済（売却済）にします。
+      <div class="meta" style="margin-top:4px">在庫から外れます。履歴は残ります。</div>
+      ${b.ng ? `<div class="meta" style="margin-top:4px">${esc(b.note)} はそのまま販売済にできません。</div>` : ''}`, 'warn')}
+    <p class="meta"><strong>売値はここでは入れません。</strong>あとから管理者が入れます。</p>
+    <label class="field" style="margin-top:12px"><span>メモ（任意）</span>
+      <input class="input" id="blNote" placeholder="例 まとめて出荷"></label>
+  `, [['キャンセル', 'closeModal()', 'btn ghost'], ['販売済みにする', "doBulk('売却')", 'btn pri']]);
+}
+
 /* 成功件数・失敗件数・失敗理由を出す。全部成功なら短く1行で伝える */
 function showBulkResult(action, r) {
   const ok = r.ok || 0, ng = (r.ng || []).length, total = r.total || 0;
@@ -2257,7 +2465,10 @@ const CSV_MASTER = [
   ['最終更新', p => touchedAt(p) ? fmtDT(touchedAt(p)) : '']
 ];
 
+/* 仕入先・単価・販売状況・備考まで入る**管理用**のCSVなので、管理者だけ。
+   倉庫メンバーの一覧（5列）とは中身が違うため、ボタンを隠すだけにしない */
 function exportInventoryCsv() {
+  if (!canAdmin()) { toast('CSVを書き出せるのは管理者だけです'); return; }
   const rows = listFiltered();
   if (!rows.length) { toast('書き出すものがありません'); return; }
   const table = [CSV_MASTER.map(c => c[0])].concat(rows.map(r => CSV_MASTER.map(c => {
@@ -5552,11 +5763,89 @@ function openModal(title, body, buttons) {
 function closeModal() { $('modal').classList.remove('on'); }
 
 /* ===== 3. 個体の詳細（QRを読んだ直後の画面） ===== */
+/* ===== 個体詳細（倉庫メンバー向け） ========================================
+   現物照合に要るものを上から順に出す。型番・スペック・シリアルを上の方へ。
+   価格・利益・出品先・8RENT・編集・廃棄・QR印刷は**出さない**（機能は消していない。
+   管理者の画面にはこれまでどおり全部ある）。
+   操作は3つに絞り、貸出・返却は**その状態のときだけ**足す。 */
+function viewItemWarehouse(it, m) {
+  const sp = m && m.spec ? m.spec : '';
+  const op = (icon, label, fn, on) =>
+    `<button class="btn" onclick="${fn}" ${on === false || !canEdit() ? 'disabled' : ''}>
+      <span class="ms">${icon}</span><span class="t">${esc(label)}</span></button>`;
+  const row = (k, v) => `<div class="wrow"><span class="k">${esc(k)}</span><b>${v}</b></div>`;
+  return `
+  <div class="ware">
+    ${itemPhoto(m)}
+    <h1>${esc(m ? titleOf(m) : it.name)}</h1>
+    <div class="wsub">${esc([(m || it).maker, (m || it).model].filter(Boolean).join(' ／ ') || '—')}</div>
+    ${sp ? `<div class="wspec">${esc(sp)}</div>` : ''}
+    <div class="winfo">
+      ${row('管理番号', `<span class="num">${esc(it.id)}</span>`)}
+      ${row('シリアル番号', esc(it.serial || '—'))}
+      ${row('保管場所', esc(locPath(it.location_id)) || '—')}
+      ${it.user_name ? row('利用者', esc(it.user_name)) : ''}
+    </div>
+    <div class="wtags">${statusTag(it.status, true)}<div>${checkCell(it)}</div></div>
+    ${guardNote()}
+    ${canEdit() && wareCanSell(it) ? `<button class="btn pri wsell" onclick="sheetSellWarehouse('${esc(it.id)}')">
+      <span class="ms">local_shipping</span>販売済みにする</button>` : ''}
+    <div class="ops wops">
+      ${op('move_down', '移動', `sheetMove('${esc(it.id)}')`)}
+      ${op('fact_check', '棚卸確認', `checkItem('${esc(it.id)}')`)}
+      ${it.status === '在庫' ? op('assignment_ind', '貸出', `sheetLoan('${esc(it.id)}')`) : ''}
+      ${it.status === '貸出中' ? op('assignment_return', '返却', `sheetReturn('${esc(it.id)}')`) : ''}
+    </div>
+    <button class="btn ghost wnext" onclick="openScan('lookup')">
+      <span class="ms">qr_code_scanner</span>次のQRを読む</button>
+  </div>`;
+}
+
+/* 倉庫メンバーの「販売済みにする」。**値段は決めない。**
+   どの現物を出荷したかを確定するのが倉庫の仕事で、売値は管理者が後から入れる
+   （売価未登録のまま売却済にすると、管理者のダッシュボードの「要確認」に出る）。
+   処理は既存の sellItem() → inv_item_sell → inv_item_op('売却') をそのまま通す。 */
+function sheetSellWarehouse(id) {
+  const it = item(id); if (!it) return;
+  if (!canEdit()) { toast('操作する権限がありません（閲覧のみ）'); return; }
+  if (!wareCanSell(it)) { toast(`${it.status} のものは販売済みにできません`); return; }
+  const m = prod(it.product_code);
+  openModal('この商品を販売済みにしますか？', `
+    <p style="font-size:17px;font-weight:700;margin:0 0 10px">${esc(m ? titleOf(m) : it.name)}</p>
+    <div class="winfo">
+      <div class="wrow"><span class="k">管理番号</span><b class="num">${esc(it.id)}</b></div>
+      <div class="wrow"><span class="k">シリアル番号</span><b>${esc(it.serial || '—')}</b></div>
+      <div class="wrow"><span class="k">保管場所</span><b>${esc(locPath(it.location_id)) || '—'}</b></div>
+    </div>
+    <p class="meta" style="margin-top:12px">在庫から外れます。履歴は残ります。
+      <strong>売値はここでは入れません</strong>（あとから管理者が入れます）。</p>
+  `, [['キャンセル', 'closeModal()', 'btn ghost'],
+      ['販売済みにする', `closeModal();doSellWarehouse('${esc(id)}')`, 'btn pri']]);
+}
+async function doSellWarehouse(id) {
+  const it = item(id); if (!it) return;
+  if (!wareCanSell(it)) { toast(`${it.status} のものは販売済みにできません`); return; }
+  const m = prod(it.product_code);
+  const name = m ? titleOf(m) : it.name;
+  // 売却先も売価も渡さない（null）。既存の売却処理をそのまま使う
+  const ok = await sellItem(id, null, null, null);
+  if (ok === false) return;
+  openModal('販売済みにしました', `
+    <p style="font-size:17px;font-weight:700;margin:0 0 6px">
+      <span class="ms" style="color:#1B5E20;vertical-align:-4px">check_circle</span> ${esc(name)}</p>
+    <div class="num" style="font-size:15px">${esc(id)}</div>
+    <p class="meta" style="margin-top:12px">続けて出荷するときは［次のQRを読む］を押してください。</p>
+  `, [['在庫一覧へ', "closeModal();go('list')", 'btn ghost'],
+      ['次のQRを読む', "closeModal();openScan('lookup')", 'btn pri']]);
+}
+
 function viewItem() {
   const it = item(ui.itemId);
   if (!it) return `<div class="empty">該当する機器が見つかりません（${esc(ui.itemId || '')}）</div>`;
   const url = itemUrl(it.id);
   const m = prod(it.product_code);          // 商品名・型番はマスタ側が正
+  // 管理者以外（倉庫メンバー・閲覧）には、倉庫で現物を扱うための画面を出す
+  if (!canAdmin()) return viewItemWarehouse(it, m);
   const hist = db.tx.filter(t => t.ref_kind === 'item' && t.ref_id === it.id);
   const op = (icon, label, fn, pri, on) =>
     `<button class="btn ${pri ? 'pri' : ''}" onclick="${fn}" ${on === false || !canEdit() ? 'disabled' : ''}>
@@ -6742,13 +7031,14 @@ async function sellItem(id, dest, price, note) {
   const { data, error } = await sb.rpc('inv_item_sell', {
     p_item_id: id, p_channel: dest, p_price: price == null ? null : String(price), p_note: note
   });
-  if (error) { toast(error.message || '記録できませんでした'); return; }
+  if (error) { toast(error.message || '記録できませんでした'); return false; }
   const i = db.items.findIndex(x => x.id === id);
   if (i >= 0 && data) db.items[i] = data;
   await refreshTx();
   render();
   toast(`${id} を売却済にしました${dest ? `（${dest}）` : ''}`);
   warnStillListed([id], '売却済');
+  return true;
 }
 
 /* 一覧から「売れた」を記録する。個体管理は在庫の古いものから台数ぶん売却済にする。
@@ -7212,6 +7502,150 @@ const MASTER_TABS = [['loc', 'warehouse', '保管場所'], ['cat', 'category', '
 const LOC_KINDS = [['site', '拠点'], ['room', '倉庫・部屋'], ['shelf', '棚'], ['other', 'その他']];
 const LOC_KIND_LABEL = (k) => (LOC_KINDS.find(x => x[0] === k) || [k, k])[1];
 const LOC_ICON = { site: 'apartment', room: 'warehouse', shelf: 'shelves', other: 'inventory_2' };
+
+/* ===== メンバー管理（管理者だけ） ==========================================
+   **新しいテーブルも新しい権限体系も作らない。** 既存の inventory_members を
+   そのまま読み書きする。書き込みはDB側のRLS（inv_is_admin()）が止めるので、
+   画面の判定だけに頼っていない。
+
+   この画面は「在庫管理の中での権限」を決めるもので、ログインアカウントそのものは
+   作らない（Supabase Auth には触れない）。 */
+const memberRows = () => (db.members || []).slice().sort((a, b) =>
+  (['admin', 'member', 'viewer'].indexOf(a.role) - ['admin', 'member', 'viewer'].indexOf(b.role))
+  || String(a.display_name || '').localeCompare(String(b.display_name || ''), 'ja'));
+const adminCount = () => (db.members || []).filter(m => m.role === 'admin').length;
+
+function viewMembers() {
+  if (!canAdmin()) {
+    return `<h1>メンバー管理</h1>
+      <div class="card" style="margin-top:15px">メンバーを見られるのは管理者だけです。</div>`;
+  }
+  const rows = memberRows();
+  return `<h1>メンバー管理</h1>
+    <p class="meta" style="margin:12px 0 0">※この画面は<strong>在庫管理の権限</strong>を設定します。
+      ログインアカウント自体は既存の認証方法で用意してください。</p>
+    <p class="meta" style="margin:6px 0 0">ここに無いログインは<strong>閲覧のみ</strong>の扱いになります。</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:16px 0 6px">
+      <button class="btn" onclick="sheetMember(null)"><span class="ms">person_add</span>メンバーを追加</button>
+      <span class="meta">${rows.length}人（管理者 ${adminCount()}人）</span>
+    </div>
+    <div class="mblist">${rows.length ? rows.map(m => `
+      <div class="mb">
+        <div class="t"><b>${esc(m.display_name || '(名前なし)')}</b>
+          <div class="meta">${esc(m.email)}</div></div>
+        <span class="tag rl ${esc(m.role)}">${esc(roleLabel(m.role))}</span>
+        <div class="a">
+          <button class="btn sm ghost" onclick="sheetMember('${esc(m.email)}')">
+            <span class="ms">edit</span>編集</button>
+          ${m.email === me.email ? '' :
+            `<button class="btn sm danger" onclick="openMemberOff('${esc(m.email)}')">アクセスを外す</button>`}
+        </div>
+      </div>`).join('') : '<div class="empty">まだ登録がありません。</div>'}</div>`;
+}
+
+/* 追加と編集。メールアドレスは主キーなので、編集では変えない
+   （変えたいときは外して、新しいメールで足してもらう） */
+function sheetMember(email) {
+  if (!canAdmin()) { toast('メンバーを直せるのは管理者だけです'); return; }
+  const m = email ? (db.members || []).find(x => x.email === email) : null;
+  const isMe = !!(m && m.email === me.email);
+  openSheet({
+    title: m ? 'メンバーを編集' : 'メンバーを追加', subject: m ? m.email : '', cta: '保存',
+    keepOpenOnError: true,
+    hint: m ? 'メールアドレスは変えられません。変えるときは一度外して、新しいメールで足してください。'
+            : 'ログインアカウントは別に用意してください。ここで決めるのは在庫管理での権限です。',
+    body: `
+      <label class="field" style="margin-bottom:10px"><span>氏名</span>
+        <input class="input" id="mbName" value="${esc((m || {}).display_name || '')}" placeholder="例 山田 太郎"></label>
+      <label class="field" style="margin-bottom:10px"><span>メールアドレス</span>
+        <input class="input" id="mbMail" value="${esc((m || {}).email || '')}"
+          placeholder="例 yamada@8grp.co.jp"${m ? ' disabled' : ''}></label>
+      <label class="field"><span>権限</span>
+        <select class="input" id="mbRole">${ROLES.map(([v, label]) =>
+          `<option value="${v}"${(m || {}).role === v ? ' selected' : ''}>${esc(label)}</option>`).join('')}</select></label>
+      ${isMe ? '<p class="meta" style="margin-top:10px"><strong>これはあなた自身です。</strong>自分を管理者から外すこと・自分のアクセスを外すことはできません（別の管理者に頼んでください）。</p>' : ''}`,
+    run: () => saveMember(m ? m.email : null)
+  });
+}
+async function saveMember(email) {
+  const name = (($('mbName') || {}).value || '').trim();
+  const mail = (email || (($('mbMail') || {}).value || '')).trim().toLowerCase();
+  const role = (($('mbRole') || {}).value || 'viewer');
+  if (!name) { toast('氏名を入れてください'); return false; }
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) { toast('メールアドレスを正しく入れてください'); return false; }
+  const was = (db.members || []).find(x => x.email === mail) || null;
+  if (!email && was) { toast('このメールアドレスはすでに登録されています'); return false; }
+  // 最後の管理者を落とさない。落とすと誰もこの画面を開けなくなる
+  if (was && was.role === 'admin' && role !== 'admin' && adminCount() <= 1) {
+    toast('最後の管理者は変えられません。先に別の管理者を足してください'); return false;
+  }
+  if (was && was.email === me.email && role !== 'admin') {
+    toast('自分自身を管理者から外すことはできません'); return false;
+  }
+
+  const row = { email: mail, display_name: name, role };
+  const { data, error } = email
+    ? await sb.from('inventory_members').update({ display_name: name, role }).eq('email', mail).select().maybeSingle()
+    : await sb.from('inventory_members').insert(row).select().maybeSingle();
+  if (error) { toast('保存できませんでした：' + error.message); return false; }
+
+  const saved = data || row;
+  const k = (db.members || []).findIndex(x => x.email === mail);
+  if (k >= 0) db.members[k] = saved; else db.members.push(saved);
+  await logMember(mail, name, email ? '権限変更' : 'メンバー追加',
+    was ? roleLabel(was.role) : 'なし', roleLabel(role));
+  render();
+  toast(email ? 'メンバーを保存しました' : 'メンバーを追加しました');
+  return true;
+}
+
+/* 確認の画面。判定は doMemberOff() と同じものを並べる
+   （ここで通らないものは押せない。できない操作の確認画面は出さない） */
+function openMemberOff(email) {
+  if (!canAdmin()) { toast('メンバーを外せるのは管理者だけです'); return; }
+  const m = (db.members || []).find(x => x.email === email); if (!m) return;
+  if (m.email === me.email) {
+    toast('自分自身を在庫管理から外すことはできません'); return;
+  }
+  if (m.role === 'admin' && adminCount() <= 1) {
+    toast('最後の管理者は外せません。先に別の管理者を足してください'); return;
+  }
+  openModal('このメンバーを在庫管理から外しますか？', `
+    <p style="font-size:17px;font-weight:700;margin:0 0 4px">${esc(m.display_name || '')}</p>
+    <div class="meta">${esc(m.email)}</div>
+    <p class="meta" style="margin-top:12px">外した後は<strong>閲覧権限扱い</strong>になります。
+      ログインそのものは止まりません（アカウントは既存の認証方法で管理してください）。</p>
+  `, [['キャンセル', 'closeModal()', 'btn ghost'],
+      ['アクセスを外す', `closeModal();doMemberOff('${esc(email)}')`, 'btn danger']]);
+}
+/* 実際に消す側。**確認モーダルを通さず直接呼ばれても止まる。**
+   openMemberOff() の判定は画面の案内で、こちらが本体。DELETE の前に必ず全部見る
+   （サーバー側のRLS inv_is_admin() も効くが、自分自身・最後の管理者はRLSでは止まらない）。 */
+async function doMemberOff(email) {
+  if (!canAdmin()) { toast('メンバーを外せるのは管理者だけです'); return; }
+  const m = (db.members || []).find(x => x.email === email); if (!m) return;
+  if (m.email === me.email) {
+    toast('自分自身を在庫管理から外すことはできません'); return;
+  }
+  if (m.role === 'admin' && adminCount() <= 1) {
+    toast('最後の管理者は外せません。先に別の管理者を足してください'); return;
+  }
+  const { error } = await sb.from('inventory_members').delete().eq('email', email);
+  if (error) { toast('外せませんでした：' + error.message); return; }
+  db.members = (db.members || []).filter(x => x.email !== email);
+  await logMember(email, m.display_name, 'アクセス解除', roleLabel(m.role), '閲覧のみ（登録なし）');
+  render();
+  toast(`${m.display_name || email} を在庫管理から外しました`);
+}
+
+/* 誰がいつ権限を変えたかは履歴に残す。履歴は追記だけで消せない */
+async function logMember(email, name, action, before, after) {
+  await sb.from('inventory_transactions').insert({
+    actor: me.name, ref_kind: 'member', ref_id: email, label: name || email,
+    action, before_value: before, after_value: after
+  });
+  await refreshTx();
+}
 
 function viewMaster() {
   if (!canAdmin()) {

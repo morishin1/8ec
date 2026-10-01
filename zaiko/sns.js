@@ -9,7 +9,7 @@
    /api/sns が Instagram と X の文を作る。
 
    ・自動投稿はしない。Instagram はスマホの共有・コピー、X は投稿画面を文入りで開くだけ
-   ・読むのは Supabase から直接（RLSで一般・管理者だけ）。書くのは必ず /api/sns
+   ・読むのは Supabase から直接（RLSで倉庫メンバー・管理者だけ）。書くのは必ず /api/sns
    ・AIのキー、URLの組み立て、ハッシュタグの照合はサーバー側
    ・生成した文は textContent / esc() で出す（innerHTML にそのまま入れない）
 
@@ -81,7 +81,7 @@ function snsPut(post) {
 /* ---------------------------------------------------------------- 画面の入口 */
 function viewSns() {
   if (!canEdit()) {
-    return `<h1>SNS投稿</h1><div class="card" style="margin-top:15px">閲覧権限では使えません（一般・管理者のみ）。</div>`;
+    return `<h1>SNS投稿</h1><div class="card" style="margin-top:15px">閲覧権限では使えません（倉庫メンバー・管理者のみ）。</div>`;
   }
   if (!snsState.loaded) { snsLoad(); return `<h1>SNS投稿</h1><div class="empty" style="margin-top:15px">読み込み中…</div>`; }
   if (snsState.error) return `<h1>SNS投稿</h1><div class="warnbox" style="margin-top:15px"><span class="ms">error</span><div>${esc(snsState.error)}</div></div>`;

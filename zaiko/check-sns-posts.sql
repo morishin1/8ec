@@ -10,7 +10,7 @@
 --   確かめること
 --     ・文を直すと、その文の「投稿済み」だけが外れる
 --     ・選んだ軸を変えたのに文がそのままなら「古い」になる
---     ・一般（member）は読めるが、画面から直接は書けない
+--     ・倉庫メンバー（member）は読めるが、画面から直接は書けない
 --     ・閲覧（viewer）と anon には下書きが見えない
 -- ============================================================
 begin;
@@ -41,7 +41,7 @@ begin
   perform set_config('request.jwt.claims', '{"email":"sns-check-member@example.invalid"}', true);
   set local role authenticated;
   select count(*) into n from public.ec_sns_posts where id = pid;
-  if n <> 1 then raise exception '一般（member）が下書きを読めません'; end if;
+  if n <> 1 then raise exception '倉庫メンバー（member）が下書きを読めません'; end if;
   begin
     update public.ec_sns_posts set note = 'x' where id = pid;
     raise exception '画面（authenticated）から直接書けてしまいます。書き込みは /api/sns だけのはずです';

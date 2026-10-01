@@ -81,7 +81,7 @@ async function rest(path, opts) {
 /* ── 社内の人かどうか（ログインが要るAPIだけが使う） ──
    ブラウザが送ってきたアクセストークン（Bearer）をSupabaseで確かめ、
    そのメールを inventory_members で引く。/zaiko と同じ判定で、
-   表に無いログインは「閲覧」。一般（member）と管理者（admin）だけを通す。
+   表に無いログインは「閲覧」。倉庫メンバー（member）と管理者（admin）だけを通す。
    画面でボタンを隠すだけにしないため、操作のたびにここを通す。 */
 const STAFF_ROLES = ["admin", "member"];
 async function staffFromRequest(req) {
@@ -105,7 +105,7 @@ async function staffFromRequest(req) {
   const row = Array.isArray(q.out) && q.out[0] ? q.out[0] : null;
   const role = (row && row.role) || "viewer";
   if (STAFF_ROLES.indexOf(role) < 0) {
-    return { ok: false, status: 403, error: "閲覧権限では操作できません（一般・管理者のみ）" };
+    return { ok: false, status: 403, error: "閲覧権限では操作できません（倉庫メンバー・管理者のみ）" };
   }
   return { ok: true, email, role, name: (row && row.display_name) || email };
 }
