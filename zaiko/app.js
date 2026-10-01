@@ -34,6 +34,16 @@ const LOAD_LIMIT = 3000;
 const STATUSES = ['在庫', '出品中', '予約中', '販売予約', '社内使用', '貸出中', '修理中', '故障', '紛失', '売却済', '廃棄', '不明'];
 const IN_STOCK = ['在庫', '出品中'];
 const GONE = ['売却済', '廃棄'];
+/* 倉庫メンバーが「販売済みにする」を使える状態。
+   **手元にあって、そのまま出荷できるものだけ。**
+   予約中・貸出中は人との約束が残っている（先にキャンセル・返却が要る）。
+   社内使用・修理中・故障・紛失・不明は現物の扱いが決まっていない。
+   売却済・廃棄はもう在庫ではない。
+   サーバー側（inv_item_sell → inv_item_op('売却')）はこれらを止めないので、
+   **画面で先に絞る**。単体も複数選択も同じこの判定を通す。 */
+const WARE_SELLABLE = ['在庫', '出品中', '販売予約'];
+const wareCanSell = (i) => !!i && WARE_SELLABLE.indexOf(i.status) >= 0;
+
 const STATUS_ICON = {
   '在庫': 'inventory_2', '出品中': 'sell', '予約中': 'event_available', '販売予約': 'local_mall',
   '社内使用': 'person', '貸出中': 'assignment_ind',
@@ -724,17 +734,22 @@ function go(screen, id) {
 window.addEventListener('popstate', () => route(false));
 
 /* 管理者だけの画面。**ナビから隠すだけにしない。**
-   URLを直接開いても、ここで倉庫作業ホームへ戻す（判定は既存の canAdmin()）。 */
-const ADMIN_SCREENS = ['reg', 'labels', 'deals', 'rental', 'master', 'members', 'hist', 'prod'];
+   URLを直接開いても倉庫作業ホームへ戻す（判定は既存の canAdmin()）。
+   **データを取りに行く前に見る。** あとから戻すと、管理者向けの画面のデータだけ
+   先に取ってしまうため（loadOne より前に guardRoute() を通す）。 */
+const ADMIN_SCREENS = ['reg', 'labels', 'deals', 'rental', 'master', 'members', 'hist',
+                       'prod', 'quote', 'contract'];
 const SCREEN_NAME = { reg: '商品登録', labels: 'QRラベル', deals: '案件', rental: '8RENT申込',
-                      master: 'マスター管理', members: 'メンバー管理', hist: '履歴', prod: '商品詳細' };
+                      master: 'マスター管理', members: 'メンバー管理', hist: '履歴',
+                      prod: '商品詳細', quote: '見積', contract: '契約' };
+function guardRoute(r) {
+  if (ADMIN_SCREENS.indexOf(r.screen) < 0 || canAdmin()) return r;
+  toast(`${SCREEN_NAME[r.screen] || 'この画面'}は管理者だけが使えます`);
+  if (location.pathname !== BASE + '/') history.replaceState(null, '', BASE + '/');
+  return { screen: 'dash' };
+}
 function applyRoute(r) {
-  // 管理者向けの画面を管理者以外が開いたら、黙らずに知らせてホームへ戻す
-  if (ADMIN_SCREENS.indexOf(r.screen) >= 0 && !canAdmin()) {
-    toast(`${SCREEN_NAME[r.screen] || 'この画面'}は管理者だけが使えます`);
-    r = { screen: 'dash' };
-    if (location.pathname !== BASE + '/') history.replaceState(null, '', BASE + '/');
-  }
+  r = guardRoute(r);          // go() から来たときもここで止める
   ui.screen = r.screen;
   ui.itemId = r.itemId || null;
   ui.prodId = r.prodId || null;
@@ -747,7 +762,9 @@ function applyRoute(r) {
 }
 
 async function route(first) {
-  const r = parsePath();
+  // **先に role を見てから** データを取りに行く。
+  // 管理者だけの画面なら、その画面のデータは取りに行かずにホームへ戻す
+  const r = guardRoute(parsePath());
   // QRで直接開いたときは、その1件だけ先に取って描く（読取から表示までを短くする）
   if (first && (r.screen === 'item' || r.screen === 'prod')) {
     const ok = await loadOne(r);
@@ -2252,8 +2269,10 @@ function openBulkMoveSel() {
   });
 }
 function openBulkSellWarehouse() {
-  const b = selBreakdown(['予約中', '貸出中', '売却済', '廃棄']);
+  // 単体と同じ判定。出せる状態（在庫・出品中・販売予約）以外は対象から外す
+  const b = selBreakdown(STATUSES.filter(x => WARE_SELLABLE.indexOf(x) < 0));
   if (!b.n) return;
+  if (!b.ok) { toast(`販売済みにできるのは ${WARE_SELLABLE.join('・')} のものだけです`); return; }
   openModal('選んだ商品を販売済みにしますか？', `
     ${bulkHead(`選んだ <strong>${b.n}台</strong>のうち、<strong>${b.ok}台</strong>を販売済（売却済）にします。
       <div class="meta" style="margin-top:4px">在庫から外れます。履歴は残ります。</div>
@@ -5703,7 +5722,7 @@ function viewItemWarehouse(it, m) {
     </div>
     <div class="wtags">${statusTag(it.status, true)}<div>${checkCell(it)}</div></div>
     ${guardNote()}
-    ${canEdit() && !GONE.includes(it.status) ? `<button class="btn pri wsell" onclick="sheetSellWarehouse('${esc(it.id)}')">
+    ${canEdit() && wareCanSell(it) ? `<button class="btn pri wsell" onclick="sheetSellWarehouse('${esc(it.id)}')">
       <span class="ms">local_shipping</span>販売済みにする</button>` : ''}
     <div class="ops wops">
       ${op('move_down', '移動', `sheetMove('${esc(it.id)}')`)}
@@ -5723,6 +5742,7 @@ function viewItemWarehouse(it, m) {
 function sheetSellWarehouse(id) {
   const it = item(id); if (!it) return;
   if (!canEdit()) { toast('操作する権限がありません（閲覧のみ）'); return; }
+  if (!wareCanSell(it)) { toast(`${it.status} のものは販売済みにできません`); return; }
   const m = prod(it.product_code);
   openModal('この商品を販売済みにしますか？', `
     <p style="font-size:17px;font-weight:700;margin:0 0 10px">${esc(m ? titleOf(m) : it.name)}</p>
@@ -5738,6 +5758,7 @@ function sheetSellWarehouse(id) {
 }
 async function doSellWarehouse(id) {
   const it = item(id); if (!it) return;
+  if (!wareCanSell(it)) { toast(`${it.status} のものは販売済みにできません`); return; }
   const m = prod(it.product_code);
   const name = m ? titleOf(m) : it.name;
   // 売却先も売価も渡さない（null）。既存の売却処理をそのまま使う
