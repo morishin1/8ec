@@ -2,7 +2,7 @@
 -- SNS投稿準備（ec_sns_*）の点検（selfcheck）
 --
 --   使いかた
---     2026-10-09-sns-posts.sql を実行したあと、Supabase の SQL Editor で流します。
+--     2026-10-10-sns-posts.sql を実行したあと、Supabase の SQL Editor で流します。
 --     最後に rollback するので、データも権限も変えません。
 --     問題があれば ERROR で止まり、何が外れているかを出します。
 --     問題が無ければ「SNS投稿の点検：問題なし」とだけ出ます。

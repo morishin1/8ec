@@ -155,7 +155,7 @@ async function activeTags() {
 function supaError(q) {
   const m = (q && q.out && (q.out.message || q.out.hint)) || "";
   if (/ec_sns_|does not exist|schema cache|PGRST205|42P01/i.test(m)) {
-    return "SNS投稿の表がまだありません。zaiko/migrations/2026-10-09-sns-posts.sql を実行してください";
+    return "SNS投稿の表がまだありません。zaiko/migrations/2026-10-10-sns-posts.sql を実行してください";
   }
   return "保存できませんでした。時間をおいてお試しください";
 }

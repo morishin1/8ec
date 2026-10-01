@@ -46,7 +46,7 @@ async function snsLoad(force) {
   snsState.loading = false;
   if (p.error) {
     snsState.error = /does not exist|schema cache|PGRST205|42P01/i.test(p.error.message || p.error.code || '')
-      ? 'SNS投稿の表がまだありません。Supabase で zaiko/migrations/2026-10-09-sns-posts.sql を実行してください。'
+      ? 'SNS投稿の表がまだありません。Supabase で zaiko/migrations/2026-10-10-sns-posts.sql を実行してください。'
       : '読み込めませんでした：' + (p.error.message || p.error.code);
   } else {
     snsState.error = '';
