@@ -111,6 +111,21 @@ header.bar{position:sticky;top:0;z-index:30;background:var(--bg);border-bottom:1
 .catbtns .btn{min-height:34px;padding:0 9px;font-size:13px;gap:4px}
 .catbtns .btn .ms{font-size:16px}
 
+/* QRラベルの印刷状態。**在庫一覧と棚卸で同じ見た目**にする。
+   文字は常時出さず、アイコンの色だけで 未印刷／印刷済み が分かるようにする。
+   色は新しく足さず、すでに使っている Success系（#E8F5E9 / #1B5E20 / #2E7D32）を使う。 */
+.qrp{border:1px solid var(--line);background:#fff;color:var(--n500);
+  width:26px;height:26px;min-height:0;padding:0;border-radius:var(--r2);
+  display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex:none}
+.qrp .ms{font-size:17px}
+.qrp:hover{background:var(--n100);color:var(--n700)}
+.qrp.on{background:#E8F5E9;color:#1B5E20;border-color:#2E7D32}
+.qrp.on:hover{border-color:#1B5E20}
+/* 管理番号のとなりに置く。列は増やさない */
+.idline{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+/* 棚卸の行では型番のとなり */
+.stlist .r .n{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+
 .tag{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:3px 9px;border-radius:var(--r2);white-space:nowrap}
 .tag .ms{font-size:15px}
 .tag.big{font-size:13px;padding:5px 12px}
@@ -202,7 +217,7 @@ table.t tr.clk:hover td{background:var(--n100)}
 .kind{font-size:12px;letter-spacing:.1em;color:var(--ink);font-weight:500}
 .detail h1{font-size:36px;margin:4px 0 8px}
 .info{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px 20px;font-size:14px;margin:20px 0}
-.info .k{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--n600);display:block}
+.info .k,.card .k{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--n600);display:block}
 .ops{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:20px 0}
 .ops button{min-height:58px;flex-direction:column;gap:4px;padding:8px}
 .ops button .ms{font-size:24px}
