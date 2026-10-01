@@ -744,6 +744,19 @@ table.t.buy td.pick .why.ng{border-color:#B3261E;color:#B3261E;background:#FDECE
 .picks{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px;margin:12px 0 20px}
 .picks label{display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--n100);border-radius:var(--r2);
   cursor:pointer;font-size:13px}
+/* 行が3段（管理番号・保管場所・印刷状態）になるので、チェックは1段目に合わせる */
+.picks label input[type=checkbox]{align-self:flex-start;margin-top:3px}
+/* QRラベル画面の印刷状態。チェック（今回印刷するもの）とは別物なので、
+   文字も付けて取り違えないようにする。色は在庫一覧・棚卸の 🖨 と同じ値。 */
+.qrst{display:inline-flex;align-items:center;gap:4px;margin-top:4px;padding:1px 7px 1px 5px;
+  font-size:11px;font-weight:700;white-space:nowrap;border-radius:var(--r2);
+  background:#fff;color:var(--n600);border:1px solid var(--line)}
+.qrst .ms{font-size:14px}
+.qrst.on{background:#E8F5E9;color:#1B5E20;border-color:#2E7D32}
+/* 上に出す「対象／未印刷／印刷済み」 */
+.qrsum{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:12px 0 8px;font-size:13px}
+.qrsum > span:first-child{padding:1px 2px}
+.qrsum .qrst{margin-top:0;font-size:12px;padding:3px 9px 3px 7px}
 
 @media print{
   [data-noprint]{display:none !important}
