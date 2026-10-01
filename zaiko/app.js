@@ -7527,7 +7527,8 @@ function viewMembers() {
         <div class="a">
           <button class="btn sm ghost" onclick="sheetMember('${esc(m.email)}')">
             <span class="ms">edit</span>編集</button>
-          <button class="btn sm danger" onclick="openMemberOff('${esc(m.email)}')">アクセスを外す</button>
+          ${m.email === me.email ? '' :
+            `<button class="btn sm danger" onclick="openMemberOff('${esc(m.email)}')">アクセスを外す</button>`}
         </div>
       </div>`).join('') : '<div class="empty">まだ登録がありません。</div>'}</div>`;
 }
@@ -7552,7 +7553,7 @@ function sheetMember(email) {
       <label class="field"><span>権限</span>
         <select class="input" id="mbRole">${ROLES.map(([v, label]) =>
           `<option value="${v}"${(m || {}).role === v ? ' selected' : ''}>${esc(label)}</option>`).join('')}</select></label>
-      ${isMe ? '<p class="meta" style="margin-top:10px"><strong>これはあなた自身です。</strong>管理者から外すと、この画面を開けなくなります。</p>' : ''}`,
+      ${isMe ? '<p class="meta" style="margin-top:10px"><strong>これはあなた自身です。</strong>自分を管理者から外すこと・自分のアクセスを外すことはできません（別の管理者に頼んでください）。</p>' : ''}`,
     run: () => saveMember(m ? m.email : null)
   });
 }
@@ -7588,24 +7589,37 @@ async function saveMember(email) {
   return true;
 }
 
+/* 確認の画面。判定は doMemberOff() と同じものを並べる
+   （ここで通らないものは押せない。できない操作の確認画面は出さない） */
 function openMemberOff(email) {
   if (!canAdmin()) { toast('メンバーを外せるのは管理者だけです'); return; }
   const m = (db.members || []).find(x => x.email === email); if (!m) return;
+  if (m.email === me.email) {
+    toast('自分自身を在庫管理から外すことはできません'); return;
+  }
   if (m.role === 'admin' && adminCount() <= 1) {
     toast('最後の管理者は外せません。先に別の管理者を足してください'); return;
   }
-  const isMe = m.email === me.email;
   openModal('このメンバーを在庫管理から外しますか？', `
     <p style="font-size:17px;font-weight:700;margin:0 0 4px">${esc(m.display_name || '')}</p>
     <div class="meta">${esc(m.email)}</div>
     <p class="meta" style="margin-top:12px">外した後は<strong>閲覧権限扱い</strong>になります。
       ログインそのものは止まりません（アカウントは既存の認証方法で管理してください）。</p>
-    ${isMe ? '<div class="card" style="margin-top:12px;background:#FDECEC;border:1px solid #B3261E"><strong>これはあなた自身です。</strong>外すと、この画面を開けなくなります。</div>' : ''}
   `, [['キャンセル', 'closeModal()', 'btn ghost'],
       ['アクセスを外す', `closeModal();doMemberOff('${esc(email)}')`, 'btn danger']]);
 }
+/* 実際に消す側。**確認モーダルを通さず直接呼ばれても止まる。**
+   openMemberOff() の判定は画面の案内で、こちらが本体。DELETE の前に必ず全部見る
+   （サーバー側のRLS inv_is_admin() も効くが、自分自身・最後の管理者はRLSでは止まらない）。 */
 async function doMemberOff(email) {
+  if (!canAdmin()) { toast('メンバーを外せるのは管理者だけです'); return; }
   const m = (db.members || []).find(x => x.email === email); if (!m) return;
+  if (m.email === me.email) {
+    toast('自分自身を在庫管理から外すことはできません'); return;
+  }
+  if (m.role === 'admin' && adminCount() <= 1) {
+    toast('最後の管理者は外せません。先に別の管理者を足してください'); return;
+  }
   const { error } = await sb.from('inventory_members').delete().eq('email', email);
   if (error) { toast('外せませんでした：' + error.message); return; }
   db.members = (db.members || []).filter(x => x.email !== email);
