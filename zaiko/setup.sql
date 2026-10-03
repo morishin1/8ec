@@ -11694,6 +11694,7 @@ grant execute on function public.inv_item_sell_undo(text, text) to authenticated
 --     あわせて、取り消した売却が今月の売上・粗利・販売台数に残らないようにする。
 --     「その売却より後に売却取消があるか」の判定は inv_sale_is_active() の1か所だけに置き、
 --     売却取消（64）とダッシュボードの両方がそれを通る。
+--     **inv_dashboard_stats が返すキーは1つも変えていない**（画面がそのまま読むため）。
 -- ============================================================
 -- ------------------------------------------------------------
 -- 1) その「売却」はいま生きているか
@@ -11758,7 +11759,24 @@ $$;
 
 
 -- ------------------------------------------------------------
--- 3) その1台の、その販売先の登録価格
+-- 3) 売り先にできる販売先
+--
+--    画面の CHANNELS（楽天・Amazon・メルカリ・ヤフオク・ヤフーフリマ・その他）と同じ。
+--    **一覧を持つのはここだけ。** 価格を見るときも売るときも、同じこれを通す。
+--    notion は社内メモ用で売り先ではないので入れない。
+-- ------------------------------------------------------------
+create or replace function public.inv_sell_channels()
+returns text[]
+language sql immutable set search_path = public as $$
+  select array['rakuten','amazon','mercari','yahuoku','yahoo_free','other']
+$$;
+
+comment on function public.inv_sell_channels is
+  '倉庫から売るときに選べる販売先。画面の CHANNELS と同じ並び。一覧を持つのはここだけ。';
+
+
+-- ------------------------------------------------------------
+-- 4) その1台の、その販売先の登録価格
 --
 --    画面（販売先を選んだとき）と、売却の本体の**両方がこれを通る**。
 --    同じ価格判定を2か所に書かない。
@@ -11773,8 +11791,18 @@ create or replace function public.inv_item_channel_price(
   p_item_id text,
   p_channel text
 ) returns numeric
-language sql stable security invoker set search_path = public as $$
-  select coalesce(
+language plpgsql stable security invoker set search_path = public as $$
+begin
+  -- 売るための値段なので、**売れる人にしか見せない**（viewer は直接呼んでも通らない）。
+  -- 画面でも売却の本体でも同じこの関数を通るので、ここで1回止めれば両方に効く。
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  if not (p_channel = any (public.inv_sell_channels())) then
+    raise exception '知らない販売先です（%）', p_channel;
+  end if;
+
+  return coalesce(
     (select c.price
        from public.inventory_channels c
       where c.item_id = p_item_id and c.channel = p_channel and c.price is not null
@@ -11783,17 +11811,18 @@ language sql stable security invoker set search_path = public as $$
        from public.inventory_channel_listings l
        join public.inventory_items i on i.product_code = l.product_code
       where i.id = p_item_id and l.channel = p_channel and l.price is not null
-      order by l.id desc limit 1))
-$$;
+      order by l.id desc limit 1));
+end $$;
 
 comment on function public.inv_item_channel_price is
   'その1台を、その販売先で売るときの登録価格。個体（inventory_channels.price）が
    入っていればそれ、無ければ商品（inventory_channel_listings.price）。
-   どちらも無ければ null。原価・利益は返さない。読むだけで何も変えない。';
+   どちらも無ければ null。原価・利益は返さない。読むだけで何も変えない。
+   見られるのは inv_can_edit()（管理者・倉庫メンバー）だけ。販売先は決まった6つだけ。';
 
 
 -- ------------------------------------------------------------
--- 4) 販売先を選んで売る（倉庫メンバー用）
+-- 5) 販売先を選んで売る（倉庫メンバー用）
 --
 --    **画面から金額を受け取らない。** 受け取るのは販売先だけ。
 --    価格はここで引き直すので、開発者ツールから好きな金額を送っても
@@ -11820,6 +11849,10 @@ begin
   end if;
   if coalesce(btrim(p_channel), '') = '' then
     raise exception '販売先を選んでください';
+  end if;
+  -- 知らない販売先では売らない（一覧は inv_sell_channels の1か所だけ）
+  if not (p_channel = any (public.inv_sell_channels())) then
+    raise exception '知らない販売先です（%）', p_channel;
   end if;
 
   select * into it from public.inventory_items where id = p_item_id for update;
@@ -11851,14 +11884,14 @@ comment on function public.inv_item_sell_channel is
 
 
 -- ------------------------------------------------------------
--- 5) 月次の経営数値から、取り消した売却を外す
+-- 6) 月次の経営数値から、取り消した売却を外す
 --
---    これまでは action='売却' の履歴をそのまま数えていたので、
---    取り消したあとも販売台数に残り、売上も（sold_price が null でも）
---    1台ぶん数えてしまっていた。
+--    これまでは action='売却' の履歴をそのまま数えていたので、取り消したあとも
+--    販売台数に残り、売上も（sold_price が null でも）1台ぶん数えてしまっていた。
 --
---    変えたのは sold の1か所だけ。**その売却が生きているか**を
---    inv_sale_is_active() で見る。ほかの集計（仕入・在庫）は触っていない。
+--    **変えたのは sold の where に1行足しただけ。**
+--    返す中身（キーの名前・順番・数）も、ほかの集計（仕入・在庫）も一切変えていない。
+--    画面（viewDash）はこのキーをそのまま読んでいるので、1つでも変えると数字が消える。
 --      売却 → 取消                 … 数えない
 --      売却 → 取消 → 再売却        … 新しいほうだけ数える
 --      売却（取消なし）            … これまでどおり
@@ -11875,8 +11908,7 @@ bounds as (
   select date_trunc('month', coalesce(p_month, current_date))::date            as m_start,
          (date_trunc('month', coalesce(p_month, current_date)) + interval '1 month')::date as m_end
 ),
--- 今月売れた個体（売却の履歴がある個体を、重複なく1台ずつ）。
--- **あとで取り消された売却は数えない**（判定は inv_sale_is_active の1か所）
+-- 今月売れた個体（売却の履歴がある個体を、重複なく1台ずつ）
 sold as (
   select distinct on (i.id) i.id, i.sold_price, i.cost
     from public.inventory_transactions t
@@ -11884,6 +11916,7 @@ sold as (
     cross join bounds b
    where t.ref_kind = 'item' and t.action = '売却'
      and t.occurred_at >= b.m_start and t.occurred_at < b.m_end
+     -- **あとで取り消された売却は数えない**（判定は inv_sale_is_active の1か所）
      and public.inv_sale_is_active(i.id, t.occurred_at, t.id)
    order by i.id, t.occurred_at desc
 ),
@@ -11941,26 +11974,27 @@ select jsonb_build_object(
   'profit_base',       s.profit_base,
   'gross_margin',      case when s.profit_base > 0
                             then round(s.profit * 100.0 / s.profit_base, 1) end,
-  'sold_count',        s.cnt,
+  'profit_missing_cost', s.missing_cost,
   'profit_count',      s.profit_cnt,
-  'avg_profit',        case when s.profit_cnt > 0
-                            then round(s.profit / s.profit_cnt) end,
-  'missing_cost',      s.missing_cost,
-  'missing_price',     s.missing_price,
-  'price_gap',         (select cnt from price_gap),
+  'avg_profit_per_unit', case when s.profit_cnt > 0
+                              then round(s.profit / s.profit_cnt) end,
+  'sold_count',        s.cnt,
+  -- 売価が入っていない個体（金額として数えられないもの）
+  'sold_price_missing',       g.cnt,
+  'sold_price_missing_month', s.missing_price,
   -- 仕入
-  'buy_amount',        (select amount from buy_agg),
-  'buy_count',         (select cnt from buy_agg),
+  'purchase_amount',   b2.amount,
+  'purchase_count',    b2.cnt,
   -- 在庫
-  'stock_count',       h.cnt,
   'stock_cost',        h.cost_total,
-  'aged60',            h.aged60,
-  'aged90',            h.aged90,
-  'aged90_cost',       h.aged90_cost,
+  'stock_count',       h.cnt,
+  'aged_60',           h.aged60,
+  'aged_90',           h.aged90,
+  'aged_90_cost',      h.aged90_cost,
   'avg_stock_days',    h.avg_days,
-  'no_purchase_date',  h.no_date
+  'stock_no_date',     h.no_date
 )
-from sale_agg s cross join held_agg h
+from sale_agg s, price_gap g, buy_agg b2, held_agg h;
 $$;
 
 comment on function public.inv_dashboard_stats is
@@ -11969,7 +12003,7 @@ comment on function public.inv_dashboard_stats is
 
 
 -- ------------------------------------------------------------
--- 6) 権限
+-- 7) 権限
 --
 --    2026-10-01-rpc-permission-hardening.sql の配り直しは「そのとき存在した関数」への
 --    1回きりの処理なので、あとから足した関数には効かない。明示的に配り直す。
@@ -11978,6 +12012,9 @@ comment on function public.inv_dashboard_stats is
 -- ------------------------------------------------------------
 revoke all on function public.inv_sale_is_active(text, timestamptz, bigint) from public, anon, service_role;
 grant execute on function public.inv_sale_is_active(text, timestamptz, bigint) to authenticated;
+
+revoke all on function public.inv_sell_channels() from public, anon, service_role;
+grant execute on function public.inv_sell_channels() to authenticated;
 
 revoke all on function public.inv_item_channel_price(text, text) from public, anon, service_role;
 grant execute on function public.inv_item_channel_price(text, text) to authenticated;
