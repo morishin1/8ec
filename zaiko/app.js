@@ -5780,6 +5780,8 @@ function viewItemWarehouse(it, m) {
     ${guardNote()}
     ${canEdit() && wareCanSell(it) ? `<button class="btn pri wsell" onclick="sheetSellWarehouse('${esc(it.id)}')">
       <span class="ms">local_shipping</span>販売済みにする</button>` : ''}
+    ${canEdit() && canUndoSell(it) ? `<button class="btn wundo" onclick="sheetSellUndo('${esc(it.id)}')">
+      <span class="ms">settings_backup_restore</span>販売済みを取り消す</button>` : ''}
     <div class="ops wops">
       ${op('move_down', '移動', `sheetMove('${esc(it.id)}')`)}
       ${op('fact_check', '棚卸確認', `checkItem('${esc(it.id)}')`)}
@@ -5829,6 +5831,111 @@ async function doSellWarehouse(id) {
       ['次のQRを読む', "closeModal();openScan('lookup')", 'btn pri']]);
 }
 
+/* ---- 個体詳細の［編集］ ----------------------------------------------------
+   直せるのは2種類だけで、**どちらの表のものかを画面でも分ける**。
+
+     この個体   … 保管場所・シリアル番号・仕入日・備考
+     商品マスタ … 商品名・メーカー・型番・カテゴリ・スペック（同じ商品の全個体に効く）
+
+   **すでに専用の操作があるものはここに出さない。**
+     在庫状態・利用者 → ［貸出］［返却］［修理・故障］［売却］［廃棄］
+     値段             → ［値段を直す］
+     棚卸             → ［棚卸確認］
+     8RENT・出品      → 既存の8RENT操作・出品先の［編集］
+     管理番号・商品コード・仕入元ID・QR → 変えない
+
+   保管場所とカテゴリは自由入力にせず、既存の locOptions() と
+   商品登録と同じカテゴリーマスタ（catsFor / catOptLabel）から選ぶ。 */
+function sheetItemEdit(id) {
+  const it = item(id); if (!it) return;
+  // 商品名・型番・カテゴリは同じ商品の全個体に効くので、直せるのは管理者だけ。
+  // 倉庫メンバーは移動・棚卸確認・入出庫・販売済みなど、既存の操作をそのまま使う
+  if (!canAdmin()) { toast('基本情報を直せるのは管理者だけです'); return; }
+  const m = prod(it.product_code);
+  const cats = catsFor(m ? m.kind : 'individual', (m || it).category_id);
+  const v = (x) => esc(x == null ? '' : String(x));
+  openSheet({
+    title: '基本情報を編集', subject: id, cta: '保存', keepOpenOnError: true,
+    hint: '状態・値段・棚卸・8RENT・出品は、それぞれの操作から直してください。',
+    body: `
+      <div class="sec" style="margin:0 0 10px">この個体</div>
+      <label class="field" style="margin-bottom:10px"><span>保管場所</span>
+        <select class="input" id="ieLoc">${locOptions(it.location_id, '選択してください')}</select></label>
+      <label class="field" style="margin-bottom:10px"><span>シリアル番号</span>
+        <input class="input" id="ieSerial" value="${v(it.serial)}" placeholder="本体に書かれている番号"></label>
+      <label class="field" style="margin-bottom:10px"><span>仕入日</span>
+        <input class="input" type="date" id="ieBuy" value="${v(it.purchased_on)}"></label>
+      <label class="field"><span>備考</span>
+        <textarea class="input" id="ieNote" rows="2">${v(it.note)}</textarea></label>
+
+      <div class="sec" style="margin:18px 0 4px">商品情報</div>
+      <p class="meta" style="margin:0 0 10px">
+        <strong>この変更は同じ商品に紐づく全個体へ反映されます。</strong>
+        ${m ? `${esc(m.code)}（この商品の個体 ${itemsOf(m.code).length}台）` : ''}</p>
+      ${m ? `
+      <label class="field" style="margin-bottom:10px"><span>商品名</span>
+        <input class="input" id="ieName" value="${v(m.name)}"></label>
+      <label class="field" style="margin-bottom:10px"><span>メーカー</span>
+        <input class="input" id="ieMaker" value="${v(m.maker)}"></label>
+      <label class="field" style="margin-bottom:10px"><span>型番</span>
+        <input class="input" id="ieModel" value="${v(m.model)}"></label>
+      <label class="field" style="margin-bottom:10px"><span>カテゴリ</span>
+        <select class="input" id="ieCat"><option value="">選択してください</option>
+        ${cats.map(c => `<option value="${esc(c.id)}"${
+          c.id === m.category_id ? ' selected' : ''}>${esc(catOptLabel(c))}</option>`).join('')}</select></label>
+      <label class="field"><span>スペック</span>
+        <textarea class="input" id="ieSpec" rows="3">${v(m.spec)}</textarea></label>`
+      : '<p class="meta">この個体に商品マスタが結びついていないので、商品情報は直せません。</p>'}`,
+    run: () => saveItemEdit(id)
+  });
+}
+
+/* 保存。**呼ぶのは inv_item_basic_edit() の1回だけ。**
+   個体とマスタを別々に呼ぶと、個体だけ保存されてマスタで失敗する、という
+   半端な状態が起きうる（RPC 1回ごとに取引が閉じるため）。1回にまとめれば
+   その中は1つの取引になり、どこで失敗しても何も変わらない。
+   中で何をするか（移動・写しの更新・履歴）はDBの関数が持つ。 */
+async function saveItemEdit(id) {
+  if (!canAdmin()) { toast('基本情報を直せるのは管理者だけです'); return false; }
+  const it = item(id); if (!it) return false;
+  const m = prod(it.product_code);
+  const val = (k) => { const el = $(k); return el ? el.value.trim() : null; };
+
+  if (m) {
+    const name = val('ieName'), model = val('ieModel');
+    if (!name && !model) { toast('商品名か型番のどちらかは入れてください'); return false; }
+    if (!val('ieCat')) { toast('カテゴリを選んでください'); return false; }
+  }
+  if (!val('ieLoc')) { toast('保管場所を選んでください'); return false; }
+
+  const { data, error } = await sb.rpc('inv_item_basic_edit', {
+    p_item_id: id,
+    p_location_id: val('ieLoc'), p_serial: val('ieSerial') || null,
+    p_purchased_on: val('ieBuy') || null, p_note: val('ieNote') || null,
+    p_name: val('ieName') || null, p_maker: val('ieMaker') || null,
+    p_model: val('ieModel') || null, p_category_id: val('ieCat') || null,
+    p_spec: val('ieSpec') || null
+  });
+  // 失敗したときは1文字も変わっていない。シートは開いたままで、入れた値も残す
+  if (error) { toast('保存できませんでした：' + error.message); return false; }
+
+  // 手元の写しを入れ替える。items はマスタが変わったときだけ返ってくる
+  const out = data || {};
+  if (out.item) { const k = db.items.findIndex(x => x.id === id); if (k >= 0) db.items[k] = out.item; }
+  if (out.product) {
+    const k = db.masters.findIndex(x => x.code === out.product.code);
+    if (k >= 0) db.masters[k] = out.product;
+  }
+  (out.items || []).forEach(row => {
+    const k = db.items.findIndex(x => x.id === row.id);
+    if (k >= 0) db.items[k] = row; else db.items.push(row);
+  });
+  await refreshTx();
+  render();
+  toast('基本情報を保存しました');
+  return true;
+}
+
 function viewItem() {
   const it = item(ui.itemId);
   if (!it) return `<div class="empty">該当する機器が見つかりません（${esc(ui.itemId || '')}）</div>`;
@@ -5851,6 +5958,8 @@ function viewItem() {
         ${statusTag(it.status, true)}
         <span id="itemRentTag">${GONE.includes(it.status) ? '' : rentalTag(it)}</span>
         ${isLong(it) ? '<span class="tag" style="background:var(--l200)">長期貸出 ' + daysSince(it.loaned_at) + '日</span>' : ''}
+        ${canAdmin() ? `<button class="btn sm ghost" style="margin-left:auto"
+          onclick="sheetItemEdit('${esc(it.id)}')"><span class="ms">edit</span>編集</button>` : ''}
       </div>
       <div class="info">
         <div><span class="k">保管場所</span>${esc(locPath(it.location_id)) || '—'}</div>
@@ -5871,6 +5980,8 @@ function viewItem() {
         ${op('build', '修理・故障', `sheetStatus('${esc(it.id)}')`)}
         ${op('paid', '売却', `sheetSell('${esc(it.id)}')`, false, !GONE.includes(it.status))}
         ${op('undo', '予約解除', `sheetUnreserve('${esc(it.id)}')`, false, it.status === '販売予約')}
+        ${canUndoSell(it) ? op('settings_backup_restore', '販売済みを取り消す',
+          `sheetSellUndo('${esc(it.id)}')`) : ''}
         ${op('fact_check', '棚卸確認', `checkItem('${esc(it.id)}')`)}
         <span id="itemRentOps" style="display:contents">${rentalOpsHtml(it)}</span>
         ${canAdmin() ? op('delete', '廃棄', `sheetScrap('${esc(it.id)}')`) : ''}
@@ -7029,6 +7140,99 @@ async function sellItem(id, dest, price, note) {
   toast(`${id} を売却済にしました${dest ? `（${dest}）` : ''}`);
   warnStillListed([id], '売却済');
   return true;
+}
+
+/* ---- 売却済の取り消し --------------------------------------------------------
+   倉庫でQRを取り違えて、違う個体を「販売済み」にしてしまったときに戻す。
+
+   **戻る状態は画面で決めない。** 既存の履歴（inventory_transactions）の
+   action='売却' の before_value に、売却の直前の状態がそのまま残っている。
+   それを読むのはサーバーの inv_item_sell_undo_info() 1か所だけで、
+   確認画面も取消の本体も同じものを通る（判定の二重実装をしない）。
+     在庫 → 売却済 → 取消 → 在庫 ／ 出品中 → … → 出品中 ／ 販売予約 → … → 販売予約
+   履歴から分からないとき（履歴が無い／すでに取り消し済みの売却しか無い／売却前が
+   貸出中・社内使用）は、推測して戻さずに「取り消せません」と出す。
+
+   モールの受注明細（inventory_sale_orders）にこの個体が割り当たっていたら、
+   その注文番号を確認画面に出す。取り消すと **8EC の中の割り当てだけ**を外して
+   「個体の割り当て待ち」へ戻す（外部のモールへは何も送らない）。
+
+   権限は既存の canEdit()（管理者・倉庫メンバー）。viewer は使えない。
+   サーバー側も inv_can_edit() で止めるので、画面だけの判定にはしていない。 */
+const canUndoSell = (i) => !!i && i.status === '売却済';
+
+async function sheetSellUndo(id) {
+  const it = item(id); if (!it) return;
+  if (!canEdit()) { toast('操作する権限がありません（閲覧のみ）'); return; }
+  if (!canUndoSell(it)) { toast(`${it.status} のものは取り消せません（売却済だけ）`); return; }
+  const m = prod(it.product_code);
+
+  // 戻る状態と、紐付いているモールの受注明細をサーバーに聞く
+  // （読むだけ。ここでは何も変わらない。判定はサーバーの1か所だけに置く）
+  const { data: info, error } = await sb.rpc('inv_item_sell_undo_info', { p_item_id: id });
+  if (error) { toast(error.message || '戻る状態を調べられませんでした'); return; }
+  const back = (info || {}).back;
+  const orders = ((info || {}).orders) || [];
+  if (!back) {
+    openModal('この販売済みは取り消せません', `
+      <p><strong>どこへ戻すかを履歴から決められないので、取り消せません。</strong></p>
+      <p class="meta" style="margin-top:10px">次のどれかです。</p>
+      <ul class="meta" style="margin:6px 0 0;padding-left:20px">
+        <li>売却の履歴が残っていない（状態が手で直されたものなど）</li>
+        <li>いちばん新しい売却は<strong>すでに取り消し済み</strong>で、いまの「売却済」に
+          対応する売却の履歴が無い</li>
+        <li>売却前が<strong>貸出中・社内使用</strong>だった。売却のときに利用者が消えているので、
+          誰に貸していたかまでは戻せない</li>
+      </ul>
+      <p class="meta" style="margin-top:10px">推測で戻すと在庫状態と履歴が食い違うので、
+        ここでは戻しません。状態は［貸出］［修理・故障］など、もとの操作からやり直してください。</p>`,
+      [['閉じる', 'closeModal()', 'btn ghost']]);
+    return;
+  }
+
+  const row = (k, v) => `<div class="wrow"><span class="k">${esc(k)}</span><b>${v}</b></div>`;
+  openModal('販売済みを取り消しますか？', `
+    <p style="font-size:17px;font-weight:700;margin:0 0 10px">${esc(m ? titleOf(m) : it.name)}</p>
+    <div class="winfo">
+      ${row('管理番号', `<span class="num undoid">${esc(it.id)}</span>`)}
+      ${row('シリアル番号', esc(it.serial || '—'))}
+      ${row('現在', statusTag('売却済'))}
+      ${row('戻る状態', statusTag(back))}
+    </div>
+    ${orders.length ? `<div class="undoord">
+      <div class="k">この個体が割り当たっている注文</div>
+      ${orders.map(o => `<div class="r"><b>${esc(o.channel)} ${esc(o.order_number)}</b>
+        <span class="meta">明細 ${esc(o.line_number)}-${esc(o.unit_no)}　${esc(o.status)}</span></div>`).join('')}
+      <p class="meta" style="margin:8px 0 0">取り消すと、<strong>8EC の中でのこの個体の割り当てを外して
+        「個体の割り当て待ち（受注）」へ戻します</strong>。別の個体を割り当て直してください。
+        <strong>販売サイト側の注文・出品は自動では戻りません</strong>（再出品もしません）。</p>
+    </div>`
+    : (it.sold_channel ? `<p class="meta" style="margin-top:12px">
+      <strong>${esc(it.sold_channel)} へ売れたものとして記録されています。</strong>
+      在庫側はここで戻せますが、<strong>販売サイト側の注文や出品は自動では戻りません</strong>
+      （再出品もしません）。必要なら管理画面で直してください。</p>` : '')}
+    <p class="meta" style="margin-top:12px">売却の金額と売却先は消えます。
+      これまでの「売却」の履歴は残り、「売却取消」が足されます。</p>
+    <label class="undochk"><input type="checkbox" id="undoOk"
+      onchange="document.getElementById('undoGo').disabled=!this.checked">
+      <span>上の<strong>管理番号</strong>が、戻したい現物と合っていることを確認しました</span></label>
+  `, [['キャンセル', 'closeModal()', 'btn ghost'],
+      ['販売済みを取り消す', `doSellUndo('${esc(id)}')`, 'btn pri', 'undoGo']]);
+  const go = $('undoGo'); if (go) go.disabled = true;      // 確認するまで押せない
+}
+
+async function doSellUndo(id) {
+  const it = item(id); if (!it) return;
+  if (!canEdit()) { toast('操作する権限がありません（閲覧のみ）'); return; }
+  if (!canUndoSell(it)) { toast(`${it.status} のものは取り消せません（売却済だけ）`); return; }
+  const { data, error } = await sb.rpc('inv_item_sell_undo', { p_item_id: id, p_note: null });
+  if (error) { toast(error.message || '取り消せませんでした'); return; }
+  closeModal();
+  const k = db.items.findIndex(x => x.id === id);
+  if (k >= 0 && data) db.items[k] = data;
+  await refreshTx();
+  render();
+  toast(`${id} の販売済みを取り消しました（${(data || {}).status || ''}）`);
 }
 
 /* 一覧から「売れた」を記録する。個体管理は在庫の古いものから台数ぶん売却済にする。

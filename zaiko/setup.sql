@@ -11147,6 +11147,539 @@ grant execute on function public.inv_qr_print_mark(text[], text, text) to authen
 
 
 -- ============================================================
+-- 63) 個体詳細から基本情報を直す
+--
+--     /zaiko/items/:id の ［編集］ から直す。直せるのは2種類だけで、
+--     **どちらがどちらの表かをはっきり分ける**。
+--
+--       この個体（inventory_items）   … 保管場所・シリアル番号・仕入日・備考
+--       商品マスタ（inventory_products）… 商品名・メーカー・型番・カテゴリ・スペック
+--
+--     すでに専用の操作があるもの（状態・利用者・値段・棚卸・8RENT・出品・QR）と、
+--     変えないもの（管理番号・商品コード・仕入元ID）は触らない。
+--     保管場所は既存の inv_item_op('移動') をそのまま呼ぶ。
+--
+--     **画面が呼ぶのは inv_item_basic_edit() の1回だけ。**
+--     個体とマスタを別々に呼ぶと、片方だけ保存された半端な状態が起きうる。
+--     関数を1回呼べば、その中は1つの取引になるので、途中で失敗すれば何も変わらない。
+-- ============================================================
+
+-- ------------------------------------------------------------
+-- 1) この個体を直す（inv_item_basic_edit の中で使う）
+--
+--    保管場所が変わるときは inv_item_op('移動') を呼ぶ（同じ取引の中なので、
+--    移動だけ成功して残りが失敗する、ということは起きない）。
+--    残りの3項目は「何が何に変わったか」を1行にまとめて履歴へ残す。
+--    変わっていなければ履歴を足さない（水増ししない）。
+-- ------------------------------------------------------------
+create or replace function public.inv_item_edit(
+  p_item_id      text,
+  p_location_id  text default null,
+  p_serial       text default null,
+  p_purchased_on date default null,
+  p_note         text default null
+) returns public.inventory_items
+language plpgsql security invoker set search_path = public as $$
+declare
+  it      public.inventory_items;
+  v_ser   text := nullif(btrim(coalesce(p_serial, '')), '');
+  v_note  text := nullif(btrim(coalesce(p_note, '')), '');
+  v_loc   text := nullif(btrim(coalesce(p_location_id, '')), '');
+  v_diff  text[] := '{}';
+  v_show  text;
+begin
+  if not public.inv_is_admin() then
+    raise exception '基本情報を直せるのは管理者だけです';
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+
+  -- 保管場所は専用の操作にそのまま任せる（移動の履歴もあちらが残す）
+  if v_loc is not null and v_loc is distinct from it.location_id then
+    it := public.inv_item_op(p_item_id, '移動', v_loc, null);
+  end if;
+
+  v_show := 'なし';
+  if v_ser is distinct from it.serial then
+    v_diff := v_diff || ('シリアル番号 ' || coalesce(it.serial, v_show) || ' → ' || coalesce(v_ser, v_show));
+  end if;
+  if p_purchased_on is distinct from it.purchased_on then
+    v_diff := v_diff || ('仕入日 ' || coalesce(to_char(it.purchased_on, 'YYYY/MM/DD'), v_show)
+                         || ' → ' || coalesce(to_char(p_purchased_on, 'YYYY/MM/DD'), v_show));
+  end if;
+  if v_note is distinct from it.note then
+    v_diff := v_diff || '備考'::text;
+  end if;
+
+  if array_length(v_diff, 1) is null then
+    return it;                       -- 何も変わっていない
+  end if;
+
+  update public.inventory_items
+     set serial = v_ser, purchased_on = p_purchased_on, note = v_note
+   where id = p_item_id returning * into it;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'item', p_item_id, it.name, '編集',
+          'この個体', array_to_string(v_diff, '／'));
+
+  return it;
+end $$;
+
+comment on function public.inv_item_edit is
+  'その1台の 保管場所・シリアル番号・仕入日・備考 を直す。
+   保管場所は inv_item_op(''移動'') をそのまま呼ぶ。状態・利用者・価格・棚卸・
+   管理番号・商品コード・仕入元ID には触らない。変わった項目だけ履歴に残す。';
+
+
+-- ------------------------------------------------------------
+-- 2) 商品マスタを直す（inv_item_basic_edit の中で使う）
+--
+--    **同じ商品コードにぶら下がる全個体に効く。** 画面でもそう書く。
+--    個体側にある name / maker / model / category_id は表示用の写しなので、
+--    inv_bulk_update_products と同じようにマスタへ合わせておく
+--    （画面は prod(code) が正で読むが、写しが古いまま残らないようにする）。
+--    spec はマスタにしかない。
+-- ------------------------------------------------------------
+create or replace function public.inv_product_edit(
+  p_code        text,
+  p_name        text default null,
+  p_maker       text default null,
+  p_model       text default null,
+  p_category_id text default null,
+  p_spec        text default null
+) returns public.inventory_products
+language plpgsql security invoker set search_path = public as $$
+declare
+  pr      public.inventory_products;
+  v_name  text := nullif(btrim(coalesce(p_name, '')), '');
+  v_maker text := nullif(btrim(coalesce(p_maker, '')), '');
+  v_model text := nullif(btrim(coalesce(p_model, '')), '');
+  v_cat   text := nullif(btrim(coalesce(p_category_id, '')), '');
+  v_spec  text := nullif(btrim(coalesce(p_spec, '')), '');
+  v_diff  text[] := '{}';
+  v_show  text := 'なし';
+begin
+  if not public.inv_is_admin() then
+    raise exception '基本情報を直せるのは管理者だけです';
+  end if;
+
+  select * into pr from public.inventory_products where code = p_code for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_code;
+  end if;
+  if v_name is null and v_model is null then
+    raise exception '型番か商品名のどちらかは要ります';
+  end if;
+  if v_cat is not null and not exists (select 1 from public.inventory_categories where id = v_cat) then
+    raise exception '知らないカテゴリです（%）', v_cat;
+  end if;
+
+  if v_name  is distinct from pr.name  then
+    v_diff := v_diff || ('商品名 ' || coalesce(pr.name, v_show) || ' → ' || coalesce(v_name, v_show)); end if;
+  if v_maker is distinct from pr.maker then
+    v_diff := v_diff || ('メーカー ' || coalesce(pr.maker, v_show) || ' → ' || coalesce(v_maker, v_show)); end if;
+  if v_model is distinct from pr.model then
+    v_diff := v_diff || ('型番 ' || coalesce(pr.model, v_show) || ' → ' || coalesce(v_model, v_show)); end if;
+  if v_cat   is distinct from pr.category_id then
+    v_diff := v_diff || ('カテゴリ ' || coalesce((select name from public.inventory_categories where id = pr.category_id), v_show)
+                         || ' → ' || coalesce((select name from public.inventory_categories where id = v_cat), v_show)); end if;
+  if v_spec  is distinct from pr.spec  then v_diff := v_diff || 'スペック'::text; end if;
+
+  if array_length(v_diff, 1) is null then
+    return pr;                       -- 何も変わっていない
+  end if;
+
+  update public.inventory_products
+     set name = coalesce(v_name, v_model), maker = v_maker, model = v_model,
+         category_id = v_cat, spec = v_spec
+   where code = p_code returning * into pr;
+
+  -- 個体側の表示用の写しも合わせる（inv_bulk_update_products と同じ考えかた）
+  update public.inventory_items
+     set name = pr.name, maker = pr.maker, model = pr.model, category_id = pr.category_id
+   where product_code = p_code;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'product', p_code, coalesce(pr.name, pr.model), '編集',
+          '商品マスタ', array_to_string(v_diff, '／'));
+
+  return pr;
+end $$;
+
+comment on function public.inv_product_edit is
+  '商品マスタの 商品名・メーカー・型番・カテゴリ・スペック を直す。
+   **同じ商品コードの全個体に効く。** 個体側の表示用の写しも合わせる。
+   在庫数・状態・価格・8RENT・出品・商品コードには触らない。';
+
+
+-- ------------------------------------------------------------
+-- 3) 画面が呼ぶのはこれ1つ（個体とマスタをまとめて1回で終える）
+--
+--    **片方だけ保存される状態を作らないための関数。**
+--    ブラウザから inv_item_edit と inv_product_edit を続けて呼ぶと、
+--    1つめが成功して2つめが失敗したときに個体だけ保存されてしまう
+--    （RPC 1回ごとに取引が閉じるため）。
+--    1回の呼び出しにまとめれば、その中はまるごと1つの取引になり、
+--    途中でどこが失敗しても**何も変わらない**。
+--
+--    新しい判断はここに置かない。権限も履歴も移動も、上の2つと
+--    既存の inv_item_op('移動') がそのまま持つ。ここは順番に呼ぶだけ。
+--
+--    返すのは画面が描き直すのに要るものだけ。
+--      item     … 直した1台
+--      product  … 商品マスタ（マスタが変わったときだけ）
+--      items    … 同じ商品の個体（**マスタが変わったときだけ**。
+--                  表示用の写しが変わるので画面の手元も入れ替える）
+-- ------------------------------------------------------------
+create or replace function public.inv_item_basic_edit(
+  p_item_id      text,
+  p_location_id  text default null,
+  p_serial       text default null,
+  p_purchased_on date default null,
+  p_note         text default null,
+  p_name         text default null,
+  p_maker        text default null,
+  p_model        text default null,
+  p_category_id  text default null,
+  p_spec         text default null
+) returns jsonb
+language plpgsql security invoker set search_path = public as $$
+declare
+  it      public.inventory_items;
+  was     public.inventory_products;
+  pr      public.inventory_products;
+  v_moved boolean := false;
+begin
+  if not public.inv_is_admin() then
+    raise exception '基本情報を直せるのは管理者だけです';
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+  if coalesce(it.product_code, '') <> '' then
+    select * into was from public.inventory_products where code = it.product_code;
+  end if;
+
+  -- 1) この個体（保管場所が変わるときは、この中で既存の inv_item_op('移動') を通る）
+  it := public.inv_item_edit(p_item_id, p_location_id, p_serial, p_purchased_on, p_note);
+
+  -- 2) 商品マスタ。商品が結びついていない個体では何もしない
+  if was.code is not null then
+    pr := public.inv_product_edit(was.code, p_name, p_maker, p_model, p_category_id, p_spec);
+    v_moved := (pr.name        is distinct from was.name)
+            or (pr.maker       is distinct from was.maker)
+            or (pr.model       is distinct from was.model)
+            or (pr.category_id is distinct from was.category_id);
+    -- マスタが変わると個体側の写しも変わるので、返す1台を読み直す
+    if v_moved then
+      select * into it from public.inventory_items where id = p_item_id;
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'item', to_jsonb(it),
+    'product', case when pr.code is null then null else to_jsonb(pr) end,
+    -- 写しが変わったときだけ。毎回だと同じ商品の台数ぶん無駄に返すことになる
+    'items', case when v_moved
+      then coalesce((select jsonb_agg(to_jsonb(x)) from public.inventory_items x
+                      where x.product_code = was.code), '[]'::jsonb)
+      else null end);
+end $$;
+
+comment on function public.inv_item_basic_edit is
+  '個体詳細の［編集］の保存。**画面が呼ぶのはこれ1つだけ。**
+   inv_item_edit と inv_product_edit を1回の呼び出し＝1つの取引でまとめて行うので、
+   片方だけ保存された状態にならない。判断は足さず、順番に呼ぶだけ。';
+
+
+-- ------------------------------------------------------------
+-- 4) 権限
+--
+--    2026-10-01-rpc-permission-hardening.sql の一括配り直しは
+--    「そのとき存在した関数」への1回きりの処理なので、あとから足した関数には効かない。
+--    既定では PUBLIC に EXECUTE が付き anon からも呼べてしまうため、明示的に配り直す。
+--    3つとも関数の中で inv_is_admin() が見る。
+--    商品名・型番・カテゴリは**同じ商品の全個体に効く**ので、直せるのは管理者だけ。
+--    倉庫メンバーは移動・棚卸確認・入出庫・販売済みなど、既存の操作をそのまま使う。
+--    新しい権限は作らず、すでにある inv_is_admin() を見ている。
+--
+--    inv_item_edit / inv_product_edit も authenticated に渡したままにする。
+--    security invoker なので、呼ぶ人に EXECUTE が無いと
+--    inv_item_basic_edit の中からも呼べなくなるため。
+--    （security definer は使わない。この仕組みの関数はすべて invoker ＋
+--     関数の中の inv_is_admin() / inv_can_edit() でそろえている。）
+--    画面から呼ぶのは inv_item_basic_edit だけにしている。
+-- ------------------------------------------------------------
+revoke all on function public.inv_item_edit(text, text, text, date, text) from public, anon, service_role;
+grant execute on function public.inv_item_edit(text, text, text, date, text) to authenticated;
+
+revoke all on function public.inv_product_edit(text, text, text, text, text, text) from public, anon, service_role;
+grant execute on function public.inv_product_edit(text, text, text, text, text, text) to authenticated;
+
+revoke all on function public.inv_item_basic_edit(text, text, text, date, text, text, text, text, text, text)
+  from public, anon, service_role;
+grant execute on function public.inv_item_basic_edit(text, text, text, date, text, text, text, text, text, text)
+  to authenticated;
+
+
+-- ============================================================
+-- 64) 売却済を取り消す（誤って別の個体を販売済みにしたとき）
+--
+--     倉庫でQRを取り違えて、違う個体を「販売済み」にしてしまうことがある。
+--     状態を手で直すと在庫数と履歴が食い違うので、専用の操作にする。
+--
+--     **戻る状態は固定しない。履歴から取る。**
+--     inv_item_op は売却のとき before_value に「売却の直前の状態」をそのまま
+--     書いている（古い版も同じ）ので、その1行を読めば 在庫／出品中／販売予約 の
+--     どれへ戻すかが分かる。**履歴から分からないときは推測せずエラーにする。**
+--     すでに取り消された古い売却は拾わない（売却取消より前の行は候補にしない）。
+--
+--     モールの受注明細（inventory_sale_orders）にその個体が割り当たっていたら、
+--     **8EC の中の紐付けだけ**を外して「個体の割り当て待ち（受注）」へ戻す。
+--     外部のモールへは何も送らない。割り当て直しは既存の inv_sale_order_link()。
+--
+--     既存の「売却」履歴は消さず、「売却取消」を足して並べる。
+--     権限は既存の inv_can_edit()（admin・member は可、viewer は不可）。
+-- ============================================================
+-- ------------------------------------------------------------
+-- 取消の材料をまとめて返す（取消の本体と、確認画面の両方がこれを使う）
+--
+--   back   … 戻る状態。無ければ null
+--   orders … この個体が割り当たっているモールの受注明細（キャンセル済みは除く）
+--
+--   戻る状態は履歴から取る。**推測はしない。**
+--   inv_item_op は売却のとき before_value に「売却の直前の状態」をそのまま
+--   書いている（古い版も同じ）。
+--
+--   **使い終わった売却を拾わない。**
+--   売却A → 売却取消A → （SQLなどで status だけ売却済） と進んだとき、
+--   いちばん新しい売却の行は A だが、それはすでに取り消されていて
+--   「いまの売却済」とは無関係。その状態へ戻すと嘘になる。
+--   そこで「その売却より後に 売却取消 が無いこと」を条件に入れる。
+--     売却A → 売却取消A → 売却B          … B だけが候補（正しく B の前の状態へ戻る）
+--     売却A → 売却取消A → status だけ売却済 … 候補なし（null。戻さない）
+--   同じ時刻の行があっても狂わないよう (occurred_at, id) の組で前後を見る。
+--
+--   棚卸確認は after_value が '売却済（確認済み）' になるが状態を変えていないので、
+--   before_value が売却前になりうる状態の行だけを見て外す。
+--
+--   戻せない状態（戻すと情報が欠ける）は最初から候補にしない。
+--     貸出中・社内使用 … 利用者（user_name）が売却時に消えており、誰に貸していたかを
+--                        復元できない。推測で戻さず、人が貸出からやり直す
+--     売却済・廃棄     … 戻し先として意味がない
+-- ------------------------------------------------------------
+drop function if exists public.inv_item_sell_undo_target(text);
+
+create or replace function public.inv_item_sell_undo_info(p_item_id text)
+returns jsonb
+language sql stable security invoker set search_path = public as $$
+  select jsonb_build_object(
+    'back',
+      (select t.before_value
+         from public.inventory_transactions t
+        where t.ref_kind = 'item'
+          and t.ref_id   = p_item_id
+          and t.action in ('売却', '状態変更')
+          and t.after_value like '売却済%'
+          and btrim(coalesce(t.before_value, ''))
+              = any (array['在庫','出品中','予約中','販売予約','修理中','故障','紛失','不明'])
+          -- その売却より後に「売却取消」があるなら、それはもう使い終わった売却
+          and not exists (
+                select 1 from public.inventory_transactions u
+                 where u.ref_kind = 'item'
+                   and u.ref_id   = p_item_id
+                   and u.action   = '売却取消'
+                   and (u.occurred_at, u.id) > (t.occurred_at, t.id))
+        order by t.occurred_at desc, t.id desc
+        limit 1),
+    'orders',
+      (select coalesce(jsonb_agg(jsonb_build_object(
+                'id', o.id, 'channel', o.channel, 'order_number', o.order_number,
+                'line_number', o.line_number, 'unit_no', o.unit_no, 'status', o.status)
+              order by o.id), '[]'::jsonb)
+         from public.inventory_sale_orders o
+        where o.item_id = p_item_id
+          and o.status <> 'キャンセル'))
+$$;
+
+comment on function public.inv_item_sell_undo_info is
+  '売却取消の材料。back＝戻る状態（履歴の action=''売却'' の before_value。すでに取り消された
+   売却は拾わない。決められなければ null）、orders＝その個体が割り当たっているモールの受注明細。
+   読むだけで何も変えない。確認画面と取消の本体が同じこれを通る。';
+
+
+-- ------------------------------------------------------------
+-- モールの受注明細から、この個体の割り当てだけを外す
+--
+--   inventory_sale_orders は authenticated に insert/update/delete を渡していない
+--   （書けるのは security definer の関数だけ）ので、既存の inv_sale_order_link と
+--   同じ形にする：security definer ＋ 関数の中で inv_can_edit()。
+--
+--   **外部のモールへは何も送らない。** 8EC の中の紐付けを外すだけ。
+--   戻す先を '受注' にするのは、既存の inv_sale_order_link() が
+--     item_id が null で、キャンセル済みでない明細
+--   にしか商品を割り当てられず、割り当てたあとに status を '受注' にするため。
+--   つまり「個体の割り当て待ち」を表すのがこの状態で、推測で決めた値ではない。
+--   取込を流し直しても、item_id が null のあいだは何も起きない
+--   （発送の反映は status='受注' かつ item_id is not null のときだけ）。
+-- ------------------------------------------------------------
+create or replace function public.inv_sale_order_unlink(
+  p_order_id bigint,
+  p_item_id  text,
+  p_note     text default null
+) returns public.inventory_sale_orders
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare
+  r public.inventory_sale_orders;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  select * into r from public.inventory_sale_orders where id = p_order_id for update;
+  if not found then
+    raise exception '受注明細が見つかりません（%）', p_order_id;
+  end if;
+  -- 取り違えた個体の割り当てだけを外す。別の個体が割り当たっている明細には触らない
+  if r.item_id is distinct from p_item_id then
+    raise exception 'この明細には別の個体が割り当たっています（%）', coalesce(r.item_id, 'なし');
+  end if;
+  if r.status = 'キャンセル' then
+    return r;                      -- キャンセル済みは触らない
+  end if;
+
+  update public.inventory_sale_orders
+     set item_id = null,
+         status  = '受注',          -- ＝「個体の割り当て待ち」。inv_sale_order_link で割り当て直す
+         note    = nullif(btrim(coalesce(p_note, '')), '')
+   where id = p_order_id
+  returning * into r;
+  return r;
+end $$;
+
+comment on function public.inv_sale_order_unlink is
+  '受注明細から、指定した個体の割り当てだけを外して「個体の割り当て待ち（受注）」へ戻す。
+   別の個体が割り当たっている明細は触らない。外部のモールへは何も送らない。
+   割り当て直しは既存の inv_sale_order_link() で行う。';
+
+
+-- ------------------------------------------------------------
+-- 売却取消
+--
+--   二重取消の防止は「いま売却済か」で見る。取り消すと status が
+--   売却前の状態へ戻るので、2回目は必ずここで止まる。
+--
+--   売却のときだけ入る値（sold_price / sold_channel）は空に戻す。
+--   誤売却の金額と売却先が残ると、ダッシュボードの売上・粗利に混ざるため。
+--   user_name / loaned_at は売却時に null にされており、戻す先の状態
+--   （在庫・出品中・販売予約）では使わないので、null のままにする。
+-- ------------------------------------------------------------
+create or replace function public.inv_item_sell_undo(
+  p_item_id text,
+  p_note    text default null
+) returns public.inventory_items
+language plpgsql security invoker set search_path = public as $$
+declare
+  it     public.inventory_items;
+  v_prev text;
+  v_was  text;
+  v_info jsonb;
+  v_ord  jsonb;
+  v_ords text[] := '{}';
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+
+  -- 1) いま売却済のものだけ。取消済み・もともと売却済でないものはここで止まる
+  if it.status <> '売却済' then
+    raise exception '「売却済」のものだけ取り消せます（いまは %）', it.status;
+  end if;
+
+  -- 2) 戻る状態は履歴から取る。**推測しない。**判定は確認画面と同じ1つの関数に任せる
+  v_info := public.inv_item_sell_undo_info(p_item_id);
+  v_prev := v_info ->> 'back';
+  if v_prev is null then
+    raise exception
+      '売却前の状態が履歴から決められないので取り消せません（%）。'
+      '売却の履歴が無い／いちばん新しい売却はすでに取り消し済み／'
+      '売却前が貸出中・社内使用（利用者を復元できない）、のどれかです。'
+      'もとの操作からやり直してください', p_item_id;
+  end if;
+
+  -- 3) 戻す。売却のときだけ入る値は空にする
+  v_was := '売却済'
+           || coalesce('（' || nullif(btrim(coalesce(it.sold_channel, '')), '') || '）', '')
+           || coalesce('（' || to_char(it.sold_price, 'FM9,999,999,999') || '円）', '');
+
+  update public.inventory_items
+     set status       = v_prev,
+         sold_price   = null,
+         sold_channel = null,
+         user_name    = null,
+         loaned_at    = null
+   where id = p_item_id
+  returning * into it;
+
+  -- 4) モールの受注明細に割り当たっていたら、**8EC の中の紐付けだけ**を外す。
+  --    外さないと「この注文は個体Aへ発送済み」という記録が残り、個体Aは在庫に戻るので
+  --    中のデータが食い違う。外部のモールへは何も送らない。
+  for v_ord in select * from jsonb_array_elements(coalesce(v_info -> 'orders', '[]'::jsonb)) loop
+    perform public.inv_sale_order_unlink((v_ord ->> 'id')::bigint, p_item_id,
+      p_item_id || ' の販売済みを取り消したため割り当てを解除しました。別の個体を割り当ててください');
+    v_ords := v_ords || ((v_ord ->> 'channel') || ' 注文 ' || (v_ord ->> 'order_number'));
+  end loop;
+
+  -- 5) 履歴。**「売却」の行は消さない。**「売却取消」を足して 売却 → 売却取消 と並べる
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'item', p_item_id, it.name, '売却取消',
+          v_was,
+          v_prev
+          || coalesce('／' || nullif(btrim(coalesce(p_note, '')), ''), '')
+          || case when array_length(v_ords, 1) is null then ''
+                  else '／割り当て解除 ' || array_to_string(v_ords, '・') end);
+
+  return it;
+end $$;
+
+comment on function public.inv_item_sell_undo is
+  '誤って売却済にした1台を、売却の直前の状態へ戻す。戻り先は履歴（action=''売却'' の
+   before_value）から取り、分からなければ戻さずエラーにする。sold_price / sold_channel は
+   空に戻す。既存の「売却」履歴は消さず、「売却取消」を足す。外部販売サイトへの再出品はしない。';
+
+
+-- ------------------------------------------------------------
+-- 権限
+--
+--   2026-10-01-rpc-permission-hardening.sql の配り直しは「そのとき存在した関数」への
+--   1回きりの処理なので、あとから足した関数には効かない。既定では PUBLIC に EXECUTE が
+--   付き anon からも呼べてしまうため、明示的に配り直す。
+--   関数の中で inv_can_edit() が見る（admin・member は可、viewer は不可）。
+-- ------------------------------------------------------------
+revoke all on function public.inv_item_sell_undo_info(text) from public, anon, service_role;
+grant execute on function public.inv_item_sell_undo_info(text) to authenticated;
+
+revoke all on function public.inv_sale_order_unlink(bigint, text, text) from public, anon, service_role;
+grant execute on function public.inv_sale_order_unlink(bigint, text, text) to authenticated;
+
+revoke all on function public.inv_item_sell_undo(text, text) from public, anon, service_role;
+grant execute on function public.inv_item_sell_undo(text, text) to authenticated;
+
+
+-- ============================================================
 -- 確認：作られた表と関数
 -- ============================================================
 select '表' as kind, table_name as name

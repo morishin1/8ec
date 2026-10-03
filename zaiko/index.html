@@ -305,9 +305,23 @@ table.t tr.clk:hover td{background:var(--n100)}
 #sheet .acts .btn.cta{flex:1;min-height:52px;font-size:17px}
 #sheet .acts .btn.cancel{width:120px}
 #sheet input[type=number].input{font-size:20px;min-height:48px;text-align:center}
-/* シートの中の見出し（「初期パスワード」「ログイン」）。ページの見出しより小さく出す */
+/* シートの中の見出し（「この個体」「商品情報」）。ページの見出しより小さく出す */
 #sheet .sec{font-size:15px;font-weight:700;letter-spacing:0;padding-bottom:6px;
   border-bottom:1px solid var(--rule)}
+
+/* ---- 販売済みの取り消し ----
+   取り違えを戻す操作なので、押す前に管理番号を確かめてもらう。
+   確認のチェックを入れるまでボタンを押せないようにする（CSSは見た目だけ）。 */
+.undoid{font-size:19px;font-weight:700;letter-spacing:.02em}
+.undochk{display:flex;gap:10px;align-items:flex-start;margin-top:14px;padding:12px;
+  border:1px solid var(--line);border-radius:10px;background:var(--n100);font-size:14px;line-height:1.6}
+.undochk input{width:20px;height:20px;flex:0 0 auto;margin-top:1px}
+.undoord{margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:10px}
+.undoord .k{font-size:13px;color:var(--n600);margin-bottom:6px}
+.undoord .r{display:flex;gap:10px;flex-wrap:wrap;align-items:baseline;padding:3px 0}
+#modal .btn.pri:disabled{opacity:.45;cursor:not-allowed}
+/* 倉庫の個体画面の［販売済みを取り消す］。販売済みにするボタンほど目立たせない */
+.wundo{width:100%;min-height:52px;margin-top:10px;font-size:16px}
 /* パスワードは入れるだけ。読み出す経路は作らないので、表示用の見た目は持たない */
 #sheet input[type=password].input{letter-spacing:.12em}
 /* シートの中のボタンはスマホで指が届くように。外（表の行など）の .btn.sm は変えない */
