@@ -1595,6 +1595,18 @@ QRを読む → ［販売済みにする］ → 販売先を選ぶ → 登録価
 途中で作った商品・個体・履歴はすべて消え、本番のデータは1行も変わりません
 （在庫数も売上も動きません）。`zaiko/check-sns-posts.sql` と同じ使いかたです。
 
+**`auth` スキーマには一切触りません。** SQL Editor の実行ユーザーは `auth` に `CREATE` できないので、
+`create or replace function auth.jwt()` を書くと `ERROR: permission denied for schema auth` で落ちます。
+Supabase 標準の `auth.jwt()` をそのまま使い、点検中の「誰としてログインしているか」は、
+その関数が読んでいる `request.jwt.claims` を**このトランザクションの中だけ**差し替えて切り替えます。
+
+```sql
+select set_config('request.jwt.claims', '{"email":"chk-admin@example.invalid"}', true);
+```
+
+`set_config(..., true)` は local 設定なので `rollback` で元に戻ります。
+古い Supabase の `auth.jwt()` は `request.jwt.claim`（単数）を先に見るので、両方を入れています。
+
 > 画面側（Playwright で実際の `zaiko/app.js` を動かす）の回帰テストは、このリポジトリには
 > 入れていません。`package.json` を置かない構成（`vercel.json` の `buildCommand: null` で
 > `zaiko/` をそのまま配信する）を崩さないためと、Google Fonts のサブセット364ファイルを

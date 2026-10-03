@@ -7,6 +7,14 @@
 --     途中で作った商品・個体・履歴・価格はすべて消えるので、本番のデータは
 --     1行も変わりません（在庫数も売上も動きません）。
 --
+--   **auth スキーマには一切触りません。**
+--     Supabase 標準の auth.jwt() をそのまま使い、create / alter / replace はしません
+--     （SQL Editor の実行ユーザーには auth スキーマの権限が無いため、
+--       触ろうとすると ERROR: permission denied for schema auth になります）。
+--     点検中の「誰としてログインしているか」は、auth.jwt() が読んでいる
+--     request.jwt.claims を **このトランザクションの中だけ** 差し替えて切り替えます
+--     （set_config(..., true) ＝ local 設定なので、rollback で元に戻ります）。
+--
 --   何を見るか
 --     2026-10-13-sell-channel-price.sql を適用したあと、
 --     「倉庫メンバーが販売先を選ぶだけで、登録価格で売れる」
@@ -19,13 +27,6 @@
 -- ============================================================
 
 begin;
-
--- 点検のあいだだけ「管理者としてログインしている」ことにする。
--- auth.jwt() を差し替えるが、rollback で元に戻る（本番の認証設定は変わらない）
-create or replace function auth.jwt() returns jsonb
-language sql stable as $$
-  select jsonb_build_object('email', coalesce(current_setting('chk.email', true), ''))
-$$;
 
 -- 点検用の人。rollback で消える
 insert into public.inventory_members (email, display_name, role) values
@@ -61,6 +62,16 @@ returns void language sql as $$
   insert into chk_result values (p_no, p_kind,
     case when p_ok then 'OK' else 'NG' end || coalesce('　' || p_note, ''))
 $$;
+-- 点検のあいだだけ「この人としてログインしている」ことにする。
+-- **auth.jwt() は Supabase 標準のまま。** あれが読んでいる request.jwt.claims を
+-- このトランザクションの中だけ差し替える（set_config の第3引数 true ＝ local）。
+-- 古い Supabase の auth.jwt() は request.jwt.claim（単数）を先に見るので、両方入れる。
+create or replace function pg_temp.login(p_email text)
+returns void language sql as $$
+  select set_config('request.jwt.claim',  json_build_object('email', p_email)::text, true),
+         set_config('request.jwt.claims', json_build_object('email', p_email)::text, true)
+$$;
+
 -- 失敗するはずの呼び出しを、落ちずに確かめる
 create or replace function pg_temp.fails(p_sql text, p_like text)
 returns boolean language plpgsql as $$
@@ -74,6 +85,7 @@ end $$;
 
 -- 月次集計は**この点検で動かしたぶんだけ**を見たいので、
 -- 何も売る前の数字を先に控えておく（本番の既存データには触れない）
+select pg_temp.login('chk-admin@example.invalid');   -- 管理者として読む
 create temporary table chk_base on commit drop as
 select (public.inv_dashboard_stats() ->> 'sales_sale')::numeric   as sales,
        (public.inv_dashboard_stats() ->> 'gross_profit')::numeric as profit,
@@ -81,7 +93,7 @@ select (public.inv_dashboard_stats() ->> 'sales_sale')::numeric   as sales,
 
 
 -- ------------------------------------------------------------
-set chk.email = 'chk-member@example.invalid';      -- 倉庫メンバーとして
+select pg_temp.login('chk-member@example.invalid');   -- 倉庫メンバーとして
 -- ------------------------------------------------------------
 
 select pg_temp.say(1, '楽天の登録価格が出る',
@@ -132,7 +144,7 @@ select pg_temp.say(12, '後から掲載価格を変えても売価は不変',
 
 
 -- ------------------------------------------------------------
-set chk.email = 'chk-viewer@example.invalid';      -- 閲覧のみとして
+select pg_temp.login('chk-viewer@example.invalid');   -- 閲覧のみとして
 -- ------------------------------------------------------------
 
 select pg_temp.say(13, '閲覧のみは売れない',
@@ -144,7 +156,7 @@ select pg_temp.say(15, '閲覧のみの試行で状態は変わらない',
 
 
 -- ------------------------------------------------------------
-set chk.email = 'chk-admin@example.invalid';       -- 管理者として
+select pg_temp.login('chk-admin@example.invalid');    -- 管理者として
 -- ------------------------------------------------------------
 
 -- 画面（viewDash）が読むキーが1つも欠けていないこと
@@ -182,9 +194,9 @@ select pg_temp.say(20, '売却の履歴は消えず、売却取消が足され�
                where ref_kind = 'item' and ref_id = 'CHK-1' and action = '売却取消'));
 
 -- 取り消したあとに、別の販売先で売り直す
-set chk.email = 'chk-member@example.invalid';
+select pg_temp.login('chk-member@example.invalid');
 select public.inv_item_sell_channel('CHK-1', 'amazon', '点検（再売却）');
-set chk.email = 'chk-admin@example.invalid';
+select pg_temp.login('chk-admin@example.invalid');
 
 select pg_temp.say(21, '再売却は新しいほうだけ数える',
   (select (public.inv_dashboard_stats() ->> 'sales_sale')::numeric - sales from chk_base) = 45000,
