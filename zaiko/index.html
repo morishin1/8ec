@@ -73,6 +73,47 @@ h2{font-size:24px;font-weight:700;letter-spacing:-.02em;line-height:1.12}
 .topline button{border:1px solid var(--line);background:#fff;border-radius:var(--r2);padding:5px 10px;font-size:12px;cursor:pointer}
 
 header.bar{position:sticky;top:0;z-index:30;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 0 12px}
+/* ---- スマホのコンパクトヘッダー ＋ ハンバーガーメニュー ----
+   PCでは出さない（PCはこれまでどおりアイコンナビ）。
+   スマホではアイコンナビと大きなQRボタンを畳んで、在庫一覧に使える縦を広げる */
+.mbar{display:none;align-items:center;gap:10px;min-height:46px}
+.mbar .hb{flex:0 0 auto;width:44px;height:44px;display:grid;place-items:center;
+  border:1px solid var(--line);background:var(--n100);border-radius:var(--r2);cursor:pointer}
+.mbar .hb .ms{font-size:26px}
+.mbar .mtitle{flex:1 1 auto;min-width:0;font-size:17px;font-weight:700;letter-spacing:-.01em;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mbar .mqr{flex:0 0 auto;min-height:44px;display:inline-flex;align-items:center;gap:5px;
+  padding:0 13px;font-size:14px;font-weight:700;background:var(--lime);color:#111;border:none;
+  border-radius:var(--r2);cursor:pointer}
+.mbar .mqr .ms{font-size:22px}
+#drawerBg{position:fixed;inset:0;z-index:94;background:rgba(17,17,17,.45);display:none}
+#drawerBg.on{display:block}
+#drawer{position:fixed;top:0;left:0;bottom:0;z-index:95;width:min(284px,84vw);background:var(--bg);
+  box-shadow:var(--sh-lg);transform:translateX(-100%);transition:transform .18s ease-out;
+  overflow:auto;-webkit-overflow-scrolling:touch;display:none;flex-direction:column;padding-bottom:20px}
+#drawer.on{transform:none}
+#drawer .dh{display:flex;align-items:center;gap:10px;padding:14px 16px 10px;border-bottom:1px solid var(--line)}
+#drawer .dh span{flex:1;font-size:13px;letter-spacing:.1em;color:var(--n600);font-weight:500}
+#drawer .dh .x{border:none;background:transparent;cursor:pointer;color:var(--n700);padding:4px;display:flex}
+#drawer .dqr{margin:12px 12px 6px;min-height:50px;display:flex;align-items:center;justify-content:center;gap:8px;
+  background:var(--lime);color:#111;border:none;border-radius:var(--r2);font-size:15px;font-weight:700;cursor:pointer}
+#drawer .dqr .ms{font-size:24px}
+#drawer #drawerMenu{display:flex;flex-direction:column;padding:6px 8px 0}
+#drawer #drawerMenu button{display:flex;align-items:center;gap:11px;min-height:48px;padding:0 10px;
+  border:none;background:transparent;border-radius:var(--r2);font-size:15px;text-align:left;cursor:pointer}
+#drawer #drawerMenu button .ms{font-size:22px;color:var(--n600)}
+#drawer #drawerMenu button.on{background:var(--i100);font-weight:700}
+#drawer #drawerMenu button.on .ms{color:var(--ink)}
+#drawer .dsep{height:1px;background:var(--line);margin:8px 10px}
+/* ドロワーを開いている間は後ろのページを動かさない */
+body.drawer-on{overflow:hidden}
+@media(max-width:700px){
+  .mbar{display:flex}
+  header.bar{padding:8px 0}
+  header.bar .scanbtn{display:none}   /* ☰ の横のQRボタンに畳む */
+  header.bar .menu{display:none}      /* アイコンナビはドロワーへ畳む */
+  #drawer{display:flex}
+}
 .scanbtn{width:100%;min-height:62px;font-size:19px;font-weight:700;background:var(--lime);color:#111;border:none;
   border-radius:var(--r4);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:10px}
 .scanbtn:hover{background:var(--lime-press)}
@@ -149,7 +190,9 @@ header.bar{position:sticky;top:0;z-index:30;background:var(--bg);border-bottom:1
    使っているのは在庫一覧のほかの印と同じ色（Success系・Warning系・Danger系・グレー）で、
    棚卸のために新しい色は足していない。 */
 .tag.chk{background:var(--n100);color:var(--n700);border:1px solid var(--line)}
-.tag.chk.on{background:#E8F5E9;color:#1B5E20;border-color:#2E7D32;font-weight:700}
+/* 棚卸済は青系。在庫の状態タグ（.st-在庫 は Deep Indigo の --i100/--i800）とは
+   別の色にして、「在庫」と「棚卸済」を色で見分けられるようにする */
+.tag.chk.on{background:#E3F2FD;color:#0D47A1;border-color:#1565C0;font-weight:700}
 .tag.chk.todo{background:#FFF8E1;color:#8A6D00;border-color:#E8A33D;font-weight:700}
 .tag.chk.miss{background:#FDECEC;color:#B3261E;border-color:#B3261E;font-weight:700}
 .tag.chk.out{background:var(--n100);color:var(--n600);border-color:var(--line)}
@@ -291,17 +334,32 @@ table.t tr.clk:hover td{background:var(--n100)}
 #scan .foot .sim button{border:1px solid var(--line);background:var(--n100);border-radius:var(--r2);
   padding:7px 11px;font-size:12.5px;cursor:pointer;min-height:38px}
 
-/* ---- ボトムシート ---- */
-#sheet{position:fixed;inset:0;z-index:92;background:rgba(17,17,17,.5);display:none;align-items:flex-end;justify-content:center}
+/* ---- 操作シート（画面中央） ----
+   編集・確認・削除のダイアログは #modal と同じく**viewport の中央**に出す。
+   同じ目的のUIなのに、下から出るものと中央に出るものが混ざらないようにする。
+   上下左右に余白を取り、画面高を超えたときは**シートの中だけ**がスクロールするので、
+   キャンセル・実行のボタンが画面外へ消えない。
+   QRスキャン（#scan）はカメラを広く使う全画面UIなので、中央モーダル化しない。 */
+#sheet{position:fixed;inset:0;z-index:92;background:rgba(17,17,17,.5);display:none;
+  align-items:center;justify-content:center;padding:20px}
 #sheet.on{display:flex}
-#sheet .p{width:min(520px,100%);background:var(--panel);border-radius:var(--r4) var(--r4) 0 0;padding:20px 20px 24px;
-  box-shadow:var(--sh-lg);animation:sheetUp .18s ease-out;max-height:88vh;overflow:auto}
-@keyframes sheetUp{from{transform:translateY(14px);opacity:0}to{transform:none;opacity:1}}
+#sheet .p{width:min(520px,100%);background:var(--panel);border-radius:var(--r4);padding:20px 20px 24px;
+  box-shadow:var(--sh-lg);max-height:min(88vh,calc(100dvh - 40px));overflow:auto;
+  -webkit-overflow-scrolling:touch}
+/* 出る動きは **開いたときに** 始める。`#sheet .p` に置くと、読み込み時（display:none）に
+   始まってしまい、transform が translateY(14px) のまま止まって中央から下へずれる */
+#sheet.on .p{animation:sheetFade .18s ease-out}
+/* 中央に出すので、位置を動かす動きは付けない（translate を使うと、動きの途中で
+   止まったときに中央からずれる）。見え方だけ fade で出す */
+@keyframes sheetFade{from{opacity:0}to{opacity:1}}
 #sheet .th{display:flex;align-items:baseline;gap:10px;margin-bottom:4px}
 #sheet .th h2{font-size:24px;flex:1}
 #sheet .th .id{font-size:12px;color:var(--n600)}
 #sheet .hint{font-size:13px;color:var(--n700);margin-bottom:14px}
-#sheet .acts{display:flex;gap:10px;margin-top:16px}
+/* 「やめる／確定」はシートの下に貼り付けておく。中身が長くて内側がスクロールしても、
+   ボタンが画面外へ消えない（パネルの padding-bottom は 24px なので bottom を -24px に） */
+#sheet .acts{display:flex;gap:10px;margin:16px 0 -24px;position:sticky;bottom:-24px;z-index:1;
+  background:var(--panel);padding:12px 0 24px;box-shadow:0 -10px 14px -10px rgba(17,17,17,.2)}
 #sheet .acts .btn.cta{flex:1;min-height:52px;font-size:17px}
 #sheet .acts .btn.cancel{width:120px}
 #sheet input[type=number].input{font-size:20px;min-height:48px;text-align:center}
@@ -408,6 +466,16 @@ table.t tr.clk:hover td{background:var(--n100)}
 .tag.stk-ok{background:var(--i100);color:var(--i800)}
 .tag.stk-few{background:var(--l200);color:#111}
 .tag.stk-none{background:var(--n300);color:var(--n800)}
+/* ---- 出品状況（未出品／出品停止／出品中） ----
+   「未出品」は空欄や「—」では表さない。次に作業が必要という意味が伝わる注意色にする
+   （エラーの赤ではなくオレンジ）。出品中は既存の Lime（Success系）をそのまま使う */
+.tag.ls{font-weight:700}
+.tag.ls.none{background:#FFF3E0;color:#A64B00;border:1px solid #E8A33D}
+.tag.ls.off{background:var(--n200);color:var(--n700);border:1px solid var(--line)}
+.tag.ls.live{background:var(--l200);color:#43530E;border:1px solid var(--l400)}
+.chtabs.lsw{margin-top:0}
+.chtabs.lsw button{padding:9px 12px}
+.lsgo{margin-top:5px;font-size:11.5px;min-height:30px;padding:3px 9px}
 .tag.ch{background:var(--n200);color:var(--n700);font-weight:700;font-size:11px;padding:2px 7px}
 .tag.ch.on{background:var(--ink);color:#fff}
 /* 出品先。サイト名は長いので、一覧では小さなバッジだけを並べる */
@@ -432,6 +500,14 @@ table.t td.mall{white-space:nowrap}
 .diffbar .ms{font-size:20px;color:#B26A00}
 .diffbar .bt{font-weight:700}
 .diffbar.on{background:var(--n100);border-color:var(--line)}
+/* お知らせバーの説明ブロック。**最低幅を持たせる。**
+   持たせないと、折り返さないボタンに押されて説明が1文字ずつ縦に折れてしまう */
+.diffbar .bx,.stbar .bx{flex:1 1 240px;min-width:0}
+/* 狭い画面では、説明とボタンを段で分ける */
+@media(max-width:560px){
+  .diffbar .bx,.stbar .bx{flex:1 1 100%}
+  .diffbar .btn,.stbar .btn{flex:1 1 auto}
+}
 .diffbar.on .ms{color:var(--n600)}
 table.t tr.warn td:first-child{box-shadow:inset 3px 0 0 #E8A33D}
 /* 数量管理の行。管理番号を持たないので、個体の行と取り違えないよう地を変える */
@@ -515,7 +591,18 @@ body.selbar-on{padding-bottom:104px}
 /* min-width:0 が無いと、中の表の幅にひきずられて箱が画面からはみ出し、
    スマホでは右上の閉じるボタンに手が届かなくなる */
 #modal .mbox{background:var(--bg);border-radius:var(--r4);width:min(760px,100%);min-width:0;
-  max-height:88vh;display:flex;flex-direction:column;box-shadow:var(--sh-lg)}
+  max-height:min(88vh,calc(100dvh - 40px));display:flex;flex-direction:column;box-shadow:var(--sh-lg)}
+/* シート・モーダルを開いている間は後ろのページを動かさない */
+body.modal-on{overflow:hidden}
+/* 小画面では左右の余白だけ詰める。**ボタンが画面外へ出ないよう高さは画面に追従させる** */
+@media(max-width:560px){
+  #modal{padding:12px}
+  #sheet{padding:12px}
+  #modal .mbox{max-height:calc(100dvh - 24px)}
+  #sheet .p{max-height:calc(100dvh - 24px)}
+  #sheet .acts{flex-wrap:wrap}
+  #sheet .acts .btn.cancel{width:auto;flex:1 1 100px}
+}
 #modal .mh{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
 #modal .mh h2{flex:1;font-size:22px}
 #modal .mh .x{border:none;background:transparent;cursor:pointer;color:var(--n600);padding:4px;display:flex}
@@ -629,6 +716,16 @@ table.t.unittbl td.col-id{font-weight:600;line-height:1.35}
 table.t.unittbl td.col-id .meta{font-weight:400}
 table.t.unittbl .mdl{font-weight:500;line-height:1.35}
 table.t.unittbl td.col-price{line-height:1.35;padding-right:12px}  /* 数字が右の欄にくっつかないように */
+/* 価格は「楽天 ¥5,320」のように**必ずラベルを付けて**出す。数字だけは出さない。
+   ラベルは左、金額は右で桁をそろえる */
+table.t.unittbl td.col-price .pr{display:flex;align-items:baseline;gap:6px;justify-content:space-between}
+table.t.unittbl td.col-price .pr + .pr{margin-top:1px}
+table.t.unittbl td.col-price .pl{font-size:10.5px;color:var(--n600);flex:0 0 auto;letter-spacing:0}
+table.t.unittbl td.col-price .pv{font-size:12.5px;font-variant-numeric:tabular-nums;text-align:right}
+table.t.unittbl td.col-price .pv .meta{font-size:12.5px}
+/* 商品名。管理番号のすぐ下。型番と同じ文字なら app.js 側で出していない */
+table.t.unittbl td.col-id .pname{font-size:12px;color:var(--n700);line-height:1.35;margin-top:2px;
+  overflow-wrap:anywhere}
 table.t.unittbl td.col-market{padding-right:4px}
 table.t.unittbl td.col-market .mchks{flex-wrap:wrap;gap:3px}
 table.t.unittbl td.col-listing{white-space:normal}
@@ -640,9 +737,17 @@ table.t.unittbl td.col-loc{line-height:1.45}
    棚卸の印は class="tag chk" で、チェックボックスの .chk（display:flex）と名前が当たる。
    あちらが後ろにあるので欄いっぱいに広がってしまうため、ここで戻している */
 table.t.unittbl td.col-status .tag,table.t.unittbl td.col-check .tag,
-table.t.unittbl td.col-rental .tag{display:inline-flex;width:max-content;max-width:100%;
+table.t.unittbl td.col-rental .tag,table.t.unittbl td.col-listing .tag.ls,
+table.t.unittbl td.col-ch .tag{display:inline-flex;width:max-content;max-width:100%;
   white-space:normal;text-align:left;padding:3px 7px}
+table.t.unittbl td.col-listing .malls{margin-top:3px}
 table.t.unittbl td .meta{font-size:11px;margin-top:2px;line-height:1.45}
+/* ---- 販売一覧（販売済みの個体） ----
+   在庫一覧と同じ作り（PCは表、狭い画面は1件1カード）を使うので、
+   カードに切り替えるCSSは unittbl のものをそのまま共有する */
+table.t.salestbl td.col-when{line-height:1.4;font-variant-numeric:tabular-nums}
+table.t.salestbl td.col-ops{white-space:normal}
+table.t.salestbl td.col-ops .btn{font-size:12px;padding:5px 9px;min-height:34px}
 table.t.unittbl td.col-check .meta{white-space:normal}
 
 /* 狭い画面では10列を押し込まず、1件1カードにする。情報は1つも隠さない */
@@ -668,11 +773,11 @@ table.t.unittbl td.col-check .meta{white-space:normal}
   table.t.unittbl td > *{grid-column:2;min-width:0;justify-self:start}
   table.t.unittbl td.ck{display:block;padding:0 0 6px;width:auto}
   table.t.unittbl td.ck::before{content:none}
-  /* 価格だけは「¥35,600　予定 ¥46,300」と横に並べたほうが読みやすい */
-  table.t.unittbl td.col-price{display:flex;flex-wrap:wrap;align-items:baseline;
-    gap:0 10px;text-align:left}
-  table.t.unittbl td.col-price::before{flex:0 0 72px}
-  table.t.unittbl td.col-price > div{margin:0}
+  /* 価格は1行に詰め込まず、「楽天 ¥5,320」を縦に積む。横スクロールはさせない */
+  table.t.unittbl td.col-price > .pr{grid-column:2;display:flex;align-items:baseline;gap:8px;
+    justify-content:flex-start;min-width:0}
+  table.t.unittbl td.col-price .pl{flex:0 0 52px}
+  table.t.unittbl td.col-price .pv{text-align:left}
   table.t.unittbl td.col-market .mchks{flex-wrap:wrap}
 }
 table.t.buy input.plan{width:116px;min-height:38px;text-align:right;padding:6px 9px;font-size:14px;display:inline-block}
@@ -825,9 +930,27 @@ table.t.buy td.pick .why.ng{border-color:#B3261E;color:#B3261E;background:#FDECE
   </div>
 
   <header class="bar" data-noprint><div class="wrap">
+    <!-- スマホだけに出すコンパクトヘッダー。☰ / 画面名 / QR の3つだけ。
+         QR読取は倉庫で使う回数が多いので、ドロワーの中には隠さない -->
+    <div class="mbar">
+      <button class="hb" id="hbBtn" onclick="toggleDrawer()" aria-expanded="false"
+              aria-controls="drawer" aria-label="メニューを開く"><span class="ms">menu</span></button>
+      <span class="mtitle" id="scrName">ホーム</span>
+      <button class="mqr" onclick="openScan('lookup')" aria-label="QRコードを読み取る">
+        <span class="ms">qr_code_scanner</span>QR</button>
+    </div>
     <button class="scanbtn" onclick="openScan('lookup')"><span class="ms">qr_code_scanner</span>QRコードを読み取る</button>
     <nav class="menu" id="menu"></nav>
   </div></header>
+
+  <!-- スマホのハンバーガーメニュー。中身は renderMenu() が PC のナビと同じ並びで入れる -->
+  <div id="drawerBg" data-noprint onclick="toggleDrawer(false)"></div>
+  <nav id="drawer" data-noprint aria-label="メニュー">
+    <div class="dh"><span>メニュー</span>
+      <button class="x" onclick="toggleDrawer(false)" aria-label="閉じる"><span class="ms">close</span></button></div>
+    <button class="dqr" onclick="openScan('lookup')"><span class="ms">qr_code_scanner</span>QRコードを読み取る</button>
+    <div id="drawerMenu"></div>
+  </nav>
 
   <div class="wrap">
     <div id="setup">
