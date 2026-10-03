@@ -3,6 +3,9 @@
 //
 //   ここでやること
 //     create    … Supabase Auth にログインを作り、inventory_members に権限を登録する
+//                  （Auth に同じIDのログインだけが残っていたときは、**今回入力した
+//                    パスワードで上書き**してから権限を足す。管理者が決めたIDと
+//                    パスワードでそのまま入れる、を守るため）
 //     password  … そのログインのパスワードを変える
 //     delete    … ログインと在庫管理の権限を**まとめて**消す（アカウントごと削除）
 //
@@ -155,6 +158,12 @@ module.exports = async (req, res) => {
       return res.status(409).json({ error: "このログインIDはすでに使われています" });
     }
 
+    // 自分自身は「追加」の対象にならない（権限の行があるので上の 409 で止まるが、
+    // 万一そこを抜けても**自分のパスワードを書き換えない**ようここでも断る）
+    if (email === who.email) {
+      return res.status(409).json({ error: "このログインIDはすでに使われています" });
+    }
+
     // (a) ログインを作る
     const made = await authAdmin("users", {
       method: "POST",
@@ -163,19 +172,34 @@ module.exports = async (req, res) => {
     if (!made.ok) {
       const code = (made.out && (made.out.error_code || made.out.code)) || "";
       if (made.status === 422 && String(code).indexOf("email_exists") >= 0) {
-        // Auth にはもう居る。権限だけ足す（ログインは作り直さない＝パスワードは変わらない）
+        /* Auth にログインだけが残っていて、在庫管理の権限（inventory_members）が無い状態。
+           前に作って権限を外した、途中で失敗した、などで起きる。
+           **管理者が決めたIDとパスワードでそのまま入れる**のが今回の約束なので、
+           ログインは作り直さず、**パスワードを今回の入力で上書き**してから権限を足す。
+           （上の 409 と、ひとつ上の自分自身チェックを通っているので、
+             ここへ来るのは「権限の行が無い」＝運用から外れているログインだけ） */
+        const found = await findAuthUser(email);
+        if (found.error) return authFailed(res, found.error, "ログインを調べられませんでした");
+        if (!found.user) return authFailed(res, made, "ログインを作れませんでした");
+
+        const upd = await authAdmin("users/" + encodeURIComponent(found.user.id), {
+          method: "PUT",
+          body: { password: body.password, email_confirm: true },
+        });
+        if (!upd.ok) return authFailed(res, upd, "パスワードを設定できませんでした");
+
         const only = await rest("inventory_members", {
           method: "POST",
           headers: { Prefer: "return=representation" },
           body: { email, display_name: name, role },
         });
+        /* ここで失敗しても、**このログインは消さない。**
+           自分で作ったものではない（前からあった）ので、消す判断はこちらでしない */
         if (!only.ok) return res.status(400).json({ error: "権限を登録できませんでした" });
+
         await log(who.name, email, name, "メンバー追加", "なし",
-          ROLE_LABEL[role] + "（ログインは既存のものを使います）");
-        return res.status(200).json({
-          ok: true, member: (only.out && only.out[0]) || null,
-          note: "このログインIDはすでにありました。パスワードは変えていません",
-        });
+          ROLE_LABEL[role] + "（既存のログインにパスワードを再設定）");
+        return res.status(200).json({ ok: true, member: (only.out && only.out[0]) || null });
       }
       return authFailed(res, made, "ログインを作れませんでした");
     }

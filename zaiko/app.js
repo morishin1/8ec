@@ -7773,11 +7773,12 @@ async function memberApi(payload) {
 }
 
 /* 入れた2つが同じで、長さが足りているか。**値はここでしか触らない** */
-function pwCheck(a, b) {
+/* 形だけ見る。**確認欄は作らない**（管理者が決めて本人に伝える運用なので、
+   打ち間違えたらもう一度［パスワードを再設定］すれば足りる） */
+function pwCheck(a) {
   if (!a) return 'パスワードを入力してください';
   if (a.length < 8) return 'パスワードは8文字以上にしてください';
   if (/\s/.test(a)) return 'パスワードに空白は使えません';
-  if (a !== b) return 'パスワードが一致しません';
   return null;
 }
 
@@ -7806,16 +7807,15 @@ function sheetMember(email) {
       ${m ? '' : `
       <label class="field" style="margin-bottom:10px"><span>パスワード</span>
         <input class="input" type="password" id="mbPw" autocomplete="new-password"
-          placeholder="8文字以上"></label>
-      <label class="field" style="margin-bottom:10px"><span>パスワード（確認）</span>
-        <input class="input" type="password" id="mbPw2" autocomplete="new-password"></label>`}
+          placeholder="8文字以上"></label>`}
       <label class="field"><span>権限</span>
         <select class="input" id="mbRole">${picks.map(([v, label]) =>
           `<option value="${v}"${(m || {}).role === v ? ' selected' : ''}>${esc(label)}</option>`).join('')}</select></label>
       ${m ? '' : `
       <p class="meta" style="margin:12px 0 0">追加すると<strong>すぐログインできます</strong>。
         ログイン画面では、ここで決めた<strong>ログインIDとパスワード</strong>をそのまま使います。
-        本人に伝えて、ログイン後に変えてもらってください。</p>`}
+        決めた<strong>パスワードは本人に伝えてください</strong>。
+        変えたいときは、この画面から管理者が再設定します。</p>`}
       ${isMe ? '<p class="meta" style="margin-top:10px"><strong>これはあなた自身です。</strong>自分を管理者から外すこと・自分のアカウントを消すことはできません（別の管理者に頼んでください）。</p>' : ''}
       ${m ? `
       <div class="sec" style="margin:18px 0 10px">パスワード</div>
@@ -7827,21 +7827,19 @@ function sheetMember(email) {
   });
 }
 
-/* ［パスワードを変更］を押すまで欄を出さない。**いまのパスワードは出さない**
+/* ［パスワードを再設定］を押すまで欄を出さない。**いまのパスワードは出さない**
    （Supabase もハッシュしか持っていないので、そもそも読み出せない）。
    できるのは「新しいものを入れ直す」ことだけ。 */
 function pwBoxHtml(email, open) {
   if (!open) {
     return `<button type="button" class="btn sm ghost" onclick="togglePw('${esc(email)}',true)">
-      <span class="ms">key</span>パスワードを変更</button>
+      <span class="ms">key</span>パスワードを再設定</button>
       <p class="meta" style="margin:8px 0 0">いまのパスワードは表示できません。新しいものを入れ直します。</p>`;
   }
-  return `<label class="field" style="margin-bottom:10px"><span>新しいパスワード</span>
+  return `<label class="field"><span>新しいパスワード</span>
       <input class="input" type="password" id="pwNew" autocomplete="new-password" placeholder="8文字以上"></label>
-    <label class="field"><span>新しいパスワード（確認）</span>
-      <input class="input" type="password" id="pwNew2" autocomplete="new-password"></label>
     <div style="display:flex;gap:8px;margin-top:12px">
-      <button type="button" class="btn sm" onclick="changePw('${esc(email)}')">変更する</button>
+      <button type="button" class="btn sm" onclick="changePw('${esc(email)}')">再設定する</button>
       <button type="button" class="btn sm ghost" onclick="togglePw('${esc(email)}',false)">やめる</button>
     </div>`;
 }
@@ -7854,14 +7852,14 @@ function togglePw(email, open) {
 /* パスワードだけを変える。シートの氏名・権限は保存しない（別の操作） */
 async function changePw(email) {
   if (!canAdmin()) { toast('パスワードを変えられるのは管理者だけです'); return; }
-  const a = (($('pwNew') || {}).value || ''), b = (($('pwNew2') || {}).value || '');
-  const bad = pwCheck(a, b);
+  const a = (($('pwNew') || {}).value || '');
+  const bad = pwCheck(a);
   if (bad) { toast(bad); return; }
   const out = await memberApi({ action: 'password', loginId: loginIdOf(email), password: a });
   if (!out) return;
   togglePw(email, false);
   await refreshTx();
-  toast('パスワードを変えました');
+  toast('パスワードを再設定しました');
 }
 
 /* アカウントの削除。**ログイン（Supabase Auth）と在庫管理の権限をまとめて消す。**
@@ -7943,13 +7941,12 @@ async function saveMember(email) {
   } else {
     // 追加。**ログインの作成と権限の登録をサーバーで一度に行う**
     // （鍵が要るのでブラウザからは Auth を触らない）
-    const pw = (($('mbPw') || {}).value || ''), pw2 = (($('mbPw2') || {}).value || '');
-    const bad = pwCheck(pw, pw2);
+    const pw = (($('mbPw') || {}).value || '');
+    const bad = pwCheck(pw);
     if (bad) { toast(bad); return false; }
     const out = await memberApi({ action: 'create', loginId: id, name, role, password: pw });
     if (!out) return false;
     saved = out.member || row;
-    if (out.note) toast(out.note);
   }
   const k = (db.members || []).findIndex(x => x.email === mail);
   if (k >= 0) db.members[k] = saved; else db.members.push(saved);
