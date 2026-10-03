@@ -5780,6 +5780,8 @@ function viewItemWarehouse(it, m) {
     ${guardNote()}
     ${canEdit() && wareCanSell(it) ? `<button class="btn pri wsell" onclick="sheetSellWarehouse('${esc(it.id)}')">
       <span class="ms">local_shipping</span>販売済みにする</button>` : ''}
+    ${canEdit() && canUndoSell(it) ? `<button class="btn wundo" onclick="sheetSellUndo('${esc(it.id)}')">
+      <span class="ms">settings_backup_restore</span>販売済みを取り消す</button>` : ''}
     <div class="ops wops">
       ${op('move_down', '移動', `sheetMove('${esc(it.id)}')`)}
       ${op('fact_check', '棚卸確認', `checkItem('${esc(it.id)}')`)}
@@ -5978,6 +5980,8 @@ function viewItem() {
         ${op('build', '修理・故障', `sheetStatus('${esc(it.id)}')`)}
         ${op('paid', '売却', `sheetSell('${esc(it.id)}')`, false, !GONE.includes(it.status))}
         ${op('undo', '予約解除', `sheetUnreserve('${esc(it.id)}')`, false, it.status === '販売予約')}
+        ${canUndoSell(it) ? op('settings_backup_restore', '販売済みを取り消す',
+          `sheetSellUndo('${esc(it.id)}')`) : ''}
         ${op('fact_check', '棚卸確認', `checkItem('${esc(it.id)}')`)}
         <span id="itemRentOps" style="display:contents">${rentalOpsHtml(it)}</span>
         ${canAdmin() ? op('delete', '廃棄', `sheetScrap('${esc(it.id)}')`) : ''}
@@ -7136,6 +7140,99 @@ async function sellItem(id, dest, price, note) {
   toast(`${id} を売却済にしました${dest ? `（${dest}）` : ''}`);
   warnStillListed([id], '売却済');
   return true;
+}
+
+/* ---- 売却済の取り消し --------------------------------------------------------
+   倉庫でQRを取り違えて、違う個体を「販売済み」にしてしまったときに戻す。
+
+   **戻る状態は画面で決めない。** 既存の履歴（inventory_transactions）の
+   action='売却' の before_value に、売却の直前の状態がそのまま残っている。
+   それを読むのはサーバーの inv_item_sell_undo_info() 1か所だけで、
+   確認画面も取消の本体も同じものを通る（判定の二重実装をしない）。
+     在庫 → 売却済 → 取消 → 在庫 ／ 出品中 → … → 出品中 ／ 販売予約 → … → 販売予約
+   履歴から分からないとき（履歴が無い／すでに取り消し済みの売却しか無い／売却前が
+   貸出中・社内使用）は、推測して戻さずに「取り消せません」と出す。
+
+   モールの受注明細（inventory_sale_orders）にこの個体が割り当たっていたら、
+   その注文番号を確認画面に出す。取り消すと **8EC の中の割り当てだけ**を外して
+   「個体の割り当て待ち」へ戻す（外部のモールへは何も送らない）。
+
+   権限は既存の canEdit()（管理者・倉庫メンバー）。viewer は使えない。
+   サーバー側も inv_can_edit() で止めるので、画面だけの判定にはしていない。 */
+const canUndoSell = (i) => !!i && i.status === '売却済';
+
+async function sheetSellUndo(id) {
+  const it = item(id); if (!it) return;
+  if (!canEdit()) { toast('操作する権限がありません（閲覧のみ）'); return; }
+  if (!canUndoSell(it)) { toast(`${it.status} のものは取り消せません（売却済だけ）`); return; }
+  const m = prod(it.product_code);
+
+  // 戻る状態と、紐付いているモールの受注明細をサーバーに聞く
+  // （読むだけ。ここでは何も変わらない。判定はサーバーの1か所だけに置く）
+  const { data: info, error } = await sb.rpc('inv_item_sell_undo_info', { p_item_id: id });
+  if (error) { toast(error.message || '戻る状態を調べられませんでした'); return; }
+  const back = (info || {}).back;
+  const orders = ((info || {}).orders) || [];
+  if (!back) {
+    openModal('この販売済みは取り消せません', `
+      <p><strong>どこへ戻すかを履歴から決められないので、取り消せません。</strong></p>
+      <p class="meta" style="margin-top:10px">次のどれかです。</p>
+      <ul class="meta" style="margin:6px 0 0;padding-left:20px">
+        <li>売却の履歴が残っていない（状態が手で直されたものなど）</li>
+        <li>いちばん新しい売却は<strong>すでに取り消し済み</strong>で、いまの「売却済」に
+          対応する売却の履歴が無い</li>
+        <li>売却前が<strong>貸出中・社内使用</strong>だった。売却のときに利用者が消えているので、
+          誰に貸していたかまでは戻せない</li>
+      </ul>
+      <p class="meta" style="margin-top:10px">推測で戻すと在庫状態と履歴が食い違うので、
+        ここでは戻しません。状態は［貸出］［修理・故障］など、もとの操作からやり直してください。</p>`,
+      [['閉じる', 'closeModal()', 'btn ghost']]);
+    return;
+  }
+
+  const row = (k, v) => `<div class="wrow"><span class="k">${esc(k)}</span><b>${v}</b></div>`;
+  openModal('販売済みを取り消しますか？', `
+    <p style="font-size:17px;font-weight:700;margin:0 0 10px">${esc(m ? titleOf(m) : it.name)}</p>
+    <div class="winfo">
+      ${row('管理番号', `<span class="num undoid">${esc(it.id)}</span>`)}
+      ${row('シリアル番号', esc(it.serial || '—'))}
+      ${row('現在', statusTag('売却済'))}
+      ${row('戻る状態', statusTag(back))}
+    </div>
+    ${orders.length ? `<div class="undoord">
+      <div class="k">この個体が割り当たっている注文</div>
+      ${orders.map(o => `<div class="r"><b>${esc(o.channel)} ${esc(o.order_number)}</b>
+        <span class="meta">明細 ${esc(o.line_number)}-${esc(o.unit_no)}　${esc(o.status)}</span></div>`).join('')}
+      <p class="meta" style="margin:8px 0 0">取り消すと、<strong>8EC の中でのこの個体の割り当てを外して
+        「個体の割り当て待ち（受注）」へ戻します</strong>。別の個体を割り当て直してください。
+        <strong>販売サイト側の注文・出品は自動では戻りません</strong>（再出品もしません）。</p>
+    </div>`
+    : (it.sold_channel ? `<p class="meta" style="margin-top:12px">
+      <strong>${esc(it.sold_channel)} へ売れたものとして記録されています。</strong>
+      在庫側はここで戻せますが、<strong>販売サイト側の注文や出品は自動では戻りません</strong>
+      （再出品もしません）。必要なら管理画面で直してください。</p>` : '')}
+    <p class="meta" style="margin-top:12px">売却の金額と売却先は消えます。
+      これまでの「売却」の履歴は残り、「売却取消」が足されます。</p>
+    <label class="undochk"><input type="checkbox" id="undoOk"
+      onchange="document.getElementById('undoGo').disabled=!this.checked">
+      <span>上の<strong>管理番号</strong>が、戻したい現物と合っていることを確認しました</span></label>
+  `, [['キャンセル', 'closeModal()', 'btn ghost'],
+      ['販売済みを取り消す', `doSellUndo('${esc(id)}')`, 'btn pri', 'undoGo']]);
+  const go = $('undoGo'); if (go) go.disabled = true;      // 確認するまで押せない
+}
+
+async function doSellUndo(id) {
+  const it = item(id); if (!it) return;
+  if (!canEdit()) { toast('操作する権限がありません（閲覧のみ）'); return; }
+  if (!canUndoSell(it)) { toast(`${it.status} のものは取り消せません（売却済だけ）`); return; }
+  const { data, error } = await sb.rpc('inv_item_sell_undo', { p_item_id: id, p_note: null });
+  if (error) { toast(error.message || '取り消せませんでした'); return; }
+  closeModal();
+  const k = db.items.findIndex(x => x.id === id);
+  if (k >= 0 && data) db.items[k] = data;
+  await refreshTx();
+  render();
+  toast(`${id} の販売済みを取り消しました（${(data || {}).status || ''}）`);
 }
 
 /* 一覧から「売れた」を記録する。個体管理は在庫の古いものから台数ぶん売却済にする。
