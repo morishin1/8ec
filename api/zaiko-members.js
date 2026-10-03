@@ -2,9 +2,9 @@
 // /zaiko のメンバー管理（/api/zaiko-members）
 //
 //   ここでやること
-//     create        … Supabase Auth にログインを作り、inventory_members に権限を登録する
-//     password      … そのログインのパスワードを変える
-//     auth-delete   … ログインアカウントそのものを消す（権限の解除とは別の操作）
+//     create    … Supabase Auth にログインを作り、inventory_members に権限を登録する
+//     password  … そのログインのパスワードを変える
+//     delete    … ログインと在庫管理の権限を**まとめて**消す（アカウントごと削除）
 //
 //   なぜサーバー側でやるか
 //     Supabase Auth の管理API（/auth/v1/admin/*）はサーバー鍵（service_role）が要る。
@@ -26,15 +26,23 @@
 //     （新しいパスワードを入れ直すことしかできない）。
 //
 //   ログインIDの決まり
-//     ログイン画面の ID はメールアドレスの @ より前。mw → mw@8grp.co.jp。
-//     ここで作るのもメールアドレスなので、ログインの仕組みは何も変えていない。
+//     画面が送ってくるのは**ログインIDだけ**（例 tanaka）。
+//     メールアドレスは**サーバーがここで組み立てる**（tanaka → tanaka@8grp.co.jp）。
+//     画面からメールアドレスを受け取らないので、別のドメインのアカウントは作れない。
+//     ログイン画面の ID も昔から「メールアドレスの @ より前」なので、
+//     ログインの仕組みそのものは何も変えていない。
 // ============================================================
 
 const L = require("./_lib.js");
 const { clean, clientKey, tooFast, rest, authAdmin, caller } = L;
 
-const MAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-const ROLES = ["admin", "member", "viewer"];
+// ログインIDから作るメールアドレスのドメイン。**画面からは受け取らない**
+const MAIL_DOMAIN = "@8grp.co.jp";
+// ログインID。小文字・数字と . _ - だけ。@ も空白も入れられない
+const ID_RE = /^[a-z0-9][a-z0-9._-]{1,30}$/;
+// 管理画面で選べるのは2つだけ。viewer は**既存データの互換**のために残してあるが、
+// ここでは受け付けない（画面にも出さない）
+const ROLES = ["admin", "member"];
 const ROLE_LABEL = { admin: "管理者", member: "倉庫メンバー", viewer: "閲覧のみ" };
 const PW_MIN = 8;
 const PW_MAX = 72;              // bcrypt が見るのは72バイトまで。長すぎる入力は受け取らない
@@ -47,6 +55,12 @@ function badPassword(pw) {
   if (Buffer.byteLength(s, "utf8") > PW_MAX) return "パスワードが長すぎます";
   if (/\s/.test(s)) return "パスワードに空白は使えません";
   return null;
+}
+
+/** ログインIDからメールアドレスを作る。**組み立てるのはここだけ。** */
+function mailOf(loginId) {
+  const id = String(loginId == null ? "" : loginId).trim().toLowerCase();
+  return ID_RE.test(id) ? id + MAIL_DOMAIN : null;
 }
 
 /** そのメールアドレスのログインを1つ探す。
@@ -117,8 +131,14 @@ module.exports = async (req, res) => {
   if (who.role !== "admin") return res.status(403).json({ error: "メンバーを直せるのは管理者だけです" });
 
   const action = String(body.action || "");
-  const email = String(body.email == null ? "" : body.email).trim().toLowerCase();
-  if (!MAIL_RE.test(email)) return res.status(400).json({ error: "メールアドレスを正しく入力してください" });
+  // **画面が送ってくるのはログインIDだけ。** メールアドレスはここで組み立てる
+  const loginId = String(body.loginId == null ? "" : body.loginId).trim().toLowerCase();
+  const email = mailOf(loginId);
+  if (!email) {
+    return res.status(400).json({
+      error: "ログインIDは半角の小文字・数字と . _ - だけで、2文字以上32文字以内にしてください",
+    });
+  }
 
   // ── 1) 追加：ログインを作って、権限を登録する ──
   if (action === "create") {
@@ -126,13 +146,13 @@ module.exports = async (req, res) => {
     const role = ROLES.indexOf(String(body.role || "")) >= 0 ? String(body.role) : null;
     const bad = badPassword(body.password);
     if (!name) return res.status(400).json({ error: "氏名を入力してください" });
-    if (!role) return res.status(400).json({ error: "権限を選んでください" });
+    if (!role) return res.status(400).json({ error: "権限は 管理者 か メンバー を選んでください" });
     if (bad) return res.status(400).json({ error: bad });
 
     // すでに権限が登録されていれば、追加ではなく編集の話
     const cur = await rest("inventory_members?select=email&email=eq." + encodeURIComponent(email) + "&limit=1");
     if (cur.ok && Array.isArray(cur.out) && cur.out.length) {
-      return res.status(409).json({ error: "このメールアドレスはすでに登録されています" });
+      return res.status(409).json({ error: "このログインIDはすでに使われています" });
     }
 
     // (a) ログインを作る
@@ -154,7 +174,7 @@ module.exports = async (req, res) => {
           ROLE_LABEL[role] + "（ログインは既存のものを使います）");
         return res.status(200).json({
           ok: true, member: (only.out && only.out[0]) || null,
-          note: "このメールアドレスのログインはすでにありました。パスワードは変えていません",
+          note: "このログインIDはすでにありました。パスワードは変えていません",
         });
       }
       return authFailed(res, made, "ログインを作れませんでした");
@@ -186,7 +206,7 @@ module.exports = async (req, res) => {
 
     const found = await findAuthUser(email);
     if (found.error) return authFailed(res, found.error, "ログインを調べられませんでした");
-    if (!found.user) return res.status(404).json({ error: "このメールアドレスのログインが見つかりません" });
+    if (!found.user) return res.status(404).json({ error: "このログインIDのアカウントが見つかりません" });
 
     const upd = await authAdmin("users/" + encodeURIComponent(found.user.id), {
       method: "PUT",
@@ -201,22 +221,56 @@ module.exports = async (req, res) => {
     return res.status(200).json({ ok: true });
   }
 
-  // ── 3) ログインアカウントそのものを消す ──
-  //     在庫管理の権限を外す（inventory_members の削除）とは**別の操作**。
-  //     画面側でも二重に確かめさせる。自分自身は消せない。
-  if (action === "auth-delete") {
-    if (email === who.email) return res.status(400).json({ error: "自分自身のログインは消せません" });
-    if (body.confirm !== email) return res.status(400).json({ error: "確認のためメールアドレスを入力してください" });
+  // ── 3) アカウントを消す ──
+  //     **ログイン（Supabase Auth）と在庫管理の権限（inventory_members）を
+  //     まとめて消す。** 片方だけ残ると「ログインできるのに権限が無い」
+  //     「権限はあるのにログインできない」という分かりにくい状態になる。
+  //
+  //     止めるもの（画面でも同じ判定をするが、**本体はこちら**）
+  //       ・自分自身は消せない（消すと誰もこの画面を開けなくなる）
+  //       ・最後の管理者は消せない（同上）
+  //       ・確認のためログインIDを打ち直してもらう
+  if (action === "delete") {
+    if (email === who.email) return res.status(400).json({ error: "自分自身のアカウントは消せません" });
+    if (String(body.confirm || "").trim().toLowerCase() !== loginId) {
+      return res.status(400).json({ error: "確認のためログインIDを入力してください" });
+    }
 
+    // いまの権限と、管理者が何人いるか
+    const cur = await rest("inventory_members?select=email,display_name,role&email=eq." +
+      encodeURIComponent(email) + "&limit=1");
+    const row = (cur.ok && Array.isArray(cur.out) && cur.out[0]) || null;
+    if (row && row.role === "admin") {
+      const adm = await rest("inventory_members?select=email&role=eq.admin");
+      const n = (adm.ok && Array.isArray(adm.out) && adm.out.length) || 0;
+      if (n <= 1) {
+        return res.status(400).json({ error: "最後の管理者は消せません。先に別の管理者を足してください" });
+      }
+    }
+
+    // (a) ログインを消す。もう無いときは、権限の削除だけ進める
     const found = await findAuthUser(email);
     if (found.error) return authFailed(res, found.error, "ログインを調べられませんでした");
-    if (!found.user) return res.status(404).json({ error: "このメールアドレスのログインが見つかりません" });
+    if (found.user) {
+      const del = await authAdmin("users/" + encodeURIComponent(found.user.id), { method: "DELETE" });
+      if (!del.ok) return authFailed(res, del, "ログインを消せませんでした");
+    }
 
-    const del = await authAdmin("users/" + encodeURIComponent(found.user.id), { method: "DELETE" });
-    if (!del.ok) return authFailed(res, del, "ログインを消せませんでした");
+    // (b) 在庫管理の権限も消す
+    const off = await rest("inventory_members?email=eq." + encodeURIComponent(email), {
+      method: "DELETE",
+      headers: { Prefer: "return=minimal" },
+    });
+    if (!off.ok) {
+      return res.status(400).json({
+        error: "ログインは消しましたが、在庫管理の権限を外せませんでした。もう一度お試しください",
+      });
+    }
 
-    await log(who.name, email, email, "ログイン削除", "ログインあり", "ログインなし（在庫管理の権限は別操作）");
-    return res.status(200).json({ ok: true });
+    await log(who.name, email, (row && row.display_name) || loginId, "アカウント削除",
+      row ? ROLE_LABEL[row.role] || row.role : "権限なし",
+      found.user ? "ログイン・権限とも削除" : "権限を削除（ログインは元から無し）");
+    return res.status(200).json({ ok: true, hadLogin: !!found.user });
   }
 
   return res.status(400).json({ error: "操作が正しくありません" });
@@ -224,3 +278,4 @@ module.exports = async (req, res) => {
 
 module.exports.badPassword = badPassword;
 module.exports.findAuthUser = findAuthUser;
+module.exports.mailOf = mailOf;
