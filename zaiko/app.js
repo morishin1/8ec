@@ -1809,14 +1809,16 @@ function unitsFiltered(ignoreTab, ignoreList) {
     if (fl !== 'all' && listingState(i) !== fl) return false;
     return hit(i, prod(i.product_code)) && onTab(liveOn(i));
   }).map(i => ({ kind: 'item', i, m: prod(i.product_code) }));
-  // 数量管理は個体を持たない。見えなくならないよう1品目1行で混ぜる
+  // 数量管理は個体を持たない。1品目1行で混ぜる
   db.masters.filter(p => p.kind !== 'individual').forEach(p => {
-    const fake = { id: p.code, product_code: p.code, category_id: p.category_id, maker: p.maker,
-                   model: p.model, name: p.name, location_id: p.location_id, status: '' };
+    const fake = qtyRow(p);
     if (ui.fSt || ui.fDiff || ui.fNoPrice || ui.fRentEl || rentTab) return;
-    // 数量管理は個体を持たないので、個体別の棚卸・出品価格の絞り込みには混ぜない
-    // （棚卸の軸そのものが無いので、既定の「棚卸済だけ」からも外さない）
-    if (ui.fNoCh || ui.fScope === 'unchk' || ui.fCheck) return;
+    if (ui.fNoCh) return;                      // 個体 × 販売先の価格は持たない
+    // **棚卸の決まりは個体とまったく同じ。** いまは数量管理に棚卸の仕組みが無いので
+    // checkTag() は「対象外」を返し、既定の「棚卸済だけ」には出ない。
+    // 将来 inventory_stocktake_items に品目ぶんが入れば、同じ索引を引くだけで
+    // 既定の一覧にも出るようになる（ここを直す必要はない）
+    if (!scopeHit(fake, ckIdx)) return;
     // 出品状況は、数量管理では商品まるごとの出品情報で見る（決まりは listingState と同じ）
     if (fl !== 'all' && listingStateProd(p.code) !== fl) return;
     if (hit(fake, p) && onTab(liveOnProd(p.code))) out.push({ kind: 'qty', i: fake, m: p });
@@ -1887,6 +1889,15 @@ function listingCell(i) {
     <div class="meta">出品先未登録</div>
     <button class="btn sm ghost lsgo" onclick="event.stopPropagation();go('item','${esc(i.id)}')"
       title="この個体の販売情報を開きます">出品設定</button>`;
+}
+
+/* 数量管理の品目を、個体と同じ形で絞り込みに通すための1行。
+   管理番号のかわりに商品コードを id にする（棚卸の索引もこのキーで引く）。
+   **棚卸の仕組みが数量管理にもできたら、その index に商品コードが入るだけで
+   既定の一覧にも出るようになる。** */
+function qtyRow(p) {
+  return { id: p.code, product_code: p.code, category_id: p.category_id, maker: p.maker,
+           model: p.model, name: p.name, location_id: p.location_id, status: '' };
 }
 
 /* 在庫差異。手元に無いのに、まだどこかに出品中のまま残っている1台。
@@ -2083,7 +2094,7 @@ function emptyListHtml() {
     <div style="font-weight:700;font-size:15px">棚卸済みの在庫がありません。</div>
     <div class="meta" style="margin:6px 0 12px">在庫一覧は、${
       basis ? esc(basis) + 'で<strong>現物を確認できたものだけ</strong>' : '<strong>棚卸で現物を確認できたものだけ</strong>'}を出しています。${
-      basis ? '' : '完了した棚卸がまだありません。'} いま ${n}台が棚卸待ちです。</div>
+      basis ? '' : '完了した棚卸がまだありません。'} いま ${n}件が棚卸待ちです。</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
       <button class="btn sm" onclick="setScope('all')">全在庫を見る</button>
       <button class="btn sm ghost" onclick="setScope('unchk')">棚卸で未確認を見る</button>
@@ -2465,11 +2476,15 @@ function scopeHit(i, idx) {
   return ui.fScope === 'unchk' ? !done : done;
 }
 
-/* 既定の母集団から外している台数。黙って消さず、その場で出せるようにする */
+/* 既定の母集団から外している数。黙って消さず、その場で出せるようにする。
+   個体（台）と数量管理の品目をまとめて数えるので、単位は「件」にしてある */
 function scopeHidden() {
   const idx = stocktakeIndex();
-  return db.items.filter(i => !GONE.includes(i.status)
+  const units = db.items.filter(i => !GONE.includes(i.status)
     && checkTag(i, idx).kind !== 'done').length;
+  const qty = db.masters.filter(p => p.kind !== 'individual'
+    && checkTag(qtyRow(p), idx).kind !== 'done').length;
+  return units + qty;
 }
 /* いま何を基準にしているか。実施中の棚卸があればそれ、無ければ直近の完了済み */
 function scopeBasis() {
@@ -2487,15 +2502,15 @@ function scopeBar() {
       <button class="btn sm ghost" onclick="setScope('')">棚卸済だけ</button></div>`;
   if (ui.fScope === 'unchk')
     return `<div class="diffbar on"><span class="ms">filter_alt</span>
-      <div class="bx"><div class="bt">棚卸で未確認 ${n}台</div>
+      <div class="bx"><div class="bt">棚卸で未確認 ${n}件</div>
         <div class="meta">${esc(basis || '棚卸')}で現物を確認できていないものだけを出しています
           （未確認・差異と、棚卸のあとに入ってきたもの）。</div></div>
       <button class="btn sm ghost" onclick="setScope('')">棚卸済だけ</button></div>`;
   if (!n) return '';
   return `<div class="diffbar"><span class="ms">fact_check</span>
-    <div class="bx"><div class="bt">棚卸で確認できていない ${n}台を隠しています</div>
+    <div class="bx"><div class="bt">棚卸で確認できていない ${n}件を隠しています</div>
       <div class="meta">在庫一覧は、${esc(basis || '棚卸')}で<strong>現物を確認できたものだけ</strong>を
-        出しています。棚卸のあとに入ってきたものもここに入ります。</div></div>
+        出しています。棚卸のあとに入ってきたものと、棚卸の記録が無い数量管理もここに入ります。</div></div>
     <button class="btn sm" onclick="setScope('unchk')">棚卸で未確認を見る</button>
     <button class="btn sm ghost" onclick="setScope('all')">全在庫を見る</button></div>`;
 }
