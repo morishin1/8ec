@@ -123,8 +123,84 @@ function slackEscape(s) {
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// ── Supabase の表をサーバー鍵で読み書きする（PostgREST） ──
+//    RLS を通さない鍵なので、**呼ぶ前に必ず「誰が叩いたか」を確かめること。**
+async function rest(path, init) {
+  if (!SUPABASE_SECRET_KEY) throw new Error("no-server-key");
+  const o = init || {};
+  const r = await fetch(SUPABASE_URL + "/rest/v1/" + path, {
+    method: o.method || "GET",
+    headers: Object.assign({
+      apikey: SUPABASE_SECRET_KEY,
+      Authorization: "Bearer " + SUPABASE_SECRET_KEY,
+      "Content-Type": "application/json",
+    }, o.headers || {}),
+    body: o.body == null ? undefined : JSON.stringify(o.body),
+  });
+  const out = await r.json().catch(() => null);
+  return { ok: r.ok, status: r.status, out };
+}
+
+// ── Supabase Auth の管理API（GoTrue /auth/v1/admin/*） ──
+//
+//    **ブラウザからは絶対に呼ばない。** サーバー鍵が要るので、ここだけで使う。
+//    管理APIは JWT 形式の鍵（service_role）を見るので、両方あるときはそちらを先に使う。
+//    鍵そのものは返さない・ログにも出さない。
+const AUTH_ADMIN_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || SUPABASE_SECRET_KEY;
+
+async function authAdmin(path, init) {
+  if (!AUTH_ADMIN_KEY) throw new Error("no-server-key");
+  const o = init || {};
+  const r = await fetch(SUPABASE_URL + "/auth/v1/admin/" + path, {
+    method: o.method || "GET",
+    headers: {
+      apikey: AUTH_ADMIN_KEY,
+      Authorization: "Bearer " + AUTH_ADMIN_KEY,
+      "Content-Type": "application/json",
+    },
+    body: o.body == null ? undefined : JSON.stringify(o.body),
+  });
+  const out = await r.json().catch(() => null);
+  return { ok: r.ok, status: r.status, out };
+}
+
+// ── 叩いた人を確かめる ──
+//
+//    ブラウザは自分のログイン（access token）を Authorization で送ってくる。
+//    その token が本物かは **Supabase に聞く**（/auth/v1/user）。こちらでは検証しない。
+//    そのうえで inventory_members の role を**サーバー鍵で**読む。
+//    画面の申告（body の role など）は一切信用しない。
+async function caller(req) {
+  const h = (req && req.headers) || {};
+  const raw = String(h.authorization || h.Authorization || "");
+  const m = raw.match(/^Bearer\s+(.+)$/i);
+  if (!m) return null;
+  const token = m[1].trim();
+  if (!token || token.length > 4096) return null;
+  if (!SUPABASE_SECRET_KEY) throw new Error("no-server-key");
+
+  let who = null;
+  try {
+    const r = await fetch(SUPABASE_URL + "/auth/v1/user", {
+      headers: { apikey: SUPABASE_SECRET_KEY, Authorization: "Bearer " + token },
+    });
+    if (!r.ok) return null;
+    who = await r.json().catch(() => null);
+  } catch (e) {
+    console.error("api: auth check error", e && e.message);   // 中身（token）は出さない
+    return null;
+  }
+  const email = who && typeof who.email === "string" ? who.email.trim().toLowerCase() : "";
+  if (!email) return null;
+
+  const { ok, out } = await rest(
+    "inventory_members?select=email,display_name,role&email=eq." + encodeURIComponent(email) + "&limit=1");
+  const row = ok && Array.isArray(out) && out[0] ? out[0] : null;
+  return { email, name: (row && row.display_name) || email, role: (row && row.role) || "viewer" };
+}
+
 module.exports = {
-  SUPABASE_URL, hasKey, keyMissing, rpc,
+  SUPABASE_URL, hasKey, keyMissing, rpc, rest, authAdmin, caller,
   clientKey, tooFast, accessCheck, tooMany,
   cleanToken, clean, slackEscape,
 };
