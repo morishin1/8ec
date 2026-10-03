@@ -5829,6 +5829,111 @@ async function doSellWarehouse(id) {
       ['次のQRを読む', "closeModal();openScan('lookup')", 'btn pri']]);
 }
 
+/* ---- 個体詳細の［編集］ ----------------------------------------------------
+   直せるのは2種類だけで、**どちらの表のものかを画面でも分ける**。
+
+     この個体   … 保管場所・シリアル番号・仕入日・備考
+     商品マスタ … 商品名・メーカー・型番・カテゴリ・スペック（同じ商品の全個体に効く）
+
+   **すでに専用の操作があるものはここに出さない。**
+     在庫状態・利用者 → ［貸出］［返却］［修理・故障］［売却］［廃棄］
+     値段             → ［値段を直す］
+     棚卸             → ［棚卸確認］
+     8RENT・出品      → 既存の8RENT操作・出品先の［編集］
+     管理番号・商品コード・仕入元ID・QR → 変えない
+
+   保管場所とカテゴリは自由入力にせず、既存の locOptions() と
+   商品登録と同じカテゴリーマスタ（catsFor / catOptLabel）から選ぶ。 */
+function sheetItemEdit(id) {
+  const it = item(id); if (!it) return;
+  // 商品名・型番・カテゴリは同じ商品の全個体に効くので、直せるのは管理者だけ。
+  // 倉庫メンバーは移動・棚卸確認・入出庫・販売済みなど、既存の操作をそのまま使う
+  if (!canAdmin()) { toast('基本情報を直せるのは管理者だけです'); return; }
+  const m = prod(it.product_code);
+  const cats = catsFor(m ? m.kind : 'individual', (m || it).category_id);
+  const v = (x) => esc(x == null ? '' : String(x));
+  openSheet({
+    title: '基本情報を編集', subject: id, cta: '保存', keepOpenOnError: true,
+    hint: '状態・値段・棚卸・8RENT・出品は、それぞれの操作から直してください。',
+    body: `
+      <div class="sec" style="margin:0 0 10px">この個体</div>
+      <label class="field" style="margin-bottom:10px"><span>保管場所</span>
+        <select class="input" id="ieLoc">${locOptions(it.location_id, '選択してください')}</select></label>
+      <label class="field" style="margin-bottom:10px"><span>シリアル番号</span>
+        <input class="input" id="ieSerial" value="${v(it.serial)}" placeholder="本体に書かれている番号"></label>
+      <label class="field" style="margin-bottom:10px"><span>仕入日</span>
+        <input class="input" type="date" id="ieBuy" value="${v(it.purchased_on)}"></label>
+      <label class="field"><span>備考</span>
+        <textarea class="input" id="ieNote" rows="2">${v(it.note)}</textarea></label>
+
+      <div class="sec" style="margin:18px 0 4px">商品情報</div>
+      <p class="meta" style="margin:0 0 10px">
+        <strong>この変更は同じ商品に紐づく全個体へ反映されます。</strong>
+        ${m ? `${esc(m.code)}（この商品の個体 ${itemsOf(m.code).length}台）` : ''}</p>
+      ${m ? `
+      <label class="field" style="margin-bottom:10px"><span>商品名</span>
+        <input class="input" id="ieName" value="${v(m.name)}"></label>
+      <label class="field" style="margin-bottom:10px"><span>メーカー</span>
+        <input class="input" id="ieMaker" value="${v(m.maker)}"></label>
+      <label class="field" style="margin-bottom:10px"><span>型番</span>
+        <input class="input" id="ieModel" value="${v(m.model)}"></label>
+      <label class="field" style="margin-bottom:10px"><span>カテゴリ</span>
+        <select class="input" id="ieCat"><option value="">選択してください</option>
+        ${cats.map(c => `<option value="${esc(c.id)}"${
+          c.id === m.category_id ? ' selected' : ''}>${esc(catOptLabel(c))}</option>`).join('')}</select></label>
+      <label class="field"><span>スペック</span>
+        <textarea class="input" id="ieSpec" rows="3">${v(m.spec)}</textarea></label>`
+      : '<p class="meta">この個体に商品マスタが結びついていないので、商品情報は直せません。</p>'}`,
+    run: () => saveItemEdit(id)
+  });
+}
+
+/* 保存。**呼ぶのは inv_item_basic_edit() の1回だけ。**
+   個体とマスタを別々に呼ぶと、個体だけ保存されてマスタで失敗する、という
+   半端な状態が起きうる（RPC 1回ごとに取引が閉じるため）。1回にまとめれば
+   その中は1つの取引になり、どこで失敗しても何も変わらない。
+   中で何をするか（移動・写しの更新・履歴）はDBの関数が持つ。 */
+async function saveItemEdit(id) {
+  if (!canAdmin()) { toast('基本情報を直せるのは管理者だけです'); return false; }
+  const it = item(id); if (!it) return false;
+  const m = prod(it.product_code);
+  const val = (k) => { const el = $(k); return el ? el.value.trim() : null; };
+
+  if (m) {
+    const name = val('ieName'), model = val('ieModel');
+    if (!name && !model) { toast('商品名か型番のどちらかは入れてください'); return false; }
+    if (!val('ieCat')) { toast('カテゴリを選んでください'); return false; }
+  }
+  if (!val('ieLoc')) { toast('保管場所を選んでください'); return false; }
+
+  const { data, error } = await sb.rpc('inv_item_basic_edit', {
+    p_item_id: id,
+    p_location_id: val('ieLoc'), p_serial: val('ieSerial') || null,
+    p_purchased_on: val('ieBuy') || null, p_note: val('ieNote') || null,
+    p_name: val('ieName') || null, p_maker: val('ieMaker') || null,
+    p_model: val('ieModel') || null, p_category_id: val('ieCat') || null,
+    p_spec: val('ieSpec') || null
+  });
+  // 失敗したときは1文字も変わっていない。シートは開いたままで、入れた値も残す
+  if (error) { toast('保存できませんでした：' + error.message); return false; }
+
+  // 手元の写しを入れ替える。items はマスタが変わったときだけ返ってくる
+  const out = data || {};
+  if (out.item) { const k = db.items.findIndex(x => x.id === id); if (k >= 0) db.items[k] = out.item; }
+  if (out.product) {
+    const k = db.masters.findIndex(x => x.code === out.product.code);
+    if (k >= 0) db.masters[k] = out.product;
+  }
+  (out.items || []).forEach(row => {
+    const k = db.items.findIndex(x => x.id === row.id);
+    if (k >= 0) db.items[k] = row; else db.items.push(row);
+  });
+  await refreshTx();
+  render();
+  toast('基本情報を保存しました');
+  return true;
+}
+
 function viewItem() {
   const it = item(ui.itemId);
   if (!it) return `<div class="empty">該当する機器が見つかりません（${esc(ui.itemId || '')}）</div>`;
@@ -5851,6 +5956,8 @@ function viewItem() {
         ${statusTag(it.status, true)}
         <span id="itemRentTag">${GONE.includes(it.status) ? '' : rentalTag(it)}</span>
         ${isLong(it) ? '<span class="tag" style="background:var(--l200)">長期貸出 ' + daysSince(it.loaned_at) + '日</span>' : ''}
+        ${canAdmin() ? `<button class="btn sm ghost" style="margin-left:auto"
+          onclick="sheetItemEdit('${esc(it.id)}')"><span class="ms">edit</span>編集</button>` : ''}
       </div>
       <div class="info">
         <div><span class="k">保管場所</span>${esc(locPath(it.location_id)) || '—'}</div>
