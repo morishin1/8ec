@@ -759,6 +759,7 @@ async function loadAll() {
   db.stPast = sts.filter(x => x.status !== 'open');
   await loadStocktakeItems();
   await loadDoneStocktake();
+  db.soldAt = null; db.soldErr = false;   // 販売一覧の「売れた日時」も取り直す
   ui.loaded = true;
   $('setup').style.display = 'none';
   return true;
@@ -795,6 +796,16 @@ async function loadDoneStocktake() {
                        expected: x.expected !== false };
   });
   db.stDone = { st, idx };
+}
+
+/* 売却・売却取消のあと、販売一覧の「売れた日時」を次に出すときに取り直させる。
+   **売却済にする経路すべてから呼ぶ**（1台ずつ・QRから・型番別のまとめ・一括操作・
+   モールの注文取込）。呼ばないと、販売一覧を一度開いたあとに売ったものが
+   「販売日時 —」のままになる。
+   いま販売一覧を開いているなら、その場で取り直して出し直す。 */
+async function soldChanged() {
+  db.soldAt = null; db.soldErr = false;
+  if (ui.screen === 'sales') await loadSoldAt();
 }
 
 /* ---- 売れた日時 ---------------------------------------------------------
@@ -1790,8 +1801,8 @@ function unitsFiltered(ignoreTab, ignoreList) {
     if (ui.fDiff && !isMismatch(i)) return false;
     if (ui.fNoPrice && !isNoPrice(i)) return false;
     if (rentTab && !isRentalOn(i)) return false;
-    // 在庫一覧は「現物が確認できて、いま手元にあるもの」。売却済は販売一覧で見る
-    if (!scopeHit(i)) return false;
+    // 在庫一覧は「棚卸で現物を確認できて、いま手元にあるもの」。売却済は販売一覧で見る
+    if (!scopeHit(i, ckIdx)) return false;
     // 楽天・Amazonの価格が入っていないものだけ（管理者の画面だけ。価格を持っていない人には出さない）
     if (ui.fNoCh && canAdmin() && chPrice(i, ui.fNoCh) != null) return false;
     // 出品状況（未出品・出品停止・出品中）
@@ -1803,7 +1814,9 @@ function unitsFiltered(ignoreTab, ignoreList) {
     const fake = { id: p.code, product_code: p.code, category_id: p.category_id, maker: p.maker,
                    model: p.model, name: p.name, location_id: p.location_id, status: '' };
     if (ui.fSt || ui.fDiff || ui.fNoPrice || ui.fRentEl || rentTab) return;
-    if (ui.fNoCh || ui.fScope === 'unchk') return;   // 数量管理は個体別の棚卸・出品価格を持たない
+    // 数量管理は個体を持たないので、個体別の棚卸・出品価格の絞り込みには混ぜない
+    // （棚卸の軸そのものが無いので、既定の「棚卸済だけ」からも外さない）
+    if (ui.fNoCh || ui.fScope === 'unchk' || ui.fCheck) return;
     // 出品状況は、数量管理では商品まるごとの出品情報で見る（決まりは listingState と同じ）
     if (fl !== 'all' && listingStateProd(p.code) !== fl) return;
     if (hit(fake, p) && onTab(liveOnProd(p.code))) out.push({ kind: 'qty', i: fake, m: p });
@@ -1963,7 +1976,7 @@ const WARE_COLS      = ['28%', '26%', '12%', '16%', '18%'];
 
 function unitsBodyHtml() {
   const rows = unitsFiltered();
-  if (!rows.length) return `<div class="empty" style="margin-top:15px">該当する在庫はありません。</div>`;
+  if (!rows.length) return emptyListHtml();
   const ckIdx = stocktakeIndex();      // 棚卸の確認状況。1行ずつ探さず1回で作る
   const live = rows.filter(r => r.kind === 'item' && IN_STOCK.includes(r.i.status)).length;
   const qty = rows.filter(r => r.kind === 'qty').reduce((n, r) => n + (r.m.qty || 0), 0);
@@ -2047,6 +2060,35 @@ function unitsBodyHtml() {
       </tr>`;
     }).join('')}</tbody></table></div>
     ${rows.length > 600 ? '<div class="meta" style="margin-top:8px">先頭600件だけ表示しています。絞り込んでください。</div>' : ''}`;
+}
+
+/* 1件も出なかったとき。**既定の母集団（棚卸済だけ）で消えているなら、黙って空にせず
+   どこを見ればよいかを出す。** 完了した棚卸が1件も無いときも、勝手に全件へ戻さない。 */
+function emptyListHtml() {
+  const plain = `<div class="empty" style="margin-top:15px">該当する在庫はありません。</div>`;
+  // 人が自分で掛けた絞り込みで0件なら、それは普通のこと。
+  // 出品状況（既定が「未出品」）はこちらが掛けているものなので、ここでは数えない
+  const narrowed = ui.fScope || ui.fDiff || ui.fNoPrice || ui.fCheck || ui.fNoCh
+    || ui.q || ui.fCat || ui.fMaker || ui.fLoc || ui.fSt || ui.fRentEl || ui.fQr || chanTab();
+  const n = scopeHidden();
+  if (narrowed || !n) return plain;
+  // 既定の母集団（棚卸済だけ）を外せば出るのかを確かめる。出ないなら母集団のせいではない
+  const save = ui.fScope;
+  ui.fScope = 'all';
+  const more = unitsFiltered().length;
+  ui.fScope = save;
+  if (!more) return plain;
+  const basis = scopeBasis();
+  return `<div class="empty" style="margin-top:15px">
+    <div style="font-weight:700;font-size:15px">棚卸済みの在庫がありません。</div>
+    <div class="meta" style="margin:6px 0 12px">在庫一覧は、${
+      basis ? esc(basis) + 'で<strong>現物を確認できたものだけ</strong>' : '<strong>棚卸で現物を確認できたものだけ</strong>'}を出しています。${
+      basis ? '' : '完了した棚卸がまだありません。'} いま ${n}台が棚卸待ちです。</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
+      <button class="btn sm" onclick="setScope('all')">全在庫を見る</button>
+      <button class="btn sm ghost" onclick="setScope('unchk')">棚卸で未確認を見る</button>
+      <button class="btn sm ghost" onclick="go('stock')">棚卸の画面へ</button>
+    </div></div>`;
 }
 
 function listBodyHtml() {
@@ -2399,70 +2441,63 @@ function stockStale(i, idx) {
   const v = checkedThisMonth(i, idx);
   return v === null ? null : !v;
 }
-/* 直近の完了済み棚卸での、その1台の結果。**実施中の棚卸は見ない。**
-   実施中のものを母集団の基準にすると、棚卸を始めた直後は確認済みが0件で
-   在庫一覧がほぼ空になってしまう。
-     'done'    その棚卸で現物を確認できた
-     'todo'    その棚卸の帳簿在庫だが、確認できなかった
-     'missing' 差異確定（現物が無いことを人が確定した）
-     'out'     その棚卸の対象ではない（あとから入ってきた個体・帳簿外現物）
-     'none'    完了した棚卸がまだ無い */
-function doneCheckKind(i) {
-  if (!i || !db.stDone) return 'none';
-  const row = db.stDone.idx[i.id];
-  if (!row || !row.expected) return 'out';
-  if (row.checkedAt) return 'done';
-  if (row.missingAt) return 'missing';
-  return 'todo';
-}
-
-/* 在庫一覧の母集団。在庫一覧は**現物が確認できて、いま手元にあるもの**を見る画面。
+/* 在庫一覧の母集団。在庫一覧は**棚卸で現物を確認できて、いま手元にあるもの**を見る画面。
    売却済は販売一覧（/zaiko/sales）、廃棄は履歴で見る。
 
-     ''（既定）… 売却済・廃棄を外し、直近の完了済み棚卸で未確認・差異だったものも外す。
-                 **その棚卸の対象になっていなかったもの（棚卸のあとに入ってきた個体）は
-                 残す。** 外すと、入庫したばかりのものが一覧から消えてしまう。
-                 完了した棚卸がまだ無いときも残す（全部消えないように）
-     'unchk'   … 直近の完了済み棚卸で未確認・差異だったものだけ
+     ''（既定）… **棚卸済のものだけ**（checkTag().kind === 'done'）。
+                 実施中の棚卸があればその棚卸で確認できたもの、無ければ
+                 直近の完了済み棚卸で確認できたもの。
+                 未確認・差異はもちろん、**棚卸のあとに入ってきた個体（対象外）も
+                 既定には混ぜない**。`棚卸で未確認` と `全在庫` から見る
+     'unchk'   … 棚卸済ではないもの（未確認・差異・まだ棚卸していないもの）
      'all'     … すべて（売却済・廃棄も出す）
+
+   判定は**画面の「棚卸」欄とまったく同じ checkTag()** を通す。
+   別々に判定すると「欄では棚卸済なのに一覧に出ない」というズレが起きるため。
 
    在庫差異・売価未登録・状態で売却済／廃棄を選んだとき・棚卸の絞り込みを
    掛けているときは、その絞り込みが見たいものを隠さないよう母集団を広げる。 */
-function scopeHit(i) {
+function scopeHit(i, idx) {
   if (ui.fScope === 'all' || ui.fDiff || ui.fNoPrice || ui.fCheck) return true;
   if (ui.fSt && GONE.includes(ui.fSt)) return true;
-  if (GONE.includes(i.status)) return false;
-  const k = doneCheckKind(i);
-  if (ui.fScope === 'unchk') return k === 'todo' || k === 'missing';
-  return k !== 'todo' && k !== 'missing';
+  if (GONE.includes(i.status)) return false;       // 売却済・廃棄は在庫一覧に出さない
+  const done = checkTag(i, idx).kind === 'done';
+  return ui.fScope === 'unchk' ? !done : done;
 }
 
 /* 既定の母集団から外している台数。黙って消さず、その場で出せるようにする */
 function scopeHidden() {
+  const idx = stocktakeIndex();
   return db.items.filter(i => !GONE.includes(i.status)
-    && ['todo', 'missing'].includes(doneCheckKind(i))).length;
+    && checkTag(i, idx).kind !== 'done').length;
+}
+/* いま何を基準にしているか。実施中の棚卸があればそれ、無ければ直近の完了済み */
+function scopeBasis() {
+  if (db.stocktake) return '実施中の棚卸';
+  if (db.stDone) return `直近の棚卸（${db.stDone.st.closed_at ? fmtD(db.stDone.st.closed_at) + '完了' : '完了済み'}）`;
+  return null;
 }
 function scopeBar() {
-  if (!db.stDone) return '';
   const n = scopeHidden();
-  const when = db.stDone.st.closed_at ? fmtD(db.stDone.st.closed_at) : '—';
+  const basis = scopeBasis();
   if (ui.fScope === 'all')
     return `<div class="diffbar on"><span class="ms">visibility</span>
       <div class="bx"><div class="bt">すべて表示中</div>
-        <div class="meta">売却済・廃棄や、直近の棚卸（${esc(when)}完了）で未確認・差異だったものも出しています。</div></div>
-      <button class="btn sm ghost" onclick="setScope('')">現物があるものだけ</button></div>`;
+        <div class="meta">売却済・廃棄や、棚卸で確認できていないものも出しています。</div></div>
+      <button class="btn sm ghost" onclick="setScope('')">棚卸済だけ</button></div>`;
   if (ui.fScope === 'unchk')
     return `<div class="diffbar on"><span class="ms">filter_alt</span>
-      <div class="bx"><div class="bt">棚卸で未確認・差異 ${n}台</div>
-        <div class="meta">直近の棚卸（${esc(when)}完了）で現物を確認できなかったものだけを出しています。</div></div>
-      <button class="btn sm ghost" onclick="setScope('')">現物があるものだけ</button></div>`;
+      <div class="bx"><div class="bt">棚卸で未確認 ${n}台</div>
+        <div class="meta">${esc(basis || '棚卸')}で現物を確認できていないものだけを出しています
+          （未確認・差異と、棚卸のあとに入ってきたもの）。</div></div>
+      <button class="btn sm ghost" onclick="setScope('')">棚卸済だけ</button></div>`;
   if (!n) return '';
   return `<div class="diffbar"><span class="ms">fact_check</span>
     <div class="bx"><div class="bt">棚卸で確認できていない ${n}台を隠しています</div>
-      <div class="meta">在庫一覧は、直近の棚卸（${esc(when)}完了）で現物を確認できたものと、
-        そのあとに入ってきたものを出しています。</div></div>
-    <button class="btn sm" onclick="setScope('unchk')">未確認だけ見る</button>
-    <button class="btn sm ghost" onclick="setScope('all')">すべて表示</button></div>`;
+      <div class="meta">在庫一覧は、${esc(basis || '棚卸')}で<strong>現物を確認できたものだけ</strong>を
+        出しています。棚卸のあとに入ってきたものもここに入ります。</div></div>
+    <button class="btn sm" onclick="setScope('unchk')">棚卸で未確認を見る</button>
+    <button class="btn sm ghost" onclick="setScope('all')">全在庫を見る</button></div>`;
 }
 function setScope(v) { ui.fScope = v || ''; go('list'); }
 
@@ -2813,6 +2848,7 @@ async function doBulk(action) {
   ui.selItems = {};
   ((data && data.ng) || []).forEach(x => { ui.selItems[x.id] = true; });  // 失敗した分は選んだままにする
   await loadAll();
+  await soldChanged();          // まとめて売却したぶんも販売一覧に出す
   render();
   showBulkResult(action, data || {});
 }
@@ -6405,6 +6441,7 @@ async function doSellWarehouse(id) {
   if (k >= 0 && data) db.items[k] = data;
   await refreshTx();
   await refreshStats();
+  await soldChanged();          // 販売一覧の「売れた日時」を取り直す
   render();
   const sold = (data || {}).sold_price;
   openModal('販売済みにしました', `
@@ -7725,6 +7762,7 @@ async function sellItem(id, dest, price, note) {
   const i = db.items.findIndex(x => x.id === id);
   if (i >= 0 && data) db.items[i] = data;
   await refreshTx();
+  await soldChanged();          // 販売一覧の「売れた日時」を取り直す
   render();
   toast(`${id} を売却済にしました${dest ? `（${dest}）` : ''}`);
   warnStillListed([id], '売却済');
@@ -7821,7 +7859,7 @@ async function doSellUndo(id) {
   if (k >= 0 && data) db.items[k] = data;
   await refreshTx();
   await refreshStats();          // 取り消した売却は今月の数字から外れる
-  if (db.soldAt) await loadSoldAt();   // 販売一覧からも外れる
+  await soldChanged();           // 取り消したぶんは販売一覧からも外れる
   render();
   toast(`${id} の販売済みを取り消しました（${(data || {}).status || ''}）`);
 }
@@ -7861,6 +7899,7 @@ function sheetSellQty(code) {
         ok++;
       }
       await refreshTx();
+      await soldChanged();      // 販売一覧の「売れた日時」を取り直す
       render();
       toast(`${ok}台を売却しました（残り ${avail.length - ok}台）`);
       warnStillListed(sold, '売却済');
