@@ -175,6 +175,8 @@ const MENU = [
   ['labels', 'qr_code_2', 'QRラベル', '/labels'],
   ['deals', 'request_quote', '案件', '/deals'],
   ['rental', 'car_rental', '8RENT申込', '/rental-requests'],
+  // SNS投稿準備。管理者だけ（ADMIN_SCREENS にも入れ、/api/sns と RLS でも管理者だけ）
+  ['sns', 'campaign', 'SNS投稿', '/sns', 'admin'],
   // マスター管理・メンバー管理はメニューにも管理者だけ出す（画面側でも権限を見る）
   ['master', 'tune', 'マスター管理', '/masters', 'admin'],
   ['members', 'group', 'メンバー管理', '/members', 'admin']
@@ -218,6 +220,7 @@ const ui = {
   mTab: 'loc',               // マスター管理のタブ（保管場所／カテゴリー）
   quoteId: null,             // いま開いている見積
   contractId: null,          // いま開いている契約
+  snsNo: null,               // いま開いているSNS投稿（投稿No か 'new'）
   fDeal: '',                 // 案件の状態の絞り込み
   sellCh: '',                // 倉庫からの販売で選んでいる販売先
   sellPrice: null            // その販売先の登録価格（サーバーに聞いた1件だけ）
@@ -876,6 +879,7 @@ function parsePath() {
   if (seg[0] === 'locations' && seg[1]) return { screen: 'loc', locId: decodeURIComponent(seg[1]) };
   if (seg[0] === 'quotes' && seg[1]) return { screen: 'quote', quoteId: Number(seg[1]) || null };
   if (seg[0] === 'contracts' && seg[1]) return { screen: 'contract', contractId: Number(seg[1]) || null };
+  if (seg[0] === 'sns') return { screen: 'sns', snsNo: seg[1] === 'new' ? 'new' : (Number(seg[1]) || null) };
   const byPath = { list: 'list', sales: 'sales', in: 'in', out: 'out', loan: 'loan', stock: 'stock', locations: 'locs',
                    masters: 'master', members: 'members', history: 'hist', register: 'reg', labels: 'labels',
                    deals: 'deals', 'rental-requests': 'rental' };
@@ -910,6 +914,7 @@ function pathFor(screen, id) {
   if (screen === 'quote') return BASE + '/quotes/' + encodeURIComponent(id);
   if (screen === 'contract') return BASE + '/contracts/' + encodeURIComponent(id);
   if (screen === 'loc') return BASE + '/locations/' + encodeURIComponent(id);
+  if (screen === 'sns') return BASE + '/sns' + (id ? '/' + encodeURIComponent(id) : '');
   const m = MENU.find(x => x[0] === screen);
   return BASE + (m ? m[3] : '') + (screen === 'list' ? listQuery() : '');
 }
@@ -921,7 +926,8 @@ function go(screen, id) {
   toggleDrawer(false);
   applyRoute({ screen, itemId: screen === 'item' ? id : null, prodId: screen === 'prod' ? id : null,
                locId: screen === 'loc' ? id : null, quoteId: screen === 'quote' ? Number(id) : null,
-               contractId: screen === 'contract' ? Number(id) : null });
+               contractId: screen === 'contract' ? Number(id) : null,
+               snsNo: screen === 'sns' ? (id || null) : null });
   window.scrollTo(0, 0);
 }
 window.addEventListener('popstate', () => route(false));
@@ -931,10 +937,10 @@ window.addEventListener('popstate', () => route(false));
    **データを取りに行く前に見る。** あとから戻すと、管理者向けの画面のデータだけ
    先に取ってしまうため（loadOne より前に guardRoute() を通す）。 */
 const ADMIN_SCREENS = ['reg', 'labels', 'deals', 'rental', 'master', 'members', 'hist',
-                       'prod', 'quote', 'contract'];
+                       'prod', 'quote', 'contract', 'sns'];
 const SCREEN_NAME = { reg: '商品登録', labels: 'QRラベル', deals: '案件', rental: '8RENT申込',
                       master: 'マスター管理', members: 'メンバー管理', hist: '履歴',
-                      prod: '商品詳細', quote: '見積', contract: '契約' };
+                      prod: '商品詳細', quote: '見積', contract: '契約', sns: 'SNS投稿' };
 function guardRoute(r) {
   if (ADMIN_SCREENS.indexOf(r.screen) < 0 || canAdmin()) return r;
   toast(`${SCREEN_NAME[r.screen] || 'この画面'}は管理者だけが使えます`);
@@ -949,6 +955,7 @@ function applyRoute(r) {
   ui.locId = r.locId || null;
   ui.quoteId = r.quoteId || null;
   ui.contractId = r.contractId || null;
+  ui.snsNo = r.snsNo || null;
   if (r.listMode) ui.listMode = r.listMode;
   renderMenu();
   render();
@@ -1077,6 +1084,13 @@ function toggleDrawer(on) {
 }
 
 /* ---------------------------------------------------------------- 描画 */
+/* SNS投稿の画面。zaiko/sns.js が読めていないときは、白い画面にせず理由を出す */
+function snsView() {
+  if (typeof viewSns === 'function') return viewSns();
+  return `<div class="empty">SNS投稿の画面を読み込めませんでした。
+    ページを再読み込みしてください（それでも出ないときは管理者へご連絡ください）。</div>`;
+}
+
 function render() {
   refreshSelBar();
   const v = $('view');
@@ -1086,7 +1100,11 @@ function render() {
     loan: viewLoan, stock: viewStock, locs: viewLocs, loc: viewLoc, master: viewMaster,
     members: viewMembers,
     hist: viewHist, reg: viewReg, labels: viewLabels,
-    deals: viewDeals, rental: viewRentalRequests, quote: viewQuote, contract: viewContract
+    deals: viewDeals, rental: viewRentalRequests, quote: viewQuote, contract: viewContract,
+    /* SNS投稿の画面は別ファイル（zaiko/sns.js）。**読み込めていなくても
+       ほかの画面を止めない**よう、ここでは関数を直接書かずに見てから使う
+       （直接書くと、この表を作るたびに評価されて ReferenceError になる）。 */
+    sns: snsView
   }[ui.screen] || viewDash;
   v.innerHTML = fn();
   if (ui.screen === 'labels') bindLabelPicks();
