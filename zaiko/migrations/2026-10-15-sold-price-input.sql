@@ -22,11 +22,23 @@
 --   どちらも触るのは別の列で、互いの判定を見ない。
 --
 --   このmigrationでやること
---     1) inv_item_sell_channel() を「実売価格を受け取る」4引数へ置き換える
---        （3引数のものは**消す**。呼び出しは画面の1か所だけなので、
---          曖昧なオーバーロードを残さない）
+--     1) inv_item_sell_channel() の「実売価格を受け取る」4引数の形を**足す**
 --     2) 権限
 --     3) 自己点検
+--
+--   ■ 本番を止めずに切り替えるため、3引数の形は**ここでは消さない**
+--     いまの本番コードは3引数を呼んでいる。先に消すと、Vercel の新しいコードが
+--     出るまでの間 QR販売が壊れる。逆にコードだけ先に出すと4引数がまだ無くて壊れる。
+--     そこで、この移行のあいだだけ**2つを共存させる**（引数の数が違うので
+--     曖昧にはならない）。
+--
+--       1. このmigrationを実行（4引数を足す。3引数はそのまま動く）
+--       2. 新しいコードを Production へ出す（4引数を呼ぶ）
+--       3. 本番でQR販売を1件ためして確認する
+--       4. そのあと zaiko/migrations/2026-10-16-drop-sell-channel-3arg.sql で
+--          3引数の形を落とす（cleanup）
+--
+--     どの時点でも、使える形が必ず1つ以上ある。
 --
 --   守るもの（1つも緩めない）
 --     ・inv_can_edit() 必須（admin / member だけ。viewer は不可）
@@ -39,7 +51,7 @@
 
 
 -- ------------------------------------------------------------
--- 1) 実売価格を受け取る形に置き換える
+-- 1) 実売価格を受け取る形を足す
 --
 --    **金額を画面から受け取るので、受け取った値を必ずここで検める。**
 --      ・数値になるか（text ではなく numeric で受ける）
@@ -51,9 +63,10 @@
 --
 --    **マスタへは書き戻さない。** この関数は inventory_channels /
 --    inventory_channel_listings / plan_price を1行も UPDATE しない。
+--
+--    **3引数の形はここでは消さない**（上の切り替え手順を参照）。
+--    引数の数が違うので、2つあっても呼び出しが曖昧になることはない。
 -- ------------------------------------------------------------
-drop function if exists public.inv_item_sell_channel(text, text, text);
-
 create or replace function public.inv_item_sell_channel(
   p_item_id    text,
   p_channel    text,
@@ -118,7 +131,9 @@ begin
   return it;
 end $$;
 
-comment on function public.inv_item_sell_channel is
+/* 3引数の形と共存するあいだは、**引数まで書かないと名前が曖昧**になる
+   （comment on function は同名の関数が2つあると決められない）。 */
+comment on function public.inv_item_sell_channel(text, text, numeric, text) is
   '販売先を選んで1台を売却済にする。**実売価格（p_sold_price）を画面から受け取る。**
    1円以上・1億円未満でなければ通さない。登録価格は履歴に残すためだけに読み、
    出品価格・販売予定価格のマスタ（inventory_channels / inventory_channel_listings /
@@ -130,23 +145,29 @@ comment on function public.inv_item_sell_channel is
 -- ------------------------------------------------------------
 -- 2) 権限
 --
---    3引数のものは消したので、その grant も消える。
---    新しい形へ配り直す（既定では PUBLIC に EXECUTE が付くため）。
+--    足した4引数の形へ配り直す（既定では PUBLIC に EXECUTE が付くため）。
+--    3引数の形の権限はそのまま（切り替えのあいだ本番コードが使う）。
 -- ------------------------------------------------------------
 revoke all on function public.inv_item_sell_channel(text, text, numeric, text) from public, anon, service_role;
 grant execute on function public.inv_item_sell_channel(text, text, numeric, text) to authenticated;
 
 
 -- ------------------------------------------------------------
--- 自己点検（16項目＋件数2行）
+-- 自己点検（17項目＋件数2行）
 -- ------------------------------------------------------------
 select '実売価格を受け取る形になっている' as kind,
        case when to_regprocedure('public.inv_item_sell_channel(text,text,numeric,text)') is not null
             then 'OK' else 'NG' end as result
 union all
-select '古い3引数のものは残っていない（曖昧にしない）',
-       case when to_regprocedure('public.inv_item_sell_channel(text,text,text)') is null
-            then 'OK' else 'NG 残っている' end
+select '3引数の形も残っている（切り替えのあいだ本番コードが使う）',
+       case when to_regprocedure('public.inv_item_sell_channel(text,text,text)') is not null
+            then 'OK いまのコードはこれを呼べる'
+            else 'OK すでに cleanup 済み' end
+union all
+select '2つあっても呼び出しは曖昧にならない（引数の数が違う）',
+       case when (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                   where n.nspname = 'public' and p.proname = 'inv_item_sell_channel') <= 2
+            then 'OK' else 'NG 同じ引数数のものがある' end
 union all
 select '権限は inv_can_edit（admin / member だけ）',
        case when pg_get_functiondef('public.inv_item_sell_channel(text,text,numeric,text)'::regprocedure)

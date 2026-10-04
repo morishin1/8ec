@@ -108,23 +108,29 @@ select pg_temp.say(3, '個体の価格が商品の価格より優先',
   public.inv_item_channel_price('CHK-2', 'rakuten') = 39800,
   public.inv_item_channel_price('CHK-2', 'rakuten')::text || '円');
 
-select pg_temp.say(4, '価格が無ければ売れない',
-  pg_temp.fails($$select public.inv_item_sell_channel('CHK-1','mercari')$$, '%価格が登録されていません%'));
+/* 2026-10-15 以降、実売価格は画面から受け取る（4引数）。
+   登録価格が無くても手で入れれば売れるので、「価格が無ければ売れない」ではなく
+   **空・0円以下では売れない**を見る */
+select pg_temp.say(4, '販売価格が空では売れない',
+  pg_temp.fails($$select public.inv_item_sell_channel('CHK-1','mercari',null::numeric)$$,
+    '%販売価格を入力してください%'));
 
-select pg_temp.say(5, '0円では売れない',
-  pg_temp.fails($$select public.inv_item_sell_channel('CHK-1','yahuoku')$$, '%0円以下%'));
+select pg_temp.say(5, '0円以下では売れない',
+  pg_temp.fails($$select public.inv_item_sell_channel('CHK-1','yahuoku',0::numeric)$$, '%1円以上%')
+  and pg_temp.fails($$select public.inv_item_sell_channel('CHK-1','yahuoku',-1::numeric)$$, '%1円以上%'));
 
 select pg_temp.say(6, '知らない販売先では売れない',
-  pg_temp.fails($$select public.inv_item_sell_channel('CHK-1','notion')$$, '%知らない販売先%')
+  pg_temp.fails($$select public.inv_item_sell_channel('CHK-1','notion',12800::numeric)$$, '%知らない販売先%')
   and pg_temp.fails($$select public.inv_item_channel_price('CHK-1','notion')$$, '%知らない販売先%'));
 
 select pg_temp.say(7, '売り先は決まった6つだけ',
   public.inv_sell_channels() = array['rakuten','amazon','mercari','yahuoku','yahoo_free','other']);
 
 -- 実際に売る（倉庫メンバー）
-select public.inv_item_sell_channel('CHK-1', 'rakuten', '点検');
+-- 登録価格（42,800円）をそのまま実売価格として売る
+select public.inv_item_sell_channel('CHK-1', 'rakuten', 42800::numeric, '点検');
 
-select pg_temp.say(8, 'DBの価格が売価に入る',
+select pg_temp.say(8, '入力した実売価格が売価に入る',
   (select sold_price from public.inventory_items where id = 'CHK-1') = 42800);
 select pg_temp.say(9, '販売先も保存される',
   (select sold_channel from public.inventory_items where id = 'CHK-1') = 'rakuten');
@@ -148,7 +154,8 @@ select pg_temp.login('chk-viewer@example.invalid');   -- 閲覧のみとして
 -- ------------------------------------------------------------
 
 select pg_temp.say(13, '閲覧のみは売れない',
-  pg_temp.fails($$select public.inv_item_sell_channel('CHK-3','rakuten')$$, '%権限がありません%'));
+  pg_temp.fails($$select public.inv_item_sell_channel('CHK-3','rakuten',12800::numeric)$$,
+    '%権限がありません%'));
 select pg_temp.say(14, '閲覧のみは価格も見られない',
   pg_temp.fails($$select public.inv_item_channel_price('CHK-3','rakuten')$$, '%権限がありません%'));
 select pg_temp.say(15, '閲覧のみの試行で状態は変わらない',
@@ -195,7 +202,7 @@ select pg_temp.say(20, '売却の履歴は消えず、売却取消が足され�
 
 -- 取り消したあとに、別の販売先で売り直す
 select pg_temp.login('chk-member@example.invalid');
-select public.inv_item_sell_channel('CHK-1', 'amazon', '点検（再売却）');
+select public.inv_item_sell_channel('CHK-1', 'amazon', 45000::numeric, '点検（再売却）');
 select pg_temp.login('chk-admin@example.invalid');
 
 select pg_temp.say(21, '再売却は新しいほうだけ数える',

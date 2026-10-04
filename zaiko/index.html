@@ -162,6 +162,14 @@ body.drawer-on{overflow:hidden}
 .qrp:hover{background:var(--n100);color:var(--n700)}
 .qrp.on{background:#E8F5E9;color:#1B5E20;border-color:#2E7D32}
 .qrp.on:hover{border-color:#1B5E20}
+
+/* 価格の確認。在庫一覧の既存の「価格」欄の中に出す小さな印で、列は増やさない。
+   色は新しく足さず、すでに使っているもの（確認済み＝Success系、
+   未確認＝棚卸の「未確認」と同じ Warning系）をそのまま使う。 */
+.pchk{display:inline-flex;align-items:center;font-size:10.5px;font-weight:700;
+  padding:1px 6px;border-radius:var(--r2);white-space:nowrap;
+  background:#FFF8E1;color:#8A6D00;border:1px solid #E8A33D}
+.pchk.on{background:#E8F5E9;color:#1B5E20;border-color:#2E7D32}
 /* 管理番号のとなりに置く。列は増やさない */
 .idline{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 /* 棚卸の行では型番のとなり */
@@ -196,6 +204,12 @@ body.drawer-on{overflow:hidden}
 .tag.chk.todo{background:#FFF8E1;color:#8A6D00;border-color:#E8A33D;font-weight:700}
 .tag.chk.miss{background:#FDECEC;color:#B3261E;border-color:#B3261E;font-weight:700}
 .tag.chk.out{background:var(--n100);color:var(--n600);border-color:var(--line)}
+/* SNS投稿（zaiko/sns.js）の状態。.chk はダッシュボードのカードと名前がぶつかるので使わない */
+.snstags{display:inline-flex;gap:5px;flex-wrap:wrap;vertical-align:middle}
+.tag.sns-none{background:var(--n100);color:var(--n600);border:1px dashed var(--line)}
+.tag.sns-todo{background:#FFF8E1;color:#8A6D00;border:1px solid #E8A33D;font-weight:700}
+.tag.sns-on{background:#E8F5E9;color:#1B5E20;border:1px solid #2E7D32;font-weight:700}
+.tag.sns-stale{background:#FDECEC;color:#B3261E;border:1px solid #B3261E;font-weight:700}
 table.t td.ck-col{white-space:nowrap}
 table.t td.ck-col .meta{font-size:11px;margin-top:2px}
 
@@ -564,6 +578,29 @@ table.t tr.clk.on:hover td{background:var(--i200)}
 #selbar .selops{display:flex;gap:8px;flex-wrap:wrap;flex:1;justify-content:center}
 #selbar .selops .btn{white-space:nowrap;min-height:38px;padding:7px 12px;font-size:13px;flex-direction:row}
 #selbar .selops .btn .ms{font-size:17px}
+/* たたみメニュー。バーは画面下に固定なので**上に開く**。
+   色は新しく足さず、既存のボタン・カードのトークンをそのまま使う。 */
+#selbar .selmenu{position:relative;display:inline-flex}
+#selbar .selpop{display:none;position:absolute;bottom:calc(100% + 8px);left:0;z-index:40;
+  min-width:232px;max-width:min(92vw,320px);background:#fff;border:1px solid var(--line);
+  border-radius:var(--r);box-shadow:0 10px 30px rgba(17,17,17,.16);padding:6px}
+#selbar .selmenu.on .selpop{display:block}
+#selbar .selpop .h{font-size:11px;font-weight:700;color:var(--n500);
+  padding:7px 10px 3px;letter-spacing:.02em}
+#selbar .selpop .sep{height:1px;background:var(--rule);margin:5px 0}
+#selbar .selpop .mi{display:flex;align-items:center;gap:9px;width:100%;
+  background:none;border:0;cursor:pointer;text-align:left;
+  font:inherit;font-size:13.5px;color:var(--ink);padding:10px;min-height:44px;
+  border-radius:var(--r2);white-space:nowrap}
+#selbar .selpop .mi:hover:not(:disabled){background:var(--n100)}
+#selbar .selpop .mi .ms{font-size:19px;color:var(--n500);flex:none}
+#selbar .selpop .mi.danger{color:#B3261E}
+#selbar .selpop .mi.danger .ms{color:#B3261E}
+#selbar .selpop .mi.lime{color:#1B5E20}
+#selbar .selpop .mi.lime .ms{color:#1B5E20}
+#selbar .selpop .mi:disabled{color:var(--n400);cursor:not-allowed}
+#selbar .selpop .mi:disabled .ms{color:var(--n400)}
+#selbar .selops .btn .ms.cv{font-size:18px;margin-left:-2px}
 /* バーが出ている間は、最後の行がバーに隠れないように下を空ける */
 body.selbar-on{padding-bottom:104px}
 /* スマホは「件数＋選択解除」で1段、操作ボタンで2段程度に折り返す */
@@ -575,6 +612,9 @@ body.selbar-on{padding-bottom:104px}
   #selbar > .btn.ghost{order:1}
   #selbar .selops{order:2;flex:1 1 100%;justify-content:flex-start;gap:6px}
   #selbar .selops .btn{padding:6px 9px;font-size:12.5px;min-height:36px}
+  /* 390px でも画面からはみ出さない。右端に近いメニューは右揃えにする */
+  #selbar .selpop{min-width:208px;max-width:calc(100vw - 32px)}
+  #selbar .selmenu:last-child .selpop{left:auto;right:0}
   body.selbar-on{padding-bottom:136px}
 }
 
@@ -1026,6 +1066,8 @@ table.t.buy td.pick .why.ng{border-color:#B3261E;color:#B3261E;background:#FDECE
 
 <!-- /zaiko（末尾スラッシュなし）でも読めるよう、パスは絶対で書く -->
 <script src="/assets/csv.js"></script>
+<script src="/assets/sns-master.js"></script>
+<script src="/zaiko/sns.js"></script>
 <script src="/zaiko/app.js"></script>
 </body>
 </html>
