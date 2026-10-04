@@ -196,6 +196,12 @@ body.drawer-on{overflow:hidden}
 .tag.chk.todo{background:#FFF8E1;color:#8A6D00;border-color:#E8A33D;font-weight:700}
 .tag.chk.miss{background:#FDECEC;color:#B3261E;border-color:#B3261E;font-weight:700}
 .tag.chk.out{background:var(--n100);color:var(--n600);border-color:var(--line)}
+/* SNS投稿（zaiko/sns.js）の状態。.chk はダッシュボードのカードと名前がぶつかるので使わない */
+.snstags{display:inline-flex;gap:5px;flex-wrap:wrap;vertical-align:middle}
+.tag.sns-none{background:var(--n100);color:var(--n600);border:1px dashed var(--line)}
+.tag.sns-todo{background:#FFF8E1;color:#8A6D00;border:1px solid #E8A33D;font-weight:700}
+.tag.sns-on{background:#E8F5E9;color:#1B5E20;border:1px solid #2E7D32;font-weight:700}
+.tag.sns-stale{background:#FDECEC;color:#B3261E;border:1px solid #B3261E;font-weight:700}
 table.t td.ck-col{white-space:nowrap}
 table.t td.ck-col .meta{font-size:11px;margin-top:2px}
 
@@ -1017,6 +1023,8 @@ table.t.buy td.pick .why.ng{border-color:#B3261E;color:#B3261E;background:#FDECE
 
 <!-- /zaiko（末尾スラッシュなし）でも読めるよう、パスは絶対で書く -->
 <script src="/assets/csv.js"></script>
+<script src="/assets/sns-master.js"></script>
+<script src="/zaiko/sns.js"></script>
 <script src="/zaiko/app.js"></script>
 </body>
 </html>
