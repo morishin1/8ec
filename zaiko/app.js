@@ -218,6 +218,7 @@ const ui = {
   quoteId: null,             // いま開いている見積
   contractId: null,          // いま開いている契約
   fDeal: '',                 // 案件の状態の絞り込み
+  sellListed: null,          // その販売先の登録価格（入力欄の初期値にするだけ）
   sellCh: '',                // 倉庫からの販売で選んでいる販売先
   sellPrice: null            // その販売先の登録価格（サーバーに聞いた1件だけ）
 };
@@ -6413,34 +6414,64 @@ function sheetSellWarehouse(id) {
       <select class="input" id="sellCh" onchange="pickSellChannel('${esc(id)}')">
         ${SELL_CHANNELS.map(c => `<option value="${c.key}"${
           c.key === ui.sellCh ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></label>
-    <div id="sellPrice" class="sellprice"><span class="meta">価格を調べています…</span></div>
+    <label class="field" style="margin-top:12px"><span>販売価格（今回いくらで売ったか）</span>
+      <div class="yenbox"><input class="input num" type="number" id="sellPrice" inputmode="numeric"
+        min="1" step="1" placeholder="例 12800" autocomplete="off"
+        oninput="sellPriceTyped(true)"><span class="yen">円</span></div></label>
+    <div id="sellHint" class="meta" style="margin-top:6px">価格を調べています…</div>
   `, [['キャンセル', 'closeModal()', 'btn ghost'],
       ['販売済みにする', `doSellWarehouse('${esc(id)}')`, 'btn pri', 'sellGo']]);
-  const go = $('sellGo'); if (go) go.disabled = true;      // 価格が出るまで押せない
+  const go = $('sellGo'); if (go) go.disabled = true;      // 金額が入るまで押せない
   pickSellChannel(id);
 }
 
-/* 販売先を選び直すたびに、**その1件だけ**を聞き直す */
+/* 販売先を選び直すたびに、**その1件だけ**の登録価格を聞き直して
+   入力欄の初期値に入れる。
+   **登録価格は「初期値」でしかない。** そのあと admin / member が直せる。
+   登録が無ければ空欄にして、手で入れてもらう（現場で値段が決まることがある）。
+   直したあと販売先を選び直したときは、入れ直した金額を消さない。 */
 async function pickSellChannel(id) {
-  const box = $('sellPrice'), go = $('sellGo');
+  const box = $('sellHint'), el = $('sellPrice');
   const key = (($('sellCh') || {}).value || '');
-  ui.sellCh = key; ui.sellPrice = null;
-  if (go) go.disabled = true;
-  if (box) box.innerHTML = '<span class="meta">価格を調べています…</span>';
+  const typed = !!(el && el.dataset.typed === '1');
+  ui.sellCh = key;
+  if (box) box.textContent = '登録価格を調べています…';
   const { data, error } = await sb.rpc('inv_item_channel_price', { p_item_id: id, p_channel: key });
   if (key !== (($('sellCh') || {}).value || key)) return;   // 待っている間に選び直されたら捨てる
   const v = error ? null : (data == null ? null : Number(data));
-  if (!sellPriceOk(v)) {
-    ui.sellPrice = null;
-    if (box) box.innerHTML = `<div class="k">販売価格</div><b class="none">未設定</b>
-      <p class="meta" style="margin:8px 0 0">この販売先の価格が登録されていません。
-        管理者に販売価格を設定してもらってください。</p>`;
-    if (go) { go.disabled = true; go.textContent = '販売済みにする'; }
-    return;
+  const listed = sellPriceOk(v) ? v : null;
+  ui.sellListed = listed;
+  if (el && !typed) el.value = listed == null ? '' : String(listed);
+  if (box) {
+    box.textContent = listed == null
+      ? 'この販売先の登録価格はありません。今回の販売価格を入れてください。'
+      : (typed ? `この販売先の登録価格は ${yen(listed)} です。`
+               : `${chanLabel(key)} の登録価格を入れました。違っていれば直してください。`);
   }
-  ui.sellPrice = v;
-  if (box) box.innerHTML = `<div class="k">販売価格</div><b class="num">${yen(v)}</b>`;
-  if (go) { go.disabled = false; go.textContent = `${yen(v)}で販売済みにする`; }
+  sellPriceTyped(false);
+}
+
+/* 入力に合わせてボタンを出し入れする。
+   **1円以上のときだけ押せる。** 文言も入れた金額に連動させる。
+
+   fromUser は「人が打ったか」。**人が打ったときだけ**「手入力した」印を付ける。
+   初期値を入れたときに付けてしまうと、販売先を選び直しても
+   金額が入れ替わらなくなる（人が直した金額を守るための印なので）。 */
+function sellPriceTyped(fromUser) {
+  const el = $('sellPrice'), go = $('sellGo'), box = $('sellHint');
+  const key = (($('sellCh') || {}).value || '');
+  const raw = el ? String(el.value || '').trim() : '';
+  if (el && fromUser) el.dataset.typed = '1';
+  const v = raw === '' ? null : Number(raw);
+  const ok = isChanKey(key) && v != null && Number.isFinite(v) && v >= 1;
+  ui.sellPrice = ok ? Math.round(v) : null;
+  if (go) {
+    go.disabled = !ok;
+    go.textContent = ok ? `${yen(ui.sellPrice)}で販売済みにする` : '販売済みにする';
+  }
+  if (box && raw !== '' && !ok) {
+    box.textContent = '販売価格は1円以上の数字で入れてください。';
+  }
 }
 
 async function doSellWarehouse(id) {
@@ -6449,15 +6480,19 @@ async function doSellWarehouse(id) {
   if (!wareCanSell(it)) { toast(`${it.status} のものは販売済みにできません`); return; }
   const key = (($('sellCh') || {}).value || ui.sellCh || '');
   if (!isChanKey(key)) { toast('販売先を選んでください'); return; }
-  if (!sellPriceOk(ui.sellPrice)) { toast('この販売先の価格が登録されていません'); return; }
+  // 画面でも1円以上を見る。**サーバー側（inv_item_sell_channel）でも同じ判定をする**
+  const price = Number(ui.sellPrice);
+  if (!(Number.isFinite(price) && price >= 1)) { toast('販売価格は1円以上で入れてください'); return; }
   const m = prod(it.product_code);
   const name = m ? titleOf(m) : it.name;
 
-  /* **金額は送らない。** サーバーが item_id × 販売先 から引き直した金額で売る
-     （画面に出ている数字をそのまま信じない）。売却そのものは既存の
-     inv_item_sell → inv_item_op('売却') をそのまま通る。 */
+  /* **今回の実売価格を送る。** 送った金額が inventory_items.sold_price に入る。
+     出品価格・販売予定価格のマスタ（inventory_channels /
+     inventory_channel_listings / plan_price）へは**書き戻さない**
+     （サーバー側もこの関数の中で1行もUPDATEしない）。
+     売却そのものは既存の inv_item_sell → inv_item_op('売却') をそのまま通る。 */
   const { data, error } = await sb.rpc('inv_item_sell_channel',
-    { p_item_id: id, p_channel: key, p_note: null });
+    { p_item_id: id, p_channel: key, p_sold_price: price, p_note: null });
   if (error) { toast(error.message || '記録できませんでした'); return; }
   const k = db.items.findIndex(x => x.id === id);
   if (k >= 0 && data) db.items[k] = data;
