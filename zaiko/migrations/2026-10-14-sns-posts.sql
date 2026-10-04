@@ -206,7 +206,7 @@ grant all on public.ec_sns_posts, public.ec_sns_hashtags, public.ec_sns_generati
 
 
 -- ------------------------------------------------------------
--- 確認（14項目）
+-- 確認（13項目＋件数2行）
 -- ------------------------------------------------------------
 select '表が3つある' as kind,
        case when to_regclass('public.ec_sns_posts') is not null

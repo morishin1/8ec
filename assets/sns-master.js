@@ -91,7 +91,7 @@
   ];
 
   /* ---- CTA（最後にしてほしいこと） ----
-     URL はサーバーが ctaPath() で組み立てる。AIには書かせない。
+     URL はサーバーが ctaPath() で組み立てる。投稿文の中には入れない。
      lead: true のものは /quote へ送るので、どの投稿から来たかが
      inventory_deals.source に残る（from=sns-x-<投稿No>）。 */
   var CTAS = [
@@ -106,7 +106,7 @@
   /* ---- 元コンテンツにできる公開ページ ----
      /api/sns はここにあるパスしか取りに行かない（任意のURLは受け付けない）。
      file は実際に置いてあるファイル（Vercelの書き換えを通さずに読むため）。
-     notReal: true のページは「特定企業の実績ではない」とAIに必ず伝える */
+     notReal: true のページは「特定企業の実績ではない」ので、実績としては使わない */
   var PAGES = [
     { path: '/packs/new-employee-pc',   file: '/packs/new-employee-pc.html',   label: 'パック：新入社員PC' },
     { path: '/packs/short-term-rental', file: '/packs/short-term-rental.html', label: 'パック：短期レンタル' },

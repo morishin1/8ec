@@ -4909,7 +4909,7 @@ Instagram のキャプションはリンクが押せないのでURLは入れま�
 
 ### セットアップ
 
-1. Supabase の SQL Editor で `zaiko/migrations/2026-10-14-sns-posts.sql` を実行（何度実行しても安全。最後に14項目の自己点検が出ます）
+1. Supabase の SQL Editor で `zaiko/migrations/2026-10-14-sns-posts.sql` を実行（何度実行しても安全。最後に13項目の自己点検が出ます）
 2. 続けて `zaiko/check-sns-posts.sql` を流し、「SNS投稿の点検：問題なし」が出ることを確かめる
    （閲覧・anon に下書きが見えないこと、画面から直接書けないこと、トリガーを確かめます。最後に rollback します）
 3. Vercel の再デプロイ（**AI用のキーの登録は要りません**）
