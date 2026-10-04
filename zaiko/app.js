@@ -78,7 +78,8 @@ function priceCell(i) {
   const cost = Number(costOf(i));
   return row('楽天', chPrice(i, 'rakuten'), '楽天での販売価格（出品情報の価格）')
        + row('Amazon', chPrice(i, 'amazon'), 'Amazonでの販売価格（出品情報の価格）')
-       + row('原価', cost > 0 ? cost : null, '仕入価格＋手数料（inventory_items.cost）');
+       + row('原価', cost > 0 ? cost : null, '仕入価格＋手数料（inventory_items.cost）')
+       + priceCheckTag(i);        // 管理者だけ。列は増やさない
 }
 
 const CHANNELS = [
@@ -2210,6 +2211,43 @@ function rentalTag(i) {
     : '<span class="tag rent">対象外</span>';
 }
 
+/* ---- 価格の確認 --------------------------------------------------------------
+   値段を入れる人と、その値段でよいと決める人を分ける。
+   **新しい role も権限種別も承認フローも申請テーブルも作らない。**
+   いまの admin / member をそのまま使う。
+
+     member … 価格の入力も販売価格の計算もできる（これまでどおり）
+     admin  … それに加えて「価格確認済み」にできる
+
+   持つのは price_checked_at / price_checked_by の2列だけ。
+   **価格を変えたら確認は自動で外れ、未確認のものは「出品中」にできない。**
+   どちらもサーバー側のトリガーで効かせている（RPCの中だけだと、
+   画面のコードから直接UPDATEするだけで抜けられてしまうため）。
+
+   **「価格未設定」と「価格未確認」は別のことがら。**
+     価格未設定 … 金額そのものが入っていない（priceCell の「—」）
+     価格未確認 … 金額は入っているが、管理者がまだ「これでよい」と言っていない
+   出品できるかどうかを決めるのは**未確認かどうかだけ**。
+   2つの条件で止めると、どちらで止まったのか分からなくなる。
+
+   **ここは管理者の画面にだけ出る。** 倉庫メンバー・閲覧には
+   price_checked_at / price_checked_by をそもそも渡していない（WARE_ITEM_COLS）。
+   この2つは「いまの在庫状態（inventory_items.status = '出品中'）」の話で、
+   在庫一覧の「出品」列（listingState／出品情報の state）とは別もの。混ぜない。 */
+const priceChecked = (i) => !!(i && i.price_checked_at);
+/* 未確認のまま出品中にはできない。状態を選ぶところで使う */
+const canListItem = (i) => priceChecked(i);
+/* 価格欄に出す小さな印。文字は短く、列は増やさない */
+function priceCheckTag(i) {
+  if (!i || !canAdmin()) return '';
+  const on = priceChecked(i);
+  const t = on
+    ? `価格確認済み　${fmtDT(i.price_checked_at)}${i.price_checked_by ? '　' + i.price_checked_by : ''}`
+    : '価格は未確認です。管理者が確認するまで「出品中」にはできません';
+  return `<div class="pr"><span class="pl">確認</span>` +
+    `<span class="pchk${on ? ' on' : ''}" title="${esc(t)}">${on ? '確認済み' : '未確認'}</span></div>`;
+}
+
 /* ---- QRラベルの印刷状態 ------------------------------------------------------
    **在庫一覧と棚卸は、この1つの関数を通して同じ色を出す。** 別々に判定すると
    「一覧では緑なのに棚卸では灰」というズレが起きるため。
@@ -2610,6 +2648,50 @@ async function markQrPrinted(ids, mode, note) {
   });
   return true;
 }
+/* ---- 価格を確認済みにする・外す（管理者だけ） --------------------------------
+   値段は member が入れる。その値段でよいと決めるのが admin。
+   新しい role も承認フローも作らず、既存の inv_is_admin() を見る。
+   価格そのものはここでは変えない（変えるとトリガーが確認を外してしまう）。 */
+function openPriceCheck(on) {
+  const ids = selItemIds();
+  if (!ids.length) { toast('個体を選んでください'); return; }
+  if (!canAdmin()) { toast('価格を確認できるのは管理者だけです'); return; }
+  const rows = selItemRows();
+  const already = rows.filter(i => priceChecked(i) === on).length;
+  // 「価格未設定」は別のことがら。止めずに注意だけ出す
+  const noPrice = on ? rows.filter(i => planOf(i) == null).length : 0;
+  openModal(on ? '価格を確認済みにしますか' : '価格の確認を外しますか', `
+    <p>選んだ <strong>${ids.length}台</strong> の価格を${on ? '「確認済み」にします' : '「未確認」に戻します'}。</p>
+    ${on && noPrice ? `<div class="card" style="margin-bottom:12px;background:#FFF8E1;border:1px solid #E8A33D">
+      <strong>${noPrice}台は販売予定価格が入っていません。</strong>
+      <span class="meta">値段が決まっていないまま確認済みにすると、そのまま出品できてしまいます。
+        先に［販売価格を計算］で価格を入れることをおすすめします。</span></div>` : ''}
+    <p class="meta">${on
+      ? `確認済みにすると「出品中」にできるようになります。
+         <strong>そのあと価格を変えると、確認は自動で外れます。</strong>`
+      : '未確認に戻すと「出品中」にはできなくなります（すでに出品中のものはそのままです）。'}
+      ${already ? `このうち ${already}台 はすでに${on ? '確認済み' : '未確認'}なので、そのままにします。` : ''}
+      価格そのもの・在庫の状態・在庫数・出品情報は変わりません。履歴には残します。</p>
+  `, [['やめる', 'closeModal()', 'btn ghost'],
+      [on ? '確認済みにする' : '確認を外す',
+       `closeModal();doPriceCheck(${on ? 'true' : 'false'})`, on ? 'btn lime' : 'btn danger']]);
+}
+async function doPriceCheck(on) {
+  const ids = selItemIds();
+  if (!ids.length) return;
+  if (!canAdmin()) { toast('価格を確認できるのは管理者だけです'); return; }
+  const { data, error } = await sb.rpc('inv_price_check_set',
+    { p_item_ids: ids, p_on: !!on, p_note: null });
+  if (error) { toast(error.message || '記録できませんでした'); return; }
+  (data || []).forEach(row => {
+    const k = db.items.findIndex(x => x.id === row.id);
+    if (k >= 0) db.items[k] = row;
+  });
+  await refreshTx();
+  render();
+  toast(`${ids.length}台の価格を${on ? '確認済みにしました' : '未確認に戻しました'}`);
+}
+
 /* すでに現物へQRが貼ってある既存在庫を、印刷済みに合わせる（実際の印刷はしない） */
 function openQrMark(on) {
   const ids = selItemIds();
@@ -2664,6 +2746,55 @@ function refreshSelBar() {
   if (!on) { bar.innerHTML = ''; return; }
   bar.innerHTML = unit ? selBarItems(n) : selBarProds(n);
 }
+/* 選んだ個体が、いまどの操作を受けられるか。
+   **反対の操作を同時に押せる形で並べないため**だけに使う（実際にどれを処理するかは
+   これまでどおり各 openBulk*() が数え直して確認画面に出す）。 */
+function selCaps() {
+  const rows = selItemRows();
+  return {
+    n:         rows.length,
+    priceTodo: rows.filter(i => !priceChecked(i)).length,
+    priceDone: rows.filter(i => priceChecked(i)).length,
+    rentOn:    rows.filter(i => !i.rental_eligible && !GONE.includes(i.status)).length,
+    rentOff:   rows.filter(i => i.rental_eligible).length,
+    qrTodo:    rows.filter(i => !qrPrinted(i)).length,
+    qrDone:    rows.filter(i => qrPrinted(i)).length
+  };
+}
+
+/* ---- バーのたたみメニュー ----
+   バーは画面下に固定なので上に開く。開けるのは1つだけ。
+   中身を押したとき・外を押したとき・Escape で閉じる。 */
+function closeSelMenus() {
+  document.querySelectorAll('#selbar .selmenu.on').forEach(el => {
+    el.classList.remove('on');
+    const btn = el.querySelector('.btn');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  });
+}
+function toggleSelMenu(id) {
+  const el = $(id); if (!el) return;
+  const was = el.classList.contains('on');
+  closeSelMenus();
+  if (was) return;
+  el.classList.add('on');
+  const btn = el.querySelector('.btn');
+  if (btn) btn.setAttribute('aria-expanded', 'true');
+}
+
+/* ---- 画面下の一括操作バー（個体別） ----
+   **常時出すのは5枠まで。** 機能は1つも減らしていない。
+
+   いちばん前に出すのは**倉庫作業でよく使う3つ**で、倉庫メンバーのバーと同じ並び。
+   管理者だけが使うものと、反対の操作（8RENTに出す⇔外す など）はたたむ。
+
+     常時   移動 ／ 棚卸確認 ／ 販売済みにする ／ ［価格］ ／ ［その他］
+     価格   販売価格を計算 ／ 価格を確認済みにする ／ 価格の確認を外す
+     その他 QRラベルを印刷 ／ QR印刷済み・未印刷 ／ 8RENTに出す・外す ／
+            貸出 ／ 売却（金額を入れて） ／ 修理 ／ 廃棄
+
+   呼ぶ関数はこれまでと同じで、権限の判定も canAdmin() / canEdit() のまま。
+   バーそのものが出るのは canEdit() のときだけなので、閲覧のみには何も出ない。 */
 function selBarItems(n) {
   const b = (label, icon, fn, cls) =>
     `<button class="btn sm ${cls || ''}" onclick="${fn}"><span class="ms">${icon}</span>${label}</button>`;
@@ -2677,19 +2808,57 @@ function selBarItems(n) {
       </div>
       <button class="btn sm ghost" onclick="clearItemSel()">選択解除</button>`;
   }
+
+  const c = selCaps();
+  /* メニューの1行。押せないときは理由を title に出す（項目は消さずに残す） */
+  const mi = (label, icon, fn, off, why, cls) =>
+    `<button class="mi${cls ? ' ' + cls : ''}"${off ? ' disabled' : ''}
+       title="${esc(off ? why : label)}"
+       onclick="closeSelMenus();${fn}"><span class="ms">${icon}</span>${label}</button>`;
+  const menu = (id, label, icon, inner) =>
+    `<div class="selmenu" id="${id}">
+       <button class="btn sm" aria-haspopup="true" aria-expanded="false"
+         onclick="event.stopPropagation();toggleSelMenu('${id}')"><span class="ms">${icon}</span>${label}<span
+         class="ms cv">expand_more</span></button>
+       <div class="selpop" onclick="event.stopPropagation()">${inner}</div>
+     </div>`;
+
+  const price = menu('selmPrice', '価格', 'calculate', `
+    ${mi('販売価格を計算', 'calculate', 'openStockPricing()')}
+    <div class="sep"></div>
+    <div class="h">出品の前に</div>
+    ${mi('価格を確認済みにする', 'price_check', 'openPriceCheck(true)',
+         !c.priceTodo, '選んだ個体はすべて価格確認済みです', 'lime')}
+    ${mi('価格の確認を外す', 'money_off', 'openPriceCheck(false)',
+         !c.priceDone, '選んだ中に価格確認済みの個体がありません')}`);
+
+  /* 8RENT はレンタル機能。見出しにブランド名、項目は初見でも分かる言葉で */
+  const more = menu('selmMore', 'その他', 'more_horiz', `
+    <div class="h">QRラベル</div>
+    ${mi('QRラベルを印刷', 'qr_code_2', 'printSelectedLabels()')}
+    ${mi('QR印刷済みにする', 'print', 'openQrMark(true)',
+         !c.qrTodo, '選んだ個体はすべてQR印刷済みです')}
+    ${mi('QR未印刷に戻す', 'print_disabled', 'openQrMark(false)',
+         !c.qrDone, '選んだ中にQR印刷済みの個体がありません')}
+    <div class="h">8RENT（レンタル）</div>
+    ${mi('8RENTに出す', 'devices', 'openBulkRental()',
+         !c.rentOn, '選んだ個体はすべて8RENT対象です（売却済・廃棄は出せません）')}
+    ${mi('8RENTから外す', 'devices_off', 'openBulkRentalOff()',
+         !c.rentOff, '選んだ中に8RENT対象の個体がありません')}
+    <div class="h">在庫操作</div>
+    ${mi('貸出', 'assignment_ind', 'openBulkLoan()')}
+    ${mi('売却（金額を入れて）', 'paid', 'openBulkSell()')}
+    ${mi('修理', 'build', 'openBulkRepair()')}
+    <div class="sep"></div>
+    ${mi('廃棄', 'delete', 'openBulkScrap()', false, '', 'danger')}`);
+
   return `<span class="n"><span class="ms">check_box</span>${n}件選択中</span>
     <div class="selops">
-      ${b('QRラベルを印刷', 'qr_code_2', 'printSelectedLabels()')}
-      ${b('販売価格を計算', 'calculate', 'openStockPricing()')}
-      ${b('8RENTに出す', 'devices', 'openBulkRental()', 'lime')}
-      ${b('8RENTから外す', 'devices_off', 'openBulkRentalOff()')}
-      ${b('貸出', 'assignment_ind', 'openBulkLoan()')}
-      ${b('売却', 'paid', 'openBulkSell()')}
-      ${b('修理', 'build', 'openBulkRepair()')}
-      ${b('棚卸', 'fact_check', 'openBulkCheck()')}
-      ${canAdmin() ? b('QR印刷済みにする', 'print', 'openQrMark(true)') : ''}
-      ${canAdmin() ? b('QR未印刷に戻す', 'print_disabled', 'openQrMark(false)') : ''}
-      ${canAdmin() ? b('廃棄', 'delete', 'openBulkScrap()', 'danger') : ''}
+      ${b('移動', 'move_down', 'openBulkMoveSel()')}
+      ${b('棚卸確認', 'fact_check', 'openBulkCheck()')}
+      ${b('販売済みにする', 'local_shipping', 'openBulkSellWarehouse()', 'lime')}
+      ${price}
+      ${more}
     </div>
     <button class="btn sm ghost" onclick="clearItemSel()">選択解除</button>`;
 }
@@ -11128,12 +11297,24 @@ function sheetMove(id) {
 }
 function sheetStatus(id) {
   const it = item(id); if (!it) return;
+  /* 価格が未確認のものは「出品中」を選べない。サーバー側のトリガーでも弾くが、
+     選んでから断られるより、選べないほうが分かりやすい。
+     すでに出品中のものは、確認が外れていてもそのまま選べる（落とさない）。 */
+  const noList = !canListItem(it) && it.status !== '出品中';
   openSheet({
     title: '状態を変える', subject: id, cta: '変更を記録',
     hint: `いまの状態：${esc(it.status)}`,
     body: `<label class="field"><span>新しい状態</span><select class="input" id="sheetVal">
-      ${['在庫', '出品中', '修理中', '故障', '紛失', '不明'].map(s => `<option${s === it.status ? ' selected' : ''}>${s}</option>`).join('')}
-    </select></label>`,
+      ${['在庫', '出品中', '修理中', '故障', '紛失', '不明'].map(s => {
+        const off = s === '出品中' && noList;
+        return `<option${s === it.status ? ' selected' : ''}${off ? ' disabled' : ''}>${s}${
+          off ? '（価格が未確認）' : ''}</option>`;
+      }).join('')}
+    </select></label>
+    ${noList ? `<p class="meta" style="margin-top:8px">この個体は<strong>価格が未確認</strong>です。
+      出品中にするには、${canAdmin()
+        ? '在庫一覧で選んで［価格］→［価格を確認済みにする］を押してください。'
+        : '管理者に価格を確認してもらってください。'}</p>` : ''}`,
     run: (v) => itemOp(id, '状態変更', v)
   });
 }
@@ -12168,6 +12349,10 @@ async function doRentalAllocate(id) {
    別のタブから戻ってきたときに読み直す。入力中（シートが開いている）ときと、
    読んだ直後は動かさない。 */
 let lastLoadAt = Date.now();
+/* 一括操作バーのメニューは、外を押したら閉じる
+   （開くボタンとメニューの中は stopPropagation しているので、ここへは来ない） */
+document.addEventListener('click', () => closeSelMenus());
+
 document.addEventListener('visibilitychange', async () => {
   if (document.hidden || sheetState || scan.on) return;
   if (Date.now() - lastLoadAt < 20000) return;
@@ -12178,6 +12363,7 @@ document.addEventListener('visibilitychange', async () => {
 /* Escapeで、開いているものを手前から順に閉じる */
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
+  if (document.querySelector('#selbar .selmenu.on')) { closeSelMenus(); return; }
   if ($('modal').classList.contains('on')) { closeModal(); return; }
   if ($('sheet').classList.contains('on')) { closeSheet(); return; }
   if (scan.on) closeScan();
