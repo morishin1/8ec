@@ -12694,6 +12694,122 @@ revoke all on function public.inv_item_sell_channel(text, text, numeric, text) f
 grant execute on function public.inv_item_sell_channel(text, text, numeric, text) to authenticated;
 
 
+-- 69) 売ったあとでも「実売価格・販売先」を直せるようにする
+--
+--     売ったあとに金額や販売先の間違いに気づいたとき、売却を取り消して
+--     売り直すのは重たいので、販売実績だけを直せるようにする。
+--       /zaiko/sales の ［販売情報を修正］
+--
+--     **直すのは sold_price と sold_channel の2つだけ。**
+--     在庫状態（status）・利用者・貸出日は動かさない（売却済のまま）。
+--     出品価格・販売予定価格のマスタへも1行も書き戻さない。
+--     売却の履歴（action='売却'）は1行も消さない・書き換えない。
+--
+--     66) の「価格の確認」とは別のことがら。**価格が未確認でも直せる。**
+--     月次の売上・粗利は inv_dashboard_stats が inventory_items.sold_price を
+--     そのまま読むので、直した時点で最新の金額になる。
+-- ============================================================
+create or replace function public.inv_item_sale_edit(
+  p_item_id    text,
+  p_sold_price numeric,
+  p_channel    text,
+  p_note       text default null
+) returns public.inventory_items
+language plpgsql security invoker set search_path = public as $$
+declare
+  it      public.inventory_items;
+  v_who   text := public.inv_actor();
+  v_price numeric;
+  v_ch    text;
+  fmt     text := 'FM9,999,999,999';
+  v_label text;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+
+  if p_sold_price is null then
+    raise exception '実売価格を入力してください';
+  end if;
+  if p_sold_price <= 0 then
+    raise exception '実売価格は1円以上で入力してください';
+  end if;
+  if p_sold_price >= 100000000 then
+    raise exception '実売価格が大きすぎます。桁を確かめてください（%円）',
+      to_char(p_sold_price, fmt);
+  end if;
+  if coalesce(btrim(p_channel), '') = '' then
+    raise exception '販売先を選んでください';
+  end if;
+  if not (p_channel = any (public.inv_sell_channels())) then
+    raise exception '知らない販売先です（%）', p_channel;
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+  -- **在庫状態は動かさない。** 売却済のものだけ直せる
+  if it.status <> '売却済' then
+    raise exception '販売情報を直せるのは「売却済」のものだけです（いまは %）', it.status;
+  end if;
+
+  v_price := it.sold_price;
+  v_ch    := it.sold_channel;
+  v_label := it.name;
+
+  -- 何も変わらないなら、書き込みも履歴もしない
+  if v_price is not distinct from p_sold_price
+     and v_ch is not distinct from p_channel then
+    return it;
+  end if;
+
+  /* **直すのは2列だけ。** status / user_name / loaned_at は触らない。
+     出品価格・販売予定価格のマスタへも1行も書き戻さない。 */
+  update public.inventory_items
+     set sold_price   = p_sold_price,
+         sold_channel = p_channel
+   where id = p_item_id
+  returning * into it;
+
+  if v_price is distinct from p_sold_price then
+    insert into public.inventory_transactions
+      (actor, ref_kind, ref_id, label, action, before_value, after_value)
+    values (v_who, 'item', p_item_id, v_label, '販売情報修正',
+            coalesce(to_char(v_price, fmt) || '円', '未登録'),
+            to_char(p_sold_price, fmt) || '円'
+            || coalesce('／' || nullif(btrim(coalesce(p_note, '')), ''), ''));
+  end if;
+
+  if v_ch is distinct from p_channel then
+    insert into public.inventory_transactions
+      (actor, ref_kind, ref_id, label, action, before_value, after_value)
+    values (v_who, 'item', p_item_id, v_label, '販売先修正',
+            coalesce(v_ch, '未登録'),
+            p_channel
+            || coalesce('／' || nullif(btrim(coalesce(p_note, '')), ''), ''));
+  end if;
+
+  return it;
+end $$;
+
+comment on function public.inv_item_sale_edit is
+  '売ったあとで、販売実績の 実売価格（sold_price）と 販売先（sold_channel）だけを直す。
+   直せるのは「売却済」のものだけで、**在庫状態（status）は動かさない**。
+   出品価格・販売予定価格のマスタ（inventory_channels / inventory_channel_listings /
+   plan_price）へは1行も書き戻さない。1円以上・1億円未満でなければ通さず、
+   販売先は inv_sell_channels() の中だけ。admin / member だけ（viewer は不可）。
+   変わったものだけ履歴（販売情報修正 / 販売先修正）に追記し、
+   既存の「売却」履歴は1行も消さない。価格の確認（price_checked_at）とは無関係。';
+
+
+-- ------------------------------------------------------------
+-- 2) 権限
+-- ------------------------------------------------------------
+revoke all on function public.inv_item_sale_edit(text, numeric, text, text) from public, anon, service_role;
+grant execute on function public.inv_item_sale_edit(text, numeric, text, text) to authenticated;
+
+
 -- ============================================================
 -- 確認：作られた表と関数
 -- ============================================================

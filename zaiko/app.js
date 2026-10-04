@@ -224,7 +224,8 @@ const ui = {
   fDeal: '',                 // 案件の状態の絞り込み
   sellListed: null,          // その販売先の登録価格（入力欄の初期値にするだけ）
   sellCh: '',                // 倉庫からの販売で選んでいる販売先
-  sellPrice: null            // その販売先の登録価格（サーバーに聞いた1件だけ）
+  sellPrice: null,           // いま入力されている実売価格（1円以上のときだけ入る）
+  saleEdit: null             // 販売情報の修正（{ id, price, ch }）
 };
 
 /* 仕入の置き場所はたいてい柏の倉庫なので、取込の初期値にする。
@@ -1533,9 +1534,10 @@ function onSalesFilter() {
   const b = $('salesBody'); if (b) b.innerHTML = salesBodyHtml();
 }
 
-/*            管理番号 型番  販売日時 販売先 価格  操作 */
-const SALE_COLS      = ['22%', '18%', '14%', '10%', '20%', '16%'];
-const SALE_COLS_WARE = ['28%', '24%', '18%', '12%', '18%'];
+/*            管理番号 型番  販売日時 販売先 価格  操作
+   操作は［販売情報を修正］［販売済みを取消］の2つが入るので広めに取る */
+const SALE_COLS      = ['20%', '16%', '13%', '10%', '18%', '23%'];
+const SALE_COLS_WARE = ['24%', '21%', '17%', '11%', '27%'];
 
 function salesBodyHtml() {
   const full = canAdmin();            // 実売価格・原価・粗利を出すのは管理者だけ
@@ -1586,10 +1588,15 @@ function salesBodyHtml() {
           ${pr('実売', r.price, '実際に売れた価格（inventory_items.sold_price）')}
           ${pr('原価', r.cost, '仕入価格＋手数料（inventory_items.cost）')}
           ${pr('粗利', r.gain, '実売価格 − 原価')}</td>` : ''}
-        <td class="col-ops nowrap" data-label="操作" onclick="event.stopPropagation()">
-          <button class="btn sm" onclick="sheetSellUndo('${esc(i.id)}')" ${dis()}
-            title="${canEdit() ? '違う個体を売却済にしてしまったときに、売却前の状態へ戻します'
-                               : '閲覧権限では操作できません'}">販売済みを取消</button></td>
+        <td class="col-ops" data-label="操作" onclick="event.stopPropagation()">
+          <div class="opsw">
+            <button class="btn sm saleedit" onclick="sheetSaleEdit('${esc(i.id)}')" ${dis()}
+              title="${canEdit() ? '実売価格と販売先だけを直します。在庫の状態や出品価格は変わりません'
+                                 : '閲覧権限では操作できません'}">販売情報を修正</button>
+            <button class="btn sm" onclick="sheetSellUndo('${esc(i.id)}')" ${dis()}
+              title="${canEdit() ? '違う個体を売却済にしてしまったときに、売却前の状態へ戻します'
+                                 : '閲覧権限では操作できません'}">販売済みを取消</button>
+          </div></td>
       </tr>`;
     }).join('')}</tbody></table></div>
     ${rows.length > 600 ? '<div class="meta" style="margin-top:8px">先頭600件だけ表示しています。絞り込んでください。</div>' : ''}`;
@@ -1605,7 +1612,8 @@ function viewSales() {
     <h1>販売一覧</h1>
     <p class="meta" style="margin:15px 0 4px"><strong>すでに売れて在庫から出たもの</strong>を出しています。
       いま手元にあるものは<a href="#" onclick="event.preventDefault();go('list')">在庫一覧</a>で見てください。${
-      canAdmin() ? '' : '　<strong>金額（実売価格・原価・粗利）は管理者だけが見られます。</strong>'}</p>
+      canAdmin() ? '' : '　<strong>一覧の金額（原価・粗利）は管理者だけが見られます。</strong>'
+      + '　今回いくらで売ったか（実売価格）は［販売情報を修正］から直せます。'}</p>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:4px">
       <input class="input" id="f-sq" value="${esc(ui.sq)}" oninput="onSalesFilter()"
              placeholder="管理番号・商品名・型番…">
@@ -6699,6 +6707,147 @@ async function doSellWarehouse(id) {
     <p class="meta" style="margin-top:12px">続けて出荷するときは［次のQRを読む］を押してください。</p>
   `, [['在庫一覧へ', "closeModal();go('list')", 'btn ghost'],
       ['次のQRを読む', "closeModal();openScan('lookup')", 'btn pri']]);
+}
+
+/* ---- 販売情報の修正（実売価格・販売先） -----------------------------------
+   売ったあとに「金額を打ち間違えた」「ほんとうは別の販売先だった」は必ず出る。
+   直せるのは **販売実績の2つだけ**。
+
+     inventory_items.sold_price   … 今回いくらで売ったか（実売価格）
+     inventory_items.sold_channel … どこで売ったか
+
+   直さないもの（サーバー側の inv_item_sale_edit も1行もUPDATEしない）：
+     在庫の状態（status）                      … 売却済のまま。戻すのは［販売済みを取消］
+     inventory_channels.price                  … 個体の出品価格（マスタ）
+     inventory_channel_listings.price          … 商品の出品価格（マスタ）
+     inventory_items.plan_price                … 販売予定価格
+
+   #55 の「価格の確認」は**出品価格**を確認する機能なので別物。
+   価格が未確認のものでも、実売価格はここで直せる（price_checked_* も動かさない）。
+
+   直した分は履歴（inventory_transactions）に
+   「販売情報修正｜12,800円 → 12,000円」「販売先修正｜楽天 → Amazon」として残り、
+   月次売上・粗利（inv_dashboard_stats）も直したあとの金額で出る。
+
+   使えるのは admin と member（inv_can_edit）。閲覧（viewer）は押せない。 */
+function sheetSaleEdit(id) {
+  const it = item(id); if (!it) return;
+  if (!canEdit()) { toast('操作する権限がありません（閲覧のみ）'); return; }
+  if (it.status !== '売却済') {
+    toast(`販売情報を直せるのは「売却済」のものだけです（いまは ${it.status}）`); return;
+  }
+  const m = prod(it.product_code);
+  const ch = isChanKey(it.sold_channel) ? it.sold_channel : SELL_CHANNELS[0].key;
+  ui.saleEdit = { id, price: null, ch };
+  openModal('販売情報を修正', `
+    <p style="font-size:17px;font-weight:700;margin:0 0 10px">${esc(m ? titleOf(m) : it.name)}</p>
+    <div class="winfo">
+      <div class="wrow"><span class="k">管理番号</span><b class="num">${esc(it.id)}</b></div>
+      <div class="wrow"><span class="k">販売日時</span><b>${
+        esc(fmtDT((db.soldAt || {})[it.id] || ''))}</b></div>
+    </div>
+    <label class="field" style="margin-top:14px"><span>販売先</span>
+      <select class="input" id="saleEditCh" onchange="saleEditTyped()">
+        ${SELL_CHANNELS.map(c => `<option value="${c.key}"${
+          c.key === ch ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></label>
+    <label class="field" style="margin-top:12px"><span>実売価格（今回いくらで売ったか）</span>
+      <div class="yenbox"><input class="input num" type="number" id="saleEditPrice" inputmode="numeric"
+        min="1" step="1" placeholder="例 12800" autocomplete="off"
+        oninput="saleEditTyped()"><span class="yen">円</span></div></label>
+    <div id="saleEditHint" class="meta" style="margin-top:6px">いまの金額を調べています…</div>
+    <p class="meta" style="margin-top:12px">直すのは<strong>この販売の実売価格と販売先だけ</strong>です。
+      在庫の状態は売却済のまま、楽天・Amazonなどの<strong>出品価格（登録価格）は変わりません</strong>。</p>
+  `, [['キャンセル', 'closeModal()', 'btn ghost'],
+      ['この内容で直す', `doSaleEdit('${esc(id)}')`, 'btn pri', 'saleGo']]);
+  const go = $('saleGo'); if (go) go.disabled = true;     // 金額が入るまで押せない
+  fillSaleEdit(id);
+}
+
+/* いまの実売価格を入力欄の初期値に入れる。
+   倉庫メンバーの画面は一覧に金額を持っていない（#47 の最小化）ので、
+   **いま直すこの1台ぶんだけ**、実売価格と販売先を聞く。
+   原価・仕入価格・粗利・他販売先の価格はここでも聞かない。 */
+async function fillSaleEdit(id) {
+  const box = $('saleEditHint');
+  const it = item(id) || {};
+  let v = it.sold_price, ch = it.sold_channel;
+  if (v === undefined) {
+    const { data, error } = await sb.from('inventory_items')
+      .select('sold_price,sold_channel').eq('id', id).maybeSingle();
+    if (error) {
+      if (box) box.textContent = 'いまの金額が読めませんでした。今回の実売価格を入れてください。';
+      saleEditTyped(); return;
+    }
+    v = (data || {}).sold_price; ch = (data || {}).sold_channel;
+  }
+  if (!ui.saleEdit || ui.saleEdit.id !== id) return;       // 待っている間に閉じられたら捨てる
+  const now = (v == null || v === '') ? null : Number(v);
+  const el = $('saleEditPrice');
+  if (el && el.dataset.typed !== '1') el.value = now == null ? '' : String(Math.round(now));
+  const sel = $('saleEditCh');
+  if (sel && isChanKey(ch)) { sel.value = ch; ui.saleEdit.ch = ch; }
+  if (box) {
+    box.textContent = now == null
+      ? 'いまは実売価格が入っていません。今回いくらで売ったかを入れてください。'
+      : `いまの実売価格は ${yen(now)} です。違っていれば直してください。`;
+  }
+  saleEditTyped();
+}
+
+/* 1円以上のときだけ押せる。文言も入れた金額に連動させる。
+   販売先を選び直しても金額は消さない（マスタの価格を引き直さないので、
+   ここで入れた「今回いくらで売ったか」が消えると困る）。 */
+function saleEditTyped() {
+  const el = $('saleEditPrice'), go = $('saleGo'), box = $('saleEditHint');
+  const key = (($('saleEditCh') || {}).value || '');
+  const raw = el ? String(el.value || '').trim() : '';
+  if (el && document.activeElement === el) el.dataset.typed = '1';
+  const v = raw === '' ? null : Number(raw);
+  const ok = isChanKey(key) && v != null && Number.isFinite(v) && v >= 1;
+  ui.saleEdit = Object.assign(ui.saleEdit || {}, { price: ok ? Math.round(v) : null, ch: key });
+  if (go) {
+    go.disabled = !ok;
+    go.textContent = ok ? `${yen(ui.saleEdit.price)}に直す` : 'この内容で直す';
+  }
+  if (box && raw !== '' && !ok) {
+    box.textContent = '実売価格は1円以上の数字で入れてください。';
+  }
+}
+
+async function doSaleEdit(id) {
+  const it = item(id); if (!it) return;
+  if (!canEdit()) { toast('操作する権限がありません（閲覧のみ）'); return; }
+  if (it.status !== '売却済') {
+    toast(`販売情報を直せるのは「売却済」のものだけです（いまは ${it.status}）`); return;
+  }
+  const key = (($('saleEditCh') || {}).value || (ui.saleEdit || {}).ch || '');
+  if (!isChanKey(key)) { toast('販売先を選んでください'); return; }
+  const price = Number((ui.saleEdit || {}).price);
+  if (!(Number.isFinite(price) && price >= 1)) { toast('実売価格は1円以上で入れてください'); return; }
+
+  /* 直すのは販売実績だけ。出品価格のマスタ（inventory_channels /
+     inventory_channel_listings / plan_price）へは書き戻さない。
+     在庫の状態も動かさない（サーバー側の inv_item_sale_edit も同じ）。 */
+  const { data, error } = await sb.rpc('inv_item_sale_edit',
+    { p_item_id: id, p_sold_price: price, p_channel: key, p_note: null });
+  if (error) { toast(error.message || '直せませんでした'); return; }
+  const k = db.items.findIndex(x => x.id === id);
+  if (k >= 0 && data) {
+    /* 倉庫メンバーの画面には原価・仕入価格を持ち込まない（#47 の最小化）。
+       直った2つだけを入れ替える。 */
+    if (canAdmin()) db.items[k] = data;
+    else {
+      db.items[k].sold_price = data.sold_price;
+      db.items[k].sold_channel = data.sold_channel;
+    }
+  }
+  ui.saleEdit = null;
+  closeModal();
+  await refreshTx();            // 履歴（販売情報修正・販売先修正）を取り直す
+  await refreshStats();         // 月次売上・粗利は直したあとの金額で出す
+  await soldChanged();          // 販売一覧の販売先・金額を描き直す
+  render();
+  toast(`販売情報を直しました（${chanLabel(key)}／${yen(price)}）`);
 }
 
 /* ---- 個体詳細の［編集］ ----------------------------------------------------

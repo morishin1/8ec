@@ -398,6 +398,9 @@ table.t tr.clk:hover td{background:var(--n100)}
 .yenbox .input::-webkit-outer-spin-button,
 .yenbox .input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .yenbox .input[type=number]{-moz-appearance:textfield}
+/* 販売一覧の操作列。［販売情報を修正］［販売済みを取消］が2つ並ぶので折り返す */
+.opsw{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.opsw .btn.sm{white-space:nowrap}
 .sellprice .k{font-size:13px;color:var(--n600);margin-bottom:4px}
 .sellprice b.num{font-size:28px;font-weight:700;letter-spacing:-.01em;display:block}
 .sellprice b.none{font-size:20px;font-weight:700;color:var(--n600);display:block}
