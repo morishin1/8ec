@@ -389,6 +389,18 @@ table.t tr.clk:hover td{background:var(--n100)}
    原価・利益・ほかの販売先の価格は出さない。 */
 .sellprice{margin-top:14px;padding:14px;border:1px solid var(--line);border-radius:10px;
   background:var(--n100)}
+/* QR販売の価格入力。「円」を欄の中に置く（数字だけ打てば済むように） */
+.yenbox{position:relative;display:block}
+.yenbox .input{padding-right:38px;text-align:right;font-size:17px;min-height:48px}
+.yenbox .yen{position:absolute;right:12px;top:50%;transform:translateY(-50%);
+  font-size:14px;color:var(--n600);pointer-events:none}
+/* 数字だけ入れる欄なので、増減の矢印は出さない（誤操作を減らす） */
+.yenbox .input::-webkit-outer-spin-button,
+.yenbox .input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.yenbox .input[type=number]{-moz-appearance:textfield}
+/* 販売一覧の操作列。［販売情報を修正］［販売済みを取消］が2つ並ぶので折り返す */
+.opsw{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.opsw .btn.sm{white-space:nowrap}
 .sellprice .k{font-size:13px;color:var(--n600);margin-bottom:4px}
 .sellprice b.num{font-size:28px;font-weight:700;letter-spacing:-.01em;display:block}
 .sellprice b.none{font-size:20px;font-weight:700;color:var(--n600);display:block}
