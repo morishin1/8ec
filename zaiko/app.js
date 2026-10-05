@@ -2247,30 +2247,30 @@ function rentalTag(i) {
      admin  … それに加えて「価格確認済み」にできる
 
    持つのは price_checked_at / price_checked_by の2列だけ。
-   **価格を変えたら確認は自動で外れ、未確認のものは「出品中」にできない。**
-   どちらもサーバー側のトリガーで効かせている（RPCの中だけだと、
-   画面のコードから直接UPDATEするだけで抜けられてしまうため）。
+   **価格を変えたら確認は自動で外れる。** サーバー側のトリガーで効かせている
+   （RPCの中だけだと、画面のコードから直接UPDATEするだけで抜けられてしまうため）。
+
+   **在庫状態を変えるための条件ではない（2026-10-17 で外した）。**
+   「出品中」は棚と作業の実態を表すただの在庫状態で、
+   外部モールへ掲載する操作ではない。だから価格が未設定でも未確認でも、
+   状態は現場の実態どおりに変えられる。確認は**管理上の印**として残す。
 
    **「価格未設定」と「価格未確認」は別のことがら。**
      価格未設定 … 金額そのものが入っていない（priceCell の「—」）
      価格未確認 … 金額は入っているが、管理者がまだ「これでよい」と言っていない
-   出品できるかどうかを決めるのは**未確認かどうかだけ**。
-   2つの条件で止めると、どちらで止まったのか分からなくなる。
 
    **ここは管理者の画面にだけ出る。** 倉庫メンバー・閲覧には
    price_checked_at / price_checked_by をそもそも渡していない（WARE_ITEM_COLS）。
-   この2つは「いまの在庫状態（inventory_items.status = '出品中'）」の話で、
-   在庫一覧の「出品」列（listingState／出品情報の state）とは別もの。混ぜない。 */
+   これは「いまの在庫状態（inventory_items.status = '出品中'）」とも、
+   在庫一覧の「出品」列（listingState／出品情報の state）とも別もの。混ぜない。 */
 const priceChecked = (i) => !!(i && i.price_checked_at);
-/* 未確認のまま出品中にはできない。状態を選ぶところで使う */
-const canListItem = (i) => priceChecked(i);
 /* 価格欄に出す小さな印。文字は短く、列は増やさない */
 function priceCheckTag(i) {
   if (!i || !canAdmin()) return '';
   const on = priceChecked(i);
   const t = on
     ? `価格確認済み　${fmtDT(i.price_checked_at)}${i.price_checked_by ? '　' + i.price_checked_by : ''}`
-    : '価格は未確認です。管理者が確認するまで「出品中」にはできません';
+    : '価格はまだ確認していません（管理上の印です。出品中にするための条件ではありません）';
   return `<div class="pr"><span class="pl">確認</span>` +
     `<span class="pchk${on ? ' on' : ''}" title="${esc(t)}">${on ? '確認済み' : '未確認'}</span></div>`;
 }
@@ -2678,7 +2678,9 @@ async function markQrPrinted(ids, mode, note) {
 /* ---- 価格を確認済みにする・外す（管理者だけ） --------------------------------
    値段は member が入れる。その値段でよいと決めるのが admin。
    新しい role も承認フローも作らず、既存の inv_is_admin() を見る。
-   価格そのものはここでは変えない（変えるとトリガーが確認を外してしまう）。 */
+   価格そのものはここでは変えない（変えるとトリガーが確認を外してしまう）。
+   **これは管理上の印で、在庫状態（出品中など）を変える条件ではない**
+   （2026-10-17 でその制限を外した）。 */
 function openPriceCheck(on) {
   const ids = selItemIds();
   if (!ids.length) { toast('個体を選んでください'); return; }
@@ -2691,12 +2693,12 @@ function openPriceCheck(on) {
     <p>選んだ <strong>${ids.length}台</strong> の価格を${on ? '「確認済み」にします' : '「未確認」に戻します'}。</p>
     ${on && noPrice ? `<div class="card" style="margin-bottom:12px;background:#FFF8E1;border:1px solid #E8A33D">
       <strong>${noPrice}台は販売予定価格が入っていません。</strong>
-      <span class="meta">値段が決まっていないまま確認済みにすると、そのまま出品できてしまいます。
-        先に［販売価格を計算］で価格を入れることをおすすめします。</span></div>` : ''}
+      <span class="meta">値段が決まっていないまま「確認済み」にすると、
+        確認した意味がなくなります。先に［販売価格を計算］で価格を入れることをおすすめします。</span></div>` : ''}
     <p class="meta">${on
-      ? `確認済みにすると「出品中」にできるようになります。
+      ? `この価格でよい、という管理上の印を付けます。
          <strong>そのあと価格を変えると、確認は自動で外れます。</strong>`
-      : '未確認に戻すと「出品中」にはできなくなります（すでに出品中のものはそのままです）。'}
+      : '「未確認」に戻します。在庫状態（出品中など）は変わりません。'}
       ${already ? `このうち ${already}台 はすでに${on ? '確認済み' : '未確認'}なので、そのままにします。` : ''}
       価格そのもの・在庫の状態・在庫数・出品情報は変わりません。履歴には残します。</p>
   `, [['やめる', 'closeModal()', 'btn ghost'],
@@ -11497,26 +11499,19 @@ function sheetMove(id) {
     run: (v) => itemOp(id, '移動', v)
   });
 }
+/* 状態はどれでも選べる。
+   **価格の確認（#55）はここの条件にしない（2026-10-17 で外した）。**
+   「出品中」は棚と作業の実態を表す在庫状態で、外部モールへ掲載する操作ではない。
+   価格が未設定でも未確認でも、現場の実態どおりに変えられる。 */
 function sheetStatus(id) {
   const it = item(id); if (!it) return;
-  /* 価格が未確認のものは「出品中」を選べない。サーバー側のトリガーでも弾くが、
-     選んでから断られるより、選べないほうが分かりやすい。
-     すでに出品中のものは、確認が外れていてもそのまま選べる（落とさない）。 */
-  const noList = !canListItem(it) && it.status !== '出品中';
   openSheet({
     title: '状態を変える', subject: id, cta: '変更を記録',
     hint: `いまの状態：${esc(it.status)}`,
     body: `<label class="field"><span>新しい状態</span><select class="input" id="sheetVal">
-      ${['在庫', '出品中', '修理中', '故障', '紛失', '不明'].map(s => {
-        const off = s === '出品中' && noList;
-        return `<option${s === it.status ? ' selected' : ''}${off ? ' disabled' : ''}>${s}${
-          off ? '（価格が未確認）' : ''}</option>`;
-      }).join('')}
-    </select></label>
-    ${noList ? `<p class="meta" style="margin-top:8px">この個体は<strong>価格が未確認</strong>です。
-      出品中にするには、${canAdmin()
-        ? '在庫一覧で選んで［価格］→［価格を確認済みにする］を押してください。'
-        : '管理者に価格を確認してもらってください。'}</p>` : ''}`,
+      ${['在庫', '出品中', '修理中', '故障', '紛失', '不明'].map(s =>
+        `<option${s === it.status ? ' selected' : ''}>${s}</option>`).join('')}
+    </select></label>`,
     run: (v) => itemOp(id, '状態変更', v)
   });
 }
