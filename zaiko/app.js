@@ -204,6 +204,7 @@ const ui = {
   q: '', fCat: '', fMaker: '', fLoc: '', fStock: '',
   fAction: '', hq: '', regKind: 'ind', made: null, tab: 'info',
   drafts: {}, labelSel: {}, stScope: '', loaded: false, sel: {}, selItems: {}, fBatch: null, doneBatch: null,
+  locScoped: false,          // 初期表示を柏倉庫にしたか（1回だけ入れる印）
   // QRラベル画面へ渡した個体（{label, ids}）。上の「対象／未印刷／印刷済み」を数えるのに使う
   labelScope: null,
   // 一覧のタブ。individual / model のほかに、販売サイトのキーと 'none'（未出品）を取る
@@ -241,6 +242,21 @@ function defaultImportLoc() {
   return (room || site || {}).id || '';
 }
 
+/* 一覧と棚卸の**開いた瞬間**は柏倉庫のぶんだけを出す。
+   現物を扱うのはほぼ柏倉庫なので、件数も柏倉庫のものが出ているほうが実態に合う。
+   ほかの拠点が見えなくなるわけではない（保管場所で「全保管場所」／棚卸で「すべて」）。
+
+   柏倉庫のIDは db.locs を読むまで分からないので、読み込んだあとに入れる。
+   **1回だけ**なのが大事で、人が「全保管場所」に変えたあと読み直すたびに
+   柏倉庫へ戻ると操作を奪ってしまう。柏倉庫がまだ無い環境では何もしない。 */
+function applyDefaultLocScope() {
+  if (ui.locScoped) return;
+  const id = defaultImportLoc();      // 「柏倉庫」。無ければ 柏 / 倉庫
+  if (!id) return;
+  ui.locScoped = true;
+  if (!ui.fLoc) ui.fLoc = id;         // 在庫一覧の保管場所
+  if (!ui.stScope) ui.stScope = id;   // 棚卸の範囲
+}
 /* ---------------------------------------------------------------- 小道具 */
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -759,6 +775,7 @@ async function loadAll() {
 
   db.cats = c.data || [];
   db.locs = l.data || [];
+  applyDefaultLocScope();        // 開いた瞬間は柏倉庫だけ（1回だけ）
   db.items = (i.data || []).sort((a, b) => a.id.localeCompare(b.id, 'ja'));
   db.masters = (p.data || []).sort((a, b) => titleOf(a).localeCompare(titleOf(b), 'ja'));
   // 商品まるごとの出品情報（inventory_channel_listings）を、既存の個体別
@@ -1001,6 +1018,7 @@ async function loadOne(r) {
     sb.from('inventory_categories').select('*').order('sort_no')
   ]);
   db.locs = l.data || []; db.cats = c.data || [];
+  applyDefaultLocScope();        // 開いた瞬間は柏倉庫だけ（1回だけ）
 
   if (r.screen === 'item') {
     db.items = [res.data];
@@ -2111,7 +2129,11 @@ function unitsBodyHtml() {
 /* 1件も出なかったとき。**既定の母集団（棚卸済だけ）で消えているなら、黙って空にせず
    どこを見ればよいかを出す。** 完了した棚卸が1件も無いときも、勝手に全件へ戻さない。 */
 function emptyListHtml() {
-  const plain = `<div class="empty" style="margin-top:15px">該当する在庫はありません。</div>`;
+  // 保管場所で絞っていると「無い」のか「ここには無い」のか分からないので、場所を書く
+  const plain = `<div class="empty" style="margin-top:15px">該当する在庫はありません。${
+    ui.fLoc ? `<div class="meta" style="margin-top:6px">いまは <strong>${
+      esc(locLabel(ui.fLoc))}</strong> のぶんだけを出しています。
+      ほかの拠点も見るときは保管場所を「全保管場所」にしてください。</div>` : ''}</div>`;
   // 人が自分で掛けた絞り込みで0件なら、それは普通のこと。
   // 出品状況（既定が「未出品」）はこちらが掛けているものなので、ここでは数えない
   const narrowed = ui.fScope || ui.fDiff || ui.fNoPrice || ui.fCheck || ui.fNoCh
@@ -8515,7 +8537,10 @@ function viewStock() {
       </div>
       <button class="btn lime" style="min-height:56px;margin-top:12px" onclick="startStocktake()" ${dis()}>
         <span class="ms">play_circle</span>棚卸開始（帳簿在庫 ${n}台）</button>
-      <p class="meta" style="margin:8px 0 0">貸出中・予約中・販売予約・売却済・廃棄は対象に入りません
+      <p class="meta" style="margin:8px 0 0">${scope
+        ? `いまの範囲は <strong>${esc(locLabel(scope))}</strong> です。
+           ほかの拠点も数えるときは「すべて」に変えてください。<br>`
+        : ''}貸出中・予約中・販売予約・売却済・廃棄は対象に入りません
         （現物を確認しに行けないため）。未確認の数にも混ざりません。</p>
 
       <div class="sec">これまでの棚卸</div>
