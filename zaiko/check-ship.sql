@@ -1,9 +1,10 @@
-\set ON_ERROR_STOP on
-\pset footer off
 -- ============================================================
 -- 発送の管理の点検（2026-10-19）
 --
---   Supabase の SQL Editor に貼って実行してください。
+--   Supabase の SQL Editor に貼って、そのまま実行してください。
+--   **psql のメタコマンド（\set / \pset / \echo）は使っていません。**
+--   見出しは `select '--- n) … ---' as section;` の普通のSQLにしてあります
+--   （SQL Editor はメタコマンドを解釈できないため）。
 --   **全体が1つのトランザクションで、最後に必ず rollback します。**
 --   途中で作った商品・個体・履歴はすべて消え、本番のデータは1行も変わりません
 --   （在庫数も売上も動きません）。
@@ -39,13 +40,12 @@ insert into public.inventory_channels(item_id, product_code, channel, state, pri
 set local role authenticated;
 set local "request.jwt.claims" = '{"email":"chk-sh-member@example.invalid"}';
 
-\echo ''
-\echo '--- 1) 売ったばかりの個体は「未発送」 ---'
+select '--- 1) 売ったばかりの個体は「未発送」 ---' as section;
 select case when status='売却済' and sold_price=18000 and shipped_at is null and shipped_by is null
             then 'OK 売却済・未発送' else 'NG '||status end as r
   from (select * from public.inv_item_sell_channel('CHKSH-1','rakuten',18000::numeric,'点検')) x;
 
-\echo '--- 2) 倉庫メンバーが発送できる。日時と担当者が残る ---'
+select '--- 2) 倉庫メンバーが発送できる。日時と担当者が残る ---' as section;
 select case when shipped_at is not null and shipped_by='点検メンバー'
             then 'OK 発送済み（'||shipped_by||'）' else 'NG' end as r
   from (select * from public.inv_item_ship('CHKSH-1', true, '点検')) x;
@@ -57,7 +57,7 @@ select case when actor='点検メンバー' and before_value='未発送' and aft
   from public.inventory_transactions
  where ref_kind='item' and ref_id='CHKSH-1' and action='発送完了';
 
-\echo '--- 3) 二重に押しても壊れない（履歴も増えない） ---'
+select '--- 3) 二重に押しても壊れない（履歴も増えない） ---' as section;
 do $$
 declare v_at timestamptz; v_n int;
 begin
@@ -71,7 +71,7 @@ begin
     else raise notice 'NG 履歴 %件', v_n; end if;
 end $$;
 
-\echo '--- 4) 発送では在庫状態・実売価格・販売先・出品価格が変わらない ---'
+select '--- 4) 発送では在庫状態・実売価格・販売先・出品価格が変わらない ---' as section;
 select case when status='売却済' and sold_price=18000 and sold_channel='rakuten'
             then 'OK 販売の情報はそのまま' else 'NG' end as r
   from public.inventory_items where id='CHKSH-1';
@@ -79,7 +79,7 @@ select case when count(*)=1 then 'OK 楽天の登録価格は 18,000円 のま�
   from public.inventory_channels
  where item_id='CHKSH-1' and channel='rakuten' and price=18000 and state='出品中';
 
-\echo '--- 5) 閲覧（viewer）は発送できない ---'
+select '--- 5) 閲覧（viewer）は発送できない ---' as section;
 set local "request.jwt.claims" = '{"email":"chk-sh-viewer@example.invalid"}';
 do $$ begin
   perform public.inv_item_ship('CHKSH-2', true, null);
@@ -89,7 +89,7 @@ exception when others then
   else raise notice 'NG 別の理由: %', sqlerrm; end if;
 end $$;
 
-\echo '--- 6) 発送を取り消せるのは管理者だけ ---'
+select '--- 6) 発送を取り消せるのは管理者だけ ---' as section;
 set local "request.jwt.claims" = '{"email":"chk-sh-member@example.invalid"}';
 do $$ begin
   perform public.inv_item_ship('CHKSH-1', false, null);
@@ -105,7 +105,7 @@ select case when count(*)=1 then 'OK 履歴に「発送取消」が残る' else 
   from public.inventory_transactions
  where ref_kind='item' and ref_id='CHKSH-1' and action='発送取消';
 
-\echo '--- 7) まだ売っていないものは発送できない ---'
+select '--- 7) まだ売っていないものは発送できない ---' as section;
 do $$ begin
   perform public.inv_item_ship('CHKSH-3', true, null);
   raise notice 'NG 在庫のものを発送できてしまった';
@@ -116,7 +116,7 @@ end $$;
 select case when status='在庫' and shipped_at is null then 'OK 何も変わっていない' else 'NG' end as r
   from public.inventory_items where id='CHKSH-3';
 
-\echo '--- 8) 未発送のまま売却取消できる（倉庫メンバーでも） ---'
+select '--- 8) 未発送のまま売却取消できる（倉庫メンバーでも） ---' as section;
 set local "request.jwt.claims" = '{"email":"chk-sh-member@example.invalid"}';
 select case when status='売却済' and shipped_at is null then 'OK 売れた（未発送）' else 'NG' end as r
   from (select * from public.inv_item_sell_channel('CHKSH-2','rakuten',9000::numeric,'点検')) x;
@@ -124,7 +124,7 @@ select case when status='在庫' and sold_price is null and shipped_at is null
             then 'OK 在庫へ戻った' else 'NG '||status end as r
   from (select * from public.inv_item_sell_undo('CHKSH-2','点検')) x;
 
-\echo '--- 9) 発送済みを売却取消できるのは管理者だけ ---'
+select '--- 9) 発送済みを売却取消できるのは管理者だけ ---' as section;
 select case when shipped_at is not null then 'OK 売って発送した' else 'NG' end as r
   from (select * from public.inv_item_ship(
          (select id from (select * from public.inv_item_sell_channel('CHKSH-2','rakuten',9500::numeric,'点検')) y),
@@ -144,7 +144,7 @@ select case when status='在庫' and shipped_at is null and shipped_by is null
             then 'OK 管理者は戻せて、発送の記録も消える' else 'NG '||status end as r
   from (select * from public.inv_item_sell_undo('CHKSH-2','点検')) x;
 
-\echo '--- 10) もう一度売っても「発送済み」を持ち越さない ---'
+select '--- 10) もう一度売っても「発送済み」を持ち越さない ---' as section;
 select case when status='売却済' and shipped_at is null
             then 'OK 新しい販売は未発送から始まる' else 'NG' end as r
   from (select * from public.inv_item_sell_channel('CHKSH-2','rakuten',9800::numeric,'点検')) x;
@@ -155,7 +155,7 @@ select case when count(*)=3 then 'OK 売却の履歴は消さず3件並ぶ（取
   from public.inventory_transactions
  where ref_kind='item' and ref_id='CHKSH-2' and action='売却';
 
-\echo '--- 11) 未発送の件数（メニューのバッジに出す数）が数えられる ---'
+select '--- 11) 未発送の件数（メニューのバッジに出す数）が数えられる ---' as section;
 -- いま未発送なのは CHKSH-1（6節で発送を取り消した）と CHKSH-2（10節で売り直した）の2台
 select case when count(*)=2 then 'OK 点検ぶんの未発送は2台（'
                  || string_agg(id, '・' order by id) || '）'
@@ -163,7 +163,7 @@ select case when count(*)=2 then 'OK 点検ぶんの未発送は2台（'
   from public.inventory_items
  where status='売却済' and shipped_at is null and id like 'CHKSH-%';
 
-\echo '--- 12) 売上・粗利は発送では変わらない ---'
+select '--- 12) 売上・粗利は発送では変わらない ---' as section;
 do $$
 declare a numeric; b numeric;
 begin
@@ -174,7 +174,7 @@ begin
   else raise notice 'NG % → %', a, b; end if;
 end $$;
 
-\echo '--- 13) 導入前に売れていたものが未発送へ入っていない ---'
+select '--- 13) 導入前に売れていたものが未発送へ入っていない ---' as section;
 -- 導入前の移行ぶん（shipped_by = '導入前移行'）を1台まねて作り、
 -- 未発送の数え方（画面のバッジと同じ条件）に入らないことを見る
 -- 2回に分ける。1回でやると、トリガー（新しく売ったら発送の記録を持ち越さない）が
@@ -227,13 +227,11 @@ select case when not exists (
 
 rollback;
 
-\echo ''
-\echo '--- 14) 点検データが残っていないこと（rollback の確認） ---'
+select '--- 14) 点検データが残っていないこと（rollback の確認） ---' as section;
 select case when (select count(*) from public.inventory_items where id like 'CHKSH-%') = 0
              and (select count(*) from public.inventory_products where code='CHKSH') = 0
              and (select count(*) from public.inventory_members
                    where email like 'chk-sh-%@example.invalid') = 0
             then 'OK 点検データは1行も残っていません' else 'NG 残っています' end as r;
 
-\echo ''
-\echo '発送の管理の点検：ここまで NG が無ければ問題なしです'
+select '発送の管理の点検：ここまで NG が無ければ問題なしです' as section;
