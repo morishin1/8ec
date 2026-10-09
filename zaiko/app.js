@@ -205,6 +205,7 @@ const ui = {
   fAction: '', hq: '', regKind: 'ind', made: null, tab: 'info',
   drafts: {}, labelSel: {}, stScope: '', loaded: false, sel: {}, selItems: {}, fBatch: null, doneBatch: null,
   locScoped: false,          // 初期表示を柏倉庫にしたか（1回だけ入れる印）
+  saleTab: 'todo',           // 販売一覧のタブ。'todo' 未発送 / 'done' 発送済み
   // QRラベル画面へ渡した個体（{label, ids}）。上の「対象／未印刷／印刷済み」を数えるのに使う
   labelScope: null,
   // 一覧のタブ。individual / model のほかに、販売サイトのキーと 'none'（未出品）を取る
@@ -685,10 +686,12 @@ function showSetup(err) {
    sold_channel（どこへ売ったか）だけは入れる。販売一覧で「違う個体を売ってしまった」
    のを取り消すときに、どの売却を戻すのか人が確かめるのに要る。**金額（sold_price）は
    入れない。** 実売価格・原価・粗利は管理者だけ（#47 の方針のまま）。 */
+/* 発送（shipped_at / shipped_by）は倉庫の作業なので倉庫メンバーにも渡す。
+   **金額ではない**（日時と人の名前だけ）。価格・原価・仕入値は入れない。 */
 const WARE_ITEM_COLS = ['id', 'name', 'maker', 'model', 'serial', 'product_code',
   'category_id', 'location_id', 'status', 'user_name', 'loaned_at', 'last_checked_at',
   'qr_print_count', 'qr_printed_at', 'qr_printed_last', 'sold_channel',
-  'created_at'].join(',');
+  'shipped_at', 'shipped_by', 'created_at'].join(',');
 
 /* 商品マスター。倉庫では商品名・型番・メーカー・スペック・写真と、
    数量管理の行（在庫数）にだけ使う。
@@ -1072,9 +1075,13 @@ function screenLabel() {
 }
 function renderMenu() {
   const mine = myMenu();
+  /* 販売一覧にだけ「まだ発送していない件数」の入れ物を置く。
+     数字を入れるのは paintSalesBadge() の1か所だけで、描くたびに入れ直す
+     （0件のときは出さない）。ほかの項目には何も付けない */
+  const badge = (key) => key === 'sales' ? '<span class="navbadge" aria-live="polite"></span>' : '';
   // PC：これまでどおりのアイコンナビ（並びも見た目も変えない。販売一覧が増えただけ）
   $('menu').innerHTML = mine.map(([key, icon, label]) =>
-    `<button class="${ui.screen === key ? 'on' : ''}" onclick="go('${key}')"><span class="ms">${icon}</span>${esc(label)}</button>`
+    `<button class="${ui.screen === key ? 'on' : ''}" onclick="go('${key}')"><span class="ms">${icon}</span>${esc(label)}${badge(key)}</button>`
   ).join('');
   // スマホ：同じ並びをハンバーガーのドロワーに入れる。**出し分けは myMenu() 1か所だけ**で、
   // 権限の判定（canAdmin）を2通り書かない
@@ -1085,9 +1092,10 @@ function renderMenu() {
       const sep = (need === 'admin' && !adminSeen) ? '<div class="dsep"></div>' : '';
       if (need === 'admin') adminSeen = true;
       return `${sep}<button class="${ui.screen === key ? 'on' : ''}" onclick="go('${key}')">
-        <span class="ms">${icon}</span>${esc(label)}</button>`;
+        <span class="ms">${icon}</span>${esc(label)}${badge(key)}</button>`;
     }).join('');
   }
+  paintSalesBadge();
   const sn = $('scrName'); if (sn) sn.textContent = screenLabel();
   $('siteName').textContent = db.locs.length ? (locsOrdered().find(l => l.kind === 'site') || {}).name || '' : '';
 }
@@ -1127,6 +1135,7 @@ function render() {
     sns: snsView
   }[ui.screen] || viewDash;
   v.innerHTML = fn();
+  paintSalesBadge();          // 未発送の件数は描くたびに入れ直す
   if (ui.screen === 'labels') bindLabelPicks();
 }
 
@@ -1253,6 +1262,9 @@ function viewDash() {
   const stLeft = stocktakeProgress().left;
   // 売却済みなのに売価が入っていない個体。0件なら「要確認」に出さない
   const noPrice = Number((db.stats || {}).sold_price_missing || 0);
+  /* まだ発送していない台数。**メニューのバッジと同じ数え方**（unshippedCount）を通す。
+     「販売サイトの出品を止めたか」とは混ぜない（発送＝物流、出品停止＝販売サイト対応） */
+  const unshipped = unshippedCount();
 
   const kpi = (label, v, note, cls) =>
     `<div class="kpi ${cls || ''}"><div class="lbl">${esc(label)}</div><div class="v num">${v}</div><div class="n">${note || ''}</div></div>`;
@@ -1282,6 +1294,7 @@ function viewDash() {
 
     <div class="sec">要確認</div>
     <div class="checks">
+      ${chk('local_shipping', '未発送', unshipped, '売れたのに、まだ発送していないもの', 'sales', "ui.saleTab='todo';")}
       ${chk('shopping_cart', '在庫数不足', order.length, '最低在庫を下回っている品目', 'list', "ui.fStock='要発注';")}
       ${chk('schedule', '長期貸出', longs.length, `${LOAN_LONG_DAYS}日を超えて返却されていないもの`, 'loan')}
       ${chk('help', '棚卸未確認', stLeft, db.stocktake ? '実施中の棚卸で、まだ確認できていないもの' : '棚卸は実施していません', 'stock')}
@@ -1520,9 +1533,129 @@ function viewList() {
 
    販売済み取消は PR #49 の sheetSellUndo() → inv_item_sell_undo() をそのまま呼ぶ。
    **新しい取消処理は作らない。外部の販売サイトへは何も書かない（再出品もしない）。** */
-function soldRows() {
+/* ---- 発送する・発送を取り消す ------------------------------------------------
+   記録するのは **shipped_at / shipped_by の2つだけ**。
+   在庫状態・実売価格・販売先・出品価格はどれも動かさない（サーバー側も同じ）。
+
+     発送する     … admin / member（倉庫の作業）
+     発送を取り消す … admin だけ（出荷の記録を戻すのは訂正なので）
+
+   二重に押しても壊れない（サーバー側が、すでにその状態なら何もしない）。 */
+async function sheetShip(id) {
+  const it = item(id); if (!it) return;
+  if (!canEdit()) { toast('操作する権限がありません（閲覧のみ）'); return; }
+  if (it.status !== '売却済') { toast(`発送を記録できるのは「売却済」のものだけです（いまは ${it.status}）`); return; }
+  if (shippedOk(it)) { toast('すでに発送済みです'); return; }
+  const m = prod(it.product_code);
+  const row = (k, v) => `<div class="wrow"><span class="k">${esc(k)}</span><b>${v}</b></div>`;
+  openModal('この商品を発送済みにしますか？', `
+    <p style="font-size:17px;font-weight:700;margin:0 0 10px">${esc(m ? titleOf(m) : it.name)}</p>
+    <div class="winfo">
+      ${row('管理番号', `<span class="num">${esc(it.id)}</span>`)}
+      ${row('販売先', esc(chanLabel(it.sold_channel) || it.sold_channel || '—'))}
+      ${canAdmin() ? row('実売価格', `<span class="num">${yen(it.sold_price)}</span>`) : ''}
+      ${row('販売日時', esc(fmtDT((db.soldAt || {})[it.id] || '')))}
+    </div>
+    <p class="meta" style="margin-top:12px">発送済みにすると、<strong>販売一覧（未発送）から外れて
+      ［発送済み］のタブへ移ります。</strong>販売の記録は消えません。
+      <strong>楽天・Amazonなどの出品は止まりません</strong>（出品の停止は別の作業です）。</p>
+  `, [['キャンセル', 'closeModal()', 'btn ghost'],
+      ['発送済みにする', `doShip('${esc(id)}')`, 'btn pri', 'shipGo']]);
+}
+
+async function doShip(id) {
+  const it = item(id); if (!it) return;
+  if (!canEdit()) { toast('操作する権限がありません（閲覧のみ）'); return; }
+  if (it.status !== '売却済') { toast('発送を記録できるのは「売却済」のものだけです'); return; }
+  const go = $('shipGo'); if (go) go.disabled = true;     // 連打で二重に送らない
+  const { data, error } = await sb.rpc('inv_item_ship', { p_item_id: id, p_on: true, p_note: null });
+  if (error) { if (go) go.disabled = false; toast(error.message || '記録できませんでした'); return; }
+  shipApply(id, data);
+  closeModal();
+  await refreshTx();          // 履歴（発送完了）を取り直す
+  render();                   // 一覧から外れ、メニューのバッジも減る
+  toast(`発送済みにしました（残り ${unshippedCount()}件）`);
+}
+
+/* 記録し間違えたときだけ。**管理者だけ**（サーバー側でも同じ判定） */
+async function sheetShipUndo(id) {
+  const it = item(id); if (!it) return;
+  if (!canAdmin()) { toast('発送を取り消せるのは管理者だけです'); return; }
+  if (!shippedOk(it)) { toast('この商品はまだ発送していません'); return; }
+  const m = prod(it.product_code);
+  openModal('発送を取り消しますか？', `
+    <p style="font-size:17px;font-weight:700;margin:0 0 10px">${esc(m ? titleOf(m) : it.name)}</p>
+    <div class="winfo">
+      <div class="wrow"><span class="k">管理番号</span><b class="num">${esc(it.id)}</b></div>
+      <div class="wrow"><span class="k">発送</span><b>${esc(fmtDT(it.shipped_at))}${
+        it.shipped_by ? '　' + esc(it.shipped_by) : ''}</b></div>
+    </div>
+    <p class="meta" style="margin-top:12px">未発送に戻します。<strong>販売の記録（実売価格・販売先）は
+      そのままです。</strong>発送の履歴は消さず、「発送取消」を足します。</p>
+  `, [['やめる', 'closeModal()', 'btn ghost'],
+      ['未発送に戻す', `doShipUndo('${esc(id)}')`, 'btn pri', 'shipGo']]);
+}
+
+async function doShipUndo(id) {
+  const it = item(id); if (!it) return;
+  if (!canAdmin()) { toast('発送を取り消せるのは管理者だけです'); return; }
+  const go = $('shipGo'); if (go) go.disabled = true;
+  const { data, error } = await sb.rpc('inv_item_ship', { p_item_id: id, p_on: false, p_note: null });
+  if (error) { if (go) go.disabled = false; toast(error.message || '取り消せませんでした'); return; }
+  shipApply(id, data);
+  closeModal();
+  await refreshTx();
+  render();
+  toast('未発送に戻しました');
+}
+
+/* 手元の行に戻ってきた値を入れる。
+   **倉庫メンバーの画面には原価・仕入値を持ち込まない**（#47 の最小化）ので、
+   発送で変わる2つだけを入れ替える。 */
+function shipApply(id, data) {
+  const k = db.items.findIndex(x => x.id === id);
+  if (k < 0 || !data) return;
+  if (canAdmin()) db.items[k] = data;
+  else {
+    db.items[k].shipped_at = data.shipped_at;
+    db.items[k].shipped_by = data.shipped_by;
+  }
+}
+
+/* ---- 発送（売ったあと、まだ発送していないものを見落とさない） ----------------
+   販売一覧は「処理待ちの画面」。まず**未発送**を出し、発送したら「発送済み」へ移す。
+   **データは消さない。出す場所を分けるだけ。**
+
+   持つのは inventory_items の2列だけ（shipped_at / shipped_by）。
+   配送会社・追跡番号は Phase 2（決まっていないことを列にしても埋まらない）。
+
+   **外部販売サイトの出品停止とは別の話。** 発送したからといって楽天・Amazonの
+   出品を止めたことにはしない（出品の状態は listingState／warnStillListed が持つ）。
+   売上・粗利も発送では変わらない（売れた時点で売上）。 */
+const shippedOk = (i) => !!(i && i.shipped_at);
+/* メニューのバッジとダッシュボードに出す「まだ発送していない台数」。
+   **数え方はこの1か所だけ。** 売却取消で売却済から外れたものは自然に落ちる */
+const unshippedCount = () => db.items.filter(i => i.status === '売却済' && !shippedOk(i)).length;
+
+/* 販売一覧のアイコンに未発送の件数を出す。
+   **0件のときは出さない**（いつも何か付いていると見なくなる）。
+   99件を超えたら 99+。描くたびに呼ぶので、発送した直後にその場で減る。 */
+function paintSalesBadge() {
+  const n = unshippedCount();
+  /* 0件のときは**文字も入れない**。見えていなくても読み上げには出てしまうので、
+     「販売一覧 0」と読まれないように空にする */
+  document.querySelectorAll('.navbadge').forEach(el => {
+    el.textContent = n > 0 ? (n > 99 ? '99+' : String(n)) : '';
+    el.classList.toggle('on', n > 0);
+    el.title = n > 0 ? `まだ発送していない販売が ${n}件あります` : '';
+  });
+}
+function setSaleTab(k) { ui.saleTab = (k === 'done') ? 'done' : 'todo'; render(); }
+
+function soldRows(tab) {
   const q = (ui.sq || '').trim().toLowerCase();
   const full = canAdmin();
+  const want = tab === undefined ? (ui.saleTab === 'done' ? 'done' : 'todo') : tab;
   return db.items.filter(i => i.status === '売却済').map(i => {
     const m = prod(i.product_code);
     const price = full && Number(i.sold_price) > 0 ? Number(i.sold_price) : null;
@@ -1532,8 +1665,11 @@ function soldRows() {
              model: (m && m.model) || i.model || '',
              maker: (m && m.maker) || i.maker || '',
              ch: i.sold_channel || '', price, cost,
+             shippedAt: i.shipped_at || null, shippedBy: i.shipped_by || '',
              gain: (price != null && cost != null) ? price - cost : null };
   }).filter(r => {
+    // 未発送のタブには未発送だけ、発送済みのタブには発送済みだけ。混ぜない
+    if (want === 'done' ? !r.shippedAt : !!r.shippedAt) return false;
     if (ui.fSoldCh && r.ch !== ui.fSoldCh) return false;
     if (ui.fSold && String(r.at || '').slice(0, 7) !== ui.fSold) return false;
     if (q) {
@@ -1552,10 +1688,10 @@ function onSalesFilter() {
   const b = $('salesBody'); if (b) b.innerHTML = salesBodyHtml();
 }
 
-/*            管理番号 型番  販売日時 販売先 価格  操作
-   操作は［販売情報を修正］［販売済みを取消］の2つが入るので広めに取る */
-const SALE_COLS      = ['20%', '16%', '13%', '10%', '18%', '23%'];
-const SALE_COLS_WARE = ['24%', '21%', '17%', '11%', '27%'];
+/*            管理番号 型番  販売日時 販売先 価格  発送 操作
+   操作は［発送する］［販売情報を修正］［販売済みを取消］が入るので広めに取る */
+const SALE_COLS      = ['18%', '14%', '12%', '9%', '15%', '11%', '21%'];
+const SALE_COLS_WARE = ['22%', '18%', '14%', '10%', '12%', '24%'];
 
 function salesBodyHtml() {
   const full = canAdmin();            // 実売価格・原価・粗利を出すのは管理者だけ
@@ -1564,7 +1700,10 @@ function salesBodyHtml() {
     return `<div class="empty" style="margin-top:15px">売れた日時（履歴）が読めませんでした。
       通信状況を確かめて、再読み込みしてください。</div>`;
   if (!rows.length)
-    return `<div class="empty" style="margin-top:15px">該当する販売はありません。</div>`;
+    return `<div class="empty" style="margin-top:15px">${ui.saleTab === 'done'
+      ? '発送済みの販売はまだありません。'
+      : '未発送はありません。<div class="meta" style="margin-top:6px">売れたものはすべて発送済みです。'
+        + '過去の販売は［発送済み］のタブで見られます。</div>'}</div>`;
   const sum = rows.reduce((a, r) => {
     if (r.price != null) { a.sales += r.price; a.n++; }
     if (r.gain != null) { a.gain += r.gain; a.gn++; }
@@ -1581,7 +1720,8 @@ function salesBodyHtml() {
     <thead><tr>
       <th class="col-id">管理番号・商品</th><th class="col-model">型番・メーカー</th>
       <th class="col-when">販売日時</th><th class="col-ch">販売先</th>
-      ${full ? '<th class="col-price">金額</th>' : ''}<th class="col-ops">操作</th>
+      ${full ? '<th class="col-price">金額</th>' : ''}
+      <th class="col-ship">発送</th><th class="col-ops">操作</th>
     </tr></thead>
     <tbody>${rows.slice(0, 600).map(r => {
       const i = r.i;
@@ -1606,8 +1746,19 @@ function salesBodyHtml() {
           ${pr('実売', r.price, '実際に売れた価格（inventory_items.sold_price）')}
           ${pr('原価', r.cost, '仕入価格＋手数料（inventory_items.cost）')}
           ${pr('粗利', r.gain, '実売価格 − 原価')}</td>` : ''}
+        <td class="col-ship" data-label="発送">${r.shippedAt
+          ? `<span class="tag ship on" title="発送した人：${esc(r.shippedBy || '—')}">発送済み</span>
+             <div class="meta nowrap">${esc(fmtDT(r.shippedAt))}</div>
+             ${r.shippedBy ? `<div class="meta">${esc(r.shippedBy)}</div>` : ''}`
+          : '<span class="tag ship" title="まだ発送していません">未発送</span>'}</td>
         <td class="col-ops" data-label="操作" onclick="event.stopPropagation()">
           <div class="opsw">
+            ${r.shippedAt
+              ? (canAdmin() ? `<button class="btn sm ghost" onclick="sheetShipUndo('${esc(i.id)}')"
+                    title="発送を記録し間違えたときに、未発送へ戻します（管理者だけ）">発送を取消</button>` : '')
+              : `<button class="btn sm lime shipgo" onclick="sheetShip('${esc(i.id)}')" ${dis()}
+                  title="${canEdit() ? 'この商品を発送済みにします。販売一覧（未発送）から外れます'
+                                     : '閲覧権限では操作できません'}">発送する</button>`}
             <button class="btn sm saleedit" onclick="sheetSaleEdit('${esc(i.id)}')" ${dis()}
               title="${canEdit() ? '実売価格と販売先だけを直します。在庫の状態や出品価格は変わりません'
                                  : '閲覧権限では操作できません'}">販売情報を修正</button>
@@ -1626,12 +1777,20 @@ function viewSales() {
     .map(i => String((db.soldAt || {})[i.id] || '').slice(0, 7)).filter(Boolean))].sort().reverse();
   const chans = [...new Set(db.items.filter(i => i.status === '売却済')
     .map(i => i.sold_channel).filter(Boolean))];
+  /* タブの件数は絞り込みに関係なく「いま何台あるか」を出す
+     （絞り込んだ結果の数だと、未発送が残っていることに気づけない） */
+  const sold = db.items.filter(i => i.status === '売却済');
+  const todo = sold.filter(i => !shippedOk(i)).length;
+  const done = sold.length - todo;
   return `
     <h1>販売一覧</h1>
-    <p class="meta" style="margin:15px 0 4px"><strong>すでに売れて在庫から出たもの</strong>を出しています。
+    <p class="meta" style="margin:15px 0 4px"><strong>売れたものを「まだ発送していない」「発送済み」に
+      分けて出しています。</strong>まず未発送を片づける画面です。
       いま手元にあるものは<a href="#" onclick="event.preventDefault();go('list')">在庫一覧</a>で見てください。${
       canAdmin() ? '' : '　<strong>一覧の金額（原価・粗利）は管理者だけが見られます。</strong>'
       + '　今回いくらで売ったか（実売価格）は［販売情報を修正］から直せます。'}</p>
+    <p class="meta" style="margin:0 0 4px">発送したかどうかと、<strong>楽天・Amazonなどの出品を止めたか
+      どうかは別の話です。</strong>発送済みにしても、販売サイト側の出品は自動では止まりません。</p>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:4px">
       <input class="input" id="f-sq" value="${esc(ui.sq)}" oninput="onSalesFilter()"
              placeholder="管理番号・商品名・型番…">
@@ -1645,6 +1804,12 @@ function viewSales() {
         ${chans.map(c => `<option value="${esc(c)}"${ui.fSoldCh === c ? ' selected' : ''}>${
           esc(chanLabel(c) || c)}</option>`).join('')}
       </select>
+    </div>
+    <div class="tabs2 saletabs">
+      <button class="${ui.saleTab === 'done' ? '' : 'on'}" onclick="setSaleTab('todo')">
+        <span class="ms">local_shipping</span>未発送<span class="n">${todo}</span></button>
+      <button class="${ui.saleTab === 'done' ? 'on' : ''}" onclick="setSaleTab('done')">
+        <span class="ms">inventory</span>発送済み<span class="n">${done}</span></button>
     </div>
     <div id="salesBody">${salesBodyHtml()}</div>`;
 }
@@ -8209,6 +8374,12 @@ async function sheetSellUndo(id) {
   const it = item(id); if (!it) return;
   if (!canEdit()) { toast('操作する権限がありません（閲覧のみ）'); return; }
   if (!canUndoSell(it)) { toast(`${it.status} のものは取り消せません（売却済だけ）`); return; }
+  /* もう出荷してしまったものを倉庫メンバーが在庫へ戻すと、現物が無いのに在庫が
+     あることになる。**発送済みを戻せるのは管理者だけ**（サーバー側のトリガーでも止まる）。
+     管理者には下の確認画面で「発送済みです」と出す。 */
+  if (shippedOk(it) && !canAdmin()) {
+    toast(`${it.id} は発送済みです。戻せるのは管理者だけです`); return;
+  }
   const m = prod(it.product_code);
 
   // 戻る状態と、紐付いているモールの受注明細をサーバーに聞く
@@ -8242,7 +8413,13 @@ async function sheetSellUndo(id) {
       ${row('シリアル番号', esc(it.serial || '—'))}
       ${row('現在', statusTag('売却済'))}
       ${row('戻る状態', statusTag(back))}
+      ${shippedOk(it) ? row('発送', `発送済み　${esc(fmtDT(it.shipped_at))}${
+        it.shipped_by ? '　' + esc(it.shipped_by) : ''}`) : ''}
     </div>
+    ${shippedOk(it) ? `<div class="card" style="margin-bottom:12px;background:#FFF8E1;border:1px solid #E8A33D">
+      <strong>この商品はすでに発送済みです。</strong>
+      <span class="meta">現物が手元に無いのに在庫へ戻ることになります。
+        返品が届いているかを確かめてから戻してください。発送の記録（日時・担当者）は外れます。</span></div>` : ''}
     ${orders.length ? `<div class="undoord">
       <div class="k">この個体が割り当たっている注文</div>
       ${orders.map(o => `<div class="r"><b>${esc(o.channel)} ${esc(o.order_number)}</b>
