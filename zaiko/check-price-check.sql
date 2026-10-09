@@ -1,9 +1,10 @@
-\set ON_ERROR_STOP on
-\pset footer off
 -- ============================================================
 -- 価格の確認の点検（2026-10-17 で「出品中の条件」から外したあと）
 --
---   Supabase の SQL Editor に貼って実行してください。
+--   Supabase の SQL Editor に貼って、そのまま実行してください。
+--   **psql のメタコマンド（\set / \pset / \echo）は使っていません。**
+--   見出しは `select '--- n) … ---' as section;` の普通のSQLにしてあります
+--   （SQL Editor はメタコマンドを解釈できないため）。
 --   **全体が1つのトランザクションで、最後に必ず rollback します。**
 --   途中で作った商品・個体・履歴はすべて消え、本番のデータは1行も変わりません
 --   （在庫数も売上も動きません）。
@@ -65,12 +66,11 @@ grant select on chk_st to authenticated;
 
 set local role authenticated;
 
-\echo ''
-\echo '--- 1) 入れたばかりの個体は「未確認」（表示は残っている） ---'
+select '--- 1) 入れたばかりの個体は「未確認」（表示は残っている） ---' as section;
 select case when count(*) = 4 then 'OK 4台すべて未確認' else 'NG '||count(*) end as r
   from public.inventory_items where id like 'CHKPC-%' and price_checked_at is null;
 
-\echo '--- 2) 価格が未設定でも「出品中」にできる ---'
+select '--- 2) 価格が未設定でも「出品中」にできる ---' as section;
 set local "request.jwt.claims" = '{"email":"chk-pc-admin@example.invalid"}';
 do $$ begin
   perform public.inv_item_op('CHKPC-1','状態変更','出品中',null);
@@ -82,7 +82,7 @@ select case when status='出品中' and price is null and price_checked_at is nu
             then 'OK 出品中・価格は空・未確認のまま' else 'NG '||status end as r
   from public.inventory_items where id='CHKPC-1';
 
-\echo '--- 3) 価格は入っていて未確認でも「出品中」にできる ---'
+select '--- 3) 価格は入っていて未確認でも「出品中」にできる ---' as section;
 do $$ begin
   perform public.inv_item_op('CHKPC-2','状態変更','出品中',null);
   raise notice 'OK 未確認でも出品中にできた';
@@ -93,7 +93,7 @@ select case when status='出品中' and price_checked_at is null
             then 'OK 出品中・未確認のまま' else 'NG '||status end as r
   from public.inventory_items where id='CHKPC-2';
 
-\echo '--- 4) 倉庫メンバーでも出品中にできる（状態変更は member も可） ---'
+select '--- 4) 倉庫メンバーでも出品中にできる（状態変更は member も可） ---' as section;
 set local "request.jwt.claims" = '{"email":"chk-pc-member@example.invalid"}';
 do $$ begin
   perform public.inv_item_op('CHKPC-3','状態変更','出品中',null);
@@ -102,7 +102,7 @@ exception when others then
   raise notice 'NG 止まってしまった: %', sqlerrm;
 end $$;
 
-\echo '--- 5) 閲覧（viewer）は状態を変えられない（ここは変えていない） ---'
+select '--- 5) 閲覧（viewer）は状態を変えられない（ここは変えていない） ---' as section;
 set local "request.jwt.claims" = '{"email":"chk-pc-viewer@example.invalid"}';
 do $$ begin
   perform public.inv_item_op('CHKPC-4','状態変更','出品中',null);
@@ -114,7 +114,7 @@ end $$;
 select case when status='在庫' then 'OK 在庫のまま' else 'NG '||status end as r
   from public.inventory_items where id='CHKPC-4';
 
-\echo '--- 6) 確認済みにできるのは管理者だけ（残している） ---'
+select '--- 6) 確認済みにできるのは管理者だけ（残している） ---' as section;
 set local "request.jwt.claims" = '{"email":"chk-pc-member@example.invalid"}';
 do $$ begin
   perform public.inv_price_check_set(array['CHKPC-2'], true, null);
@@ -131,12 +131,12 @@ select case when count(*)=1 then 'OK 履歴に「価格確認」が残る' else 
   from public.inventory_transactions
  where ref_kind='item' and ref_id='CHKPC-2' and action='価格確認';
 
-\echo '--- 7) 価格を変えたら確認が外れる（残している）。状態は落ちない ---'
+select '--- 7) 価格を変えたら確認が外れる（残している）。状態は落ちない ---' as section;
 select case when price_checked_at is null and status='出品中'
             then 'OK 確認は外れ、出品中のまま' else 'NG' end as r
   from (select * from public.inv_item_price('CHKPC-2', 31000, 500, 52000)) x;
 
-\echo '--- 8) 未確認のまま売っても、取り消したら「出品中」へ戻る ---'
+select '--- 8) 未確認のまま売っても、取り消したら「出品中」へ戻る ---' as section;
 select case when status='売却済' and sold_price=48000 then 'OK 48,000円で売れた' else 'NG '||status end as r
   from (select * from public.inv_item_sell_channel('CHKPC-3','rakuten',48000::numeric,'点検')) x;
 select case when status='出品中'
@@ -151,7 +151,7 @@ select case when count(*)=1 then 'OK 売却の履歴は消えていない' else 
   from public.inventory_transactions
  where ref_kind='item' and ref_id='CHKPC-3' and action='売却';
 
-\echo '--- 9) 棚卸の差異確定を取り消しても「出品中」へ戻る ---'
+select '--- 9) 棚卸の差異確定を取り消しても「出品中」へ戻る ---' as section;
 do $$
 declare v_st bigint; v_back text;
 begin
@@ -168,7 +168,7 @@ select case when count(*)=0 then 'OK 履歴に「在庫へ戻しました」の�
   from public.inventory_transactions
  where ref_kind='item' and ref_id='CHKPC-1' and after_value like '%価格が未確認のため%';
 
-\echo '--- 10) 実売価格の入力・修正は未確認でも通る（影響させていない） ---'
+select '--- 10) 実売価格の入力・修正は未確認でも通る（影響させていない） ---' as section;
 select case when status='売却済' and sold_price=45000 then 'OK 未確認でも売れた' else 'NG' end as r
   from (select * from public.inv_item_sell_channel('CHKPC-2','amazon',45000::numeric,'点検')) x;
 select case when sold_price=44000 and sold_channel='rakuten' and status='売却済'
@@ -177,7 +177,7 @@ select case when sold_price=44000 and sold_channel='rakuten' and status='売却�
 select case when price_checked_at is null then 'OK 価格の確認は動いていない' else 'NG' end as r
   from public.inventory_items where id='CHKPC-2';
 
-\echo '--- 11) 「価格が未確認です」で止める場所はもう無い ---'
+select '--- 11) 「価格が未確認です」で止める場所はもう無い ---' as section;
 select case when not exists (
          select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
           where n.nspname='public' and p.prosrc like '%価格が未確認です%')
@@ -189,13 +189,11 @@ select case when (select prosrc from pg_proc
 
 rollback;
 
-\echo ''
-\echo '--- 12) 点検データが残っていないこと（rollback の確認） ---'
+select '--- 12) 点検データが残っていないこと（rollback の確認） ---' as section;
 select case when (select count(*) from public.inventory_items where id like 'CHKPC-%') = 0
              and (select count(*) from public.inventory_products where code='CHKPC') = 0
              and (select count(*) from public.inventory_members
                    where email like 'chk-pc-%@example.invalid') = 0
             then 'OK 点検データは1行も残っていません' else 'NG 残っています' end as r;
 
-\echo ''
-\echo '価格の確認の点検：ここまで NG が無ければ問題なしです'
+select '価格の確認の点検：ここまで NG が無ければ問題なしです' as section;

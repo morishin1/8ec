@@ -401,6 +401,21 @@ table.t tr.clk:hover td{background:var(--n100)}
 /* 販売一覧の操作列。［販売情報を修正］［販売済みを取消］が2つ並ぶので折り返す */
 .opsw{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .opsw .btn.sm{white-space:nowrap}
+/* 発送（未発送・発送済み）。**新しい色は足さず**、棚卸の「未確認」と同じ Warning系と、
+   価格確認済みと同じ Success系をそのまま使う */
+.tag.ship{background:#FFF8E1;color:#8A6D00;border:1px solid #E8A33D;font-weight:700}
+.tag.ship.on{background:#E8F5E9;color:#1B5E20;border:1px solid #2E7D32;font-weight:500}
+/* 販売一覧のアイコンに出す「まだ発送していない件数」。**0件のときは出さない**。
+   色は在庫一覧の「期限切れ」で使っている赤（#B3261E）をそのまま使う */
+.navbadge{display:none}
+.navbadge.on{display:inline-flex;align-items:center;justify-content:center;
+  min-width:19px;height:19px;padding:0 5px;border-radius:10px;
+  background:#B3261E;color:#fff;font-size:11px;font-weight:700;line-height:1;
+  font-variant-numeric:tabular-nums}
+/* PCのアイコンナビは縦並びなので、アイコンの右上に重ねる（並びを崩さない） */
+.menu button .navbadge.on{position:absolute;top:6px;right:8px}
+/* スマホのドロワーは横並びなので、行の右端に置く */
+#drawer #drawerMenu button .navbadge.on{margin-left:auto}
 .sellprice .k{font-size:13px;color:var(--n600);margin-bottom:4px}
 .sellprice b.num{font-size:28px;font-weight:700;letter-spacing:-.01em;display:block}
 .sellprice b.none{font-size:20px;font-weight:700;color:var(--n600);display:block}
@@ -794,14 +809,16 @@ table.t.unittbl td.col-loc{line-height:1.45}
    あちらが後ろにあるので欄いっぱいに広がってしまうため、ここで戻している */
 table.t.unittbl td.col-status .tag,table.t.unittbl td.col-check .tag,
 table.t.unittbl td.col-rental .tag,table.t.unittbl td.col-listing .tag.ls,
-table.t.unittbl td.col-ch .tag{display:inline-flex;width:max-content;max-width:100%;
+table.t.unittbl td.col-ch .tag,
+table.t.unittbl td.col-ship .tag{display:inline-flex;width:max-content;max-width:100%;
   white-space:normal;text-align:left;padding:3px 7px}
 table.t.unittbl td.col-listing .malls{margin-top:3px}
 table.t.unittbl td .meta{font-size:11px;margin-top:2px;line-height:1.45}
 /* ---- 販売一覧（販売済みの個体） ----
    在庫一覧と同じ作り（PCは表、狭い画面は1件1カード）を使うので、
    カードに切り替えるCSSは unittbl のものをそのまま共有する */
-table.t.salestbl td.col-when{line-height:1.4;font-variant-numeric:tabular-nums}
+table.t.salestbl td.col-when,
+table.t.salestbl td.col-ship{line-height:1.4;font-variant-numeric:tabular-nums}
 table.t.salestbl td.col-ops{white-space:normal}
 table.t.salestbl td.col-ops .btn{font-size:12px;padding:5px 9px;min-height:34px}
 table.t.unittbl td.col-check .meta{white-space:normal}
