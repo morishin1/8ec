@@ -22,16 +22,59 @@
 
 
 -- ------------------------------------------------------------
--- 1) 列（2つだけ）
+-- 1) 列（2つだけ）＋ **導入前に売れていたものの移行（初回だけ）**
+--
+--    そのまま列を足すと、過去に売れた全部が shipped_at = NULL のまま
+--    「未発送」になってしまう。発送の記録を取り始める前の販売なので、
+--    **導入前に売れていたものは「発送済み（導入前移行）」として扱う。**
+--    未発送一覧に入るのは、これから売れるものだけ。
+--
+--    **動くのは「shipped_at の列をいま作った」ときだけ。**
+--    2回目以降は列がもうあるので移行しない。これで、あとから本当に
+--    売れた未発送のものを、再実行で勝手に発送済みにしてしまうことがない。
+--
+--    列を足すのと移行を**1つの DO ブロック**にしてあるので、途中で失敗
+--    したら両方とも無かったことになる（列だけできて移行されない、が起きない）。
+--
+--    導入前のぶんには **発送完了の履歴を作らない**（実際にその日に発送した
+--    わけではないので、履歴に嘘を残さない）。区別は shipped_by = '導入前移行'。
 -- ------------------------------------------------------------
-alter table public.inventory_items add column if not exists shipped_at timestamptz;
-alter table public.inventory_items add column if not exists shipped_by text;
+do $$
+declare
+  v_new boolean;
+  v_n   bigint := 0;
+begin
+  -- いま列があるか（= 2回目以降か）を、足す前に見ておく
+  v_new := not exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'inventory_items'
+       and column_name = 'shipped_at');
+
+  execute 'alter table public.inventory_items add column if not exists shipped_at timestamptz';
+  execute 'alter table public.inventory_items add column if not exists shipped_by text';
+
+  if v_new then
+    execute $q$
+      update public.inventory_items
+         set shipped_at = now(),
+             shipped_by = '導入前移行'
+       where status = '売却済'
+         and shipped_at is null $q$;
+    get diagnostics v_n = row_count;
+    raise notice '発送管理の導入前に売れていた %台を「発送済み（導入前移行）」にしました', v_n;
+  else
+    raise notice 'shipped_at はすでにあるので移行はしません（本当の未発送はそのまま残します）';
+  end if;
+end $$;
 
 comment on column public.inventory_items.shipped_at is
   '発送した日時。NULL なら未発送。売却済でなくなったら自動で NULL に戻る
    （売却取消のあと、同じ個体をもう一度売ったときに「発送済み」が残らないように）。';
 comment on column public.inventory_items.shipped_by is
-  '発送した人（inv_actor）。shipped_at と同時に入り、同時に消える。';
+  '発送した人（inv_actor）。shipped_at と同時に入り、同時に消える。
+   ''導入前移行'' は、発送の記録を取り始める前に売れていたもの（この列を作ったときに
+   まとめて発送済み扱いにした分）。実際に誰が発送したかは分からないので、
+   通常の担当者と区別できる値を入れている。画面では「導入前」と出す。';
 
 -- 未発送の件数を数えるところ（メニューのバッジ・ダッシュボード）が一番よく引くので、
 -- 売却済のぶんだけの部分索引にする（全件に索引を張らない）
@@ -166,7 +209,7 @@ revoke all on function public.inv_ship_guard() from public, anon, authenticated,
 
 
 -- ------------------------------------------------------------
--- 自己点検（14項目＋件数3行）
+-- 自己点検（16項目＋件数4行）
 --
 --    データは1行も作らず、形と権限だけを見る（読むだけ）。
 --    実際の振る舞いは zaiko/check-ship.sql で確かめる
@@ -262,6 +305,21 @@ select '実売価格の入力・修正はそのまま',
                  not like '%shipped%'
             then 'OK' else 'NG' end
 union all
+select '導入前に売れていたものは未発送に残っていない',
+       case when not exists (select 1 from public.inventory_items
+                              where status = '売却済'
+                                and shipped_by = '導入前移行'
+                                and shipped_at is null)
+            then 'OK' else 'NG 導入前のものが未発送に残っている' end
+union all
+select '導入前の移行では「発送完了」の履歴を作っていない',
+       case when not exists (
+              select 1 from public.inventory_transactions t
+               join public.inventory_items i on i.id = t.ref_id
+               where t.ref_kind = 'item' and t.action = '発送完了'
+                 and i.shipped_by = '導入前移行')
+            then 'OK 履歴に嘘を残していない' else 'NG' end
+union all
 select '権限は authenticated だけ（トリガー関数は誰も呼べない）',
        case when has_function_privilege('authenticated',
                    'public.inv_item_ship(text, boolean, text)', 'execute')
@@ -280,4 +338,8 @@ select 'うち まだ発送していない台数（メニューのバッジに�
 union all
 select 'うち 発送済みの台数',
        (select count(*)::text from public.inventory_items
-         where status = '売却済' and shipped_at is not null) || '台';
+         where status = '売却済' and shipped_at is not null) || '台'
+union all
+select 'うち 導入前に売れていたぶん（画面では「導入前」と出ます）',
+       (select count(*)::text from public.inventory_items
+         where status = '売却済' and shipped_by = '導入前移行') || '台';

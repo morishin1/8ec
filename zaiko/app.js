@@ -1587,8 +1587,9 @@ async function sheetShipUndo(id) {
     <p style="font-size:17px;font-weight:700;margin:0 0 10px">${esc(m ? titleOf(m) : it.name)}</p>
     <div class="winfo">
       <div class="wrow"><span class="k">管理番号</span><b class="num">${esc(it.id)}</b></div>
-      <div class="wrow"><span class="k">発送</span><b>${esc(fmtDT(it.shipped_at))}${
-        it.shipped_by ? '　' + esc(it.shipped_by) : ''}</b></div>
+      <div class="wrow"><span class="k">発送</span><b>${shippedPre(it)
+        ? '導入前（発送管理を始める前に売れたもの）'
+        : esc(fmtDT(it.shipped_at)) + (it.shipped_by ? '　' + esc(it.shipped_by) : '')}</b></div>
     </div>
     <p class="meta" style="margin-top:12px">未発送に戻します。<strong>販売の記録（実売価格・販売先）は
       そのままです。</strong>発送の履歴は消さず、「発送取消」を足します。</p>
@@ -1633,6 +1634,17 @@ function shipApply(id, data) {
    出品を止めたことにはしない（出品の状態は listingState／warnStillListed が持つ）。
    売上・粗利も発送では変わらない（売れた時点で売上）。 */
 const shippedOk = (i) => !!(i && i.shipped_at);
+/* 発送の記録を取り始める**前**に売れていたもの。migration が1回だけまとめて
+   「発送済み」にした分で、実際にいつ誰が発送したかは分からない。
+   日時と担当者のかわりに「導入前」と出す（嘘の発送日時を見せない）。
+   この値は `zaiko/migrations/2026-10-19-ship.sql` が入れる1か所だけ。 */
+const SHIP_PRE = '導入前移行';
+const shippedPre = (i) => !!(i && i.shipped_at) && (i.shipped_by || '') === SHIP_PRE;
+/* 発送済みの行に出す「いつ・誰が」。導入前のものは日時を出さない */
+const shipWhenHtml = (at, by) => (by || '') === SHIP_PRE
+  ? `<div class="meta" title="発送の記録を取り始める前に売れたものです">導入前</div>`
+  : `<div class="meta nowrap">${esc(fmtDT(at))}</div>`
+    + ((by) ? `<div class="meta">${esc(by)}</div>` : '');
 /* メニューのバッジとダッシュボードに出す「まだ発送していない台数」。
    **数え方はこの1か所だけ。** 売却取消で売却済から外れたものは自然に落ちる */
 const unshippedCount = () => db.items.filter(i => i.status === '売却済' && !shippedOk(i)).length;
@@ -1747,9 +1759,10 @@ function salesBodyHtml() {
           ${pr('原価', r.cost, '仕入価格＋手数料（inventory_items.cost）')}
           ${pr('粗利', r.gain, '実売価格 − 原価')}</td>` : ''}
         <td class="col-ship" data-label="発送">${r.shippedAt
-          ? `<span class="tag ship on" title="発送した人：${esc(r.shippedBy || '—')}">発送済み</span>
-             <div class="meta nowrap">${esc(fmtDT(r.shippedAt))}</div>
-             ${r.shippedBy ? `<div class="meta">${esc(r.shippedBy)}</div>` : ''}`
+          ? `<span class="tag ship on" title="${r.shippedBy === SHIP_PRE
+               ? '発送の記録を取り始める前に売れたものです'
+               : '発送した人：' + esc(r.shippedBy || '—')}">発送済み</span>
+             ${shipWhenHtml(r.shippedAt, r.shippedBy)}`
           : '<span class="tag ship" title="まだ発送していません">未発送</span>'}</td>
         <td class="col-ops" data-label="操作" onclick="event.stopPropagation()">
           <div class="opsw">
@@ -8413,8 +8426,10 @@ async function sheetSellUndo(id) {
       ${row('シリアル番号', esc(it.serial || '—'))}
       ${row('現在', statusTag('売却済'))}
       ${row('戻る状態', statusTag(back))}
-      ${shippedOk(it) ? row('発送', `発送済み　${esc(fmtDT(it.shipped_at))}${
-        it.shipped_by ? '　' + esc(it.shipped_by) : ''}`) : ''}
+      ${shippedOk(it) ? row('発送', shippedPre(it)
+        ? '発送済み（導入前）'
+        : `発送済み　${esc(fmtDT(it.shipped_at))}${
+            it.shipped_by ? '　' + esc(it.shipped_by) : ''}`) : ''}
     </div>
     ${shippedOk(it) ? `<div class="card" style="margin-bottom:12px;background:#FFF8E1;border:1px solid #E8A33D">
       <strong>この商品はすでに発送済みです。</strong>

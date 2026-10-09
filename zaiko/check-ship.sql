@@ -8,6 +8,8 @@
 --   途中で作った商品・個体・履歴はすべて消え、本番のデータは1行も変わりません
 --   （在庫数も売上も動きません）。
 --
+--   見ること（14節）。導入前に売れていたものが未発送へ大量に入っていないかも見ます。
+--
 --   auth スキーマには触りません。「誰としてログインしているか」は、
 --   Supabase 標準の auth.jwt() が読んでいる request.jwt.claims を
 --   このトランザクションの中だけ差し替えて切り替えます。
@@ -172,10 +174,61 @@ begin
   else raise notice 'NG % → %', a, b; end if;
 end $$;
 
+\echo '--- 13) 導入前に売れていたものが未発送へ入っていない ---'
+-- 導入前の移行ぶん（shipped_by = '導入前移行'）を1台まねて作り、
+-- 未発送の数え方（画面のバッジと同じ条件）に入らないことを見る
+-- 2回に分ける。1回でやると、トリガー（新しく売ったら発送の記録を持ち越さない）が
+-- そのまま shipped_at を消してしまう。**それが正しい動き**なので、
+-- ここでは「売ってから、あとで導入前移行として印を付ける」形でまねる
+update public.inventory_items
+   set status = '売却済', sold_price = 3000, sold_channel = 'rakuten'
+ where id = 'CHKSH-4';
+select case when shipped_at is null
+            then 'OK 新しく売ったものに発送の記録は持ち越されない'
+            else 'NG 持ち越されている' end as r
+  from public.inventory_items where id = 'CHKSH-4';
+update public.inventory_items
+   set shipped_at = now(), shipped_by = '導入前移行'
+ where id = 'CHKSH-4';
+select case when count(*) = 0
+            then 'OK 導入前のものは未発送に入らない'
+            else 'NG '||count(*)||'台 入っている' end as r
+  from public.inventory_items
+ where status = '売却済' and shipped_at is null and shipped_by = '導入前移行';
+select case when count(*) = 1 then 'OK 導入前のぶんは発送済みとして数える' else 'NG '||count(*) end as r
+  from public.inventory_items
+ where id like 'CHKSH-%' and status = '売却済' and shipped_by = '導入前移行'
+   and shipped_at is not null;
+
+-- **本番のデータそのもの**を見る。導入前の移行が効いていれば、
+-- 売却済のほとんどが発送済みになっていて、未発送はこれから出荷するものだけになる
+select '本番：売却済 '
+       || (select count(*) from public.inventory_items where status = '売却済')
+       || '台／うち未発送 '
+       || (select count(*) from public.inventory_items
+            where status = '売却済' and shipped_at is null)
+       || '台／うち導入前として移行 '
+       || (select count(*) from public.inventory_items
+            where status = '売却済' and shipped_by = '導入前移行')
+       || '台' as r;
+select case when (select count(*) from public.inventory_items where status = '売却済') = 0
+            then 'OK（売却済がまだありません）'
+            when (select count(*) from public.inventory_items
+                   where status = '売却済' and shipped_at is null)
+               = (select count(*) from public.inventory_items where status = '売却済')
+            then 'NG 売却済の全部が未発送になっています（導入前の移行が動いていません）'
+            else 'OK 売却済の全部が未発送にはなっていません' end as r;
+select case when not exists (
+              select 1 from public.inventory_transactions t
+               join public.inventory_items i on i.id = t.ref_id
+               where t.ref_kind = 'item' and t.action = '発送完了'
+                 and i.shipped_by = '導入前移行')
+            then 'OK 導入前のぶんに「発送完了」の履歴を作っていない' else 'NG' end as r;
+
 rollback;
 
 \echo ''
-\echo '--- 13) 点検データが残っていないこと（rollback の確認） ---'
+\echo '--- 14) 点検データが残っていないこと（rollback の確認） ---'
 select case when (select count(*) from public.inventory_items where id like 'CHKSH-%') = 0
              and (select count(*) from public.inventory_products where code='CHKSH') = 0
              and (select count(*) from public.inventory_members
