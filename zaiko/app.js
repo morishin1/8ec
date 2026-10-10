@@ -164,9 +164,13 @@ const LIST_STATES_IN = LIST_STATES.concat(['出品中止']);
 const MENU = [
   ['dash', 'space_dashboard', 'ホーム', '', 'ware'],
   ['list', 'list_alt', '在庫一覧', '/list', 'ware'],
-  ['sales', 'point_of_sale', '販売一覧', '/sales', 'ware'],
-  ['in', 'login', '入庫', '/in', 'ware'],
-  ['out', 'logout', '出庫', '/out', 'ware'],
+  ['sales', 'point_of_sale', '販売・発送', '/sales', 'ware'],
+  ['in', 'login', '入荷', '/in', 'ware'],
+  /* 出庫（数量管理品を減らす）は**倉庫メンバーのナビから外した**。
+     個体の販売・貸出・移動は個体詳細からやるもので、トップに要らない。
+     **機能は消していない。** 管理者のナビには出るし、URL（/zaiko/out）でも開ける。
+     数量管理品の在庫を減らすのは、ここと棚卸の実数合わせからできる */
+  ['out', 'logout', '出庫', '/out'],
   ['loan', 'swap_horiz', '貸出・返却', '/loan'],
   ['stock', 'fact_check', '棚卸', '/stock', 'ware'],
   ['locs', 'warehouse', '保管場所', '/locations', 'ware'],
@@ -1239,9 +1243,9 @@ function viewHome() {
       : '<div class="card" style="margin:15px 0">閲覧権限では操作できません。</div>'}
     <div class="hometiles">
       ${tile('list', 'list_alt', '在庫一覧')}
+      ${tile('sales', 'point_of_sale', '販売・発送', unshippedCount() ? `未発送 ${unshippedCount()}件` : '')}
       ${tile('stock', 'fact_check', '棚卸', p.open ? `未確認 ${p.left}台` : '')}
-      ${tile('in', 'login', '入庫')}
-      ${tile('out', 'logout', '出庫')}
+      ${tile('in', 'login', '入荷')}
       ${tile('locs', 'warehouse', '保管場所')}
     </div>
     ${homeRecent()}`;
@@ -1556,7 +1560,7 @@ async function sheetShip(id) {
       ${canAdmin() ? row('実売価格', `<span class="num">${yen(it.sold_price)}</span>`) : ''}
       ${row('販売日時', esc(fmtDT((db.soldAt || {})[it.id] || '')))}
     </div>
-    <p class="meta" style="margin-top:12px">発送済みにすると、<strong>販売一覧（未発送）から外れて
+    <p class="meta" style="margin-top:12px">発送済みにすると、<strong>「販売・発送」の未発送から外れて
       ［発送済み］のタブへ移ります。</strong>販売の記録は消えません。
       <strong>楽天・Amazonなどの出品は止まりません</strong>（出品の停止は別の作業です）。</p>
   `, [['キャンセル', 'closeModal()', 'btn ghost'],
@@ -1770,7 +1774,7 @@ function salesBodyHtml() {
               ? (canAdmin() ? `<button class="btn sm ghost" onclick="sheetShipUndo('${esc(i.id)}')"
                     title="発送を記録し間違えたときに、未発送へ戻します（管理者だけ）">発送を取消</button>` : '')
               : `<button class="btn sm lime shipgo" onclick="sheetShip('${esc(i.id)}')" ${dis()}
-                  title="${canEdit() ? 'この商品を発送済みにします。販売一覧（未発送）から外れます'
+                  title="${canEdit() ? 'この商品を発送済みにします。「販売・発送」の未発送から外れます'
                                      : '閲覧権限では操作できません'}">発送する</button>`}
             <button class="btn sm saleedit" onclick="sheetSaleEdit('${esc(i.id)}')" ${dis()}
               title="${canEdit() ? '実売価格と販売先だけを直します。在庫の状態や出品価格は変わりません'
@@ -1796,8 +1800,9 @@ function viewSales() {
   const todo = sold.filter(i => !shippedOk(i)).length;
   const done = sold.length - todo;
   return `
-    <h1>販売一覧</h1>
-    <p class="meta" style="margin:15px 0 4px"><strong>売れたものを「まだ発送していない」「発送済み」に
+    <h1>販売・発送</h1>
+    <p class="lead">売れた商品を確認し、発送完了まで管理します</p>
+    <p class="meta" style="margin:8px 0 4px"><strong>売れたものを「まだ発送していない」「発送済み」に
       分けて出しています。</strong>まず未発送を片づける画面です。
       いま手元にあるものは<a href="#" onclick="event.preventDefault();go('list')">在庫一覧</a>で見てください。${
       canAdmin() ? '' : '　<strong>一覧の金額（原価・粗利）は管理者だけが見られます。</strong>'
@@ -6769,10 +6774,27 @@ function viewItemWarehouse(it, m) {
     </div>
     <div class="wtags">${statusTag(it.status, true)}<div>${checkCell(it)}</div></div>
     ${guardNote()}
+    ${/* いま押すべき操作を**1つだけ**大きく出す。
+          売れる状態            … 販売を登録する（販売先と実売価格を入れる）
+          売却済・まだ発送していない … 発送済みにする
+          発送済み              … 主ボタンは出さず「発送済み」と出す
+        **販売と発送は別の操作。**1つのボタンでまとめてやらない
+        （売ってから発送するまでに間があるので、そこを見落とさないため）。 */''}
     ${canEdit() && wareCanSell(it) ? `<button class="btn pri wsell" onclick="sheetSellWarehouse('${esc(it.id)}')">
-      <span class="ms">local_shipping</span>販売済みにする</button>` : ''}
-    ${canEdit() && canUndoSell(it) ? `<button class="btn wundo" onclick="sheetSellUndo('${esc(it.id)}')">
-      <span class="ms">settings_backup_restore</span>販売済みを取り消す</button>` : ''}
+      <span class="ms">sell</span>販売を登録する</button>` : ''}
+    ${canEdit() && it.status === '売却済' && !shippedOk(it)
+      ? `<button class="btn pri wship" onclick="sheetShip('${esc(it.id)}')">
+          <span class="ms">local_shipping</span>発送済みにする</button>` : ''}
+    ${shippedOk(it) ? `<div class="wdone">
+      <span class="ms">check_circle</span>
+      <div style="min-width:0"><b>発送済み</b>${shipWhenHtml(it.shipped_at, it.shipped_by)}</div>
+    </div>` : ''}
+    ${/* 発送したものを売却前へ戻せるのは管理者だけ（画面でもサーバー側のトリガーでも）。
+          この画面は倉庫メンバー・閲覧のものなので、発送済みなら出さない
+          （管理者は管理者用の個体画面から戻せる）。 */''}
+    ${canEdit() && canUndoSell(it) && !shippedOk(it)
+      ? `<button class="btn wundo" onclick="sheetSellUndo('${esc(it.id)}')">
+          <span class="ms">settings_backup_restore</span>販売済みを取り消す</button>` : ''}
     <div class="ops wops">
       ${op('move_down', '移動', `sheetMove('${esc(it.id)}')`)}
       ${op('fact_check', '棚卸確認', `checkItem('${esc(it.id)}')`)}
@@ -6906,7 +6928,9 @@ async function doSellWarehouse(id) {
       <div class="wrow"><span class="k">販売先</span><b>${esc(chanLabel(key))}</b></div>
       <div class="wrow"><span class="k">販売価格</span><b class="num">${yen(sold)}</b></div>
     </div>
-    <p class="meta" style="margin-top:12px">続けて出荷するときは［次のQRを読む］を押してください。</p>
+    <p class="meta" style="margin-top:12px"><strong>発送はこのあとです。</strong>
+      発送したら、この個体の画面か「販売・発送」の未発送から［発送済みにする］を押してください。<br>
+      続けて別の商品を登録するときは［次のQRを読む］を押してください。</p>
   `, [['在庫一覧へ', "closeModal();go('list')", 'btn ghost'],
       ['次のQRを読む', "closeModal();openScan('lookup')", 'btn pri']]);
 }
@@ -8555,17 +8579,29 @@ function moveList(mode) {
         ${isIn ? '入庫' : '出庫'}</button>
     </div>`).join('');
 
-  return `<h1>${isIn ? '入庫' : '出庫'}</h1>
-    <p class="sub" style="margin:8px 0 14px">
+  return `<h1>${isIn ? '入荷' : '出庫'}</h1>
+    <p class="lead">${isIn
+      ? '新しく届いた商品・在庫を登録します'
+      : '手元から出ていく数量品を減らします'}</p>
+    <p class="sub" style="margin:4px 0 14px">
       ${isIn ? 'モノが増える・戻ってくるときの記録です。' : 'モノが減る・手元から出るときの記録です。'}
       <strong>QRを読めば続けて処理できます</strong>（数量品は数を入れ、個体は1台ずつ）。</p>
     ${guardNote()}
     <button class="btn lime" style="min-height:62px;width:100%;font-size:18px;margin-bottom:18px"
             onclick="openScan('${mode}')" ${dis()}>
-      <span class="ms" style="font-size:28px">qr_code_scanner</span>QRを読んで${isIn ? '入庫' : '出庫'}</button>
+      <span class="ms" style="font-size:28px">qr_code_scanner</span>QRを読んで${isIn ? '入荷' : '出庫'}</button>
 
     <div class="sec" style="margin-top:0">数量管理から選ぶ</div>
     ${targets.length ? rows : '<div class="empty">数量管理の品目はまだありません。</div>'}
+    ${/* 出庫はトップのナビから外したので、ここから行けるようにしておく
+          （数量品を減らすのは入荷と対になる作業なので、同じ画面から辿れるのが自然）。
+          個体の販売・貸出・移動は個体詳細から。 */''}
+    ${isIn ? `<p class="meta" style="margin-top:18px">数量品を<strong>減らす</strong>ときは
+      <button class="btn sm ghost" onclick="go('out')"><span class="ms">logout</span>出庫</button>
+      から。個体（1台ずつ管理するもの）の販売・貸出・移動は、QRを読んでその個体の画面から行います。</p>`
+      : `<p class="meta" style="margin-top:18px">届いたものを登録するときは
+      <button class="btn sm ghost" onclick="go('in')"><span class="ms">login</span>入荷</button>
+      から。</p>`}
 
     <div class="sec">個体は1台ずつ</div>
     <p class="meta">個体管理の機器は、上のQR読み取りか、商品詳細の「個体一覧」から操作してください。
@@ -8716,7 +8752,8 @@ function viewStock() {
     const n = db.items.filter(i => IN_STOCK.includes(i.status)
       && (!scope || locTree(scope).includes(i.location_id))).length;
     return `<h1>棚卸</h1>
-      <p class="sub" style="margin:8px 0 18px">帳簿の在庫（<strong>在庫・出品中</strong>）が
+      <p class="lead">登録されている在庫と実際の現物を照合します</p>
+      <p class="sub" style="margin:4px 0 18px">帳簿の在庫（<strong>在庫・出品中</strong>）が
         本当に手元にあるかを照合します。始めると、その範囲が「未確認」に並びます。
         QRを連続で読み取るか、［確認］を押して潰していきます。</p>
       ${guardNote()}
@@ -8896,14 +8933,26 @@ async function closeStocktake(confirmed) {
 
 /* ===== 9. 保管場所 ===== */
 function viewLocs() {
+  /* 管理者はこの画面から**そのまま**足す・直す・無効にする・消すができる
+     （マスター管理へ行き直さない）。中身はマスター管理と同じ masterLocBody() を
+     そのまま使うので、判定も見た目も1か所にまとまる。
+     呼ぶのは既存の inv_location_save / inv_location_delete_check /
+     inv_location_delete で、**新しいRPCもSQLも作っていない**。
+     在庫や履歴が残っている場所は削除できない、という安全のしかけもそのまま。 */
+  if (canAdmin()) {
+    return `<div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap">
+        <h1>保管場所</h1>
+        <button class="btn sm ghost" onclick="go('master')" style="margin-left:auto">
+          <span class="ms">category</span>カテゴリーの管理へ</button>
+      </div>
+      <p class="lead">在庫を置く場所を登録・整理します</p>
+      ${masterLocBody()}`;
+  }
   const rows = locsOrdered();
   if (!rows.length) return '<h1>保管場所</h1><div class="empty" style="margin-top:20px">保管場所が登録されていません。</div>';
   const icon = { site: 'apartment', room: 'warehouse', shelf: 'shelves', other: 'inventory_2' };
-  return `<div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap">
-      <h1>保管場所</h1>
-      ${canAdmin() ? `<button class="btn sm ghost" onclick="go('master')" style="margin-left:auto">
-        <span class="ms">tune</span>保管場所を管理</button>` : ''}
-    </div>
+  return `<h1>保管場所</h1>
+    <p class="lead">在庫がどこにあるかを見ます</p>
     <div class="loctree" style="margin-top:15px">${rows.map(l => {
       const d = locDepth(l.id);
       const tree = locTree(l.id);
