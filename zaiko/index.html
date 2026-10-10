@@ -427,8 +427,17 @@ table.t tr.clk:hover td{background:var(--n100)}
 .undoord .k{font-size:13px;color:var(--n600);margin-bottom:6px}
 .undoord .r{display:flex;gap:10px;flex-wrap:wrap;align-items:baseline;padding:3px 0}
 #modal .btn.pri:disabled{opacity:.45;cursor:not-allowed}
-/* 倉庫の個体画面の［販売済みを取り消す］。販売済みにするボタンほど目立たせない */
+/* 倉庫の個体画面の［販売済みを取り消す］。主ボタンほど目立たせない */
 .wundo{width:100%;min-height:52px;margin-top:10px;font-size:16px}
+/* 発送が終わっているときは、主ボタンを出さずにこれを出す（押すところが無いと分かる）。
+   色は新しく足さず、価格確認済みと同じ Success系をそのまま使う */
+.wdone{display:flex;align-items:center;gap:10px;width:100%;margin-top:4px;padding:13px 14px;
+  border:1px solid #2E7D32;border-radius:var(--r2);background:#E8F5E9;color:#1B5E20}
+.wdone .ms{font-size:24px;flex:0 0 auto}
+.wdone b{font-size:16px}
+.wdone .meta{color:#2E7D32}
+/* 画面のいちばん上の1行説明。何をする画面かを最初に言う */
+.lead{margin:10px 0 0;font-size:15px;font-weight:500;color:var(--n800)}
 /* パスワードは入れるだけ。読み出す経路は作らないので、表示用の見た目は持たない */
 #sheet input[type=password].input{letter-spacing:.12em}
 /* シートの中のボタンはスマホで指が届くように。外（表の行など）の .btn.sm は変えない */
@@ -466,8 +475,10 @@ table.t tr.clk:hover td{background:var(--n100)}
 .wtags > div{display:flex;gap:8px;align-items:center}
 /* 画像が無いときの案内は管理者向けの文言なので、倉庫の画面では出さない */
 .ware .photobox .u{display:none}
-.wsell{width:100%;min-height:64px;font-size:18px;font-weight:700;gap:9px}
-.wsell .ms{font-size:24px}
+/* 個体画面の主ボタン。いま押すべき操作を1つだけ大きく出す
+   （売れる状態 → .wsell 販売を登録する／売却済で未発送 → .wship 発送済みにする） */
+.wsell,.wship{width:100%;min-height:64px;font-size:18px;font-weight:700;gap:9px}
+.wsell .ms,.wship .ms{font-size:24px}
 .ops.wops{margin-top:14px}
 .wnext{width:100%;margin-top:18px;min-height:48px}
 
