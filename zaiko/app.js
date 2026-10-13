@@ -218,6 +218,7 @@ const ui = {
   fScope: '',                // 在庫一覧の母集団。'' 既定（現物あり）/ 'all' すべて / 'unchk' 未確認・差異だけ
   fNoCh: '',                 // 価格未設定の絞り込み。'' / 'rakuten' / 'amazon'
   fList: null,               // 出品状況。null なら権限に応じた既定（管理者は未出品）
+  fMissingListing: '',       // 棚卸済 × その販売先が未出品。'' / 'amazon' / 'rakuten'
   sort: 'new',               // 並び順。'new' 登録が新しい順 / 'old' 登録が古い順 / 'id' 管理番号順
   fSold: '', fSoldCh: '', sq: '',   // 販売一覧の絞り込み（販売日・販売先・検索）
   drawer: false,             // スマホのハンバーガーメニューを開いているか
@@ -1377,7 +1378,7 @@ function listFiltered() {
 function setListMode(m) {
   // 型番別・販売チャネル別は管理者だけ。倉庫メンバーは個体別のまま
   if (!canAdmin()) m = 'unit';
-  ui.listMode = m; ui.sel = {}; ui.selItems = {}; ui.fDiff = false; go('list');
+  ui.listMode = m; ui.sel = {}; ui.selItems = {}; ui.fDiff = false; ui.fMissingListing = ''; go('list');
 }
 
 /* いま選んでいるタブが販売サイト（または未出品）なら、そのキーを返す */
@@ -1456,6 +1457,7 @@ function viewList() {
     ${unit ? scopeBar() : ''}
     ${canAdmin() ? batchBanner() + diffBar() + noPriceBar() + listTabs() : ''}
     ${unit ? listStateTabs() : ''}
+    ${canAdmin() && unit ? listingKpiBar() + missingListingBar() : ''}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:4px">
       <input class="input" id="f-q" value="${esc(ui.q)}" oninput="onFilter()"
              placeholder="${unit ? '管理番号・型番・S/N…' : '型番・商品名・管理番号…'}">
@@ -2003,8 +2005,13 @@ function unitsFiltered(ignoreTab, ignoreList) {
   // 出品状況の絞り込み。出品情報を持っていない人（倉庫メンバー・閲覧）は常に「全在庫」。
   // 販売サイトのタブや、在庫差異・売価未登録・価格未設定を見ているときも外す
   // （その絞り込みが見たいものを隠さないため）
-  const fl = (ignoreList || !canAdmin() || chanTab() || ui.fDiff || ui.fNoPrice || ui.fNoCh)
-    ? 'all' : myFList();
+  // 「Amazon未出品を見る」で絞っているときも出品状況の絞り込みは外す。
+  // 既定の「未出品」のままだと、楽天には出しているAmazon未出品の個体が消えてしまうため
+  const fl = (ignoreList || !canAdmin() || chanTab() || ui.fDiff || ui.fNoPrice || ui.fNoCh
+    || ui.fMissingListing) ? 'all' : myFList();
+  // 棚卸済 × その販売先が出品中ではないもの だけに絞る（出品率の「未出品○台を見る」）。
+  // 出品に関する絞り込みなので、ignoreList のときは外す（出品率の分母に効かせないため）
+  const ml = (ignoreList || !canAdmin()) ? '' : (ui.fMissingListing || '');
   const ckIdx = stocktakeIndex();      // 棚卸の絞り込み用。1行ずつ探さず1回で作る
   const inScope = ui.fLoc ? locTree(ui.fLoc) : null;
   const batch = batchOf(ui.fBatch);
@@ -2043,6 +2050,8 @@ function unitsFiltered(ignoreTab, ignoreList) {
     if (ui.fNoCh && canAdmin() && chPrice(i, ui.fNoCh) != null) return false;
     // 出品状況（未出品・出品停止・出品中）
     if (fl !== 'all' && listingState(i) !== fl) return false;
+    // 棚卸済 × その販売先が未出品。判定は出品率の分母とまったく同じものを通す
+    if (ml && (checkTag(i, ckIdx).kind !== 'done' || !chanMissing(i, ml))) return false;
     return hit(i, prod(i.product_code)) && onTab(liveOn(i));
   }).map(i => ({ kind: 'item', i, m: prod(i.product_code) }));
   // 数量管理は個体を持たない。1品目1行で混ぜる
@@ -2050,6 +2059,7 @@ function unitsFiltered(ignoreTab, ignoreList) {
     const fake = qtyRow(p);
     if (ui.fSt || ui.fDiff || ui.fNoPrice || ui.fRentEl || rentTab) return;
     if (ui.fNoCh) return;                      // 個体 × 販売先の価格は持たない
+    if (ml) return;                            // 出品率は個体管理品だけが対象（14節）
     // **棚卸の決まりは個体とまったく同じ。** いまは数量管理に棚卸の仕組みが無いので
     // checkTag() は「対象外」を返し、既定の「棚卸済だけ」には出ない。
     // 将来 inventory_stocktake_items に品目ぶんが入れば、同じ索引を引くだけで
@@ -2091,7 +2101,7 @@ function myFList() { return canAdmin() ? (ui.fList == null ? 'none' : ui.fList) 
    数えるのは**いま掛けている絞り込み（棚卸済×現在庫ほか）の中**で、
    出品状況の絞り込みだけ外したもの。切り替えても数は動かない */
 function listStateTabs() {
-  if (!canAdmin() || chanTab() || ui.fDiff || ui.fNoPrice || ui.fNoCh) return '';
+  if (!canAdmin() || chanTab() || ui.fDiff || ui.fNoPrice || ui.fNoCh || ui.fMissingListing) return '';
   const rows = unitsFiltered(false, true).filter(r => r.kind === 'item');
   const n = { none: 0, off: 0, live: 0 };
   rows.forEach(r => { n[listingState(r.i)]++; });
@@ -2108,20 +2118,156 @@ function listStateTabs() {
 function setFList(v) { ui.fList = v || 'none'; ui.sel = {}; ui.selItems = {}; go('list'); }
 function setSort(v) { ui.sort = v || 'new'; renderListBody(); }
 
+/* ---------------------------------------------------------------- 棚卸済み商品の出品率
+
+   「棚卸で現物を確認できた在庫を、どこまで販売可能な状態へ持っていけたか」を見る指標。
+   棚卸完了率だけでなく**販売準備完了率**まで1画面で分かるようにするためのもの。
+
+   **分母は棚卸確認済みの個体だけ**（checkTag().kind === 'done'）。
+   未確認・差異・対象外は入れない。まだ現物を見ていないものまで分母に入れると、
+   出品率が低い理由が「本当に未出品」なのか「そもそも現物未確認」なのか
+   分からなくなるため。
+
+   数量管理の品目は個体棚卸の仕組みをまだ持っていないので、今回は対象にしない
+   （画面にも「※ 個体管理品を対象」と出す）。
+
+   いま掛けている絞り込み（保管場所・カテゴリー・メーカー・状態・8RENT・棚卸条件）は
+   そのまま効かせる。ただし**販売サイトのタブと出品状況の絞り込みは分母から外す**。
+   外さないと、Amazonタブを開いた状態で「Amazon 100%」と出てしまう。
+
+   判定は既存の liveOn() / listingOf() / checkTag() / unitsFiltered() を通すだけで、
+   同じ意味の判定をここで作り直さない。                                            */
+
+/* いま出品率を出す販売先。**今回は Amazon と 楽天の2つだけ。**
+   増やすときはここに足せば、グラフ・件数・絞り込みがそのまま付いてくる */
+const KPI_CHANNELS = ['amazon', 'rakuten'];
+
+/* その1台の、ある販売先での様子。出品中の判定は **liveOn() をそのまま使う**。
+     'live' 出品中 … その販売先でいま出品中
+     'off'  出品停止 … 出品情報はあるが state が出品中ではない
+     'none' 未登録 … その販売先の出品情報が1件も無い */
+function chanState(i, key) {
+  if (liveOn(i).indexOf(key) >= 0) return 'live';
+  return listingOf(i, key) ? 'off' : 'none';
+}
+/* 「その販売先では未出品」。未登録と出品停止をまとめた言い方（内訳は chanState で分かる） */
+const chanMissing = (i, key) => chanState(i, key) !== 'live';
+
+/* 出品率の分母になる個体。**出品に関する絞り込みだけを外した** unitsFiltered() から作る */
+function listingKpiBase() {
+  const idx = stocktakeIndex();
+  let rows = unitsFiltered(true, true).filter(r => r.kind === 'item');
+  // 8RENTタブは販売サイトのタブではないので、掛かっていれば分母にも効かせる
+  if (ui.listMode === 'rental') rows = rows.filter(r => isRentalOn(r.i));
+  return rows.map(r => r.i).filter(i => checkTag(i, idx).kind === 'done');
+}
+function listingKpi() {
+  const base = listingKpiBase();
+  return {
+    total: base.length,
+    chans: KPI_CHANNELS.map(key => {
+      const n = { live: 0, off: 0, none: 0 };
+      base.forEach(i => { n[chanState(i, key)]++; });
+      return { key, label: chanLabel(key), live: n.live, off: n.off, none: n.none,
+               miss: n.off + n.none,
+               pct: base.length ? Math.round(n.live / base.length * 1000) / 10 : 0 };
+    })
+  };
+}
+/* 100%のときに「100.0%」と出さない（割り切れるときは小数を付けない） */
+const fmtPct = (v) => (Math.round(v * 10) / 10 === Math.round(v) ? String(Math.round(v)) : v.toFixed(1)) + '%';
+
+/* 在庫一覧の上に出す出品率。100%横棒グラフ（出品中／未出品の2区分）。
+   グラフのライブラリは入れず、既存のUIに合わせたHTML/CSSのバーで出す。
+   出品情報を持っていない人（倉庫メンバー・閲覧）には出さない。 */
+function listingKpiBar() {
+  if (!canAdmin() || ui.listMode === 'model') return '';
+  const k = listingKpi();
+  if (!k.total) return '';
+  return `<div class="lkpi">
+    <div class="lkh"><span class="ms">storefront</span>
+      <div class="bx"><div class="bt">棚卸済み商品の出品率</div>
+        <div class="meta">棚卸確認済み <strong>${k.total}台</strong>を対象
+          （いま掛けている保管場所・カテゴリー・メーカーなどの絞り込みの中で数えています）。
+          ※ 個体管理品を対象</div></div>
+    </div>
+    ${k.chans.map(c => `<div class="lkr">
+      <div class="lkn"><span>${esc(c.label)}</span><b>${fmtPct(c.pct)}</b></div>
+      <div class="lkb" role="img"
+        aria-label="${esc(c.label)}は出品中 ${c.live}台、未出品 ${c.miss}台（棚卸確認済み ${k.total}台のうち）">
+        <i style="width:${c.pct}%"></i></div>
+      <div class="lkm">${c.live}台 出品中 / ${c.miss}台 未出品
+        <span class="meta">（${k.total}台中）</span></div>
+      <button class="btn sm ${ui.fMissingListing === c.key ? '' : 'ghost'}"
+        onclick="setMissingListing('${c.key}')" ${c.miss ? '' : 'disabled'}
+        title="${c.miss ? `棚卸済みで${esc(c.label)}に出していない在庫だけを一覧に出します（未登録 ${c.none}台／出品停止 ${c.off}台）`
+                        : `${esc(c.label)}はすべて出品中です`}">未出品${c.miss}台を見る</button>
+    </div>`).join('')}
+  </div>`;
+}
+
+/* 「未出品○台を見る」。棚卸済 × その販売先が出品中ではないもの だけに絞る。
+   出品状況・在庫差異・売価未登録・価格未設定・棚卸条件・母集団の切り替えは、
+   見たいものが食い違うのでここで外す（在庫差異のボタンと同じ考え方）。
+   保管場所・カテゴリー・メーカー・状態・8RENTの絞り込みはそのまま残す。 */
+function setMissingListing(key) {
+  ui.fMissingListing = KPI_CHANNELS.indexOf(key) >= 0 ? key : '';
+  if (ui.fMissingListing) {
+    ui.listMode = 'unit';
+    ui.fDiff = false; ui.fNoPrice = false; ui.fNoCh = '';
+    ui.fCheck = ''; ui.fScope = '';
+  }
+  ui.sel = {}; ui.selItems = {};
+  go('list');
+}
+
+/* 未出品で絞っている間だけ、何を見ているかを上に出す。
+   **未登録（出品情報が1件も無い）と 出品停止（登録はあるが出品中でない）は分けて数える。** */
+function missingListingBar() {
+  const key = ui.fMissingListing;
+  if (!key || !canAdmin()) return '';
+  const label = chanLabel(key);
+  const rows = unitsFiltered().filter(r => r.kind === 'item');
+  const none = rows.filter(r => chanState(r.i, key) === 'none').length;
+  const off = rows.filter(r => chanState(r.i, key) === 'off').length;
+  return `<div class="diffbar on"><span class="ms">filter_alt</span>
+    <div class="bx"><div class="bt">表示中：棚卸済 × ${esc(label)}未出品 ${rows.length}台</div>
+      <div class="meta">棚卸で現物を確認できていて、<strong>${esc(label)}ではいま出品中ではない</strong>ものだけを
+        出しています。内訳は ${esc(label)}未登録 ${none}台／出品停止 ${off}台 です。</div></div>
+    <button class="btn sm ghost" onclick="setMissingListing('')">未出品フィルターを解除</button></div>`;
+}
+
+/* 未出品で絞っているときに、その販売先での理由を1つだけ出す。
+     未登録   … その販売先の出品情報が1件も無い（これから出品設定をするもの）
+     出品停止 … 出品情報はあるが、いま出品中ではない（止めたまま、または在庫切れのまま）
+   判定は chanState() 1か所だけ。ここは見た目と文字だけ。 */
+function missingWhyTag(i, key) {
+  const r = chanState(i, key);
+  if (r === 'live') return '';
+  const label = chanLabel(key);
+  return `<div class="msr"><span class="tag ls ${r}"
+    title="${r === 'none' ? `${esc(label)}の出品情報がまだ1件も登録されていません`
+                          : `${esc(label)}の出品情報はありますが、いま出品中ではありません`}"
+    >${esc(label)} ${r === 'none' ? '未登録' : '出品停止'}</span></div>`;
+}
+
 /* 一覧の「出品」欄。**空欄や「—」だけで未出品を表さない。**
      未出品   出品先未登録（注意色）。次に出品設定をする行
      出品停止 登録はあるが、いま出品中ではない
      出品中   出品中の販売先をバッジで並べる
    出品設定は既存の画面（個体詳細の販売情報）へ送るだけで、新しい出品機能は作らない。 */
 function listingCell(i) {
+  // 未出品で絞っているときは、**その販売先での理由**（未登録／出品停止）を先に出す。
+  // 下の「未出品・出品停止・出品中」は販売先ぜんぶをまとめた見方なので、意味が違う
+  const why = ui.fMissingListing ? missingWhyTag(i, ui.fMissingListing) : '';
   const st = listingState(i);
   if (st === 'live')
-    return `<span class="tag ls live" title="1つ以上の販売先でいま出品中">出品中</span>
+    return `${why}<span class="tag ls live" title="1つ以上の販売先でいま出品中">出品中</span>
       ${listingChips(liveOn(i))}`;
   if (st === 'off')
-    return `<span class="tag ls off" title="販売先の登録はあるが、いま出品中のものが無い">出品停止</span>
+    return `${why}<span class="tag ls off" title="販売先の登録はあるが、いま出品中のものが無い">出品停止</span>
       <div class="meta">登録あり</div>`;
-  return `<span class="tag ls none" title="どの販売先にも出品情報が1件も登録されていない">未出品</span>
+  return `${why}<span class="tag ls none" title="どの販売先にも出品情報が1件も登録されていない">未出品</span>
     <div class="meta">出品先未登録</div>
     <button class="btn sm ghost lsgo" onclick="event.stopPropagation();go('item','${esc(i.id)}')"
       title="この個体の販売情報を開きます">出品設定</button>`;
@@ -2320,7 +2466,8 @@ function emptyListHtml() {
   // 人が自分で掛けた絞り込みで0件なら、それは普通のこと。
   // 出品状況（既定が「未出品」）はこちらが掛けているものなので、ここでは数えない
   const narrowed = ui.fScope || ui.fDiff || ui.fNoPrice || ui.fCheck || ui.fNoCh
-    || ui.q || ui.fCat || ui.fMaker || ui.fLoc || ui.fSt || ui.fRentEl || ui.fQr || chanTab();
+    || ui.q || ui.fCat || ui.fMaker || ui.fLoc || ui.fSt || ui.fRentEl || ui.fQr || chanTab()
+    || ui.fMissingListing;
   const n = scopeHidden();
   if (narrowed || !n) return plain;
   // 既定の母集団（棚卸済だけ）を外せば出るのかを確かめる。出ないなら母集団のせいではない
@@ -11611,15 +11758,56 @@ function pickAll(on) {
   }
   render();
 }
+/* ラベルに出す型番とメーカー。**商品マスターが正、無ければ個体の値**。
+   在庫一覧の行（mk）とまったく同じ順番で引くので、一覧とラベルで違う型番が出ることはない。
+   型番がどこにも無いときだけ商品名で代わりにする（ラベルの2段目を空にしないため）。 */
+function labelModel(i, m) { return (m && m.model) || i.model || (m && m.name) || i.name || ''; }
+function labelMaker(i, m) { return (m && m.maker) || i.maker || ''; }
+
+/* 印刷するものを1件ずつ。**kind で個体・数量品・棚を見分ける**（表示を分けるため）。
+   URLと管理番号は今までのまま。QRの中身は変えない。 */
 function selectedLabels() {
   const out = [];
-  db.items.filter(i => ui.labelSel[labelKey('item', i.id)]).forEach(i =>
-    out.push({ id: i.id, name: i.name, loc: locPath(i.location_id), url: itemUrl(i.id) }));
+  db.items.filter(i => ui.labelSel[labelKey('item', i.id)]).forEach(i => {
+    const m = prod(i.product_code);
+    out.push({ kind: 'item', id: i.id, model: labelModel(i, m), maker: labelMaker(i, m),
+               name: (m && m.name) || i.name || '', loc: locPath(i.location_id), url: itemUrl(i.id) });
+  });
   db.masters.filter(p => ui.labelSel[labelKey('prod', p.code)]).forEach(p =>
-    out.push({ id: p.code, name: p.name, loc: locPath(p.location_id), url: prodUrl(p.code) }));
+    out.push({ kind: 'prod', id: p.code, model: p.model || '', maker: p.maker || '',
+               name: p.name, loc: locPath(p.location_id), url: prodUrl(p.code) }));
   db.locs.filter(l => ui.labelSel[labelKey('loc', l.id)]).forEach(l =>
-    out.push({ id: l.id, name: l.name, loc: locPath(l.id), url: locUrl(l.id) }));
+    out.push({ kind: 'loc', id: l.id, model: '', maker: '',
+               name: l.name, loc: locPath(l.id), url: locUrl(l.id) }));
   return out;
+}
+
+/* 1枚ぶんのラベル。**実寸 40×30mm は変えない。**
+
+   個体（kind='item'）は倉庫や棚での目視を優先して
+     管理番号 → 型番 → メーカー → 保管場所 → QR
+   の順に並べ、管理番号と型番を大きく出す。商品名はラベルには出さない
+   （40×30mmに入る文字数が限られるので、現場で引ける型番を優先する）。
+
+   数量品（kind='prod'）と棚（kind='loc'）は今までどおり
+     管理番号 → 名前 → 保管場所
+   のまま。こちらのレイアウトは変えない。 */
+function labelHtml(s) {
+  if (s.kind !== 'item')
+    return `<div class="label"><img src="${qr(s.url)}" alt="">
+      <div class="tx"><div class="id">${esc(s.id)}</div><div class="nm">${esc(s.name)}</div>
+        <div class="lo">${esc(s.loc)}</div></div></div>`;
+  const model = s.model || '';
+  // 長い型番だけ少しだけ文字を小さくする。**ふつうの型番は最初から小さくしない。**
+  // 2行まで折り返し、それでも入らないぶんは切る（ラベルの外へはみ出させない）
+  const cls = model.length > 22 ? ' s2' : model.length > 14 ? ' s1' : '';
+  return `<div class="label item"><img src="${qr(s.url)}" alt="">
+    <div class="tx">
+      <div class="id">${esc(s.id)}</div>
+      <div class="mdl${cls}">${esc(model)}</div>
+      ${s.maker ? `<div class="mk">${esc(s.maker)}</div>` : ''}
+      <div class="lo">${esc(s.loc)}</div>
+    </div></div>`;
 }
 /* 印刷ボタンを押したら、選んでいる**個体**を印刷済みとして記録してから印刷する。
    ブラウザは紙が出たかを保証できないので、記録するのは「印刷操作をした」ことだけ。
@@ -11647,7 +11835,8 @@ function viewLabels() {
   const c = labelQrCounts();
   return `<div data-noprint>
       <h1>QRラベル</h1>
-      <p class="sub" style="margin:8px 0 12px">ラベルは実寸 40×30mm です。A4に並べても、ラベルプリンタでも同じ版で印刷できます。</p>
+      <p class="sub" style="margin:8px 0 12px">ラベルは実寸 40×30mm です。A4に並べても、ラベルプリンタでも同じ版で印刷できます。
+        個体のラベルは<strong>管理番号と型番を大きく</strong>出しています（棚で目視しやすいように）。</p>
       <div class="qrsum">
         <span><b>${esc(c.label)}</b> ${c.total}台</span>
         <span class="qrst">${'<span class="ms">print</span>'}未印刷 ${c.todo}台</span>
@@ -11670,10 +11859,7 @@ function viewLabels() {
       <div class="picks">${db.locs.filter(l => l.kind === 'shelf').map(l => pick('loc', l.id, l.name, locPath(l.id))).join('') || '<div class="meta">ありません</div>'}</div>
       <div class="sec">印刷イメージ</div>
     </div>
-    <div class="labels">${sel.map(s => `
-      <div class="label"><img src="${qr(s.url)}" alt="">
-        <div class="tx"><div class="id">${esc(s.id)}</div><div class="nm">${esc(s.name)}</div><div class="lo">${esc(s.loc)}</div></div>
-      </div>`).join('')}</div>
+    <div class="labels">${sel.map(labelHtml).join('')}</div>
     ${sel.length ? '' : '<div class="empty" data-noprint>印刷するものを選んでください。</div>'}`;
 }
 
