@@ -239,11 +239,18 @@ create table if not exists public.inventory_items (
   loaned_at       timestamptz,                     -- 貸出日。長期貸出（30日超）の判定に使う
   note            text,
   last_checked_at timestamptz,                     -- 最後に棚卸で現物を確認した日時
+  qr_printed_at   timestamptz,                     -- QRラベルを最初に印刷操作した日時。NULLなら未印刷
+  qr_printed_last timestamptz,                     -- 最後に印刷操作した日時（再印刷で更新）
+  qr_print_count  integer not null default 0,      -- 印刷操作の回数。0なら未印刷
   created_at      timestamptz default now(),
   updated_at      timestamptz default now()
 );
 
+comment on column public.inventory_items.qr_print_count is
+  'QRラベルの印刷操作の回数。0 なら未印刷。画面はこの値だけで色を決める。';
+
 create index if not exists inventory_items_status_idx on public.inventory_items (status, location_id);
+create index if not exists inventory_items_qr_print_idx on public.inventory_items (qr_print_count);
 create index if not exists inventory_items_loc_idx    on public.inventory_items (location_id);
 create index if not exists inventory_items_cat_idx    on public.inventory_items (category_id);
 
@@ -325,10 +332,16 @@ create table if not exists public.inventory_stocktakes (
 create table if not exists public.inventory_stocktake_items (
   stocktake_id bigint not null references public.inventory_stocktakes(id) on delete cascade,
   item_id      text not null,
-  expected     boolean not null default true,
-  checked_at   timestamptz,
+  expected     boolean not null default true,   -- 棚卸開始時の帳簿在庫なら true、途中で読んだ帳簿外現物なら false
+  checked_at   timestamptz,                     -- 現物があった日時
+  missing_at   timestamptz,                     -- 現物が無いことを人が確認した日時（差異確定）
   primary key (stocktake_id, item_id)
 );
+
+comment on column public.inventory_stocktake_items.checked_at is
+  '現物があった日時。見つからなかったことを表すのには使わない（それは missing_at）。';
+comment on column public.inventory_stocktake_items.missing_at is
+  '現物が無いことを人が確認した日時（差異確定）。checked_at は「現物があった」の意味を持つので流用しない。';
 
 -- 実施中の棚卸は同時に1つだけ
 create unique index if not exists inventory_stocktakes_open_idx
@@ -595,14 +608,23 @@ begin
   insert into public.inventory_stocktakes (actor, scope_location_id)
   values (public.inv_actor(), p_scope) returning * into st;
 
+  -- 帳簿在庫＝販売できる手元在庫（在庫・出品中）だけを対象にする。
+  --   貸出中・予約中・販売予約 … お客様の手元／確保済みで、現物を見に行けない
+  --   売却済・廃棄             … もう持っていない
+  --   修理中・故障・紛失・不明 … 販売可能在庫ではない
+  -- ここに混ぜると「未確認」が実態より多く出て、差異候補が意味を失う。
   insert into public.inventory_stocktake_items (stocktake_id, item_id, expected)
   select st.id, i.id, true
   from public.inventory_items i
-  where i.status <> '廃棄'
+  where i.status in ('在庫', '出品中')
     and (p_scope is null or i.location_id in (select id from public.inv_location_tree(p_scope)));
 
   return st;
 end $$;
+
+comment on function public.inv_start_stocktake is
+  '棚卸を始める。対象（帳簿在庫）は status in (''在庫'',''出品中'') の個体だけを
+   expected=true で並べる。在庫の状態は何も変えない。';
 
 /* ある保管場所と、その下にぶら下がる場所すべて */
 create or replace function public.inv_location_tree(p_id text)
@@ -1544,9 +1566,15 @@ begin
     update public.inventory_items set last_checked_at=now() where id=p_item_id returning * into it;
     select id into st_id from public.inventory_stocktakes where status='open' limit 1;
     if st_id is not null then
+      -- 帳簿に無い現物を読んだときに足す行は「帳簿外現物」（expected=false）。
+      -- すでに対象（expected=true）なら checked_at だけ更新し、true のまま触らない。
+      -- こうしないと棚卸の途中で帳簿在庫 241台が 242台へ増えてしまう。
+      -- 現物が見つかったのだから、差異確定（missing_at）は取り消す。
+      -- ※ status は '不明' のままにする。状態を戻すかどうかは人が決めること
       insert into public.inventory_stocktake_items (stocktake_id, item_id, expected, checked_at)
-      values (st_id, p_item_id, true, now())
-      on conflict (stocktake_id, item_id) do update set checked_at = excluded.checked_at;
+      values (st_id, p_item_id, false, now())
+      on conflict (stocktake_id, item_id)
+        do update set checked_at = excluded.checked_at, missing_at = null;
     end if;
 
   else
@@ -9883,6 +9911,3364 @@ grant execute on function public.inv_delete_products(text[]) to authenticated;
 
 
 -- ============================================================
+-- 58) 販売サイトごとの「手数料・送料・目標利益」
+--
+--     仕入CSVから6チャネル（楽天・Amazon・メルカリ・ヤフオク・Yahooフリマ・自社EC）の
+--     出品価格を計算するための設定。手数料率や送料は契約で変わるので、
+--     **初期値は入れずNULLから始める**（推測で埋めない）。
+--
+--     管理画面URLの inv_channel_settings_set() とは別の関数で保存する。
+--     既存の関数の引数も挙動も変えない。
+--
+--     migration: zaiko/migrations/2026-10-05-channel-pricing.sql
+-- ============================================================
+-- ------------------------------------------------------------
+-- 58-1) 値段を決めるための5列
+--
+--     fee_rate            … 販売手数料率。0.10 なら10%。0以上1未満
+--     fixed_cost          … 1件ごとの固定費（決済手数料・梱包材など）
+--     shipping_cost       … 送料
+--     target_profit_rate  … 目標利益率。0.20 なら原価の20%
+--     minimum_profit_yen  … 最低利益額。目標利益率で足りないときの下限
+--
+--     すべてNULL可。NULLは「まだ決めていない」という意味で、
+--     画面側はNULLのチャネルの価格を出さない（0として計算しない）。
+-- ------------------------------------------------------------
+alter table public.inventory_channel_settings
+  add column if not exists fee_rate           numeric;
+alter table public.inventory_channel_settings
+  add column if not exists fixed_cost         numeric;
+alter table public.inventory_channel_settings
+  add column if not exists shipping_cost      numeric;
+alter table public.inventory_channel_settings
+  add column if not exists target_profit_rate numeric;
+alter table public.inventory_channel_settings
+  add column if not exists minimum_profit_yen numeric;
+
+comment on column public.inventory_channel_settings.fee_rate is
+  '販売手数料率。0.10 で10%。0以上1未満。NULLは未設定で、価格計算をしない。';
+comment on column public.inventory_channel_settings.fixed_cost is
+  '1件ごとの固定費（決済手数料・梱包材など）。NULLは未設定。';
+comment on column public.inventory_channel_settings.shipping_cost is
+  '送料。NULLは未設定。';
+comment on column public.inventory_channel_settings.target_profit_rate is
+  '目標利益率。0.20 で原価の20%。チャネルごとに変えられる。NULLは未設定。';
+comment on column public.inventory_channel_settings.minimum_profit_yen is
+  '最低利益額（円）。目標利益率で足りないときの下限。NULLは未設定。';
+
+-- ------------------------------------------------------------
+-- 58-2) 自社EC（own）の設定行
+--
+--     いまは**価格計算のためだけ**に使う。
+--     在庫一覧の出品先タブには出さず、inventory_channel_listings の
+--     実際の出品処理にもつながない（将来、自社EC出品を作るときに接続する）。
+-- ------------------------------------------------------------
+insert into public.inventory_channel_settings (channel, label, note) values
+  ('own', '自社EC',
+   'いまは出品価格の計算にだけ使う設定です。在庫一覧の出品先タブには出さず、実際の出品処理にもつないでいません。')
+on conflict (channel) do nothing;
+
+-- ------------------------------------------------------------
+-- 58-3) 価格設定を保存する
+--
+--     既存の inv_channel_settings_set()（管理画面URL用）とは**別の関数**にする。
+--     既存の引数・挙動を変えないため、呼び出し側の互換性が壊れない。
+--
+--     入れられるのは管理者だけ。表は読み取り専用のままなので security definer。
+--     NULL を渡した項目は「未設定に戻す」。0 と NULL は別物として扱う
+--     （0円の送料と、送料を決めていないことは意味が違う）。
+-- ------------------------------------------------------------
+create or replace function public.inv_channel_pricing_settings_set(
+  p_channel            text,
+  p_fee_rate           numeric default null,
+  p_fixed_cost         numeric default null,
+  p_shipping_cost      numeric default null,
+  p_target_profit_rate numeric default null,
+  p_minimum_profit_yen numeric default null
+) returns public.inventory_channel_settings
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare
+  v_ch  text := nullif(btrim(coalesce(p_channel, '')), '');
+  before public.inventory_channel_settings;
+  r     public.inventory_channel_settings;
+  fmt   text := 'FM9,999,999,999';
+begin
+  if not public.inv_is_admin() then
+    raise exception '販売価格の設定は管理者だけが変えられます';
+  end if;
+  if v_ch is null then
+    raise exception '販売サイトを選んでください';
+  end if;
+  -- 価格設定をするのはこの6サイトだけ。打ち間違いで知らない行が増えないよう、
+  -- 画面だけでなくここでも止める（inventory_channel_settings は upsert のため）
+  if v_ch not in ('rakuten', 'amazon', 'mercari', 'yahuoku', 'yahoo_free', 'own') then
+    raise exception '価格設定の対象ではない販売サイトです：%（rakuten / amazon / mercari / yahuoku / yahoo_free / own のどれかです）', v_ch;
+  end if;
+
+  -- 手数料率が1以上だと、最低販売価格の割り算（1 - fee_rate）が0や負になる
+  if p_fee_rate is not null and (p_fee_rate < 0 or p_fee_rate >= 1) then
+    raise exception '手数料率は0以上1未満で入れてください（0.10 で10%%）。いまは %', p_fee_rate;
+  end if;
+  if p_target_profit_rate is not null and p_target_profit_rate < 0 then
+    raise exception '目標利益率にマイナスは入れられません（いまは %）', p_target_profit_rate;
+  end if;
+  if p_fixed_cost is not null and p_fixed_cost < 0 then
+    raise exception '固定費にマイナスは入れられません（いまは %）', p_fixed_cost;
+  end if;
+  if p_shipping_cost is not null and p_shipping_cost < 0 then
+    raise exception '送料にマイナスは入れられません（いまは %）', p_shipping_cost;
+  end if;
+  if p_minimum_profit_yen is not null and p_minimum_profit_yen < 0 then
+    raise exception '最低利益額にマイナスは入れられません（いまは %）', p_minimum_profit_yen;
+  end if;
+
+  select * into before from public.inventory_channel_settings where channel = v_ch;
+
+  insert into public.inventory_channel_settings
+    (channel, fee_rate, fixed_cost, shipping_cost, target_profit_rate, minimum_profit_yen)
+  values
+    (v_ch, p_fee_rate, p_fixed_cost, p_shipping_cost, p_target_profit_rate, p_minimum_profit_yen)
+  on conflict (channel) do update
+    set fee_rate           = p_fee_rate,
+        fixed_cost         = p_fixed_cost,
+        shipping_cost      = p_shipping_cost,
+        target_profit_rate = p_target_profit_rate,
+        minimum_profit_yen = p_minimum_profit_yen
+  returning * into r;
+
+  -- 値付けの根拠になる設定なので、いつ誰が変えたかを履歴に残す
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (
+    public.inv_actor(), 'channel', v_ch, coalesce(r.label, v_ch), '販売価格の設定を変えた',
+    case when before.channel is null then '（設定なし）' else
+      format('手数料 %s／固定費 %s／送料 %s／目標利益率 %s／最低利益 %s',
+             coalesce(to_char(before.fee_rate * 100, fmt) || '%', '未設定'),
+             coalesce(to_char(before.fixed_cost, fmt) || '円', '未設定'),
+             coalesce(to_char(before.shipping_cost, fmt) || '円', '未設定'),
+             coalesce(to_char(before.target_profit_rate * 100, fmt) || '%', '未設定'),
+             coalesce(to_char(before.minimum_profit_yen, fmt) || '円', '未設定')) end,
+    format('手数料 %s／固定費 %s／送料 %s／目標利益率 %s／最低利益 %s',
+           coalesce(to_char(r.fee_rate * 100, fmt) || '%', '未設定'),
+           coalesce(to_char(r.fixed_cost, fmt) || '円', '未設定'),
+           coalesce(to_char(r.shipping_cost, fmt) || '円', '未設定'),
+           coalesce(to_char(r.target_profit_rate * 100, fmt) || '%', '未設定'),
+           coalesce(to_char(r.minimum_profit_yen, fmt) || '円', '未設定')));
+
+  return r;
+end $$;
+
+comment on function public.inv_channel_pricing_settings_set is
+  '販売サイトごとの手数料・固定費・送料・目標利益率・最低利益額を保存する。管理者だけ。
+   管理画面URLの inv_channel_settings_set() とは別の関数で、そちらの引数も挙動も変えない。
+   NULLは「未設定に戻す」。0円とNULLは別物として扱う。
+   この関数は在庫も出品情報も変更しない。';
+
+-- ------------------------------------------------------------
+-- 58-4) 権限
+--
+--     関数を作り直すと PUBLIC への EXECUTE が既定で付き直るので、
+--     ここで必ず外してから社員向けに配り直す（2026-10-01 と同じ考えかた）。
+-- ------------------------------------------------------------
+revoke all on function public.inv_channel_pricing_settings_set(
+  text, numeric, numeric, numeric, numeric, numeric) from public, anon;
+grant execute on function public.inv_channel_pricing_settings_set(
+  text, numeric, numeric, numeric, numeric, numeric) to authenticated;
+
+
+-- ============================================================
+-- 59) 手数料の内訳・プランと、配送サイズ
+--
+--     手数料を「1つの率」だけでなく、プラン（ヤフオクのストア契約）や
+--     内訳の合算（楽天）でも決められるようにする。
+--     送料は販売サイトではなく「配送会社 × サイズ × 地域」で決まるので、
+--     配送サイズは商品に持たせる（金額はまだ持たない）。
+--
+--     migration: zaiko/migrations/2026-10-06-channel-pricing-rules.sql
+-- ============================================================
+-- ------------------------------------------------------------
+-- 59-1) 手数料の内訳・プランを持つ列
+--
+--     入れかた（すべて任意。無ければ fee_rate 列がそのまま使われる）
+--       plan          … いま契約しているプランの名前
+--       plans         … プランごとの手数料率。plan で選ぶ
+--       pricing_mode  … contract（実契約）/ conservative_estimate（保守的試算）
+--                       / weighted_actual（実績で重みづけ。将来）
+--       fee_parts     … 手数料の内訳。{min, max} の範囲で持てる
+--       excluded      … わざと計算に入れていないもの（理由つき）
+--       monthly_fixed_yen … 月額の固定費。**1件あたりには割らない**
+--       by_category   … 商品カテゴリごとの上書き（将来のAmazonカテゴリ別料率用）
+--
+--     実効手数料率の決めかた（画面側）
+--       ① plans[plan]  ② fee_parts の合算  ③ fee_rate 列
+-- ------------------------------------------------------------
+alter table public.inventory_channel_settings
+  add column if not exists pricing_rules jsonb;
+
+comment on column public.inventory_channel_settings.pricing_rules is
+  '手数料の内訳・プラン・カテゴリ別の上書き。NULLなら fee_rate 列だけを使う。
+   pricing_mode が conservative_estimate のときは、fee_parts の max を合算した
+   「安全側の試算値」であって実契約料率ではない。';
+
+-- ------------------------------------------------------------
+-- 59-2) 配送サイズ（佐川急便の規格）
+--
+--     送料は販売サイトではなく「配送会社 × サイズ × 地域」で決まるので、
+--     チャネルではなく**商品**に持たせる。
+--     金額はまだ入れない（契約運賃表が無いため）。サイズだけ先に決めておく。
+-- ------------------------------------------------------------
+alter table public.inventory_products
+  add column if not exists shipping_size text;
+
+comment on column public.inventory_products.shipping_size is
+  '配送サイズ（佐川急便）。60/80/100/120/140/160/170/180/200/custom。
+   NULLは未設定。送料の金額はここには持たない（契約運賃表ができてから別に持つ）。';
+
+-- ------------------------------------------------------------
+-- 59-3) 確定した料率を入れる
+--
+--     **空いている項目だけ**入れる（coalesce）。すでに担当者が入れた値は
+--     上書きしない。送料（shipping_cost）はどのサイトにも入れない。
+-- ------------------------------------------------------------
+update public.inventory_channel_settings set
+  fee_rate           = coalesce(fee_rate, 0.077),   -- Yahoo!オークションストア契約
+  fixed_cost         = coalesce(fixed_cost, 0),
+  target_profit_rate = coalesce(target_profit_rate, 0.30),
+  minimum_profit_yen = coalesce(minimum_profit_yen, 0),
+  pricing_rules      = coalesce(pricing_rules, jsonb_build_object(
+    'plan', 'store',
+    'pricing_mode', 'contract',
+    'plans', jsonb_build_object('normal', 0.100, 'store', 0.077)))
+ where channel = 'yahuoku';
+
+update public.inventory_channel_settings set
+  fee_rate           = coalesce(fee_rate, 0.091),   -- 保守的試算（内訳の上限合算）
+  fixed_cost         = coalesce(fixed_cost, 0),
+  target_profit_rate = coalesce(target_profit_rate, 0.30),
+  minimum_profit_yen = coalesce(minimum_profit_yen, 0),
+  note               = coalesce(note, '') ||
+    case when coalesce(note, '') = '' then '' else ' / ' end ||
+    '手数料 9.1% は内訳の上限を足した【保守的試算】です。実契約料率ではありません。',
+  pricing_rules      = coalesce(pricing_rules, jsonb_build_object(
+    'plan', 'standard',
+    'pricing_mode', 'conservative_estimate',
+    'fee_parts', jsonb_build_object(
+      'システム利用料',                  jsonb_build_object('min', 0.020, 'max', 0.045,
+        'note', 'PC 2.0〜4.0% / モバイル 2.5〜4.5%。月商帯とPC・モバイル比率で変わる'),
+      '楽天ポイント原資',                jsonb_build_object('min', 0.010, 'max', 0.010),
+      '安全性・利便性向上システム利用料', jsonb_build_object('min', 0.001, 'max', 0.001),
+      '楽天ペイ',                        jsonb_build_object('min', 0.025, 'max', 0.035)),
+    'excluded', jsonb_build_object(
+      'アフィリエイト', '全注文に発生するわけではないので、基本の価格計算には入れない。実績利益で見る',
+      '月額出店料',     '65,000円/月。1件あたりには割らない'),
+    'monthly_fixed_yen', 65000))
+ where channel = 'rakuten';
+
+update public.inventory_channel_settings set
+  fee_rate           = coalesce(fee_rate, 0.084),   -- 主力商品向けの標準値
+  fixed_cost         = coalesce(fixed_cost, 0),
+  target_profit_rate = coalesce(target_profit_rate, 0.30),
+  minimum_profit_yen = coalesce(minimum_profit_yen, 0),
+  pricing_rules      = coalesce(pricing_rules, jsonb_build_object(
+    'pricing_mode', 'contract',
+    'by_category', '{}'::jsonb))   -- カテゴリ別料率はここへ足していく
+ where channel = 'amazon';
+
+update public.inventory_channel_settings set
+  fee_rate           = coalesce(fee_rate, 0.10),
+  fixed_cost         = coalesce(fixed_cost, 0),
+  target_profit_rate = coalesce(target_profit_rate, 0.30),
+  minimum_profit_yen = coalesce(minimum_profit_yen, 0),
+  pricing_rules      = coalesce(pricing_rules, jsonb_build_object('pricing_mode', 'contract'))
+ where channel = 'mercari';
+
+update public.inventory_channel_settings set
+  fee_rate           = coalesce(fee_rate, 0.05),
+  fixed_cost         = coalesce(fixed_cost, 0),
+  target_profit_rate = coalesce(target_profit_rate, 0.30),
+  minimum_profit_yen = coalesce(minimum_profit_yen, 0),
+  pricing_rules      = coalesce(pricing_rules, jsonb_build_object('pricing_mode', 'contract'))
+ where channel = 'yahoo_free';
+
+update public.inventory_channel_settings set
+  fee_rate           = coalesce(fee_rate, 0),       -- 自社ECは販売手数料なし
+  fixed_cost         = coalesce(fixed_cost, 0),
+  target_profit_rate = coalesce(target_profit_rate, 0.30),
+  minimum_profit_yen = coalesce(minimum_profit_yen, 0),
+  pricing_rules      = coalesce(pricing_rules, jsonb_build_object('pricing_mode', 'contract'))
+ where channel = 'own';
+
+-- ------------------------------------------------------------
+-- 59-4) pricing_rules を保存する
+--
+--     中身の形を確かめてから入れる。おかしな率が入ると、最低販売価格の
+--     割り算（1 - 手数料率）が0や負になって、画面が黙って変な値を出す。
+-- ------------------------------------------------------------
+create or replace function public.inv_channel_pricing_rules_set(
+  p_channel text,
+  p_rules   jsonb default null
+) returns public.inventory_channel_settings
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare
+  v_ch   text := nullif(btrim(coalesce(p_channel, '')), '');
+  v_mode text;
+  before jsonb;
+  r      public.inventory_channel_settings;
+  k      text;
+  v      jsonb;
+  v_sum  numeric := 0;
+begin
+  if not public.inv_is_admin() then
+    raise exception '販売価格の設定は管理者だけが変えられます';
+  end if;
+  if v_ch is null then
+    raise exception '販売サイトを選んでください';
+  end if;
+  if v_ch not in ('rakuten', 'amazon', 'mercari', 'yahuoku', 'yahoo_free', 'own') then
+    raise exception '価格設定の対象ではない販売サイトです：%（rakuten / amazon / mercari / yahuoku / yahoo_free / own のどれかです）', v_ch;
+  end if;
+
+  if p_rules is not null then
+    if jsonb_typeof(p_rules) <> 'object' then
+      raise exception '手数料の内訳は { } の形で入れてください';
+    end if;
+    -- 知らないキーは受け取らない（打ち間違いが黙って捨てられないように）
+    for k in select jsonb_object_keys(p_rules) loop
+      if k not in ('plan', 'plans', 'pricing_mode', 'fee_parts', 'excluded',
+                   'monthly_fixed_yen', 'by_category') then
+        raise exception '知らない項目です：%', k;
+      end if;
+    end loop;
+
+    v_mode := p_rules ->> 'pricing_mode';
+    if v_mode is not null and v_mode not in ('contract', 'conservative_estimate', 'weighted_actual') then
+      raise exception 'pricing_mode は contract / conservative_estimate / weighted_actual のどれかです（いまは %）', v_mode;
+    end if;
+
+    -- プランごとの率
+    if p_rules ? 'plans' then
+      if jsonb_typeof(p_rules -> 'plans') <> 'object' then
+        raise exception 'plans は { プラン名: 率 } の形で入れてください';
+      end if;
+      for k, v in select * from jsonb_each(p_rules -> 'plans') loop
+        if jsonb_typeof(v) <> 'number' or (v)::numeric < 0 or (v)::numeric >= 1 then
+          raise exception 'plans.% は0以上1未満の数で入れてください（0.077 で7.7%%）', k;
+        end if;
+      end loop;
+      if p_rules ? 'plan' and not (p_rules -> 'plans' ? (p_rules ->> 'plan')) then
+        raise exception 'plan「%」が plans にありません', p_rules ->> 'plan';
+      end if;
+    end if;
+
+    -- 手数料の内訳
+    if p_rules ? 'fee_parts' then
+      if jsonb_typeof(p_rules -> 'fee_parts') <> 'object' then
+        raise exception 'fee_parts は { 項目名: {min, max} } の形で入れてください';
+      end if;
+      for k, v in select * from jsonb_each(p_rules -> 'fee_parts') loop
+        if jsonb_typeof(v) <> 'object' or not (v ? 'min') or not (v ? 'max') then
+          raise exception 'fee_parts.% は {"min": 率, "max": 率} の形で入れてください', k;
+        end if;
+        if jsonb_typeof(v -> 'min') <> 'number' or jsonb_typeof(v -> 'max') <> 'number' then
+          raise exception 'fee_parts.% の min と max は数で入れてください', k;
+        end if;
+        if (v ->> 'min')::numeric < 0 or (v ->> 'max')::numeric < (v ->> 'min')::numeric then
+          raise exception 'fee_parts.% は 0 ≦ min ≦ max で入れてください', k;
+        end if;
+        v_sum := v_sum + (v ->> 'max')::numeric;
+      end loop;
+      if v_sum >= 1 then
+        raise exception '内訳の上限を足すと100%% を超えます（合計 %）。1未満になるように入れてください', v_sum;
+      end if;
+    end if;
+
+    if p_rules ? 'monthly_fixed_yen' then
+      if jsonb_typeof(p_rules -> 'monthly_fixed_yen') <> 'number'
+         or (p_rules ->> 'monthly_fixed_yen')::numeric < 0 then
+        raise exception 'monthly_fixed_yen は0以上の数で入れてください';
+      end if;
+    end if;
+  end if;
+
+  select pricing_rules into before from public.inventory_channel_settings where channel = v_ch;
+
+  insert into public.inventory_channel_settings (channel, pricing_rules)
+  values (v_ch, p_rules)
+  on conflict (channel) do update set pricing_rules = p_rules
+  returning * into r;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'channel', v_ch, coalesce(r.label, v_ch), '手数料の内訳を変えた',
+          coalesce(before::text, '（設定なし）'),
+          coalesce(p_rules::text, '（設定なし）'));
+  return r;
+end $$;
+
+comment on function public.inv_channel_pricing_rules_set is
+  '販売サイトの手数料の内訳・プランを保存する。管理者だけ。
+   実効手数料率の計算は画面側で行い、ここでは入れられる値かだけを確かめる。
+   在庫も出品情報も変更しない。';
+
+-- ------------------------------------------------------------
+-- 59-5) 商品の配送サイズを保存する
+-- ------------------------------------------------------------
+create or replace function public.inv_product_shipping_size_set(
+  p_code text,
+  p_size text default null
+) returns public.inventory_products
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare
+  v_size text := nullif(btrim(coalesce(p_size, '')), '');
+  before text;
+  r      public.inventory_products;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  if v_size is not null
+     and v_size not in ('60','80','100','120','140','160','170','180','200','custom') then
+    raise exception '知らない配送サイズです：%（60/80/100/120/140/160/170/180/200/custom）', v_size;
+  end if;
+
+  select shipping_size into before from public.inventory_products where code = p_code;
+
+  update public.inventory_products set shipping_size = v_size
+   where code = p_code returning * into r;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_code;
+  end if;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'product', p_code, coalesce(nullif(r.name, ''), r.code),
+          '配送サイズを決めた', coalesce(before, '未設定'), coalesce(v_size, '未設定'));
+  return r;
+end $$;
+
+comment on function public.inv_product_shipping_size_set is
+  '商品の配送サイズ（佐川急便の規格）を決める。送料の金額はここでは持たない。
+   在庫も価格も変更しない。';
+
+-- ------------------------------------------------------------
+-- 59-6) 権限
+--     作り直すと PUBLIC への EXECUTE が既定で付き直るので、必ず外してから配る。
+-- ------------------------------------------------------------
+revoke all on function public.inv_channel_pricing_rules_set(text, jsonb) from public, anon;
+grant execute on function public.inv_channel_pricing_rules_set(text, jsonb) to authenticated;
+revoke all on function public.inv_product_shipping_size_set(text, text) from public, anon;
+grant execute on function public.inv_product_shipping_size_set(text, text) to authenticated;
+
+
+-- ============================================================
+-- 60) 配送の運賃表（佐川急便）
+--
+--     送料は「配送会社 × 便 × 支払 × サイズ × 地域」で決まる。
+--     運賃表は**税別**で持ち、価格計算には税込にした金額を使う。
+--     いま入っているのは過去の契約資料からの**暫定（provisional）**で、
+--     現行契約の表が確認できたら inv_shipping_tariff_set() で入れ替える。
+--
+--     migration: zaiko/migrations/2026-10-07-shipping-rates.sql
+-- ============================================================
+-- ------------------------------------------------------------
+-- 60-1) 運賃表
+--
+--     1行が「配送会社 × 便 × 支払 × 表の版」1つぶん。
+--     現行契約の表が来たら、新しい行として入れて active を切り替える。
+--     古い行は消さずに残すので、いつどの表で計算したかを追える。
+-- ------------------------------------------------------------
+create table if not exists public.inventory_shipping_tariffs (
+  id             bigint generated by default as identity primary key,
+  carrier        text not null,                  -- sagawa
+  service        text not null,                  -- 陸便
+  payment        text not null,                  -- 元払
+  rate_status    text not null,                  -- provisional（暫定）/ contract（現行契約）
+                                                 -- ※ 版の識別子ではなく「状態」だけを表す
+  label          text,
+  source_note    text,
+  effective_from date not null,                  -- この表がいつからのものか。版の識別子
+  effective_to   date,                           -- いつまで。まだ決まっていなければ NULL
+  tax_rate       numeric not null default 0.10,  -- 運賃は税別なので、税込にするための税率
+  active         boolean not null default false,
+  sizes          jsonb   not null default '[]'::jsonb,   -- ["60","80",…]
+  regions        jsonb   not null default '{}'::jsonb,   -- {"東京":"関東",…}
+  rates          jsonb   not null default '{}'::jsonb,   -- {"60":{"関東":560,…},…} 税別
+  excluded       jsonb   not null default '{}'::jsonb,   -- 自動計算しないもの（理由つき）
+  source_meta    jsonb   not null default '{}'::jsonb,   -- 元資料の注意書き・サイズごとの重量上限など
+  created_at     timestamptz default now(),
+  updated_at     timestamptz default now(),
+  -- 版は「いつからの表か」で決める。rate_status では決めない
+  -- （同じ contract の新しい表を入れたときに、古い contract を上書きしてしまうため）
+  unique (carrier, service, payment, effective_from)
+);
+
+-- 前の版のこの migration を当てていたときのために、列と制約をそろえ直す
+alter table public.inventory_shipping_tariffs add column if not exists effective_to date;
+alter table public.inventory_shipping_tariffs
+  add column if not exists source_meta jsonb not null default '{}'::jsonb;
+alter table public.inventory_shipping_tariffs
+  drop constraint if exists inventory_shipping_tariffs_carrier_service_payment_rate_stat_key;
+
+comment on table public.inventory_shipping_tariffs is
+  '配送会社の運賃表。1行＝1つの版（effective_from で識別）。
+   rates は**税別**で、税込は tax_rate から出す。
+   rate_status は版の識別子ではなく状態だけを表す
+   （provisional＝過去資料・暫定／contract＝現行契約）。
+   新しい版は**別の行として足す**。古い版は消さずに残し、いつどの表で計算したかを追えるようにする。';
+comment on column public.inventory_shipping_tariffs.effective_from is
+  'この運賃表がいつからのものか。版の識別子で、同じ 配送会社×便×支払 では重複しない。';
+comment on column public.inventory_shipping_tariffs.effective_to is
+  'いつまでのものか。まだ決まっていなければ NULL。';
+comment on column public.inventory_shipping_tariffs.source_meta is
+  '元資料の注意書き（沖縄・離島・着払など）と、サイズごとの重量上限。価格計算には使わないが、
+   重量が分かっているときに上限を超えていないか確かめるために持つ。';
+
+-- 同じ 配送会社×便×支払 で「使う表」は1つだけ
+create unique index if not exists inventory_shipping_tariffs_active_idx
+  on public.inventory_shipping_tariffs (carrier, service, payment) where active;
+
+drop trigger if exists inventory_shipping_tariffs_touch on public.inventory_shipping_tariffs;
+create trigger inventory_shipping_tariffs_touch before update on public.inventory_shipping_tariffs
+  for each row execute function public.inv_touch();
+
+alter table public.inventory_shipping_tariffs enable row level security;
+drop policy if exists inventory_shipping_tariffs_read on public.inventory_shipping_tariffs;
+create policy inventory_shipping_tariffs_read on public.inventory_shipping_tariffs
+  for select to authenticated using (public.inv_role() in ('admin','member','viewer'));
+grant select on public.inventory_shipping_tariffs to authenticated;
+
+-- ------------------------------------------------------------
+-- 60-2) いただいた運賃表を「暫定」として入れる
+--
+--     過去の契約資料なので rate_status = 'provisional'。
+--     すでに同じ行があれば中身は書き換えない（担当者が直したものを消さない）。
+-- ------------------------------------------------------------
+insert into public.inventory_shipping_tariffs
+  (carrier, service, payment, rate_status, label, source_note, effective_from, effective_to,
+   tax_rate, active, sizes, regions, rates, excluded, source_meta)
+values (
+  'sagawa', '陸便', '元払', 'provisional',
+  '佐川急便 陸便・元払（2018-05-01〜2019-04-30）',
+  '過去の契約資料（20260924_13132539-000_rikubin_tekiyo.pdf）から取り込み。現行契約の表が確認できたら新しい版として足す。',
+  '2018-05-01'::date, '2019-04-30'::date,
+  0.10, true,
+  '["60","80","100","140","160","170","180","200","220","240","260"]'::jsonb,
+  '{"熊本":"南九州","宮崎":"南九州","鹿児島":"南九州","福岡":"北九州","佐賀":"北九州","長崎":"北九州","大分":"北九州","徳島":"四国","香川":"四国","愛媛":"四国","高知":"四国","鳥取":"中国","島根":"中国","岡山":"中国","広島":"中国","山口":"中国","滋賀":"関西","京都":"関西","大阪":"関西","兵庫":"関西","奈良":"関西","和歌山":"関西","富山":"北陸","石川":"北陸","福井":"北陸","岐阜":"東海","静岡":"東海","愛知":"東海","三重":"東海","新潟":"信越","長野":"信越","茨城":"関東","栃木":"関東","群馬":"関東","埼玉":"関東","千葉":"関東","東京":"関東","神奈川":"関東","山梨":"関東","宮城":"南東北","山形":"南東北","福島":"南東北","青森":"北東北","岩手":"北東北","秋田":"北東北","北海道":"北海道"}'::jsonb,
+  '{"60":{"南九州":880,"北九州":880,"四国":800,"中国":720,"関西":640,"北陸":560,"東海":560,"信越":560,"関東":560,"南東北":560,"北東北":640,"北海道":880},"80":{"南九州":1080,"北九州":1080,"四国":1000,"中国":920,"関西":840,"北陸":760,"東海":760,"信越":760,"関東":760,"南東北":760,"北東北":840,"北海道":1080},"100":{"南九州":1330,"北九州":1330,"四国":1250,"中国":1170,"関西":1090,"北陸":1010,"東海":1010,"信越":1010,"関東":1010,"南東北":1010,"北東北":1090,"北海道":1330},"140":{"南九州":1670,"北九州":1670,"四国":1590,"中国":1510,"関西":1430,"北陸":1350,"東海":1350,"信越":1350,"関東":1350,"南東北":1350,"北東北":1430,"北海道":1670},"160":{"南九州":2280,"北九州":2280,"四国":2180,"中国":2080,"関西":1980,"北陸":1880,"東海":1880,"信越":1880,"関東":1880,"南東北":1880,"北東北":1980,"北海道":2280},"170":{"南九州":3600,"北九州":3300,"四国":3100,"中国":3100,"関西":2850,"北陸":2850,"東海":2850,"信越":2850,"関東":2200,"南東北":2900,"北東北":3100,"北海道":3600},"180":{"南九州":4000,"北九州":3650,"四国":3400,"中国":3400,"関西":3100,"北陸":3100,"東海":3100,"信越":3100,"関東":2450,"南東北":3200,"北東北":3400,"北海道":4050},"200":{"南九州":5000,"北九州":4550,"四国":4150,"中国":4150,"関西":3800,"北陸":3800,"東海":3800,"信越":3800,"関東":2950,"南東北":3900,"北東北":4150,"北海道":5000},"220":{"南九州":5950,"北九州":5400,"四国":4950,"中国":4950,"関西":4450,"北陸":4450,"東海":4450,"信越":4450,"関東":3450,"南東北":4600,"北東北":4900,"北海道":6350},"240":{"南九州":7900,"北九州":7100,"四国":6450,"中国":6450,"関西":5800,"北陸":5800,"東海":5800,"信越":5800,"関東":4450,"南東北":6000,"北東北":6450,"北海道":7950},"260":{"南九州":9850,"北九州":8800,"四国":8000,"中国":8000,"関西":7150,"北陸":7150,"東海":7150,"信越":7150,"関東":5450,"南東北":7400,"北東北":8000,"北海道":9950}}'::jsonb,
+  '{"沖縄":"別途料金のため自動計算しません。要確認","離島":"別途実費のため自動計算しません。要確認","着払":"正規運賃扱いのため自動計算しません。要確認","即日配送":"正規運賃扱いのため自動計算しません。要確認","夜間割増":"正規運賃扱いのため自動計算しません。要確認"}'::jsonb,
+  '{"notes":{"沖縄":"別途料金","離島":"別途実費","着払":"正規運賃","即日":"正規運賃","夜間割増":"正規運賃","消費税":"別途","重量上限":"50kg","サイズ上限":"260","前提個数":"月間250個を前提","高額品":"30万円以上の商品は佐川へ連絡"},"size_weight_kg":{"60":2,"80":5,"100":10,"140":20,"160":30,"170":50},"max_weight_kg":50,"max_size":"260"}'::jsonb)
+on conflict (carrier, service, payment, effective_from) do nothing;
+
+-- ------------------------------------------------------------
+-- 60-3) 運賃表を入れ替える
+--
+--     現行契約の表が来たら、これで入れて activate で切り替える。
+--     形がおかしいものは受け取らない（表がずれたまま値段を出さないため）。
+-- ------------------------------------------------------------
+create or replace function public.inv_shipping_tariff_set(
+  p_doc jsonb
+) returns public.inventory_shipping_tariffs
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare
+  r public.inventory_shipping_tariffs;
+  k text;
+  v jsonb;
+  sz text;
+  n  int;
+begin
+  if not public.inv_is_admin() then
+    raise exception '運賃表は管理者だけが変えられます';
+  end if;
+  if p_doc is null or jsonb_typeof(p_doc) <> 'object' then
+    raise exception '運賃表は { } の形で渡してください';
+  end if;
+  foreach k in array array['carrier','service','payment','rate_status','effective_from',
+                           'sizes','regions','rates'] loop
+    if not (p_doc ? k) then raise exception '% がありません', k; end if;
+  end loop;
+  -- 版は effective_from で決まる。無いと古い表を上書きしてしまう
+  if (p_doc ->> 'effective_from') is null or (p_doc ->> 'effective_from') = '' then
+    raise exception 'effective_from（いつからの表か）を入れてください';
+  end if;
+  if p_doc ? 'effective_to' and (p_doc ->> 'effective_to') is not null
+     and (p_doc ->> 'effective_to') <> ''
+     and (p_doc ->> 'effective_to')::date < (p_doc ->> 'effective_from')::date then
+    raise exception 'effective_to は effective_from より後にしてください';
+  end if;
+  if (p_doc ->> 'rate_status') not in ('provisional', 'contract') then
+    raise exception 'rate_status は provisional か contract です（いまは %）', p_doc ->> 'rate_status';
+  end if;
+  if p_doc ? 'tax_rate' and ((p_doc ->> 'tax_rate')::numeric < 0 or (p_doc ->> 'tax_rate')::numeric >= 1) then
+    raise exception '税率は0以上1未満で入れてください（0.10 で10%%）';
+  end if;
+  if jsonb_typeof(p_doc -> 'sizes') <> 'array' or jsonb_array_length(p_doc -> 'sizes') = 0 then
+    raise exception 'sizes は1つ以上の配列で入れてください';
+  end if;
+
+  -- サイズごとに、地域と金額がそろっているか
+  n := 0;
+  for sz in select jsonb_array_elements_text(p_doc -> 'sizes') loop
+    if not (p_doc -> 'rates' ? sz) then
+      raise exception 'サイズ % の運賃がありません', sz;
+    end if;
+    for k, v in select * from jsonb_each(p_doc -> 'rates' -> sz) loop
+      if jsonb_typeof(v) <> 'number' or (v)::numeric < 0 then
+        raise exception 'サイズ % の % の運賃は0以上の数で入れてください', sz, k;
+      end if;
+      n := n + 1;
+    end loop;
+  end loop;
+  if n = 0 then raise exception '運賃が1つも入っていません'; end if;
+
+  -- 都道府県 → 地域。行き先の地域が運賃表に無いと、あとで黙って計算できなくなる
+  for k, v in select * from jsonb_each(p_doc -> 'regions') loop
+    if jsonb_typeof(v) <> 'string' then
+      raise exception '都道府県「%」の地域は文字で入れてください', k;
+    end if;
+    if not (p_doc -> 'rates' -> (p_doc -> 'sizes' ->> 0) ? (v #>> '{}')) then
+      raise exception '地域「%」（%）の運賃が表にありません', v #>> '{}', k;
+    end if;
+  end loop;
+
+  -- 新しい版は**別の行**として足す。古い版は消さず、上書きもしない。
+  -- 同じ effective_from で入れ直したときだけ、その版を直す。
+  insert into public.inventory_shipping_tariffs
+    (carrier, service, payment, rate_status, label, source_note,
+     effective_from, effective_to, tax_rate, sizes, regions, rates, excluded, source_meta)
+  values (
+    p_doc ->> 'carrier', p_doc ->> 'service', p_doc ->> 'payment', p_doc ->> 'rate_status',
+    p_doc ->> 'label', p_doc ->> 'source_note',
+    (p_doc ->> 'effective_from')::date, nullif(p_doc ->> 'effective_to', '')::date,
+    coalesce((p_doc ->> 'tax_rate')::numeric, 0.10),
+    p_doc -> 'sizes', p_doc -> 'regions', p_doc -> 'rates',
+    coalesce(p_doc -> 'excluded', '{}'::jsonb),
+    coalesce(p_doc -> 'source_meta', '{}'::jsonb))
+  on conflict (carrier, service, payment, effective_from) do update
+    set rate_status = excluded.rate_status, label = excluded.label,
+        source_note = excluded.source_note, effective_to = excluded.effective_to,
+        tax_rate = excluded.tax_rate, sizes = excluded.sizes, regions = excluded.regions,
+        rates = excluded.rates, excluded = excluded.excluded, source_meta = excluded.source_meta
+  returning * into r;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'shipping', r.id::text, coalesce(r.label, r.carrier),
+          '運賃表を入れた', '—',
+          format('%s %s %s／%s〜%s（%s）サイズ%s件',
+                 r.carrier, r.service, r.payment, r.effective_from,
+                 coalesce(r.effective_to::text, '—'), r.rate_status, jsonb_array_length(r.sizes)));
+  return r;
+end $$;
+
+comment on function public.inv_shipping_tariff_set is
+  '運賃表の**版を足す**。管理者だけ。版は effective_from で決まり、
+   新しい版を入れても古い版は消さないし上書きもしない（同じ effective_from のときだけ直す）。
+   表の形が合わないものは受け取らない。
+   入れただけでは使われない（inv_shipping_tariff_activate で切り替える）。';
+
+-- ------------------------------------------------------------
+-- 60-4) 使う運賃表を切り替える
+-- ------------------------------------------------------------
+create or replace function public.inv_shipping_tariff_activate(
+  p_id bigint
+) returns public.inventory_shipping_tariffs
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare r public.inventory_shipping_tariffs;
+begin
+  if not public.inv_is_admin() then
+    raise exception '運賃表は管理者だけが変えられます';
+  end if;
+  select * into r from public.inventory_shipping_tariffs where id = p_id;
+  if not found then raise exception '運賃表が見つかりません（%）', p_id; end if;
+
+  update public.inventory_shipping_tariffs set active = false
+   where carrier = r.carrier and service = r.service and payment = r.payment and id <> p_id;
+  update public.inventory_shipping_tariffs set active = true
+   where id = p_id returning * into r;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'shipping', r.id::text, coalesce(r.label, r.carrier),
+          '使う運賃表を切り替えた', '—', format('%s（%s）', coalesce(r.label, r.carrier), r.rate_status));
+  return r;
+end $$;
+
+comment on function public.inv_shipping_tariff_activate is
+  'この運賃表を使う、に切り替える。同じ 配送会社×便×支払 のほかの表は使わなくなる。管理者だけ。';
+
+-- ------------------------------------------------------------
+-- 60-5) 配送サイズの検証を、運賃表のサイズに合わせる
+--
+--     運賃表を差し替えるとサイズも変わるので、決め打ちの一覧をやめる。
+--     表が無いときだけ、これまでの一覧で受ける。
+-- ------------------------------------------------------------
+create or replace function public.inv_product_shipping_size_set(
+  p_code text,
+  p_size text default null
+) returns public.inventory_products
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare
+  v_size text := nullif(btrim(coalesce(p_size, '')), '');
+  v_ok   jsonb;
+  before text;
+  r      public.inventory_products;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  if v_size is not null and v_size <> 'custom' then
+    select sizes into v_ok from public.inventory_shipping_tariffs
+     where carrier = 'sagawa' and active limit 1;
+    if v_ok is null then
+      v_ok := '["60","80","100","120","140","160","170","180","200"]'::jsonb;
+    end if;
+    if not (v_ok ? v_size) then
+      raise exception '運賃表にない配送サイズです：%（%、または custom）',
+        v_size, (select string_agg(x, '/') from jsonb_array_elements_text(v_ok) as t(x));
+    end if;
+  end if;
+
+  select shipping_size into before from public.inventory_products where code = p_code;
+  update public.inventory_products set shipping_size = v_size
+   where code = p_code returning * into r;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_code;
+  end if;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'product', p_code, coalesce(nullif(r.name, ''), r.code),
+          '配送サイズを決めた', coalesce(before, '未設定'), coalesce(v_size, '未設定'));
+  return r;
+end $$;
+
+comment on function public.inv_product_shipping_size_set is
+  '商品の配送サイズを決める。使える値は、いま使っている運賃表のサイズと custom。
+   送料の金額はここでは持たない。在庫も価格も変更しない。';
+
+-- ------------------------------------------------------------
+-- 60-6) 権限
+-- ------------------------------------------------------------
+revoke all on function public.inv_shipping_tariff_set(jsonb) from public, anon;
+grant execute on function public.inv_shipping_tariff_set(jsonb) to authenticated;
+revoke all on function public.inv_shipping_tariff_activate(bigint) from public, anon;
+grant execute on function public.inv_shipping_tariff_activate(bigint) to authenticated;
+revoke all on function public.inv_product_shipping_size_set(text, text) from public, anon;
+grant execute on function public.inv_product_shipping_size_set(text, text) to authenticated;
+
+
+
+
+-- ============================================================
+-- 61) 月次棚卸を「帳簿在庫と現物の照合」にする
+--
+--     対象（帳簿在庫）は inv_start_stocktake が status in ('在庫','出品中') で並べる。
+--     棚卸の途中で帳簿に無い現物を読んだら、inv_item_op が expected=false で足す。
+--
+--     「まだ確認していない」と「現物が無いことを確認した」は別もの。
+--     checked_at は**現物があった**の意味だけを持ち、見つからないことには流用しない。
+--     数え方は
+--       帳簿在庫     expected = true
+--       現物確認済み expected = true  かつ checked_at is not null
+--       差異確定     expected = true  かつ checked_at is null かつ missing_at is not null
+--       未確認       expected = true  かつ checked_at is null かつ missing_at is null
+--       帳簿外現物   expected = false かつ checked_at is not null
+--     stocktake_items の全件数を帳簿在庫として使わないこと。
+--     月次棚卸の完了条件は「未確認が0」＝全台が現物ありか現物なし確認済みのどちらかになること。
+-- ============================================================
+
+-- ------------------------------------------------------------
+-- 61-1) 棚卸確認を取り消す
+--
+--    画面から checked_at を直接 NULL にするだけでは足りない。
+--      inventory_stocktake_items.checked_at  … 今回の確認
+--      inventory_items.last_checked_at       … 最後に現物を見た日時（在庫一覧の色）
+--      inventory_transactions                … 履歴
+--    の3つが噛み合っているので、サーバー側でまとめて整合を取る。
+--
+--    last_checked_at の戻し方
+--      inv_item_op は同じトランザクションの中で
+--        update items set last_checked_at = now()
+--        insert into transactions (occurred_at default now())
+--      を実行する。plpgsql の now() はトランザクション開始時刻なので、
+--      この2つは必ず同じ値になる。よって「今回の棚卸が始まる前の
+--      いちばん新しい 棚卸確認 履歴の occurred_at」が、そのまま
+--      前回の last_checked_at になる。
+--      履歴が無ければ NULL（＝未確認）に戻す。
+--
+--    履歴は消さない。取り消したことも '棚卸確認取消' として追記する。
+--    在庫の状態・在庫数・出品状態・8RENTは変えない。
+-- ------------------------------------------------------------
+create or replace function public.inv_stocktake_uncheck(
+  p_stocktake_id bigint,
+  p_item_id      text
+) returns public.inventory_items
+language plpgsql security invoker set search_path = public as $$
+declare
+  st     public.inventory_stocktakes;
+  it     public.inventory_items;
+  v_row  public.inventory_stocktake_items;
+  v_prev timestamptz;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+
+  select * into st from public.inventory_stocktakes where id = p_stocktake_id;
+  if not found then
+    raise exception '棚卸が見つかりません（%）', p_stocktake_id;
+  end if;
+  if st.status <> 'open' then
+    raise exception '終了した棚卸は直せません';
+  end if;
+
+  select * into v_row from public.inventory_stocktake_items
+   where stocktake_id = p_stocktake_id and item_id = p_item_id
+   for update;
+  if not found then
+    raise exception 'この棚卸の対象ではありません（%）', p_item_id;
+  end if;
+  if v_row.checked_at is null then
+    raise exception 'まだ確認していません（%）', p_item_id;
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+
+  select max(t.occurred_at) into v_prev
+    from public.inventory_transactions t
+   where t.ref_kind = 'item'
+     and t.ref_id   = p_item_id
+     and t.action   = '棚卸確認'
+     and t.occurred_at < st.started_at;
+
+  update public.inventory_stocktake_items
+     set checked_at = null
+   where stocktake_id = p_stocktake_id and item_id = p_item_id;
+
+  update public.inventory_items
+     set last_checked_at = v_prev
+   where id = p_item_id
+  returning * into it;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'item', p_item_id, it.name, '棚卸確認取消',
+          to_char(v_row.checked_at at time zone 'Asia/Tokyo', 'YYYY/MM/DD HH24:MI') || ' の確認',
+          case when v_prev is null
+               then '未確認（それ以前の棚卸確認の記録なし）'
+               else '前回 ' || to_char(v_prev at time zone 'Asia/Tokyo', 'YYYY/MM/DD HH24:MI')
+          end);
+
+  return it;
+end $$;
+
+comment on function public.inv_stocktake_uncheck is
+  '実施中の棚卸で付けた「確認済み」を取り消す。checked_at を NULL に戻し、
+   inventory_items.last_checked_at を今回の棚卸が始まる前の最新の棚卸確認へ戻す
+   （記録が無ければ NULL）。''棚卸確認取消'' を履歴に追記する。履歴は消さない。
+   在庫の状態・在庫数・出品状態・8RENT・価格は変えない。';
+
+
+-- ------------------------------------------------------------
+-- 61-2) 差異確定：現物が見つからないことを人が確認した
+--
+--    画面から inv_item_op('状態変更','不明') を呼ぶだけでは、
+--    その棚卸で「処理が済んだ」ことが残らない（checked_at も missing_at も NULL のまま）。
+--    それだと未確認一覧に残り続け、未確認の数も減らない。
+--    1トランザクションで
+--      missing_at = now()
+--      inventory_items.status = '不明'
+--      履歴に追記
+--    をまとめてやる。
+--
+--    '不明' が販売可能数・8RENT可能数・販売予約可能数から外れる仕組み
+--    （どれも status='在庫' だけを数えている）には手を入れていない。
+-- ------------------------------------------------------------
+create or replace function public.inv_stocktake_mark_missing(
+  p_stocktake_id bigint,
+  p_item_id      text
+) returns public.inventory_items
+language plpgsql security invoker set search_path = public as $$
+declare
+  st     public.inventory_stocktakes;
+  it     public.inventory_items;
+  v_row  public.inventory_stocktake_items;
+  v_was  text;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+
+  select * into st from public.inventory_stocktakes where id = p_stocktake_id;
+  if not found then
+    raise exception '棚卸が見つかりません（%）', p_stocktake_id;
+  end if;
+  if st.status <> 'open' then
+    raise exception '終了した棚卸は直せません';
+  end if;
+
+  select * into v_row from public.inventory_stocktake_items
+   where stocktake_id = p_stocktake_id and item_id = p_item_id
+   for update;
+  if not found then
+    raise exception 'この棚卸の対象ではありません（%）', p_item_id;
+  end if;
+  if not v_row.expected then
+    raise exception '帳簿外の現物は差異確定できません（%）', p_item_id;
+  end if;
+  if v_row.checked_at is not null then
+    raise exception 'すでに現物を確認しています。先に「未確認に戻す」を押してください（%）', p_item_id;
+  end if;
+  if v_row.missing_at is not null then
+    raise exception 'すでに差異確定しています（%）', p_item_id;
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+  -- お客様への約束が生きている個体は、先に返却・キャンセルしてもらう
+  if it.status in ('予約中', '販売予約', '貸出中') then
+    raise exception '% のため差異確定できません（先に返却・キャンセルしてください）', it.status;
+  end if;
+  if it.status in ('売却済', '廃棄') then
+    raise exception '% は棚卸の対象ではありません', it.status;
+  end if;
+  if it.status = '不明' then
+    raise exception 'すでに不明です（%）', p_item_id;
+  end if;
+
+  v_was := it.status;          -- 取り消すときはここへ戻す
+
+  update public.inventory_stocktake_items
+     set missing_at = now()
+   where stocktake_id = p_stocktake_id and item_id = p_item_id;
+
+  update public.inventory_items
+     set status = '不明', user_name = null, loaned_at = null
+   where id = p_item_id
+  returning * into it;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'item', p_item_id, it.name, '棚卸差異確定',
+          v_was, '不明／棚卸で現物が見つからない');
+
+  return it;
+end $$;
+
+comment on function public.inv_stocktake_mark_missing is
+  '棚卸で「現物が見つからない」と人が確定したときだけ呼ぶ。missing_at を立て、
+   個体の状態を ''不明'' にし、''棚卸差異確定'' を履歴に追記する。
+   未確認のまま自動で呼ばれることはない。予約中・販売予約・貸出中は拒否する。';
+
+
+-- ------------------------------------------------------------
+-- 61-3) 差異確定の取消（誤操作を戻す）
+--
+--    missing_at を消して未処理へ戻し、状態を差異確定の前へ戻す。
+--    ただし**まだ '不明' のままのときだけ**戻す。あとから人が別の状態に
+--    変えていたら、それを上書きしないでそのままにする。
+-- ------------------------------------------------------------
+create or replace function public.inv_stocktake_unmark_missing(
+  p_stocktake_id bigint,
+  p_item_id      text
+) returns public.inventory_items
+language plpgsql security invoker set search_path = public as $$
+declare
+  st     public.inventory_stocktakes;
+  it     public.inventory_items;
+  v_row  public.inventory_stocktake_items;
+  v_back text;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+
+  select * into st from public.inventory_stocktakes where id = p_stocktake_id;
+  if not found then
+    raise exception '棚卸が見つかりません（%）', p_stocktake_id;
+  end if;
+  if st.status <> 'open' then
+    raise exception '終了した棚卸は直せません';
+  end if;
+
+  select * into v_row from public.inventory_stocktake_items
+   where stocktake_id = p_stocktake_id and item_id = p_item_id
+   for update;
+  if not found then
+    raise exception 'この棚卸の対象ではありません（%）', p_item_id;
+  end if;
+  if v_row.missing_at is null then
+    raise exception '差異確定していません（%）', p_item_id;
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+
+  update public.inventory_stocktake_items
+     set missing_at = null
+   where stocktake_id = p_stocktake_id and item_id = p_item_id;
+
+  -- '不明' のままなら、差異確定する前の状態へ戻す。
+  -- 戻り先は推測せず、差異確定のときに履歴へ残した before_value をそのまま使う。
+  -- 棚卸の対象は 在庫・出品中 だけなので、それ以外が入っていたら在庫に寄せる。
+  if it.status = '不明' then
+    select t.before_value into v_back
+      from public.inventory_transactions t
+     where t.ref_kind = 'item' and t.ref_id = p_item_id
+       and t.action = '棚卸差異確定'
+       and t.occurred_at >= st.started_at
+     order by t.occurred_at desc
+     limit 1;
+    if v_back is null or v_back not in ('在庫', '出品中') then
+      v_back := '在庫';
+    end if;
+    update public.inventory_items set status = v_back where id = p_item_id
+    returning * into it;
+  else
+    -- 人があとから別の状態にしている。上書きしない
+    v_back := it.status || '（そのまま）';
+  end if;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'item', p_item_id, it.name, '棚卸差異確定取消',
+          '不明', v_back);
+
+  return it;
+end $$;
+
+comment on function public.inv_stocktake_unmark_missing is
+  '差異確定を取り消して未処理へ戻す。状態が ''不明'' のままのときだけ、
+   差異確定のときに履歴へ残した元の状態（在庫／出品中）へ戻す。
+   人があとから別の状態にしていたら上書きしない。履歴は消さず追記する。';
+
+
+-- ------------------------------------------------------------
+-- 61-4) 月次の照合結果（読み取り専用・1棚卸1行）
+--
+--    ブラウザで inventory_stocktake_items を何千行も読んで数えなくて済むように、
+--    集計はDB側でやる。
+--
+--      帳簿在庫   expected = true
+--      確認済み   expected = true  かつ checked_at is not null
+--      差異確定   expected = true  かつ checked_at is null かつ missing_at is not null
+--      未確認     expected = true  かつ checked_at is null かつ missing_at is null
+--      帳簿外現物 expected = false かつ checked_at is not null
+--
+--    差異確定は**その棚卸の missing_at から正確に数える**。履歴を期間で切って
+--    推測したりはしない（棚卸以外の理由で不明にしたものが混ざるため）。
+-- ------------------------------------------------------------
+drop view if exists public.inv_stocktake_summary;
+create view public.inv_stocktake_summary as
+select
+  s.id                 as stocktake_id,
+  s.started_at,
+  s.closed_at,
+  s.status,
+  s.actor,
+  s.scope_location_id,
+  c.book::integer      as book_count,
+  c.checked::integer   as checked_count,
+  c.missing::integer   as missing_count,
+  (c.book - c.checked - c.missing)::integer as unchecked_count,
+  c.extra::integer     as extra_count
+from public.inventory_stocktakes s
+left join lateral (
+  select
+    count(*) filter (where i.expected)                                  as book,
+    count(*) filter (where i.expected and i.checked_at is not null)      as checked,
+    count(*) filter (where i.expected and i.checked_at is null
+                       and i.missing_at is not null)                     as missing,
+    count(*) filter (where not i.expected and i.checked_at is not null)  as extra
+  from public.inventory_stocktake_items i
+  where i.stocktake_id = s.id
+) c on true;
+
+comment on view public.inv_stocktake_summary is
+  '棚卸1回を1行にまとめた照合結果。帳簿在庫・現物確認済み・差異確定・未確認・帳簿外現物を返す。
+   差異確定はその棚卸の missing_at から数えるので、履歴を期間で切った近似ではない。
+   社内用（anonには出さない）。';
+
+
+-- ------------------------------------------------------------
+-- 61-5) 権限
+--
+--    2026-10-01-rpc-permission-hardening.sql の一括配り直しは
+--    「そのとき存在した関数」に対する1回きりの処理なので、
+--    あとから足した関数には効かない。既定では PUBLIC に EXECUTE が付き
+--    anon からも呼べてしまうため、ここで明示的に落として配り直す。
+-- ------------------------------------------------------------
+revoke all on function public.inv_stocktake_uncheck(bigint, text) from public, anon, service_role;
+grant execute on function public.inv_stocktake_uncheck(bigint, text) to authenticated;
+
+revoke all on function public.inv_stocktake_mark_missing(bigint, text) from public, anon, service_role;
+grant execute on function public.inv_stocktake_mark_missing(bigint, text) to authenticated;
+
+revoke all on function public.inv_stocktake_unmark_missing(bigint, text) from public, anon, service_role;
+grant execute on function public.inv_stocktake_unmark_missing(bigint, text) to authenticated;
+
+revoke all on public.inv_stocktake_summary from public, anon;
+grant select on public.inv_stocktake_summary to authenticated;
+
+
+
+
+-- ============================================================
+-- 62) QRラベルの印刷状態
+--
+--     ブラウザは「実際に紙が出たか」を保証できないので、
+--     システム上は**印刷操作をした時点**を発行済みとして記録する。
+--     出なかったときは押し直せばよい（回数と日時が更新される）。
+--
+--       qr_print_count = 0 … 未印刷（画面ではふつうの色の印刷アイコン）
+--       qr_print_count > 0 … QR印刷済み（色付きの印刷アイコン）
+--
+--     在庫一覧と棚卸は、この1つの値だけを見て同じ色を出す。
+-- ============================================================
+
+-- ------------------------------------------------------------
+-- 62-1) 印刷状態を書き換える唯一の入口
+--
+--    p_mode
+--      'print' … QRラベルの印刷操作をした（初回も再印刷も同じ）
+--                回数を+1、初回が空なら埋め、最終を now() にする。
+--                **再印刷を禁止しない。** 誤操作で紙が出なかったときは
+--                そのまま押し直せばよい。一般（編集できる人）も実行できる。
+--      'set'   … すでに現物へQRが貼ってある既存在庫を、印刷済みに合わせる。
+--                **実際の印刷はしない。** 管理者だけ。
+--                すでに印刷済みのものは触らない（回数を水増ししない）。
+--      'clear' … 未印刷に戻す（誤操作の取消）。管理者だけ。
+--
+--    在庫の状態・在庫数・出品状態・8RENT・棚卸には触らない。
+-- ------------------------------------------------------------
+create or replace function public.inv_qr_print_mark(
+  p_item_ids text[],
+  p_mode     text default 'print',
+  p_note     text default null
+) returns setof public.inventory_items
+language plpgsql security invoker set search_path = public as $$
+declare
+  v_actor text := public.inv_actor();
+  v_label text;
+  it      public.inventory_items;
+  v_id    text;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  if p_mode not in ('print', 'set', 'clear') then
+    raise exception '知らない操作です（%）', p_mode;
+  end if;
+  if p_mode in ('set', 'clear') and not public.inv_is_admin() then
+    raise exception 'この操作は管理者だけができます（%）', p_mode;
+  end if;
+  if p_item_ids is null or array_length(p_item_ids, 1) is null then
+    raise exception '対象が選ばれていません';
+  end if;
+
+  v_label := case p_mode
+               when 'print' then 'QRラベル印刷'
+               when 'set'   then 'QR印刷済みにする'
+               else              'QR未印刷に戻す'
+             end;
+
+  foreach v_id in array p_item_ids loop
+    select * into it from public.inventory_items where id = v_id for update;
+    if not found then
+      raise exception '商品が見つかりません（%）', v_id;
+    end if;
+
+    if p_mode = 'print' then
+      update public.inventory_items
+         set qr_printed_at   = coalesce(qr_printed_at, now()),
+             qr_printed_last = now(),
+             qr_print_count  = coalesce(qr_print_count, 0) + 1
+       where id = v_id returning * into it;
+
+    elsif p_mode = 'set' then
+      -- すでに印刷済みなら何もしない（回数を水増ししない）
+      if coalesce(it.qr_print_count, 0) > 0 then
+        return next it;
+        continue;
+      end if;
+      update public.inventory_items
+         set qr_printed_at   = now(),
+             qr_printed_last = now(),
+             qr_print_count  = 1
+       where id = v_id returning * into it;
+
+    else
+      if coalesce(it.qr_print_count, 0) = 0 then
+        return next it;
+        continue;
+      end if;
+      update public.inventory_items
+         set qr_printed_at = null, qr_printed_last = null, qr_print_count = 0
+       where id = v_id returning * into it;
+    end if;
+
+    insert into public.inventory_transactions
+      (actor, ref_kind, ref_id, label, action, before_value, after_value)
+    values (v_actor, 'item', v_id, it.name, v_label,
+            case when p_mode = 'clear' then '印刷済み' else '未印刷' end,
+            case when p_mode = 'clear' then '未印刷'
+                 else '印刷済み（' || it.qr_print_count || '回目）'
+                      || case when p_mode = 'set' then '／既存QRの貼付済みを登録' else '' end
+            end || coalesce('／' || nullif(btrim(coalesce(p_note, '')), ''), ''));
+
+    return next it;
+  end loop;
+end $$;
+
+comment on function public.inv_qr_print_mark is
+  'QRラベルの印刷状態だけを書き換える。print=印刷操作（再印刷も可・回数と日時を更新）、
+   set=既存の貼付済みを印刷済みに合わせる（管理者・実際の印刷はしない）、
+   clear=未印刷に戻す（管理者）。在庫の状態・在庫数・出品状態・8RENT・棚卸は変えない。
+   誰がやったかは inventory_transactions に追記する。';
+
+
+-- ------------------------------------------------------------
+-- 62-2) 権限
+--
+--    2026-10-01-rpc-permission-hardening.sql の一括配り直しは
+--    「そのとき存在した関数」への1回きりの処理なので、あとから足した関数には効かない。
+--    既定では PUBLIC に EXECUTE が付き anon からも呼べてしまうため、明示的に配り直す。
+--    管理者かどうかは関数の中で inv_is_admin() が見る。
+-- ------------------------------------------------------------
+revoke all on function public.inv_qr_print_mark(text[], text, text) from public, anon, service_role;
+grant execute on function public.inv_qr_print_mark(text[], text, text) to authenticated;
+
+
+-- ============================================================
+-- 63) 個体詳細から基本情報を直す
+--
+--     /zaiko/items/:id の ［編集］ から直す。直せるのは2種類だけで、
+--     **どちらがどちらの表かをはっきり分ける**。
+--
+--       この個体（inventory_items）   … 保管場所・シリアル番号・仕入日・備考
+--       商品マスタ（inventory_products）… 商品名・メーカー・型番・カテゴリ・スペック
+--
+--     すでに専用の操作があるもの（状態・利用者・値段・棚卸・8RENT・出品・QR）と、
+--     変えないもの（管理番号・商品コード・仕入元ID）は触らない。
+--     保管場所は既存の inv_item_op('移動') をそのまま呼ぶ。
+--
+--     **画面が呼ぶのは inv_item_basic_edit() の1回だけ。**
+--     個体とマスタを別々に呼ぶと、片方だけ保存された半端な状態が起きうる。
+--     関数を1回呼べば、その中は1つの取引になるので、途中で失敗すれば何も変わらない。
+-- ============================================================
+
+-- ------------------------------------------------------------
+-- 1) この個体を直す（inv_item_basic_edit の中で使う）
+--
+--    保管場所が変わるときは inv_item_op('移動') を呼ぶ（同じ取引の中なので、
+--    移動だけ成功して残りが失敗する、ということは起きない）。
+--    残りの3項目は「何が何に変わったか」を1行にまとめて履歴へ残す。
+--    変わっていなければ履歴を足さない（水増ししない）。
+-- ------------------------------------------------------------
+create or replace function public.inv_item_edit(
+  p_item_id      text,
+  p_location_id  text default null,
+  p_serial       text default null,
+  p_purchased_on date default null,
+  p_note         text default null
+) returns public.inventory_items
+language plpgsql security invoker set search_path = public as $$
+declare
+  it      public.inventory_items;
+  v_ser   text := nullif(btrim(coalesce(p_serial, '')), '');
+  v_note  text := nullif(btrim(coalesce(p_note, '')), '');
+  v_loc   text := nullif(btrim(coalesce(p_location_id, '')), '');
+  v_diff  text[] := '{}';
+  v_show  text;
+begin
+  if not public.inv_is_admin() then
+    raise exception '基本情報を直せるのは管理者だけです';
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+
+  -- 保管場所は専用の操作にそのまま任せる（移動の履歴もあちらが残す）
+  if v_loc is not null and v_loc is distinct from it.location_id then
+    it := public.inv_item_op(p_item_id, '移動', v_loc, null);
+  end if;
+
+  v_show := 'なし';
+  if v_ser is distinct from it.serial then
+    v_diff := v_diff || ('シリアル番号 ' || coalesce(it.serial, v_show) || ' → ' || coalesce(v_ser, v_show));
+  end if;
+  if p_purchased_on is distinct from it.purchased_on then
+    v_diff := v_diff || ('仕入日 ' || coalesce(to_char(it.purchased_on, 'YYYY/MM/DD'), v_show)
+                         || ' → ' || coalesce(to_char(p_purchased_on, 'YYYY/MM/DD'), v_show));
+  end if;
+  if v_note is distinct from it.note then
+    v_diff := v_diff || '備考'::text;
+  end if;
+
+  if array_length(v_diff, 1) is null then
+    return it;                       -- 何も変わっていない
+  end if;
+
+  update public.inventory_items
+     set serial = v_ser, purchased_on = p_purchased_on, note = v_note
+   where id = p_item_id returning * into it;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'item', p_item_id, it.name, '編集',
+          'この個体', array_to_string(v_diff, '／'));
+
+  return it;
+end $$;
+
+comment on function public.inv_item_edit is
+  'その1台の 保管場所・シリアル番号・仕入日・備考 を直す。
+   保管場所は inv_item_op(''移動'') をそのまま呼ぶ。状態・利用者・価格・棚卸・
+   管理番号・商品コード・仕入元ID には触らない。変わった項目だけ履歴に残す。';
+
+
+-- ------------------------------------------------------------
+-- 2) 商品マスタを直す（inv_item_basic_edit の中で使う）
+--
+--    **同じ商品コードにぶら下がる全個体に効く。** 画面でもそう書く。
+--    個体側にある name / maker / model / category_id は表示用の写しなので、
+--    inv_bulk_update_products と同じようにマスタへ合わせておく
+--    （画面は prod(code) が正で読むが、写しが古いまま残らないようにする）。
+--    spec はマスタにしかない。
+-- ------------------------------------------------------------
+create or replace function public.inv_product_edit(
+  p_code        text,
+  p_name        text default null,
+  p_maker       text default null,
+  p_model       text default null,
+  p_category_id text default null,
+  p_spec        text default null
+) returns public.inventory_products
+language plpgsql security invoker set search_path = public as $$
+declare
+  pr      public.inventory_products;
+  v_name  text := nullif(btrim(coalesce(p_name, '')), '');
+  v_maker text := nullif(btrim(coalesce(p_maker, '')), '');
+  v_model text := nullif(btrim(coalesce(p_model, '')), '');
+  v_cat   text := nullif(btrim(coalesce(p_category_id, '')), '');
+  v_spec  text := nullif(btrim(coalesce(p_spec, '')), '');
+  v_diff  text[] := '{}';
+  v_show  text := 'なし';
+begin
+  if not public.inv_is_admin() then
+    raise exception '基本情報を直せるのは管理者だけです';
+  end if;
+
+  select * into pr from public.inventory_products where code = p_code for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_code;
+  end if;
+  if v_name is null and v_model is null then
+    raise exception '型番か商品名のどちらかは要ります';
+  end if;
+  if v_cat is not null and not exists (select 1 from public.inventory_categories where id = v_cat) then
+    raise exception '知らないカテゴリです（%）', v_cat;
+  end if;
+
+  if v_name  is distinct from pr.name  then
+    v_diff := v_diff || ('商品名 ' || coalesce(pr.name, v_show) || ' → ' || coalesce(v_name, v_show)); end if;
+  if v_maker is distinct from pr.maker then
+    v_diff := v_diff || ('メーカー ' || coalesce(pr.maker, v_show) || ' → ' || coalesce(v_maker, v_show)); end if;
+  if v_model is distinct from pr.model then
+    v_diff := v_diff || ('型番 ' || coalesce(pr.model, v_show) || ' → ' || coalesce(v_model, v_show)); end if;
+  if v_cat   is distinct from pr.category_id then
+    v_diff := v_diff || ('カテゴリ ' || coalesce((select name from public.inventory_categories where id = pr.category_id), v_show)
+                         || ' → ' || coalesce((select name from public.inventory_categories where id = v_cat), v_show)); end if;
+  if v_spec  is distinct from pr.spec  then v_diff := v_diff || 'スペック'::text; end if;
+
+  if array_length(v_diff, 1) is null then
+    return pr;                       -- 何も変わっていない
+  end if;
+
+  update public.inventory_products
+     set name = coalesce(v_name, v_model), maker = v_maker, model = v_model,
+         category_id = v_cat, spec = v_spec
+   where code = p_code returning * into pr;
+
+  -- 個体側の表示用の写しも合わせる（inv_bulk_update_products と同じ考えかた）
+  update public.inventory_items
+     set name = pr.name, maker = pr.maker, model = pr.model, category_id = pr.category_id
+   where product_code = p_code;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'product', p_code, coalesce(pr.name, pr.model), '編集',
+          '商品マスタ', array_to_string(v_diff, '／'));
+
+  return pr;
+end $$;
+
+comment on function public.inv_product_edit is
+  '商品マスタの 商品名・メーカー・型番・カテゴリ・スペック を直す。
+   **同じ商品コードの全個体に効く。** 個体側の表示用の写しも合わせる。
+   在庫数・状態・価格・8RENT・出品・商品コードには触らない。';
+
+
+-- ------------------------------------------------------------
+-- 3) 画面が呼ぶのはこれ1つ（個体とマスタをまとめて1回で終える）
+--
+--    **片方だけ保存される状態を作らないための関数。**
+--    ブラウザから inv_item_edit と inv_product_edit を続けて呼ぶと、
+--    1つめが成功して2つめが失敗したときに個体だけ保存されてしまう
+--    （RPC 1回ごとに取引が閉じるため）。
+--    1回の呼び出しにまとめれば、その中はまるごと1つの取引になり、
+--    途中でどこが失敗しても**何も変わらない**。
+--
+--    新しい判断はここに置かない。権限も履歴も移動も、上の2つと
+--    既存の inv_item_op('移動') がそのまま持つ。ここは順番に呼ぶだけ。
+--
+--    返すのは画面が描き直すのに要るものだけ。
+--      item     … 直した1台
+--      product  … 商品マスタ（マスタが変わったときだけ）
+--      items    … 同じ商品の個体（**マスタが変わったときだけ**。
+--                  表示用の写しが変わるので画面の手元も入れ替える）
+-- ------------------------------------------------------------
+create or replace function public.inv_item_basic_edit(
+  p_item_id      text,
+  p_location_id  text default null,
+  p_serial       text default null,
+  p_purchased_on date default null,
+  p_note         text default null,
+  p_name         text default null,
+  p_maker        text default null,
+  p_model        text default null,
+  p_category_id  text default null,
+  p_spec         text default null
+) returns jsonb
+language plpgsql security invoker set search_path = public as $$
+declare
+  it      public.inventory_items;
+  was     public.inventory_products;
+  pr      public.inventory_products;
+  v_moved boolean := false;
+begin
+  if not public.inv_is_admin() then
+    raise exception '基本情報を直せるのは管理者だけです';
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+  if coalesce(it.product_code, '') <> '' then
+    select * into was from public.inventory_products where code = it.product_code;
+  end if;
+
+  -- 1) この個体（保管場所が変わるときは、この中で既存の inv_item_op('移動') を通る）
+  it := public.inv_item_edit(p_item_id, p_location_id, p_serial, p_purchased_on, p_note);
+
+  -- 2) 商品マスタ。商品が結びついていない個体では何もしない
+  if was.code is not null then
+    pr := public.inv_product_edit(was.code, p_name, p_maker, p_model, p_category_id, p_spec);
+    v_moved := (pr.name        is distinct from was.name)
+            or (pr.maker       is distinct from was.maker)
+            or (pr.model       is distinct from was.model)
+            or (pr.category_id is distinct from was.category_id);
+    -- マスタが変わると個体側の写しも変わるので、返す1台を読み直す
+    if v_moved then
+      select * into it from public.inventory_items where id = p_item_id;
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'item', to_jsonb(it),
+    'product', case when pr.code is null then null else to_jsonb(pr) end,
+    -- 写しが変わったときだけ。毎回だと同じ商品の台数ぶん無駄に返すことになる
+    'items', case when v_moved
+      then coalesce((select jsonb_agg(to_jsonb(x)) from public.inventory_items x
+                      where x.product_code = was.code), '[]'::jsonb)
+      else null end);
+end $$;
+
+comment on function public.inv_item_basic_edit is
+  '個体詳細の［編集］の保存。**画面が呼ぶのはこれ1つだけ。**
+   inv_item_edit と inv_product_edit を1回の呼び出し＝1つの取引でまとめて行うので、
+   片方だけ保存された状態にならない。判断は足さず、順番に呼ぶだけ。';
+
+
+-- ------------------------------------------------------------
+-- 4) 権限
+--
+--    2026-10-01-rpc-permission-hardening.sql の一括配り直しは
+--    「そのとき存在した関数」への1回きりの処理なので、あとから足した関数には効かない。
+--    既定では PUBLIC に EXECUTE が付き anon からも呼べてしまうため、明示的に配り直す。
+--    3つとも関数の中で inv_is_admin() が見る。
+--    商品名・型番・カテゴリは**同じ商品の全個体に効く**ので、直せるのは管理者だけ。
+--    倉庫メンバーは移動・棚卸確認・入出庫・販売済みなど、既存の操作をそのまま使う。
+--    新しい権限は作らず、すでにある inv_is_admin() を見ている。
+--
+--    inv_item_edit / inv_product_edit も authenticated に渡したままにする。
+--    security invoker なので、呼ぶ人に EXECUTE が無いと
+--    inv_item_basic_edit の中からも呼べなくなるため。
+--    （security definer は使わない。この仕組みの関数はすべて invoker ＋
+--     関数の中の inv_is_admin() / inv_can_edit() でそろえている。）
+--    画面から呼ぶのは inv_item_basic_edit だけにしている。
+-- ------------------------------------------------------------
+revoke all on function public.inv_item_edit(text, text, text, date, text) from public, anon, service_role;
+grant execute on function public.inv_item_edit(text, text, text, date, text) to authenticated;
+
+revoke all on function public.inv_product_edit(text, text, text, text, text, text) from public, anon, service_role;
+grant execute on function public.inv_product_edit(text, text, text, text, text, text) to authenticated;
+
+revoke all on function public.inv_item_basic_edit(text, text, text, date, text, text, text, text, text, text)
+  from public, anon, service_role;
+grant execute on function public.inv_item_basic_edit(text, text, text, date, text, text, text, text, text, text)
+  to authenticated;
+
+
+-- ============================================================
+-- 64) 売却済を取り消す（誤って別の個体を販売済みにしたとき）
+--
+--     倉庫でQRを取り違えて、違う個体を「販売済み」にしてしまうことがある。
+--     状態を手で直すと在庫数と履歴が食い違うので、専用の操作にする。
+--
+--     **戻る状態は固定しない。履歴から取る。**
+--     inv_item_op は売却のとき before_value に「売却の直前の状態」をそのまま
+--     書いている（古い版も同じ）ので、その1行を読めば 在庫／出品中／販売予約 の
+--     どれへ戻すかが分かる。**履歴から分からないときは推測せずエラーにする。**
+--     すでに取り消された古い売却は拾わない（売却取消より前の行は候補にしない）。
+--
+--     モールの受注明細（inventory_sale_orders）にその個体が割り当たっていたら、
+--     **8EC の中の紐付けだけ**を外して「個体の割り当て待ち（受注）」へ戻す。
+--     外部のモールへは何も送らない。割り当て直しは既存の inv_sale_order_link()。
+--
+--     既存の「売却」履歴は消さず、「売却取消」を足して並べる。
+--     権限は既存の inv_can_edit()（admin・member は可、viewer は不可）。
+-- ============================================================
+-- ------------------------------------------------------------
+-- 取消の材料をまとめて返す（取消の本体と、確認画面の両方がこれを使う）
+--
+--   back   … 戻る状態。無ければ null
+--   orders … この個体が割り当たっているモールの受注明細（キャンセル済みは除く）
+--
+--   戻る状態は履歴から取る。**推測はしない。**
+--   inv_item_op は売却のとき before_value に「売却の直前の状態」をそのまま
+--   書いている（古い版も同じ）。
+--
+--   **使い終わった売却を拾わない。**
+--   売却A → 売却取消A → （SQLなどで status だけ売却済） と進んだとき、
+--   いちばん新しい売却の行は A だが、それはすでに取り消されていて
+--   「いまの売却済」とは無関係。その状態へ戻すと嘘になる。
+--   そこで「その売却より後に 売却取消 が無いこと」を条件に入れる。
+--     売却A → 売却取消A → 売却B          … B だけが候補（正しく B の前の状態へ戻る）
+--     売却A → 売却取消A → status だけ売却済 … 候補なし（null。戻さない）
+--   同じ時刻の行があっても狂わないよう (occurred_at, id) の組で前後を見る。
+--
+--   棚卸確認は after_value が '売却済（確認済み）' になるが状態を変えていないので、
+--   before_value が売却前になりうる状態の行だけを見て外す。
+--
+--   戻せない状態（戻すと情報が欠ける）は最初から候補にしない。
+--     貸出中・社内使用 … 利用者（user_name）が売却時に消えており、誰に貸していたかを
+--                        復元できない。推測で戻さず、人が貸出からやり直す
+--     売却済・廃棄     … 戻し先として意味がない
+-- ------------------------------------------------------------
+drop function if exists public.inv_item_sell_undo_target(text);
+
+create or replace function public.inv_item_sell_undo_info(p_item_id text)
+returns jsonb
+language sql stable security invoker set search_path = public as $$
+  select jsonb_build_object(
+    'back',
+      (select t.before_value
+         from public.inventory_transactions t
+        where t.ref_kind = 'item'
+          and t.ref_id   = p_item_id
+          and t.action in ('売却', '状態変更')
+          and t.after_value like '売却済%'
+          and btrim(coalesce(t.before_value, ''))
+              = any (array['在庫','出品中','予約中','販売予約','修理中','故障','紛失','不明'])
+          -- その売却より後に「売却取消」があるなら、それはもう使い終わった売却
+          and not exists (
+                select 1 from public.inventory_transactions u
+                 where u.ref_kind = 'item'
+                   and u.ref_id   = p_item_id
+                   and u.action   = '売却取消'
+                   and (u.occurred_at, u.id) > (t.occurred_at, t.id))
+        order by t.occurred_at desc, t.id desc
+        limit 1),
+    'orders',
+      (select coalesce(jsonb_agg(jsonb_build_object(
+                'id', o.id, 'channel', o.channel, 'order_number', o.order_number,
+                'line_number', o.line_number, 'unit_no', o.unit_no, 'status', o.status)
+              order by o.id), '[]'::jsonb)
+         from public.inventory_sale_orders o
+        where o.item_id = p_item_id
+          and o.status <> 'キャンセル'))
+$$;
+
+comment on function public.inv_item_sell_undo_info is
+  '売却取消の材料。back＝戻る状態（履歴の action=''売却'' の before_value。すでに取り消された
+   売却は拾わない。決められなければ null）、orders＝その個体が割り当たっているモールの受注明細。
+   読むだけで何も変えない。確認画面と取消の本体が同じこれを通る。';
+
+
+-- ------------------------------------------------------------
+-- モールの受注明細から、この個体の割り当てだけを外す
+--
+--   inventory_sale_orders は authenticated に insert/update/delete を渡していない
+--   （書けるのは security definer の関数だけ）ので、既存の inv_sale_order_link と
+--   同じ形にする：security definer ＋ 関数の中で inv_can_edit()。
+--
+--   **外部のモールへは何も送らない。** 8EC の中の紐付けを外すだけ。
+--   戻す先を '受注' にするのは、既存の inv_sale_order_link() が
+--     item_id が null で、キャンセル済みでない明細
+--   にしか商品を割り当てられず、割り当てたあとに status を '受注' にするため。
+--   つまり「個体の割り当て待ち」を表すのがこの状態で、推測で決めた値ではない。
+--   取込を流し直しても、item_id が null のあいだは何も起きない
+--   （発送の反映は status='受注' かつ item_id is not null のときだけ）。
+-- ------------------------------------------------------------
+create or replace function public.inv_sale_order_unlink(
+  p_order_id bigint,
+  p_item_id  text,
+  p_note     text default null
+) returns public.inventory_sale_orders
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare
+  r public.inventory_sale_orders;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  select * into r from public.inventory_sale_orders where id = p_order_id for update;
+  if not found then
+    raise exception '受注明細が見つかりません（%）', p_order_id;
+  end if;
+  -- 取り違えた個体の割り当てだけを外す。別の個体が割り当たっている明細には触らない
+  if r.item_id is distinct from p_item_id then
+    raise exception 'この明細には別の個体が割り当たっています（%）', coalesce(r.item_id, 'なし');
+  end if;
+  if r.status = 'キャンセル' then
+    return r;                      -- キャンセル済みは触らない
+  end if;
+
+  update public.inventory_sale_orders
+     set item_id = null,
+         status  = '受注',          -- ＝「個体の割り当て待ち」。inv_sale_order_link で割り当て直す
+         note    = nullif(btrim(coalesce(p_note, '')), '')
+   where id = p_order_id
+  returning * into r;
+  return r;
+end $$;
+
+comment on function public.inv_sale_order_unlink is
+  '受注明細から、指定した個体の割り当てだけを外して「個体の割り当て待ち（受注）」へ戻す。
+   別の個体が割り当たっている明細は触らない。外部のモールへは何も送らない。
+   割り当て直しは既存の inv_sale_order_link() で行う。';
+
+
+-- ------------------------------------------------------------
+-- 売却取消
+--
+--   二重取消の防止は「いま売却済か」で見る。取り消すと status が
+--   売却前の状態へ戻るので、2回目は必ずここで止まる。
+--
+--   売却のときだけ入る値（sold_price / sold_channel）は空に戻す。
+--   誤売却の金額と売却先が残ると、ダッシュボードの売上・粗利に混ざるため。
+--   user_name / loaned_at は売却時に null にされており、戻す先の状態
+--   （在庫・出品中・販売予約）では使わないので、null のままにする。
+-- ------------------------------------------------------------
+create or replace function public.inv_item_sell_undo(
+  p_item_id text,
+  p_note    text default null
+) returns public.inventory_items
+language plpgsql security invoker set search_path = public as $$
+declare
+  it     public.inventory_items;
+  v_prev text;
+  v_was  text;
+  v_info jsonb;
+  v_ord  jsonb;
+  v_ords text[] := '{}';
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+
+  -- 1) いま売却済のものだけ。取消済み・もともと売却済でないものはここで止まる
+  if it.status <> '売却済' then
+    raise exception '「売却済」のものだけ取り消せます（いまは %）', it.status;
+  end if;
+
+  -- 2) 戻る状態は履歴から取る。**推測しない。**判定は確認画面と同じ1つの関数に任せる
+  v_info := public.inv_item_sell_undo_info(p_item_id);
+  v_prev := v_info ->> 'back';
+  if v_prev is null then
+    raise exception
+      '売却前の状態が履歴から決められないので取り消せません（%）。'
+      '売却の履歴が無い／いちばん新しい売却はすでに取り消し済み／'
+      '売却前が貸出中・社内使用（利用者を復元できない）、のどれかです。'
+      'もとの操作からやり直してください', p_item_id;
+  end if;
+
+  -- 3) 戻す。売却のときだけ入る値は空にする
+  v_was := '売却済'
+           || coalesce('（' || nullif(btrim(coalesce(it.sold_channel, '')), '') || '）', '')
+           || coalesce('（' || to_char(it.sold_price, 'FM9,999,999,999') || '円）', '');
+
+  update public.inventory_items
+     set status       = v_prev,
+         sold_price   = null,
+         sold_channel = null,
+         user_name    = null,
+         loaned_at    = null
+   where id = p_item_id
+  returning * into it;
+
+  -- 4) モールの受注明細に割り当たっていたら、**8EC の中の紐付けだけ**を外す。
+  --    外さないと「この注文は個体Aへ発送済み」という記録が残り、個体Aは在庫に戻るので
+  --    中のデータが食い違う。外部のモールへは何も送らない。
+  for v_ord in select * from jsonb_array_elements(coalesce(v_info -> 'orders', '[]'::jsonb)) loop
+    perform public.inv_sale_order_unlink((v_ord ->> 'id')::bigint, p_item_id,
+      p_item_id || ' の販売済みを取り消したため割り当てを解除しました。別の個体を割り当ててください');
+    v_ords := v_ords || ((v_ord ->> 'channel') || ' 注文 ' || (v_ord ->> 'order_number'));
+  end loop;
+
+  -- 5) 履歴。**「売却」の行は消さない。**「売却取消」を足して 売却 → 売却取消 と並べる
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'item', p_item_id, it.name, '売却取消',
+          v_was,
+          v_prev
+          || coalesce('／' || nullif(btrim(coalesce(p_note, '')), ''), '')
+          || case when array_length(v_ords, 1) is null then ''
+                  else '／割り当て解除 ' || array_to_string(v_ords, '・') end);
+
+  return it;
+end $$;
+
+comment on function public.inv_item_sell_undo is
+  '誤って売却済にした1台を、売却の直前の状態へ戻す。戻り先は履歴（action=''売却'' の
+   before_value）から取り、分からなければ戻さずエラーにする。sold_price / sold_channel は
+   空に戻す。既存の「売却」履歴は消さず、「売却取消」を足す。外部販売サイトへの再出品はしない。';
+
+
+-- ------------------------------------------------------------
+-- 権限
+--
+--   2026-10-01-rpc-permission-hardening.sql の配り直しは「そのとき存在した関数」への
+--   1回きりの処理なので、あとから足した関数には効かない。既定では PUBLIC に EXECUTE が
+--   付き anon からも呼べてしまうため、明示的に配り直す。
+--   関数の中で inv_can_edit() が見る（admin・member は可、viewer は不可）。
+-- ------------------------------------------------------------
+revoke all on function public.inv_item_sell_undo_info(text) from public, anon, service_role;
+grant execute on function public.inv_item_sell_undo_info(text) to authenticated;
+
+revoke all on function public.inv_sale_order_unlink(bigint, text, text) from public, anon, service_role;
+grant execute on function public.inv_sale_order_unlink(bigint, text, text) to authenticated;
+
+revoke all on function public.inv_item_sell_undo(text, text) from public, anon, service_role;
+grant execute on function public.inv_item_sell_undo(text, text) to authenticated;
+
+
+-- ============================================================
+-- 65) QRから販売先を選ぶだけで売る／取消済み売却を集計から外す
+--
+--     倉庫メンバーは値段を手で入れない。QRを読んで販売先を選ぶと、
+--     **登録済みの販売価格**が出て、その金額でだけ売却できる。
+--     新しい価格テーブルは作らない。価格の出どころは既存の2つだけ。
+--       1) inventory_channels.price          … 個体 × 販売先
+--       2) inventory_channel_listings.price  … 商品 × 販売先
+--
+--     **画面に出した金額は信用しない。** 売るときはサーバーがもう一度引き直す。
+--     状態の変更と履歴は既存の inv_item_sell() → inv_item_op('売却') をそのまま通る。
+--
+--     あわせて、取り消した売却が今月の売上・粗利・販売台数に残らないようにする。
+--     「その売却より後に売却取消があるか」の判定は inv_sale_is_active() の1か所だけに置き、
+--     売却取消（64）とダッシュボードの両方がそれを通る。
+--     **inv_dashboard_stats が返すキーは1つも変えていない**（画面がそのまま読むため）。
+-- ============================================================
+-- ------------------------------------------------------------
+-- 1) その「売却」はいま生きているか
+--
+--    売却A → 売却取消A → 売却B と進んだとき、A はもう効いていない。
+--    「その行より後に 売却取消 があるか」だけを見る。
+--    同じ時刻の行があっても狂わないよう (occurred_at, id) の組で前後を見る。
+--
+--    **この判定を書くのはここだけ。** 売却取消も月次集計もこれを呼ぶ。
+-- ------------------------------------------------------------
+create or replace function public.inv_sale_is_active(
+  p_item_id text,
+  p_at      timestamptz,
+  p_id      bigint
+) returns boolean
+language sql stable security invoker set search_path = public as $$
+  select not exists (
+    select 1 from public.inventory_transactions u
+     where u.ref_kind = 'item'
+       and u.ref_id   = p_item_id
+       and u.action   = '売却取消'
+       and (u.occurred_at, u.id) > (p_at, p_id))
+$$;
+
+comment on function public.inv_sale_is_active is
+  'その「売却」の履歴がいまも効いているか（あとで取り消されていないか）。
+   売却取消と月次集計は、同じ判定をここ1か所で見る。読むだけで何も変えない。';
+
+
+-- ------------------------------------------------------------
+-- 2) 売却取消の材料（2026-10-12 の判定を上の関数に寄せる）
+--
+--    中身は同じ。重複して書いていた「後に売却取消があるか」を
+--    inv_sale_is_active() へ移しただけ。
+-- ------------------------------------------------------------
+create or replace function public.inv_item_sell_undo_info(p_item_id text)
+returns jsonb
+language sql stable security invoker set search_path = public as $$
+  select jsonb_build_object(
+    'back',
+      (select t.before_value
+         from public.inventory_transactions t
+        where t.ref_kind = 'item'
+          and t.ref_id   = p_item_id
+          and t.action in ('売却', '状態変更')
+          and t.after_value like '売却済%'
+          and btrim(coalesce(t.before_value, ''))
+              = any (array['在庫','出品中','予約中','販売予約','修理中','故障','紛失','不明'])
+          -- 取り消し済みの古い売却は拾わない（判定は1か所）
+          and public.inv_sale_is_active(p_item_id, t.occurred_at, t.id)
+        order by t.occurred_at desc, t.id desc
+        limit 1),
+    'orders',
+      (select coalesce(jsonb_agg(jsonb_build_object(
+                'id', o.id, 'channel', o.channel, 'order_number', o.order_number,
+                'line_number', o.line_number, 'unit_no', o.unit_no, 'status', o.status)
+              order by o.id), '[]'::jsonb)
+         from public.inventory_sale_orders o
+        where o.item_id = p_item_id
+          and o.status <> 'キャンセル'))
+$$;
+
+
+-- ------------------------------------------------------------
+-- 3) 売り先にできる販売先
+--
+--    画面の CHANNELS（楽天・Amazon・メルカリ・ヤフオク・ヤフーフリマ・その他）と同じ。
+--    **一覧を持つのはここだけ。** 価格を見るときも売るときも、同じこれを通す。
+--    notion は社内メモ用で売り先ではないので入れない。
+-- ------------------------------------------------------------
+create or replace function public.inv_sell_channels()
+returns text[]
+language sql immutable set search_path = public as $$
+  select array['rakuten','amazon','mercari','yahuoku','yahoo_free','other']
+$$;
+
+comment on function public.inv_sell_channels is
+  '倉庫から売るときに選べる販売先。画面の CHANNELS と同じ並び。一覧を持つのはここだけ。';
+
+
+-- ------------------------------------------------------------
+-- 4) その1台の、その販売先の登録価格
+--
+--    画面（販売先を選んだとき）と、売却の本体の**両方がこれを通る**。
+--    同じ価格判定を2か所に書かない。
+--
+--    個体の行があっても price が入っていなければ、商品の価格へ落とす
+--    （「個体 × 販売先の価格が明示されている場合はその価格」なので、
+--      行があるだけで価格が空のときは明示されていないとみなす）。
+--
+--    原価も利益も返さない。返すのはこの販売先の売値1つだけ。
+-- ------------------------------------------------------------
+create or replace function public.inv_item_channel_price(
+  p_item_id text,
+  p_channel text
+) returns numeric
+language plpgsql stable security invoker set search_path = public as $$
+begin
+  -- 売るための値段なので、**売れる人にしか見せない**（viewer は直接呼んでも通らない）。
+  -- 画面でも売却の本体でも同じこの関数を通るので、ここで1回止めれば両方に効く。
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  if not (p_channel = any (public.inv_sell_channels())) then
+    raise exception '知らない販売先です（%）', p_channel;
+  end if;
+
+  return coalesce(
+    (select c.price
+       from public.inventory_channels c
+      where c.item_id = p_item_id and c.channel = p_channel and c.price is not null
+      order by c.id desc limit 1),
+    (select l.price
+       from public.inventory_channel_listings l
+       join public.inventory_items i on i.product_code = l.product_code
+      where i.id = p_item_id and l.channel = p_channel and l.price is not null
+      order by l.id desc limit 1));
+end $$;
+
+comment on function public.inv_item_channel_price is
+  'その1台を、その販売先で売るときの登録価格。個体（inventory_channels.price）が
+   入っていればそれ、無ければ商品（inventory_channel_listings.price）。
+   どちらも無ければ null。原価・利益は返さない。読むだけで何も変えない。
+   見られるのは inv_can_edit()（管理者・倉庫メンバー）だけ。販売先は決まった6つだけ。';
+
+
+-- ------------------------------------------------------------
+-- 5) 販売先を選んで売る（倉庫メンバー用）
+--
+--    **画面から金額を受け取らない。** 受け取るのは販売先だけ。
+--    価格はここで引き直すので、開発者ツールから好きな金額を送っても
+--    その金額では売れない。
+--
+--    売却そのものは作り直さない。既存の inv_item_sell() を呼ぶので、
+--    sold_channel の保存・状態の変更・履歴は今までと同じ経路を通る。
+--
+--    売れる状態は 在庫・出品中・販売予約 の3つだけ（画面と同じ）。
+--    予約中・貸出中・社内使用などは、先に本来の操作で戻してもらう。
+-- ------------------------------------------------------------
+create or replace function public.inv_item_sell_channel(
+  p_item_id text,
+  p_channel text,
+  p_note    text default null
+) returns public.inventory_items
+language plpgsql security invoker set search_path = public as $$
+declare
+  it      public.inventory_items;
+  v_price numeric;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  if coalesce(btrim(p_channel), '') = '' then
+    raise exception '販売先を選んでください';
+  end if;
+  -- 知らない販売先では売らない（一覧は inv_sell_channels の1か所だけ）
+  if not (p_channel = any (public.inv_sell_channels())) then
+    raise exception '知らない販売先です（%）', p_channel;
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+  if it.status not in ('在庫', '出品中', '販売予約') then
+    raise exception '販売済みにできるのは 在庫・出品中・販売予約 のものだけです（いまは %）', it.status;
+  end if;
+
+  -- **ここで引き直した金額だけを使う**
+  v_price := public.inv_item_channel_price(p_item_id, p_channel);
+  if v_price is null then
+    raise exception 'この販売先の価格が登録されていません。管理者に設定してもらってください';
+  end if;
+  if v_price <= 0 then
+    raise exception 'この販売先の価格が 0円以下です。管理者に直してもらってください';
+  end if;
+
+  -- 状態変更も履歴も、既存の売却処理をそのまま通す
+  it := public.inv_item_sell(p_item_id, p_channel, v_price::text, p_note);
+  return it;
+end $$;
+
+comment on function public.inv_item_sell_channel is
+  '販売先を選んで1台を売却済にする。**金額は受け取らず、サーバーが登録価格を引き直す。**
+   売却そのものは既存の inv_item_sell() → inv_item_op(''売却'') をそのまま通る。
+   売れるのは 在庫・出品中・販売予約 のときだけ。';
+
+
+-- ------------------------------------------------------------
+-- 6) 月次の経営数値から、取り消した売却を外す
+--
+--    これまでは action='売却' の履歴をそのまま数えていたので、取り消したあとも
+--    販売台数に残り、売上も（sold_price が null でも）1台ぶん数えてしまっていた。
+--
+--    **変えたのは sold の where に1行足しただけ。**
+--    返す中身（キーの名前・順番・数）も、ほかの集計（仕入・在庫）も一切変えていない。
+--    画面（viewDash）はこのキーをそのまま読んでいるので、1つでも変えると数字が消える。
+--      売却 → 取消                 … 数えない
+--      売却 → 取消 → 再売却        … 新しいほうだけ数える
+--      売却（取消なし）            … これまでどおり
+-- ------------------------------------------------------------
+create or replace function public.inv_dashboard_stats(p_month date default null)
+returns jsonb
+language sql
+stable
+security invoker
+set search_path = public, pg_catalog
+as $$
+with
+bounds as (
+  select date_trunc('month', coalesce(p_month, current_date))::date            as m_start,
+         (date_trunc('month', coalesce(p_month, current_date)) + interval '1 month')::date as m_end
+),
+-- 今月売れた個体（売却の履歴がある個体を、重複なく1台ずつ）
+sold as (
+  select distinct on (i.id) i.id, i.sold_price, i.cost
+    from public.inventory_transactions t
+    join public.inventory_items i on i.id = t.ref_id
+    cross join bounds b
+   where t.ref_kind = 'item' and t.action = '売却'
+     and t.occurred_at >= b.m_start and t.occurred_at < b.m_end
+     -- **あとで取り消された売却は数えない**（判定は inv_sale_is_active の1か所）
+     and public.inv_sale_is_active(i.id, t.occurred_at, t.id)
+   order by i.id, t.occurred_at desc
+),
+sale_agg as (
+  select coalesce(sum(sold_price), 0)                                   as sales,
+         count(*)                                                       as cnt,
+         coalesce(sum(sold_price) filter (where cost > 0), 0)           as profit_base,
+         coalesce(sum(sold_price - cost) filter (where cost > 0), 0)    as profit,
+         count(*) filter (where coalesce(cost, 0) <= 0)                 as missing_cost,
+         count(*) filter (where coalesce(sold_price, 0) <= 0)           as missing_price,
+         -- 粗利を出せた台数＝原価も売価も入っている台数。平均粗利/台の母数はこれ
+         count(*) filter (where cost > 0 and sold_price > 0)            as profit_cnt
+    from sold
+),
+-- 売却済みなのに売価が入っていない個体（全期間）。今月かどうかに関わらず直してほしい
+price_gap as (
+  select count(*) as cnt
+    from public.inventory_items i
+   where i.status = '売却済'
+     and coalesce(i.sold_price, 0) <= 0
+),
+-- 今月仕入れた個体（仕入日で見る）
+buy_agg as (
+  select coalesce(sum(i.cost), 0) as amount, count(*) as cnt
+    from public.inventory_items i cross join bounds b
+   where i.purchased_on >= b.m_start and i.purchased_on < b.m_end
+),
+-- いま手元にある在庫（売却済・廃棄は除く）
+held as (
+  select i.cost,
+         case when i.purchased_on is not null
+              then (current_date - i.purchased_on) end as days
+    from public.inventory_items i
+   where i.status not in ('売却済', '廃棄')
+),
+held_agg as (
+  select count(*)                                                as cnt,
+         coalesce(sum(cost), 0)                                  as cost_total,
+         count(*) filter (where days > 60)                       as aged60,
+         count(*) filter (where days > 90)                       as aged90,
+         coalesce(sum(cost) filter (where days > 90), 0)         as aged90_cost,
+         round(avg(days) filter (where days is not null), 1)     as avg_days,
+         count(*) filter (where days is null)                    as no_date
+    from held
+)
+select jsonb_build_object(
+  'month', to_char((select m_start from bounds), 'YYYY-MM'),
+  -- 売上（販売／レンタル／合計）。レンタルは請求データが無いので未集計
+  'sales_sale',        s.sales,
+  'sales_rental',      0,
+  'sales_total',       s.sales,
+  'rental_available',  false,
+  -- 粗利
+  'gross_profit',      s.profit,
+  'profit_base',       s.profit_base,
+  'gross_margin',      case when s.profit_base > 0
+                            then round(s.profit * 100.0 / s.profit_base, 1) end,
+  'profit_missing_cost', s.missing_cost,
+  'profit_count',      s.profit_cnt,
+  'avg_profit_per_unit', case when s.profit_cnt > 0
+                              then round(s.profit / s.profit_cnt) end,
+  'sold_count',        s.cnt,
+  -- 売価が入っていない個体（金額として数えられないもの）
+  'sold_price_missing',       g.cnt,
+  'sold_price_missing_month', s.missing_price,
+  -- 仕入
+  'purchase_amount',   b2.amount,
+  'purchase_count',    b2.cnt,
+  -- 在庫
+  'stock_cost',        h.cost_total,
+  'stock_count',       h.cnt,
+  'aged_60',           h.aged60,
+  'aged_90',           h.aged90,
+  'aged_90_cost',      h.aged90_cost,
+  'avg_stock_days',    h.avg_days,
+  'stock_no_date',     h.no_date
+)
+from sale_agg s, price_gap g, buy_agg b2, held_agg h;
+$$;
+
+comment on function public.inv_dashboard_stats is
+  '管理者ホームの経営数値。今月の売上・粗利・販売台数と、仕入・在庫。
+   **取り消した売却は数えない**（inv_sale_is_active）。読むだけで何も変えない。';
+
+
+-- ------------------------------------------------------------
+-- 7) 権限
+--
+--    2026-10-01-rpc-permission-hardening.sql の配り直しは「そのとき存在した関数」への
+--    1回きりの処理なので、あとから足した関数には効かない。明示的に配り直す。
+--    inv_dashboard_stats と inv_item_sell_undo_info は create or replace なので
+--    権限は変わらない（既存のまま）。
+-- ------------------------------------------------------------
+revoke all on function public.inv_sale_is_active(text, timestamptz, bigint) from public, anon, service_role;
+grant execute on function public.inv_sale_is_active(text, timestamptz, bigint) to authenticated;
+
+revoke all on function public.inv_sell_channels() from public, anon, service_role;
+grant execute on function public.inv_sell_channels() to authenticated;
+
+revoke all on function public.inv_item_channel_price(text, text) from public, anon, service_role;
+grant execute on function public.inv_item_channel_price(text, text) to authenticated;
+
+-- 3引数の形は 68) で落として4引数へ置き換えるので、ここでは配らない
+-- （本番では 2026-10-15 が4引数を足し、2026-10-16 が3引数を落とす）
+
+
+-- 66) 価格の確認（確認済み／未確認の印）
+--
+--     ※ この節にあった「未確認のまま『出品中』にできない」という制限は
+--        70) で外しています（下の 70) が同じ関数を入れ替えます）。
+--        確認そのもの（表示・管理者だけ・価格を変えたら外れる）は残ります。
+--
+--     値段を入れる人（member）と、その値段でよいと決める人（admin）を分ける。
+--     **新しい role も権限種別も承認フローも申請テーブルも作らない。**
+--     持つのは inventory_items の2列だけ。
+--       price_checked_at … 確認した日時。NULL なら未確認
+--       price_checked_by … 確認した人
+--
+--     **「価格未設定」と「価格未確認」は別のことがら。**
+--       価格未設定 … plan_price / 出品情報の価格が入っていない（金額が決まっていない）
+--       価格未確認 … 金額は入っているが、管理者がまだ「これでよい」と言っていない
+--     出品の可否を決めるのは「未確認かどうか」だけ。
+--
+--     止めるのはトリガー。authenticated は inventory_items を直接 UPDATE できるので、
+--     RPCの中だけで見ていると画面のコードから抜けられてしまう。
+--
+--     4) 5) で 61)・64) の関数を create or replace するが、**本文はいまの定義のまま**で、
+--     「戻り先が出品中・価格が未確認なら在庫へ寄せる」を1段だけ足している
+--     （そうしないと差異確定の取消・売却取消そのものができなくなる）。
+--     65) の販売先価格・QR販売・経営数値には触らない。
+-- ============================================================
+-- ------------------------------------------------------------
+-- 1) 確認の状態（2列だけ）
+-- ------------------------------------------------------------
+alter table public.inventory_items
+  add column if not exists price_checked_at timestamptz,
+  add column if not exists price_checked_by text;
+
+comment on column public.inventory_items.price_checked_at is
+  '価格を確認した日時。NULL なら未確認。価格を変えると自動で NULL に戻る。';
+comment on column public.inventory_items.price_checked_by is
+  '価格を確認した人。price_checked_at と一緒に入る。';
+
+create index if not exists inventory_items_price_check_idx
+  on public.inventory_items (price_checked_at);
+
+
+-- ------------------------------------------------------------
+-- 2) 価格が変わったら確認を外す／未確認のまま出品中にしない
+--
+--    **トリガーにするのは、抜け道を作らないため。**
+--    authenticated は inventory_items を直接 UPDATE できるので、
+--    RPCの中だけで見ていると、画面のコードを1行足すだけで回避できてしまう。
+--    どの経路から更新しても必ずここを通る。
+--
+--    価格を変えた更新では、同じ文で price_checked_at を立てても外す
+--    （安全側。確認は値段が決まったあとに、別の操作としてやってもらう）。
+--
+--    **すでに「出品中」のものはそのまま。** このmigrationを当てた直後は
+--    全個体が未確認なので、いま出ている出品を落とさない。
+-- ------------------------------------------------------------
+create or replace function public.inv_price_check_guard()
+returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  -- 価格（仕入・手数料・販売予定）が変わったら、確認は外れる
+  if new.price         is distinct from old.price
+  or new.purchase_fee  is distinct from old.purchase_fee
+  or new.plan_price    is distinct from old.plan_price then
+    new.price_checked_at := null;
+    new.price_checked_by := null;
+  end if;
+
+  -- 未確認のまま「出品中」にはできない（すでに出品中のものはそのまま）
+  if new.status = '出品中' and old.status is distinct from '出品中'
+     and new.price_checked_at is null then
+    raise exception '価格が未確認です。管理者が価格を確認してから出品中にしてください（%）', new.id;
+  end if;
+
+  return new;
+end $$;
+
+comment on function public.inv_price_check_guard is
+  '価格を変えたら確認を外す。未確認の個体を「出品中」にさせない。
+   どの経路の UPDATE でも通るようにトリガーにしている。';
+
+drop trigger if exists inventory_items_price_check on public.inventory_items;
+create trigger inventory_items_price_check before update on public.inventory_items
+  for each row execute function public.inv_price_check_guard();
+
+
+-- ------------------------------------------------------------
+-- 3) 確認済みにする・外す（管理者だけ）
+--
+--    member は価格の入力も計算もできるが、ここだけは admin。
+--    新しい role は作らず、既存の inv_is_admin() を見る。
+-- ------------------------------------------------------------
+create or replace function public.inv_price_check_set(
+  p_item_ids text[],
+  p_on       boolean default true,
+  p_note     text default null
+) returns setof public.inventory_items
+language plpgsql security invoker set search_path = public as $$
+declare
+  it     public.inventory_items;
+  v_id   text;
+  v_who  text := public.inv_actor();
+  fmt    text := 'FM9,999,999,999';
+begin
+  if not public.inv_is_admin() then
+    raise exception '価格を確認できるのは管理者だけです';
+  end if;
+  if p_item_ids is null or array_length(p_item_ids, 1) is null then
+    raise exception '対象が選ばれていません';
+  end if;
+
+  foreach v_id in array p_item_ids loop
+    select * into it from public.inventory_items where id = v_id for update;
+    if not found then
+      raise exception '商品が見つかりません（%）', v_id;
+    end if;
+
+    -- すでに同じ状態なら触らない（履歴を水増ししない）
+    if (p_on and it.price_checked_at is not null)
+    or (not p_on and it.price_checked_at is null) then
+      return next it;
+      continue;
+    end if;
+
+    update public.inventory_items
+       set price_checked_at = case when p_on then now() else null end,
+           price_checked_by = case when p_on then v_who else null end
+     where id = v_id returning * into it;
+
+    insert into public.inventory_transactions
+      (actor, ref_kind, ref_id, label, action, before_value, after_value)
+    values (v_who, 'item', v_id, it.name,
+            case when p_on then '価格確認' else '価格確認取消' end,
+            case when p_on then '未確認' else '確認済み' end,
+            (case when p_on then '確認済み' else '未確認' end)
+              || '／原価 ' || to_char(coalesce(it.cost, 0), fmt) || '円・予定 '
+              || coalesce(to_char(it.plan_price, fmt) || '円', '未定')
+              || coalesce('／' || nullif(btrim(coalesce(p_note, '')), ''), ''));
+
+    return next it;
+  end loop;
+end $$;
+
+comment on function public.inv_price_check_set is
+  '価格を確認済みにする（または外す）。管理者だけ。価格そのものは変えない。
+   価格を変えるとトリガーが確認を自動で外すので、確認は値段を決めたあとに行う。';
+
+
+-- ------------------------------------------------------------
+-- 4) 棚卸の「差異確定の取消」との兼ね合い
+--
+--    inv_stocktake_unmark_missing() は、差異確定を取り消すときに
+--    状態を '不明' から元へ（在庫／出品中）戻す。戻り先が '出品中' で
+--    価格が未確認だと、2) のトリガーが例外を投げ、**取消そのものが
+--    できなくなってしまう**（このmigrationを当てた直後は全個体が未確認）。
+--
+--    そこで、戻り先が '出品中' で価格が未確認のときは在庫へ戻し、
+--    その理由を履歴に残す。出品し直すときは、先に価格を確認してもらう。
+--
+--    **本文は最新 main の定義をそのまま使っている。** 2026-10-08 の
+--    stocktake-reconcile は本番で実行済みなので、そちらは触らない。
+-- ------------------------------------------------------------
+create or replace function public.inv_stocktake_unmark_missing(
+  p_stocktake_id bigint,
+  p_item_id      text
+) returns public.inventory_items
+language plpgsql security invoker set search_path = public as $$
+declare
+  st     public.inventory_stocktakes;
+  it     public.inventory_items;
+  v_row  public.inventory_stocktake_items;
+  v_back text;
+  v_note text := '';
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+
+  select * into st from public.inventory_stocktakes where id = p_stocktake_id;
+  if not found then
+    raise exception '棚卸が見つかりません（%）', p_stocktake_id;
+  end if;
+  if st.status <> 'open' then
+    raise exception '終了した棚卸は直せません';
+  end if;
+
+  select * into v_row from public.inventory_stocktake_items
+   where stocktake_id = p_stocktake_id and item_id = p_item_id
+   for update;
+  if not found then
+    raise exception 'この棚卸の対象ではありません（%）', p_item_id;
+  end if;
+  if v_row.missing_at is null then
+    raise exception '差異確定していません（%）', p_item_id;
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+
+  update public.inventory_stocktake_items
+     set missing_at = null
+   where stocktake_id = p_stocktake_id and item_id = p_item_id;
+
+  -- '不明' のままなら、差異確定する前の状態へ戻す。
+  -- 戻り先は推測せず、差異確定のときに履歴へ残した before_value をそのまま使う。
+  -- 棚卸の対象は 在庫・出品中 だけなので、それ以外が入っていたら在庫に寄せる。
+  if it.status = '不明' then
+    select t.before_value into v_back
+      from public.inventory_transactions t
+     where t.ref_kind = 'item' and t.ref_id = p_item_id
+       and t.action = '棚卸差異確定'
+       and t.occurred_at >= st.started_at
+     order by t.occurred_at desc
+     limit 1;
+    if v_back is null or v_back not in ('在庫', '出品中') then
+      v_back := '在庫';
+    end if;
+    -- 価格が未確認の個体は「出品中」へは戻せない（→ 66) 価格の確認）。
+    -- ここで例外にすると差異確定の取消そのものができなくなるので、在庫へ戻して
+    -- 履歴にその理由を残す。出品し直すときは、先に価格を確認してもらう。
+    if v_back = '出品中' and it.price_checked_at is null then
+      v_back := '在庫';
+      v_note := '（価格が未確認のため、出品中ではなく在庫へ戻しました）';
+    end if;
+    update public.inventory_items set status = v_back where id = p_item_id
+    returning * into it;
+  else
+    -- 人があとから別の状態にしている。上書きしない
+    v_back := it.status || '（そのまま）';
+  end if;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'item', p_item_id, it.name, '棚卸差異確定取消',
+          '不明', v_back || v_note);
+
+  return it;
+end $$;
+
+comment on function public.inv_stocktake_unmark_missing is
+  '差異確定を取り消して未処理へ戻す。状態が ''不明'' のままのときだけ、
+   差異確定のときに履歴へ残した元の状態（在庫／出品中）へ戻す。
+   人があとから別の状態にしていたら上書きしない。履歴は消さず追記する。
+   戻り先が ''出品中'' でも価格が未確認なら、在庫へ戻して理由を履歴に残す。';
+
+
+-- ------------------------------------------------------------
+-- 5) 「売却取消」(#49) との兼ね合い
+--
+--    inv_item_sell_undo() は、売却の直前の状態へ戻す。その戻り先が
+--    '出品中' で価格が未確認だと、2) のトリガーが例外を投げ、
+--    **売却取消そのものができなくなってしまう**。
+--
+--    4) と同じ考えで、戻り先が '出品中' で価格が未確認のときは在庫へ戻し、
+--    理由を履歴に残す。#49 の「戻り先は履歴から決める・推測しない」は
+--    そのままで、決まった戻り先を1段だけ安全側へ寄せるだけ。
+--
+--    **本文は最新 main の定義をそのまま使っている**（#49 の判定・
+--    inv_sale_order_unlink の呼び出し・履歴の書き方は1行も変えていない）。
+-- ------------------------------------------------------------
+create or replace function public.inv_item_sell_undo(
+  p_item_id text,
+  p_note    text default null
+) returns public.inventory_items
+language plpgsql security invoker set search_path = public as $$
+declare
+  it     public.inventory_items;
+  v_prev text;
+  v_was  text;
+  v_info jsonb;
+  v_ord  jsonb;
+  v_ords text[] := '{}';
+  v_note text := '';
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+
+  -- 1) いま売却済のものだけ。取消済み・もともと売却済でないものはここで止まる
+  if it.status <> '売却済' then
+    raise exception '「売却済」のものだけ取り消せます（いまは %）', it.status;
+  end if;
+
+  -- 2) 戻る状態は履歴から取る。**推測しない。**判定は確認画面と同じ1つの関数に任せる
+  v_info := public.inv_item_sell_undo_info(p_item_id);
+  v_prev := v_info ->> 'back';
+  if v_prev is null then
+    raise exception
+      '売却前の状態が履歴から決められないので取り消せません（%）。'
+      '売却の履歴が無い／いちばん新しい売却はすでに取り消し済み／'
+      '売却前が貸出中・社内使用（利用者を復元できない）、のどれかです。'
+      'もとの操作からやり直してください', p_item_id;
+  end if;
+
+  -- 2-b) 価格が未確認の個体は「出品中」へは戻せない（→ 66) 価格の確認）。
+  --      ここで例外にすると**売却取消そのものができなくなる**ので、在庫へ戻して
+  --      履歴にその理由を残す。出品し直すときは、先に価格を確認してもらう。
+  --      （#49 の「取消は履歴から決める・推測しない」はそのまま。
+  --        決めた戻り先が出品中のときだけ、1段だけ安全側に寄せる）
+  if v_prev = '出品中' and it.price_checked_at is null then
+    v_prev := '在庫';
+    v_note := '（価格が未確認のため、出品中ではなく在庫へ戻しました）';
+  end if;
+
+  -- 3) 戻す。売却のときだけ入る値は空にする
+  v_was := '売却済'
+           || coalesce('（' || nullif(btrim(coalesce(it.sold_channel, '')), '') || '）', '')
+           || coalesce('（' || to_char(it.sold_price, 'FM9,999,999,999') || '円）', '');
+
+  update public.inventory_items
+     set status       = v_prev,
+         sold_price   = null,
+         sold_channel = null,
+         user_name    = null,
+         loaned_at    = null
+   where id = p_item_id
+  returning * into it;
+
+  -- 4) モールの受注明細に割り当たっていたら、**8EC の中の紐付けだけ**を外す。
+  --    外さないと「この注文は個体Aへ発送済み」という記録が残り、個体Aは在庫に戻るので
+  --    中のデータが食い違う。外部のモールへは何も送らない。
+  for v_ord in select * from jsonb_array_elements(coalesce(v_info -> 'orders', '[]'::jsonb)) loop
+    perform public.inv_sale_order_unlink((v_ord ->> 'id')::bigint, p_item_id,
+      p_item_id || ' の販売済みを取り消したため割り当てを解除しました。別の個体を割り当ててください');
+    v_ords := v_ords || ((v_ord ->> 'channel') || ' 注文 ' || (v_ord ->> 'order_number'));
+  end loop;
+
+  -- 5) 履歴。**「売却」の行は消さない。**「売却取消」を足して 売却 → 売却取消 と並べる
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'item', p_item_id, it.name, '売却取消',
+          v_was,
+          v_prev || v_note
+          || coalesce('／' || nullif(btrim(coalesce(p_note, '')), ''), '')
+          || case when array_length(v_ords, 1) is null then ''
+                  else '／割り当て解除 ' || array_to_string(v_ords, '・') end);
+
+  return it;
+end $$;
+
+comment on function public.inv_item_sell_undo is
+  '誤って売却済にした1台を、売却の直前の状態へ戻す。戻り先は履歴（action=''売却'' の
+   before_value）から取り、分からなければ戻さずエラーにする。sold_price / sold_channel は
+   空に戻す。既存の「売却」履歴は消さず、「売却取消」を足す。外部販売サイトへの再出品はしない。
+   戻り先が ''出品中'' でも価格が未確認なら、在庫へ戻して理由を履歴に残す。';
+
+
+-- ------------------------------------------------------------
+-- 6) 権限
+--
+--    2026-10-01-rpc-permission-hardening.sql の一括配り直しは
+--    「そのとき存在した関数」への1回きりの処理なので、あとから足した関数には効かない。
+--    既定では PUBLIC に EXECUTE が付き anon からも呼べてしまうため、明示的に配り直す。
+--    管理者かどうかは関数の中で inv_is_admin() が見る。
+--    トリガー関数は直接呼ばせない。
+-- ------------------------------------------------------------
+revoke all on function public.inv_price_check_set(text[], boolean, text) from public, anon, service_role;
+grant execute on function public.inv_price_check_set(text[], boolean, text) to authenticated;
+
+revoke all on function public.inv_price_check_guard() from public, anon, authenticated, service_role;
+
+-- 4) 5) で create or replace した関数。既存の権限は残るが、念のため同じ形で配り直す
+revoke all on function public.inv_stocktake_unmark_missing(bigint, text) from public, anon, service_role;
+grant execute on function public.inv_stocktake_unmark_missing(bigint, text) to authenticated;
+
+revoke all on function public.inv_item_sell_undo(text, text) from public, anon, service_role;
+grant execute on function public.inv_item_sell_undo(text, text) to authenticated;
+
+
+-- 67) SNS投稿準備（Persona × Issue × Content × CTA）
+--
+--     /zaiko/sns で、SNS（Instagram・X）に貼る文を用意する。
+--     「PCを売るSNS」ではなく「PC調達の悩みを解決するSNS」にするため、
+--     投稿ごとに 誰に・何の悩みに・どんな形で・何のために・最後に何をしてほしいか
+--     を必ず持たせる。
+--
+--     **外部のAI APIは使わない。** 投稿文のたたき台は、選んだ軸の表示名と
+--     元コンテンツの見出し・説明だけから、api/_sns.js が決まった型で組み立てる。
+--     APIキー・パスワード・SNSのトークンを置く列も表も作らない。
+--     自動投稿もしない（最終投稿は人が行う）。
+--
+--     読めるのは管理者だけ（RLS で inv_is_admin()）。書き込みのポリシーは作らず、
+--     /api/sns がサーバー鍵で書く。表は必ず ec_sns_ で始める
+--     （同じSupabaseを 8sp も使っているため）。既存の inventory_* には触らない。
+-- ============================================================
+-- ------------------------------------------------------------
+-- 1) 投稿
+--
+--    persona / issue / content_type / objective / cta に入るのはキー。
+--    キーと表示名の対応は assets/sns-master.js（コードで管理し、PRでレビューする）。
+--    **パスワード・APIキー・トークンは1つも持たない。**
+--    キーを消すと過去の投稿が読めなくなるので、使わなくなったキーも定義には残す。
+-- ------------------------------------------------------------
+create table if not exists public.ec_sns_posts (
+  id                  uuid primary key default gen_random_uuid(),
+  -- 投稿No。計測用の参照（sns-x-12 など）と、人が口頭で呼ぶ番号に使う
+  post_no             integer generated always as identity,
+  persona             text not null,
+  issue               text not null,
+  content_type        text not null,
+  objective           text not null,
+  cta                 text not null,
+  -- 元コンテンツ。無しでも作れる（Issue解決だけの投稿）。
+  --   column  … /column/<slug>.html        source_ref = slug
+  --   product … 公開ビュー inv_public_products  source_ref = 商品コード
+  --   page    … 許可した公開ページ           source_ref = パス（/packs/new-employee-pc など）
+  source_type         text not null default 'none'
+                      check (source_type in ('none', 'column', 'product', 'page')),
+  source_ref          text,
+  source_title        text,          -- 作ったときの見出し（元が消えても一覧で読めるように）
+  source_hash         text,          -- 材料のハッシュ（元が更新されたかの判定）
+  note                text,          -- 担当者の補足（伝えたい一言）
+  -- 生成物
+  instagram_caption   text,          -- 本文＋タグ（Instagramはリンクが押せないのでURLは入れない）
+  x_caption           text,          -- 本文＋URL＋タグの完成形
+  instagram_tags      text[] not null default '{}',
+  x_tags              text[] not null default '{}',
+  social_image        text,          -- 選んだ画像のURL（公開画像だけ）
+  cta_url             text,          -- サーバーが組み立てたURL（AIには書かせない）
+  generated_at        timestamptz,
+  -- 何で組み立てたかの名札（いまは 'template-v1'）。キーやプロンプトは入れない
+  generated_model     text,
+  social_stale        boolean not null default false,
+  -- 投稿済み（人が押す）
+  instagram_posted_at timestamptz,
+  x_posted_at         timestamptz,
+  created_by_email    text,
+  updated_by_email    text,
+  created_at          timestamptz not null default now(),
+  updated_at          timestamptz not null default now(),
+  archived_at         timestamptz    -- 物理削除はしない（計測の参照を残す）
+);
+
+create unique index if not exists ec_sns_posts_no_uniq on public.ec_sns_posts (post_no);
+create index if not exists ec_sns_posts_created_idx on public.ec_sns_posts (created_at desc);
+
+comment on table public.ec_sns_posts is
+  'SNS投稿準備（/zaiko/sns）。Persona × Issue × Content × CTA を持つ投稿の下書きと、Instagram・Xの投稿済みの印。
+   自動投稿はしない。書き込みは /api/sns（サーバー鍵）だけ。
+   パスワード・APIキー・トークンは保存しない。';
+
+
+-- ------------------------------------------------------------
+-- 2) ハッシュタグの候補
+--
+--    ここにあるタグしか使わない（サーバーで完全一致を照合する）。
+--    8sp の space_settings は使わない（同じSupabaseでも別のサービス）。
+-- ------------------------------------------------------------
+create table if not exists public.ec_sns_hashtags (
+  tag        text primary key check (tag ~ '^#[^[:space:]#＃]+$'),
+  sort_index integer not null default 0,
+  active     boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+insert into public.ec_sns_hashtags (tag, sort_index) values
+  ('#法人PC', 10), ('#PCレンタル', 20), ('#中古PC', 30), ('#整備済みPC', 40),
+  ('#IT調達', 50), ('#新入社員', 60), ('#キッティング', 70), ('#情シス', 80),
+  ('#総務', 90), ('#中小企業', 100), ('#研修', 110), ('#オフィス開設', 120)
+on conflict (tag) do nothing;
+
+
+-- ------------------------------------------------------------
+-- 3) 組み立ての記録
+--
+--    1日に何回作ったかを数えて上限をかける（作り直しも1回と数える）。
+--    上限に当たっても、文は手で書いて保存できる。
+--    投稿の行は上書きされるので、回数はここで数える。
+-- ------------------------------------------------------------
+create table if not exists public.ec_sns_generations (
+  id           bigint generated always as identity primary key,
+  post_id      uuid references public.ec_sns_posts(id) on delete set null,
+  actor_email  text,
+  model        text,
+  ok           boolean not null default false,
+  created_at   timestamptz not null default now()
+);
+create index if not exists ec_sns_generations_created_idx on public.ec_sns_generations (created_at desc);
+
+
+-- ------------------------------------------------------------
+-- 4) トリガー
+--
+--    ・文（instagram_caption / x_caption）が変わったら
+--        social_stale = false（新しい文になったので古くない）
+--        その文の投稿済みを外す（前の文を投稿した印を、新しい文に付けたままにしない）
+--      同じ更新で posted_at を明示していれば、そちらを優先する。
+--    ・軸（persona〜cta）や元コンテンツが変わったのに文が変わっていなければ
+--        social_stale = true（今の文は別の人・別の悩みに向けたもの）
+--    ・updated_at を進める
+-- ------------------------------------------------------------
+create or replace function public.ec_sns_posts_touch()
+returns trigger
+language plpgsql
+set search_path = pg_catalog, public
+as $$
+begin
+  new.updated_at := now();
+  if tg_op = 'UPDATE' then
+    if new.instagram_caption is distinct from old.instagram_caption then
+      new.social_stale := false;
+      if new.instagram_posted_at is not distinct from old.instagram_posted_at then
+        new.instagram_posted_at := null;
+      end if;
+    end if;
+    if new.x_caption is distinct from old.x_caption then
+      new.social_stale := false;
+      if new.x_posted_at is not distinct from old.x_posted_at then
+        new.x_posted_at := null;
+      end if;
+    end if;
+    if (new.instagram_caption is not distinct from old.instagram_caption
+        and new.x_caption is not distinct from old.x_caption)
+       and (new.instagram_caption is not null or new.x_caption is not null)
+       and (new.persona is distinct from old.persona
+         or new.issue is distinct from old.issue
+         or new.content_type is distinct from old.content_type
+         or new.objective is distinct from old.objective
+         or new.cta is distinct from old.cta
+         or new.source_type is distinct from old.source_type
+         or new.source_ref is distinct from old.source_ref) then
+      new.social_stale := true;
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists ec_sns_posts_touch on public.ec_sns_posts;
+create trigger ec_sns_posts_touch
+  before insert or update on public.ec_sns_posts
+  for each row execute function public.ec_sns_posts_touch();
+
+revoke all on function public.ec_sns_posts_touch() from public, anon, authenticated;
+
+
+-- ------------------------------------------------------------
+-- 5) RLS
+--
+--    inventory_* は「ログインしていれば誰でも読める（using true）」だが、
+--    SNSの下書きは管理者だけに絞る（倉庫メンバー・閲覧のみのログインには見せない）。
+--    書き込みのポリシーは作らない＝画面から直接は書けない。/api/sns がサーバー鍵で書く
+--    （役割の確認・たたき台の組み立て・URLの組み立てを必ずサーバーで通すため）。
+--    判定は #51 で入った共通の L.caller()（token を Supabase に聞き、role を
+--    inventory_members から読み直す）と、ここの inv_is_admin() の二重。
+-- ------------------------------------------------------------
+alter table public.ec_sns_posts enable row level security;
+alter table public.ec_sns_hashtags enable row level security;
+alter table public.ec_sns_generations enable row level security;
+
+drop policy if exists "ec_sns_posts staff read" on public.ec_sns_posts;
+create policy "ec_sns_posts staff read" on public.ec_sns_posts
+  for select to authenticated using (public.inv_is_admin());
+
+drop policy if exists "ec_sns_hashtags staff read" on public.ec_sns_hashtags;
+create policy "ec_sns_hashtags staff read" on public.ec_sns_hashtags
+  for select to authenticated using (public.inv_is_admin());
+
+-- 生成の記録は画面から読まない（サーバーだけ）
+
+revoke all on public.ec_sns_posts, public.ec_sns_hashtags, public.ec_sns_generations from public, anon;
+revoke all on public.ec_sns_posts, public.ec_sns_hashtags, public.ec_sns_generations from authenticated;
+grant select on public.ec_sns_posts, public.ec_sns_hashtags to authenticated;
+grant all on public.ec_sns_posts, public.ec_sns_hashtags, public.ec_sns_generations to service_role;
+
+
+-- 68) QR販売で「実売価格」を入力する
+--
+--     倉庫メンバー（member）も **今回いくらで売ったか** を入力・修正できる。
+--       販売先を選ぶ → 登録価格があれば入力欄の初期値に出す
+--         → admin / member が直せる → その金額を sold_price へ
+--
+--     **出品価格・販売予定価格のマスタは変えない。**
+--     変わるのは「今回の販売実績」＝ sold_price / sold_channel だけ。
+--
+--     66) の「価格の確認」とは役割が違う。混ぜない。
+--       価格の確認 … **出品価格**を管理者が確認するまで「出品中」にできない
+--       実売価格   … **今回いくらで売れたか**。現場が入力する
+--
+--     setup.sql は**まっさらなDBを作る**ものなので、ここでは 65) が作った
+--     3引数の形を落として、4引数だけを残す（新しい環境に古い形は要らない）。
+--     すでに動いている本番では、2026-10-15 の migration が4引数を**足す**だけで、
+--     3引数は新しいコードが出たあとの cleanup（2026-10-16）で落とす。
+-- ============================================================
+drop function if exists public.inv_item_sell_channel(text, text, text);
+
+create or replace function public.inv_item_sell_channel(
+  p_item_id    text,
+  p_channel    text,
+  p_sold_price numeric,
+  p_note       text default null
+) returns public.inventory_items
+language plpgsql security invoker set search_path = public as $$
+declare
+  it      public.inventory_items;
+  v_listed numeric;
+  v_note   text;
+  fmt     text := 'FM9,999,999,999';
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  if coalesce(btrim(p_channel), '') = '' then
+    raise exception '販売先を選んでください';
+  end if;
+  -- 知らない販売先では売らない（一覧は inv_sell_channels の1か所だけ）
+  if not (p_channel = any (public.inv_sell_channels())) then
+    raise exception '知らない販売先です（%）', p_channel;
+  end if;
+
+  -- 実売価格。空・0円以下は通さない
+  if p_sold_price is null then
+    raise exception '販売価格を入力してください';
+  end if;
+  if p_sold_price <= 0 then
+    raise exception '販売価格は1円以上で入力してください';
+  end if;
+  if p_sold_price >= 100000000 then
+    raise exception '販売価格が大きすぎます。桁を確かめてください（%円）',
+      to_char(p_sold_price, fmt);
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+  if it.status not in ('在庫', '出品中', '販売予約') then
+    raise exception '販売済みにできるのは 在庫・出品中・販売予約 のものだけです（いまは %）', it.status;
+  end if;
+
+  /* 登録価格は**記録のためだけ**に読む。売る金額には使わない。
+     登録価格と実売価格が違っていてもよい（違ったことが履歴で分かるようにする）。 */
+  v_listed := public.inv_item_channel_price(p_item_id, p_channel);
+  if v_listed is not null and v_listed <> p_sold_price then
+    v_note := '登録価格 ' || to_char(v_listed, fmt) || '円 → 実売 '
+              || to_char(p_sold_price, fmt) || '円';
+  elsif v_listed is null then
+    v_note := '登録価格なし（手入力）→ 実売 ' || to_char(p_sold_price, fmt) || '円';
+  end if;
+  if v_note is not null then
+    p_note := coalesce(nullif(btrim(coalesce(p_note, '')), '') || '／', '') || v_note;
+  end if;
+
+  /* 状態変更も履歴も、既存の売却処理をそのまま通す。
+     **ここで出品価格マスタへ書き戻さない。** 変わるのは sold_price / sold_channel
+     （と inv_item_op('売却') が触る status / user_name / loaned_at）だけ。 */
+  it := public.inv_item_sell(p_item_id, p_channel, p_sold_price::text, p_note);
+  return it;
+end $$;
+
+comment on function public.inv_item_sell_channel is
+  '販売先を選んで1台を売却済にする。**実売価格（p_sold_price）を画面から受け取る。**
+   1円以上・1億円未満でなければ通さない。登録価格は履歴に残すためだけに読み、
+   出品価格・販売予定価格のマスタ（inventory_channels / inventory_channel_listings /
+   plan_price）へは1行も書き戻さない。売却そのものは既存の
+   inv_item_sell() → inv_item_op(''売却'') をそのまま通る。
+   売れるのは 在庫・出品中・販売予約 のときだけで、admin / member だけ（viewer は不可）。';
+
+
+-- ------------------------------------------------------------
+-- 2) 権限
+--
+--    足した4引数の形へ配り直す（既定では PUBLIC に EXECUTE が付くため）。
+--    3引数の形の権限はそのまま（切り替えのあいだ本番コードが使う）。
+-- ------------------------------------------------------------
+revoke all on function public.inv_item_sell_channel(text, text, numeric, text) from public, anon, service_role;
+grant execute on function public.inv_item_sell_channel(text, text, numeric, text) to authenticated;
+
+
+-- 69) 売ったあとでも「実売価格・販売先」を直せるようにする
+--
+--     売ったあとに金額や販売先の間違いに気づいたとき、売却を取り消して
+--     売り直すのは重たいので、販売実績だけを直せるようにする。
+--       /zaiko/sales の ［販売情報を修正］
+--
+--     **直すのは sold_price と sold_channel の2つだけ。**
+--     在庫状態（status）・利用者・貸出日は動かさない（売却済のまま）。
+--     出品価格・販売予定価格のマスタへも1行も書き戻さない。
+--     売却の履歴（action='売却'）は1行も消さない・書き換えない。
+--
+--     66) の「価格の確認」とは別のことがら。**価格が未確認でも直せる。**
+--     月次の売上・粗利は inv_dashboard_stats が inventory_items.sold_price を
+--     そのまま読むので、直した時点で最新の金額になる。
+-- ============================================================
+create or replace function public.inv_item_sale_edit(
+  p_item_id    text,
+  p_sold_price numeric,
+  p_channel    text,
+  p_note       text default null
+) returns public.inventory_items
+language plpgsql security invoker set search_path = public as $$
+declare
+  it      public.inventory_items;
+  v_who   text := public.inv_actor();
+  v_price numeric;
+  v_ch    text;
+  fmt     text := 'FM9,999,999,999';
+  v_label text;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+
+  if p_sold_price is null then
+    raise exception '実売価格を入力してください';
+  end if;
+  if p_sold_price <= 0 then
+    raise exception '実売価格は1円以上で入力してください';
+  end if;
+  if p_sold_price >= 100000000 then
+    raise exception '実売価格が大きすぎます。桁を確かめてください（%円）',
+      to_char(p_sold_price, fmt);
+  end if;
+  if coalesce(btrim(p_channel), '') = '' then
+    raise exception '販売先を選んでください';
+  end if;
+  if not (p_channel = any (public.inv_sell_channels())) then
+    raise exception '知らない販売先です（%）', p_channel;
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+  -- **在庫状態は動かさない。** 売却済のものだけ直せる
+  if it.status <> '売却済' then
+    raise exception '販売情報を直せるのは「売却済」のものだけです（いまは %）', it.status;
+  end if;
+
+  v_price := it.sold_price;
+  v_ch    := it.sold_channel;
+  v_label := it.name;
+
+  -- 何も変わらないなら、書き込みも履歴もしない
+  if v_price is not distinct from p_sold_price
+     and v_ch is not distinct from p_channel then
+    return it;
+  end if;
+
+  /* **直すのは2列だけ。** status / user_name / loaned_at は触らない。
+     出品価格・販売予定価格のマスタへも1行も書き戻さない。 */
+  update public.inventory_items
+     set sold_price   = p_sold_price,
+         sold_channel = p_channel
+   where id = p_item_id
+  returning * into it;
+
+  if v_price is distinct from p_sold_price then
+    insert into public.inventory_transactions
+      (actor, ref_kind, ref_id, label, action, before_value, after_value)
+    values (v_who, 'item', p_item_id, v_label, '販売情報修正',
+            coalesce(to_char(v_price, fmt) || '円', '未登録'),
+            to_char(p_sold_price, fmt) || '円'
+            || coalesce('／' || nullif(btrim(coalesce(p_note, '')), ''), ''));
+  end if;
+
+  if v_ch is distinct from p_channel then
+    insert into public.inventory_transactions
+      (actor, ref_kind, ref_id, label, action, before_value, after_value)
+    values (v_who, 'item', p_item_id, v_label, '販売先修正',
+            coalesce(v_ch, '未登録'),
+            p_channel
+            || coalesce('／' || nullif(btrim(coalesce(p_note, '')), ''), ''));
+  end if;
+
+  return it;
+end $$;
+
+comment on function public.inv_item_sale_edit is
+  '売ったあとで、販売実績の 実売価格（sold_price）と 販売先（sold_channel）だけを直す。
+   直せるのは「売却済」のものだけで、**在庫状態（status）は動かさない**。
+   出品価格・販売予定価格のマスタ（inventory_channels / inventory_channel_listings /
+   plan_price）へは1行も書き戻さない。1円以上・1億円未満でなければ通さず、
+   販売先は inv_sell_channels() の中だけ。admin / member だけ（viewer は不可）。
+   変わったものだけ履歴（販売情報修正 / 販売先修正）に追記し、
+   既存の「売却」履歴は1行も消さない。価格の確認（price_checked_at）とは無関係。';
+
+
+-- ------------------------------------------------------------
+-- 2) 権限
+-- ------------------------------------------------------------
+revoke all on function public.inv_item_sale_edit(text, numeric, text, text) from public, anon, service_role;
+grant execute on function public.inv_item_sale_edit(text, numeric, text, text) to authenticated;
+
+
+-- ============================================================
+
+-- ============================================================
+-- 70) 価格の確認を「在庫状態の条件」から外す（2026-10-17）
+--
+--     66) では、未確認の個体を inventory_items.status = '出品中' に
+--     できないようにしていた。運用してみると強すぎたので外す。
+--
+--       ・価格が未設定でも未確認でも「出品中」にできる
+--       ・「価格確認済み／未確認」の表示は残す（管理上の印）
+--       ・確認済みにできるのは管理者だけ（inv_price_check_set）も残す
+--       ・価格を変えたら確認が外れる、も残す
+--
+--     「在庫状態としての出品中」と「外部モールへ掲載する」は別もの。
+--     8EC から外部モールへ掲載する処理は無い（外部側へは1行も書かない）。
+--
+--     66) の節はそのまま残し、ここで create or replace で上から入れ替える
+--     （本番は 2026-10-17-price-check-no-block.sql を実行するだけで同じ形になる）。
+-- ============================================================
+
+-- ------------------------------------------------------------
+-- 1) トリガーは残す。**「出品中にさせない」だけを外す**
+--
+--    トリガーそのものを落とすと「価格を変えたら確認が外れる」も消えてしまう。
+--    関数の中身を入れ替えて、前半（確認を外す）だけを残す。
+-- ------------------------------------------------------------
+create or replace function public.inv_price_check_guard()
+returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  -- 価格（仕入・手数料・販売予定）が変わったら、確認は外れる
+  if new.price         is distinct from old.price
+  or new.purchase_fee  is distinct from old.purchase_fee
+  or new.plan_price    is distinct from old.plan_price then
+    new.price_checked_at := null;
+    new.price_checked_by := null;
+  end if;
+
+  -- **「未確認のまま出品中にはできない」は外した（2026-10-17）。**
+  -- 在庫状態としての「出品中」は、外部モールへの掲載とは別もの。
+  -- 価格が未設定・未確認でも、状態は現場の実態どおりに変えられる。
+
+  return new;
+end $$;
+
+comment on function public.inv_price_check_guard is
+  '価格（仕入・手数料・販売予定）を変えたら、価格の確認を外す。
+   どの経路の UPDATE でも通るようにトリガーにしている。
+   **在庫状態（status）は見ない。** 未確認の個体を「出品中」にすることは止めない
+   （2026-10-17 でその制限を外した。在庫状態と外部モールへの掲載は別もの）。';
+
+-- トリガーは付け直す（念のため。名前・タイミングは #55 と同じ）
+drop trigger if exists inventory_items_price_check on public.inventory_items;
+create trigger inventory_items_price_check before update on public.inventory_items
+  for each row execute function public.inv_price_check_guard();
+
+
+-- ------------------------------------------------------------
+-- 2) 残すもの（ここでは触らない）
+--
+--    inventory_items.price_checked_at / price_checked_by … 列はそのまま
+--    inv_price_check_set(text[], boolean, text)          … 管理者だけ。そのまま
+--    画面の「確認済み／未確認」の表示                      … そのまま
+--    履歴の「価格確認」「価格確認取消」                    … 消さない
+-- ------------------------------------------------------------
+
+
+-- ------------------------------------------------------------
+-- 3) 棚卸の差異確定取消を元に戻す
+--
+--    #55 では「戻り先が出品中で価格が未確認なら在庫へ寄せる」を足していた。
+--    1) のトリガーが例外を投げるため、そうしないと取消そのものが
+--    できなくなるからだった。例外が無くなったので、この寄せはもう要らない。
+--
+--    **本文は #55 のものをそのまま使い、その寄せ（if 文）だけを外している。**
+--    戻り先を履歴の before_value から取る（推測しない）ところは変えていない。
+-- ------------------------------------------------------------
+create or replace function public.inv_stocktake_unmark_missing(
+  p_stocktake_id bigint,
+  p_item_id      text
+) returns public.inventory_items
+language plpgsql security invoker set search_path = public as $$
+declare
+  st     public.inventory_stocktakes;
+  it     public.inventory_items;
+  v_row  public.inventory_stocktake_items;
+  v_back text;
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+
+  select * into st from public.inventory_stocktakes where id = p_stocktake_id;
+  if not found then
+    raise exception '棚卸が見つかりません（%）', p_stocktake_id;
+  end if;
+  if st.status <> 'open' then
+    raise exception '終了した棚卸は直せません';
+  end if;
+
+  select * into v_row from public.inventory_stocktake_items
+   where stocktake_id = p_stocktake_id and item_id = p_item_id
+   for update;
+  if not found then
+    raise exception 'この棚卸の対象ではありません（%）', p_item_id;
+  end if;
+  if v_row.missing_at is null then
+    raise exception '差異確定していません（%）', p_item_id;
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+
+  update public.inventory_stocktake_items
+     set missing_at = null
+   where stocktake_id = p_stocktake_id and item_id = p_item_id;
+
+  -- '不明' のままなら、差異確定する前の状態へ戻す。
+  -- 戻り先は推測せず、差異確定のときに履歴へ残した before_value をそのまま使う。
+  -- 棚卸の対象は 在庫・出品中 だけなので、それ以外が入っていたら在庫に寄せる。
+  if it.status = '不明' then
+    select t.before_value into v_back
+      from public.inventory_transactions t
+     where t.ref_kind = 'item' and t.ref_id = p_item_id
+       and t.action = '棚卸差異確定'
+       and t.occurred_at >= st.started_at
+     order by t.occurred_at desc
+     limit 1;
+    if v_back is null or v_back not in ('在庫', '出品中') then
+      v_back := '在庫';
+    end if;
+    update public.inventory_items set status = v_back where id = p_item_id
+    returning * into it;
+  else
+    -- 人があとから別の状態にしている。上書きしない
+    v_back := it.status || '（そのまま）';
+  end if;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'item', p_item_id, it.name, '棚卸差異確定取消',
+          '不明', v_back);
+
+  return it;
+end $$;
+
+comment on function public.inv_stocktake_unmark_missing is
+  '差異確定を取り消して未処理へ戻す。状態が ''不明'' のままのときだけ、
+   差異確定のときに履歴へ残した元の状態（在庫／出品中）へ戻す。
+   人があとから別の状態にしていたら上書きしない。履歴は消さず追記する。
+   価格が未確認でも ''出品中'' へ戻す（2026-10-17。価格の確認は在庫状態の条件ではない）。';
+
+
+-- ------------------------------------------------------------
+-- 4) 売却取消（#49）を元に戻す
+--
+--    3) と同じ理由。戻り先が '出品中' なら、価格が未確認でも出品中へ戻す。
+--    **本文は #55 のものをそのまま使い、その寄せ（if 文）だけを外している。**
+--    #49 の「戻り先は履歴から決める・推測しない」、受注明細の割り当て解除、
+--    履歴の書き方（売却の行を消さずに売却取消を足す）は1行も変えていない。
+--    外部販売サイトへは何も送らない（再出品もしない）。
+-- ------------------------------------------------------------
+create or replace function public.inv_item_sell_undo(
+  p_item_id text,
+  p_note    text default null
+) returns public.inventory_items
+language plpgsql security invoker set search_path = public as $$
+declare
+  it     public.inventory_items;
+  v_prev text;
+  v_was  text;
+  v_info jsonb;
+  v_ord  jsonb;
+  v_ords text[] := '{}';
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+
+  -- 1) いま売却済のものだけ。取消済み・もともと売却済でないものはここで止まる
+  if it.status <> '売却済' then
+    raise exception '「売却済」のものだけ取り消せます（いまは %）', it.status;
+  end if;
+
+  -- 2) 戻る状態は履歴から取る。**推測しない。**判定は確認画面と同じ1つの関数に任せる
+  v_info := public.inv_item_sell_undo_info(p_item_id);
+  v_prev := v_info ->> 'back';
+  if v_prev is null then
+    raise exception
+      '売却前の状態が履歴から決められないので取り消せません（%）。'
+      '売却の履歴が無い／いちばん新しい売却はすでに取り消し済み／'
+      '売却前が貸出中・社内使用（利用者を復元できない）、のどれかです。'
+      'もとの操作からやり直してください', p_item_id;
+  end if;
+
+
+  -- 3) 戻す。売却のときだけ入る値は空にする
+  v_was := '売却済'
+           || coalesce('（' || nullif(btrim(coalesce(it.sold_channel, '')), '') || '）', '')
+           || coalesce('（' || to_char(it.sold_price, 'FM9,999,999,999') || '円）', '');
+
+  update public.inventory_items
+     set status       = v_prev,
+         sold_price   = null,
+         sold_channel = null,
+         user_name    = null,
+         loaned_at    = null
+   where id = p_item_id
+  returning * into it;
+
+  -- 4) モールの受注明細に割り当たっていたら、**8EC の中の紐付けだけ**を外す。
+  --    外さないと「この注文は個体Aへ発送済み」という記録が残り、個体Aは在庫に戻るので
+  --    中のデータが食い違う。外部のモールへは何も送らない。
+  for v_ord in select * from jsonb_array_elements(coalesce(v_info -> 'orders', '[]'::jsonb)) loop
+    perform public.inv_sale_order_unlink((v_ord ->> 'id')::bigint, p_item_id,
+      p_item_id || ' の販売済みを取り消したため割り当てを解除しました。別の個体を割り当ててください');
+    v_ords := v_ords || ((v_ord ->> 'channel') || ' 注文 ' || (v_ord ->> 'order_number'));
+  end loop;
+
+  -- 5) 履歴。**「売却」の行は消さない。**「売却取消」を足して 売却 → 売却取消 と並べる
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (public.inv_actor(), 'item', p_item_id, it.name, '売却取消',
+          v_was,
+          v_prev
+          || coalesce('／' || nullif(btrim(coalesce(p_note, '')), ''), '')
+          || case when array_length(v_ords, 1) is null then ''
+                  else '／割り当て解除 ' || array_to_string(v_ords, '・') end);
+
+  return it;
+end $$;
+
+comment on function public.inv_item_sell_undo is
+  '誤って売却済にした1台を、売却の直前の状態へ戻す。戻り先は履歴（action=''売却'' の
+   before_value）から取り、分からなければ戻さずエラーにする。sold_price / sold_channel は
+   空に戻す。既存の「売却」履歴は消さず、「売却取消」を足す。外部販売サイトへの再出品はしない。
+   価格が未確認でも ''出品中'' へ戻す（2026-10-17。価格の確認は在庫状態の条件ではない）。';
+
+
+-- ------------------------------------------------------------
+-- 5) 権限（create or replace で既存の権限は残るが、同じ形で配り直す）
+-- ------------------------------------------------------------
+revoke all on function public.inv_price_check_guard() from public, anon, authenticated, service_role;
+
+revoke all on function public.inv_stocktake_unmark_missing(bigint, text) from public, anon, service_role;
+grant execute on function public.inv_stocktake_unmark_missing(bigint, text) to authenticated;
+
+revoke all on function public.inv_item_sell_undo(text, text) from public, anon, service_role;
+grant execute on function public.inv_item_sell_undo(text, text) to authenticated;
+
+
+-- ============================================================
+-- 71) 発送の管理（売ったあと、まだ発送していないものを見落とさない）
+--
+--     販売済みにする → 販売一覧（未発送）に出る → 発送する →
+--     未発送から消えて「発送済み」のほうへ移る。データは消さない。
+--
+--     外部販売サイトの出品停止とは別の話。発送したからといって
+--     楽天・Amazonの出品を止めたことにはしない。
+--     売上・粗利も発送では変わらない（売れた時点で売上）。
+-- ============================================================
+
+-- ------------------------------------------------------------
+-- 1) 列（2つだけ）＋ **導入前に売れていたものの移行（初回だけ）**
+--
+--    そのまま列を足すと、過去に売れた全部が shipped_at = NULL のまま
+--    「未発送」になってしまう。発送の記録を取り始める前の販売なので、
+--    **導入前に売れていたものは「発送済み（導入前移行）」として扱う。**
+--    未発送一覧に入るのは、これから売れるものだけ。
+--
+--    **動くのは「shipped_at の列をいま作った」ときだけ。**
+--    2回目以降は列がもうあるので移行しない。これで、あとから本当に
+--    売れた未発送のものを、再実行で勝手に発送済みにしてしまうことがない。
+--
+--    列を足すのと移行を**1つの DO ブロック**にしてあるので、途中で失敗
+--    したら両方とも無かったことになる（列だけできて移行されない、が起きない）。
+--
+--    導入前のぶんには **発送完了の履歴を作らない**（実際にその日に発送した
+--    わけではないので、履歴に嘘を残さない）。区別は shipped_by = '導入前移行'。
+-- ------------------------------------------------------------
+do $$
+declare
+  v_new boolean;
+  v_n   bigint := 0;
+begin
+  -- いま列があるか（= 2回目以降か）を、足す前に見ておく
+  v_new := not exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'inventory_items'
+       and column_name = 'shipped_at');
+
+  execute 'alter table public.inventory_items add column if not exists shipped_at timestamptz';
+  execute 'alter table public.inventory_items add column if not exists shipped_by text';
+
+  if v_new then
+    execute $q$
+      update public.inventory_items
+         set shipped_at = now(),
+             shipped_by = '導入前移行'
+       where status = '売却済'
+         and shipped_at is null $q$;
+    get diagnostics v_n = row_count;
+    raise notice '発送管理の導入前に売れていた %台を「発送済み（導入前移行）」にしました', v_n;
+  else
+    raise notice 'shipped_at はすでにあるので移行はしません（本当の未発送はそのまま残します）';
+  end if;
+end $$;
+
+comment on column public.inventory_items.shipped_at is
+  '発送した日時。NULL なら未発送。売却済でなくなったら自動で NULL に戻る
+   （売却取消のあと、同じ個体をもう一度売ったときに「発送済み」が残らないように）。';
+comment on column public.inventory_items.shipped_by is
+  '発送した人（inv_actor）。shipped_at と同時に入り、同時に消える。
+   ''導入前移行'' は、発送の記録を取り始める前に売れていたもの（この列を作ったときに
+   まとめて発送済み扱いにした分）。実際に誰が発送したかは分からないので、
+   通常の担当者と区別できる値を入れている。画面では「導入前」と出す。';
+
+-- 未発送の件数を数えるところ（メニューのバッジ・ダッシュボード）が一番よく引くので、
+-- 売却済のぶんだけの部分索引にする（全件に索引を張らない）
+create index if not exists inventory_items_unshipped_idx
+  on public.inventory_items (shipped_at)
+  where status = '売却済';
+
+
+-- ------------------------------------------------------------
+-- 2) 売却済でなくなったら、発送の記録も外す
+--
+--    売却取消（inv_item_sell_undo）・状態変更・一括操作、どの経路でも
+--    通るようにトリガーにする。**既存の関数を書き換えない**のが狙いで、
+--    売却取消の本文（#49 の「戻り先は履歴から決める」）には1行も触らない。
+--
+--    あわせて、**発送済みのものを売却前へ戻すのは管理者だけ**にする。
+--    もう出荷してしまったものを倉庫メンバーが在庫へ戻すと、現物が無いのに
+--    在庫があることになる。管理者なら戻せる（返品の受け入れなど）。
+-- ------------------------------------------------------------
+create or replace function public.inv_ship_guard()
+returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  -- 売却済 → それ以外（売却取消・状態変更）
+  if old.status = '売却済' and new.status is distinct from '売却済' then
+    if old.shipped_at is not null and not public.inv_is_admin() then
+      raise exception
+        '% は発送済みです（%）。発送したものを売却前へ戻せるのは管理者だけです',
+        old.id, to_char(old.shipped_at, 'YYYY/MM/DD HH24:MI');
+    end if;
+    new.shipped_at := null;
+    new.shipped_by := null;
+  end if;
+
+  -- それ以外 → 売却済（新しく売った）。前の発送の記録を持ち越さない
+  if new.status = '売却済' and old.status is distinct from '売却済' then
+    new.shipped_at := null;
+    new.shipped_by := null;
+  end if;
+
+  return new;
+end $$;
+
+comment on function public.inv_ship_guard is
+  '売却済でなくなったら発送の記録（shipped_at / shipped_by）を外す。
+   新しく売ったときも持ち越さない。どの経路の UPDATE でも通るようにトリガーにしている。
+   発送済みのものを売却前へ戻せるのは管理者だけ（倉庫メンバーはここで止まる）。';
+
+drop trigger if exists inventory_items_ship on public.inventory_items;
+create trigger inventory_items_ship before update on public.inventory_items
+  for each row execute function public.inv_ship_guard();
+
+
+-- ------------------------------------------------------------
+-- 3) 発送する・発送を取り消す
+--
+--    画面から直接UPDATEせず、必ずここを通す（値を変えるのと履歴を残すのが
+--    1つの取引になるように）。
+--
+--      発送する     … admin / member（倉庫の作業なので）
+--      発送を取り消す … admin だけ（出荷の記録を戻すのは訂正なので）
+--
+--    二重に押しても壊れない。すでにその状態なら何も書かず、履歴も増やさない。
+-- ------------------------------------------------------------
+create or replace function public.inv_item_ship(
+  p_item_id text,
+  p_on      boolean default true,
+  p_note    text default null
+) returns public.inventory_items
+language plpgsql security invoker set search_path = public as $$
+declare
+  it    public.inventory_items;
+  v_who text := public.inv_actor();
+begin
+  if not public.inv_can_edit() then
+    raise exception '操作する権限がありません（閲覧のみ）';
+  end if;
+  if not p_on and not public.inv_is_admin() then
+    raise exception '発送を取り消せるのは管理者だけです';
+  end if;
+
+  select * into it from public.inventory_items where id = p_item_id for update;
+  if not found then
+    raise exception '商品が見つかりません（%）', p_item_id;
+  end if;
+
+  -- 発送できるのは売れたものだけ。まだ売っていないものは発送の話にならない
+  if it.status <> '売却済' then
+    raise exception '発送を記録できるのは「売却済」のものだけです（いまは %）', it.status;
+  end if;
+
+  -- すでに同じ状態なら触らない（二重に押しても履歴を水増ししない）
+  if (p_on and it.shipped_at is not null)
+  or (not p_on and it.shipped_at is null) then
+    return it;
+  end if;
+
+  update public.inventory_items
+     set shipped_at = case when p_on then now() else null end,
+         shipped_by = case when p_on then v_who else null end
+   where id = p_item_id
+  returning * into it;
+
+  insert into public.inventory_transactions
+    (actor, ref_kind, ref_id, label, action, before_value, after_value)
+  values (v_who, 'item', p_item_id, it.name,
+          case when p_on then '発送完了' else '発送取消' end,
+          case when p_on then '未発送' else '発送済み' end,
+          (case when p_on
+                then '発送済み（' || to_char(it.shipped_at, 'YYYY/MM/DD HH24:MI') || '）'
+                else '未発送' end)
+            || coalesce('／' || nullif(btrim(coalesce(p_note, '')), ''), ''));
+
+  return it;
+end $$;
+
+comment on function public.inv_item_ship is
+  'その1台を発送済みにする（p_on = false で取り消し）。売却済のものだけ。
+   shipped_at / shipped_by だけを書き、在庫状態・実売価格・販売先・出品価格は触らない。
+   発送するのは admin / member、取り消せるのは admin だけ。
+   二重に押しても何も起きない（履歴も増えない）。';
+
+
+-- ------------------------------------------------------------
+-- 4) 権限
+-- ------------------------------------------------------------
+revoke all on function public.inv_item_ship(text, boolean, text) from public, anon, service_role;
+grant execute on function public.inv_item_ship(text, boolean, text) to authenticated;
+
+-- トリガー関数は直接呼ばせない
+revoke all on function public.inv_ship_guard() from public, anon, authenticated, service_role;
+
 -- 確認：作られた表と関数
 -- ============================================================
 select '表' as kind, table_name as name

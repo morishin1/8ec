@@ -167,6 +167,11 @@
   }
   .shop-state.error { background: #fff0ed; color: #b8485d; }
 
+  .shop-security {margin:0 0 18px;padding:12px 16px;border:1px solid #c9e4e6;border-radius:12px;background:#f3faf9;font-size:12px;line-height:1.65;color:var(--ink-soft)}
+  .shop-security summary {cursor:pointer;font-weight:700;color:var(--ink)}
+  .shop-security p {margin:8px 0 4px}
+  .shop-security a {color:var(--teal-dark);text-underline-offset:3px}
+  .shop-trust-inline {font-size:11px;color:var(--ink-soft);line-height:1.45;margin:0}
   .shop-flow-note {
     margin: 30px 0 0;
     color: var(--ink-soft);
@@ -226,6 +231,11 @@
           <span id="count" class="shop-count"></span>
         </div>
 
+        <details class="shop-security" id="payment-security">
+          <summary>🔒 Stripeによる安全なカード決済</summary>
+          <p>お支払いはStripeの決済画面で行われます。カード番号・セキュリティコードは当サイトでは取得・保存しません。Stripeは国際的なカード情報保護基準「PCI DSS」に準拠しています。</p>
+          <a href="https://stripe.com/jp/Payments/Checkout" target="_blank" rel="noopener noreferrer">Stripeのセキュリティ対策</a>
+        </details>
         <div id="list" class="shop-state">商品を読み込み中です…</div>
 
         <p class="shop-flow-note">お支払いはStripeの安全な決済ページで行われます。決済後、担当者が在庫と発送状況を確認のうえご連絡します。</p>
@@ -332,6 +342,7 @@
             (tags ? '<div class="shop-meta">' + tags + "</div>" : "") +
             '<div class="shop-price">' + yen(p.price) + " <small>税込</small></div>" +
             '<button class="btn btn-primary" type="button" data-buy="' + esc(p.id) + '" onclick="buy(\'' + esc(p.id) + '\')">購入する</button>' +
+            '<p class="shop-trust-inline">🔒 Stripe決済・カード情報は当サイトに保存しません</p>' +
           "</div>" +
         "</article>";
     }

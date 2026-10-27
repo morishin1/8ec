@@ -73,6 +73,47 @@ h2{font-size:24px;font-weight:700;letter-spacing:-.02em;line-height:1.12}
 .topline button{border:1px solid var(--line);background:#fff;border-radius:var(--r2);padding:5px 10px;font-size:12px;cursor:pointer}
 
 header.bar{position:sticky;top:0;z-index:30;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 0 12px}
+/* ---- スマホのコンパクトヘッダー ＋ ハンバーガーメニュー ----
+   PCでは出さない（PCはこれまでどおりアイコンナビ）。
+   スマホではアイコンナビと大きなQRボタンを畳んで、在庫一覧に使える縦を広げる */
+.mbar{display:none;align-items:center;gap:10px;min-height:46px}
+.mbar .hb{flex:0 0 auto;width:44px;height:44px;display:grid;place-items:center;
+  border:1px solid var(--line);background:var(--n100);border-radius:var(--r2);cursor:pointer}
+.mbar .hb .ms{font-size:26px}
+.mbar .mtitle{flex:1 1 auto;min-width:0;font-size:17px;font-weight:700;letter-spacing:-.01em;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mbar .mqr{flex:0 0 auto;min-height:44px;display:inline-flex;align-items:center;gap:5px;
+  padding:0 13px;font-size:14px;font-weight:700;background:var(--lime);color:#111;border:none;
+  border-radius:var(--r2);cursor:pointer}
+.mbar .mqr .ms{font-size:22px}
+#drawerBg{position:fixed;inset:0;z-index:94;background:rgba(17,17,17,.45);display:none}
+#drawerBg.on{display:block}
+#drawer{position:fixed;top:0;left:0;bottom:0;z-index:95;width:min(284px,84vw);background:var(--bg);
+  box-shadow:var(--sh-lg);transform:translateX(-100%);transition:transform .18s ease-out;
+  overflow:auto;-webkit-overflow-scrolling:touch;display:none;flex-direction:column;padding-bottom:20px}
+#drawer.on{transform:none}
+#drawer .dh{display:flex;align-items:center;gap:10px;padding:14px 16px 10px;border-bottom:1px solid var(--line)}
+#drawer .dh span{flex:1;font-size:13px;letter-spacing:.1em;color:var(--n600);font-weight:500}
+#drawer .dh .x{border:none;background:transparent;cursor:pointer;color:var(--n700);padding:4px;display:flex}
+#drawer .dqr{margin:12px 12px 6px;min-height:50px;display:flex;align-items:center;justify-content:center;gap:8px;
+  background:var(--lime);color:#111;border:none;border-radius:var(--r2);font-size:15px;font-weight:700;cursor:pointer}
+#drawer .dqr .ms{font-size:24px}
+#drawer #drawerMenu{display:flex;flex-direction:column;padding:6px 8px 0}
+#drawer #drawerMenu button{display:flex;align-items:center;gap:11px;min-height:48px;padding:0 10px;
+  border:none;background:transparent;border-radius:var(--r2);font-size:15px;text-align:left;cursor:pointer}
+#drawer #drawerMenu button .ms{font-size:22px;color:var(--n600)}
+#drawer #drawerMenu button.on{background:var(--i100);font-weight:700}
+#drawer #drawerMenu button.on .ms{color:var(--ink)}
+#drawer .dsep{height:1px;background:var(--line);margin:8px 10px}
+/* ドロワーを開いている間は後ろのページを動かさない */
+body.drawer-on{overflow:hidden}
+@media(max-width:700px){
+  .mbar{display:flex}
+  header.bar{padding:8px 0}
+  header.bar .scanbtn{display:none}   /* ☰ の横のQRボタンに畳む */
+  header.bar .menu{display:none}      /* アイコンナビはドロワーへ畳む */
+  #drawer{display:flex}
+}
 .scanbtn{width:100%;min-height:62px;font-size:19px;font-weight:700;background:var(--lime);color:#111;border:none;
   border-radius:var(--r4);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:10px}
 .scanbtn:hover{background:var(--lime-press)}
@@ -105,11 +146,42 @@ header.bar{position:sticky;top:0;z-index:30;background:var(--bg);border-bottom:1
 .field{display:flex;flex-direction:column;gap:5px}
 .field > span{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--n600);font-weight:500}
 .fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;max-width:760px}
+/* 商品登録のカテゴリ欄の下に出す［＋カテゴリを追加］［選択中を編集］。
+   selectの直下に置くだけで、他の項目の高さや並びは変えない。 */
+.catbtns{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+.catbtns .btn{min-height:34px;padding:0 9px;font-size:13px;gap:4px}
+.catbtns .btn .ms{font-size:16px}
+
+/* QRラベルの印刷状態。**在庫一覧と棚卸で同じ見た目**にする。
+   文字は常時出さず、アイコンの色だけで 未印刷／印刷済み が分かるようにする。
+   色は新しく足さず、すでに使っている Success系（#E8F5E9 / #1B5E20 / #2E7D32）を使う。 */
+.qrp{border:1px solid var(--line);background:#fff;color:var(--n500);
+  width:26px;height:26px;min-height:0;padding:0;border-radius:var(--r2);
+  display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex:none}
+.qrp .ms{font-size:17px}
+.qrp:hover{background:var(--n100);color:var(--n700)}
+.qrp.on{background:#E8F5E9;color:#1B5E20;border-color:#2E7D32}
+.qrp.on:hover{border-color:#1B5E20}
+
+/* 価格の確認。在庫一覧の既存の「価格」欄の中に出す小さな印で、列は増やさない。
+   色は新しく足さず、すでに使っているもの（確認済み＝Success系、
+   未確認＝棚卸の「未確認」と同じ Warning系）をそのまま使う。 */
+.pchk{display:inline-flex;align-items:center;font-size:10.5px;font-weight:700;
+  padding:1px 6px;border-radius:var(--r2);white-space:nowrap;
+  background:#FFF8E1;color:#8A6D00;border:1px solid #E8A33D}
+.pchk.on{background:#E8F5E9;color:#1B5E20;border-color:#2E7D32}
+/* 管理番号のとなりに置く。列は増やさない */
+.idline{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+/* 棚卸の行では型番のとなり */
+.stlist .r .n{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 
 .tag{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:3px 9px;border-radius:var(--r2);white-space:nowrap}
 .tag .ms{font-size:15px}
 .tag.big{font-size:13px;padding:5px 12px}
 .tag.st-在庫{background:var(--i100);color:var(--i800)}
+/* 今月まだ現物を見ていない在庫。注意を促す程度の薄い赤で、状態そのものは変えていない。
+   色はこのリポジトリで使っている警告色（#FDECEC / #B3261E）にそろえる */
+.tag.st-在庫.stale{background:#FDECEC;color:#B3261E;box-shadow:inset 0 0 0 1px rgba(179,38,30,.35)}
 .tag.st-貸出中{background:var(--l100);color:var(--ink)}
 .tag.st-使用中{background:var(--n200);color:#111}
 .tag.st-修理中{background:var(--l200);color:#111}
@@ -120,6 +192,26 @@ header.bar{position:sticky;top:0;z-index:30;background:var(--bg);border-bottom:1
 /* 8RENT（レンタル対象）。状態とは別の軸なので、状態タグと見分けがつく色にする */
 .tag.rent{background:var(--n100);color:var(--n600);border:1px solid var(--line)}
 .tag.rent.on{background:var(--l300);color:#111;border-color:var(--l400);font-weight:500}
+/* 棚卸の確認状況。**色だけで見分けられるように、4つとも塗る。**
+   在庫の状態（「在庫」など）とは別の軸なので、文字も色も分けて出す。
+     確認 緑 ／ 未確認 黄 ／ 差異 赤 ／ 対象外 灰
+   使っているのは在庫一覧のほかの印と同じ色（Success系・Warning系・Danger系・グレー）で、
+   棚卸のために新しい色は足していない。 */
+.tag.chk{background:var(--n100);color:var(--n700);border:1px solid var(--line)}
+/* 棚卸済は青系。在庫の状態タグ（.st-在庫 は Deep Indigo の --i100/--i800）とは
+   別の色にして、「在庫」と「棚卸済」を色で見分けられるようにする */
+.tag.chk.on{background:#E3F2FD;color:#0D47A1;border-color:#1565C0;font-weight:700}
+.tag.chk.todo{background:#FFF8E1;color:#8A6D00;border-color:#E8A33D;font-weight:700}
+.tag.chk.miss{background:#FDECEC;color:#B3261E;border-color:#B3261E;font-weight:700}
+.tag.chk.out{background:var(--n100);color:var(--n600);border-color:var(--line)}
+/* SNS投稿（zaiko/sns.js）の状態。.chk はダッシュボードのカードと名前がぶつかるので使わない */
+.snstags{display:inline-flex;gap:5px;flex-wrap:wrap;vertical-align:middle}
+.tag.sns-none{background:var(--n100);color:var(--n600);border:1px dashed var(--line)}
+.tag.sns-todo{background:#FFF8E1;color:#8A6D00;border:1px solid #E8A33D;font-weight:700}
+.tag.sns-on{background:#E8F5E9;color:#1B5E20;border:1px solid #2E7D32;font-weight:700}
+.tag.sns-stale{background:#FDECEC;color:#B3261E;border:1px solid #B3261E;font-weight:700}
+table.t td.ck-col{white-space:nowrap}
+table.t td.ck-col .meta{font-size:11px;margin-top:2px}
 
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--r2);overflow:hidden;background:#fff}
 .seg button{border:none;background:transparent;padding:9px 16px;font-size:13.5px;cursor:pointer;min-height:40px}
@@ -186,7 +278,7 @@ table.t tr.clk:hover td{background:var(--n100)}
 .kind{font-size:12px;letter-spacing:.1em;color:var(--ink);font-weight:500}
 .detail h1{font-size:36px;margin:4px 0 8px}
 .info{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px 20px;font-size:14px;margin:20px 0}
-.info .k{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--n600);display:block}
+.info .k,.card .k{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--n600);display:block}
 .ops{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:20px 0}
 .ops button{min-height:58px;flex-direction:column;gap:4px;padding:8px}
 .ops button .ms{font-size:24px}
@@ -198,13 +290,28 @@ table.t tr.clk:hover td{background:var(--n100)}
 /* ---- 棚卸 ---- */
 .stcount{font-size:56px;font-weight:700;line-height:1}
 .stcount small{font-size:26px;color:var(--n600);font-weight:400}
+/* 在庫一覧の上に出す棚卸の進み具合。棚卸画面と同じ数字を出す */
+.stbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 12px;
+  background:var(--l100);border:2px solid var(--l500);border-radius:var(--r2);padding:11px 14px}
+.stbar > .ms{font-size:22px;flex:0 0 auto}
+.stbar .t{font-weight:700;font-size:15px}
+.stbar .prog{margin:0}
 .prog{height:8px;background:var(--n300);border-radius:var(--r1);overflow:hidden;margin:12px 0 18px}
 .prog i{display:block;height:100%;background:var(--lime)}
-.unchecked{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
-.unchecked .u{background:var(--l100);padding:11px 12px;border-radius:var(--r2);display:flex;align-items:center;gap:10px}
-.unchecked .u .ms{font-size:20px;color:var(--ink)}
-.unchecked .u .n{font-size:14px;font-weight:500}
-.unchecked .u .m{font-size:11px;color:var(--n600)}
+/* 棚卸の一覧（未確認／確認済み／帳簿外現物）。
+   現場ではスマホで見るので、表ではなく1件1行のカードにする。
+   241台ぶん縦に並ぶので、1行は低く、横スクロールは出さない。 */
+.stlist{display:grid;gap:8px}
+.stlist .r{background:var(--l100);border-radius:var(--r2);padding:10px 12px;
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.stlist .r .b{flex:1 1 240px;min-width:0}
+.stlist .r .n{font-size:14px;font-weight:700;word-break:break-word}
+.stlist .r .m{font-size:11px;color:var(--n600);margin-top:2px;word-break:break-word}
+.stlist .r .acts{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+@media(max-width:560px){
+  .stlist .r .acts{margin-left:0;width:100%}
+  .stlist .r .acts .btn{flex:1 1 0}
+}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chips span{font-size:11.5px;background:var(--n200);padding:3px 8px;border-radius:var(--r2)}
 
@@ -241,20 +348,155 @@ table.t tr.clk:hover td{background:var(--n100)}
 #scan .foot .sim button{border:1px solid var(--line);background:var(--n100);border-radius:var(--r2);
   padding:7px 11px;font-size:12.5px;cursor:pointer;min-height:38px}
 
-/* ---- ボトムシート ---- */
-#sheet{position:fixed;inset:0;z-index:92;background:rgba(17,17,17,.5);display:none;align-items:flex-end;justify-content:center}
+/* ---- 操作シート（画面中央） ----
+   編集・確認・削除のダイアログは #modal と同じく**viewport の中央**に出す。
+   同じ目的のUIなのに、下から出るものと中央に出るものが混ざらないようにする。
+   上下左右に余白を取り、画面高を超えたときは**シートの中だけ**がスクロールするので、
+   キャンセル・実行のボタンが画面外へ消えない。
+   QRスキャン（#scan）はカメラを広く使う全画面UIなので、中央モーダル化しない。 */
+#sheet{position:fixed;inset:0;z-index:92;background:rgba(17,17,17,.5);display:none;
+  align-items:center;justify-content:center;padding:20px}
 #sheet.on{display:flex}
-#sheet .p{width:min(520px,100%);background:var(--panel);border-radius:var(--r4) var(--r4) 0 0;padding:20px 20px 24px;
-  box-shadow:var(--sh-lg);animation:sheetUp .18s ease-out;max-height:88vh;overflow:auto}
-@keyframes sheetUp{from{transform:translateY(14px);opacity:0}to{transform:none;opacity:1}}
+#sheet .p{width:min(520px,100%);background:var(--panel);border-radius:var(--r4);padding:20px 20px 24px;
+  box-shadow:var(--sh-lg);max-height:min(88vh,calc(100dvh - 40px));overflow:auto;
+  -webkit-overflow-scrolling:touch}
+/* 出る動きは **開いたときに** 始める。`#sheet .p` に置くと、読み込み時（display:none）に
+   始まってしまい、transform が translateY(14px) のまま止まって中央から下へずれる */
+#sheet.on .p{animation:sheetFade .18s ease-out}
+/* 中央に出すので、位置を動かす動きは付けない（translate を使うと、動きの途中で
+   止まったときに中央からずれる）。見え方だけ fade で出す */
+@keyframes sheetFade{from{opacity:0}to{opacity:1}}
 #sheet .th{display:flex;align-items:baseline;gap:10px;margin-bottom:4px}
 #sheet .th h2{font-size:24px;flex:1}
 #sheet .th .id{font-size:12px;color:var(--n600)}
 #sheet .hint{font-size:13px;color:var(--n700);margin-bottom:14px}
-#sheet .acts{display:flex;gap:10px;margin-top:16px}
+/* 「やめる／確定」はシートの下に貼り付けておく。中身が長くて内側がスクロールしても、
+   ボタンが画面外へ消えない（パネルの padding-bottom は 24px なので bottom を -24px に） */
+#sheet .acts{display:flex;gap:10px;margin:16px 0 -24px;position:sticky;bottom:-24px;z-index:1;
+  background:var(--panel);padding:12px 0 24px;box-shadow:0 -10px 14px -10px rgba(17,17,17,.2)}
 #sheet .acts .btn.cta{flex:1;min-height:52px;font-size:17px}
 #sheet .acts .btn.cancel{width:120px}
 #sheet input[type=number].input{font-size:20px;min-height:48px;text-align:center}
+/* シートの中の見出し（「この個体」「商品情報」）。ページの見出しより小さく出す */
+#sheet .sec{font-size:15px;font-weight:700;letter-spacing:0;padding-bottom:6px;
+  border-bottom:1px solid var(--rule)}
+
+/* ---- 販売済みの取り消し ----
+   取り違えを戻す操作なので、押す前に管理番号を確かめてもらう。
+   確認のチェックを入れるまでボタンを押せないようにする（CSSは見た目だけ）。 */
+/* ---- QRから販売（販売先を選ぶと登録価格が出る） ----
+   倉庫メンバーは金額を入れない。出すのは「選んだ販売先の価格」1つだけで、
+   原価・利益・ほかの販売先の価格は出さない。 */
+.sellprice{margin-top:14px;padding:14px;border:1px solid var(--line);border-radius:10px;
+  background:var(--n100)}
+/* QR販売の価格入力。「円」を欄の中に置く（数字だけ打てば済むように） */
+.yenbox{position:relative;display:block}
+.yenbox .input{padding-right:38px;text-align:right;font-size:17px;min-height:48px}
+.yenbox .yen{position:absolute;right:12px;top:50%;transform:translateY(-50%);
+  font-size:14px;color:var(--n600);pointer-events:none}
+/* 数字だけ入れる欄なので、増減の矢印は出さない（誤操作を減らす） */
+.yenbox .input::-webkit-outer-spin-button,
+.yenbox .input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.yenbox .input[type=number]{-moz-appearance:textfield}
+/* 販売一覧の操作列。［販売情報を修正］［販売済みを取消］が2つ並ぶので折り返す */
+.opsw{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.opsw .btn.sm{white-space:nowrap}
+/* 発送（未発送・発送済み）。**新しい色は足さず**、棚卸の「未確認」と同じ Warning系と、
+   価格確認済みと同じ Success系をそのまま使う */
+.tag.ship{background:#FFF8E1;color:#8A6D00;border:1px solid #E8A33D;font-weight:700}
+.tag.ship.on{background:#E8F5E9;color:#1B5E20;border:1px solid #2E7D32;font-weight:500}
+/* 販売一覧のアイコンに出す「まだ発送していない件数」。**0件のときは出さない**。
+   色は在庫一覧の「期限切れ」で使っている赤（#B3261E）をそのまま使う */
+.navbadge{display:none}
+.navbadge.on{display:inline-flex;align-items:center;justify-content:center;
+  min-width:19px;height:19px;padding:0 5px;border-radius:10px;
+  background:#B3261E;color:#fff;font-size:11px;font-weight:700;line-height:1;
+  font-variant-numeric:tabular-nums}
+/* PCのアイコンナビは縦並びなので、アイコンの右上に重ねる（並びを崩さない） */
+.menu button .navbadge.on{position:absolute;top:6px;right:8px}
+/* スマホのドロワーは横並びなので、行の右端に置く */
+#drawer #drawerMenu button .navbadge.on{margin-left:auto}
+.sellprice .k{font-size:13px;color:var(--n600);margin-bottom:4px}
+.sellprice b.num{font-size:28px;font-weight:700;letter-spacing:-.01em;display:block}
+.sellprice b.none{font-size:20px;font-weight:700;color:var(--n600);display:block}
+.undoid{font-size:19px;font-weight:700;letter-spacing:.02em}
+.undochk{display:flex;gap:10px;align-items:flex-start;margin-top:14px;padding:12px;
+  border:1px solid var(--line);border-radius:10px;background:var(--n100);font-size:14px;line-height:1.6}
+.undochk input{width:20px;height:20px;flex:0 0 auto;margin-top:1px}
+.undoord{margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:10px}
+.undoord .k{font-size:13px;color:var(--n600);margin-bottom:6px}
+.undoord .r{display:flex;gap:10px;flex-wrap:wrap;align-items:baseline;padding:3px 0}
+#modal .btn.pri:disabled{opacity:.45;cursor:not-allowed}
+/* 倉庫の個体画面の［販売済みを取り消す］。主ボタンほど目立たせない */
+.wundo{width:100%;min-height:52px;margin-top:10px;font-size:16px}
+/* 発送が終わっているときは、主ボタンを出さずにこれを出す（押すところが無いと分かる）。
+   色は新しく足さず、価格確認済みと同じ Success系をそのまま使う */
+.wdone{display:flex;align-items:center;gap:10px;width:100%;margin-top:4px;padding:13px 14px;
+  border:1px solid #2E7D32;border-radius:var(--r2);background:#E8F5E9;color:#1B5E20}
+.wdone .ms{font-size:24px;flex:0 0 auto}
+.wdone b{font-size:16px}
+.wdone .meta{color:#2E7D32}
+/* 画面のいちばん上の1行説明。何をする画面かを最初に言う */
+.lead{margin:10px 0 0;font-size:15px;font-weight:500;color:var(--n800)}
+/* パスワードは入れるだけ。読み出す経路は作らないので、表示用の見た目は持たない */
+#sheet input[type=password].input{letter-spacing:.12em}
+/* シートの中のボタンはスマホで指が届くように。外（表の行など）の .btn.sm は変えない */
+#sheet .btn.sm{min-height:44px}
+
+/* ---- 倉庫作業ホーム（管理者以外のトップ） ----
+   スマホで親指が届くことを優先する。QR読み取りをいちばん大きく出す。 */
+.homeqr{width:100%;min-height:72px;font-size:19px;font-weight:700;gap:10px;margin-top:16px}
+.homeqr .ms{font-size:28px}
+.hometiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:20px 0 4px}
+.hometile{min-height:92px;padding:14px 10px;border:1px solid var(--line);background:var(--n100);
+  border-radius:var(--r2);cursor:pointer;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:6px;font:inherit;color:var(--ink)}
+.hometile:hover{background:var(--i100);border-color:var(--i300)}
+.hometile .ms{font-size:28px}
+.hometile .t{font-size:15px;font-weight:700}
+.hometile .n{font-size:12px;color:var(--n600);font-weight:500}
+.homerec{display:flex;gap:10px;flex-wrap:wrap}
+.homerec > div{background:var(--n100);border-radius:var(--r2);padding:9px 14px;font-size:14px}
+.homerec .k{color:var(--n600);margin-right:8px}
+
+/* ---- 個体詳細（倉庫メンバー向け） ----
+   現物照合に要るものを上から順に。価格・出品は出さない。 */
+.ware{max-width:560px}
+.ware h1{font-size:28px;margin:14px 0 4px;line-height:1.3}
+.ware .wsub{font-size:16px;color:var(--n700);font-weight:500}
+.ware .wspec{font-size:13.5px;color:var(--n600);margin-top:6px;white-space:pre-wrap;word-break:break-word}
+.ware .photobox{width:100%;max-width:260px}
+.winfo{margin:18px 0 14px;border-top:1px solid var(--rule)}
+.wrow{display:flex;gap:14px;align-items:baseline;padding:10px 0;border-bottom:1px solid var(--rule)}
+.wrow .k{flex:0 0 108px;font-size:12.5px;color:var(--n600)}
+.wrow b{font-size:16px;font-weight:700;word-break:break-all}
+.wtags{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
+.wtags .tag{flex:0 0 auto}
+.wtags > div{display:flex;gap:8px;align-items:center}
+/* 画像が無いときの案内は管理者向けの文言なので、倉庫の画面では出さない */
+.ware .photobox .u{display:none}
+/* 個体画面の主ボタン。いま押すべき操作を1つだけ大きく出す
+   （売れる状態 → .wsell 販売を登録する／売却済で未発送 → .wship 発送済みにする） */
+.wsell,.wship{width:100%;min-height:64px;font-size:18px;font-weight:700;gap:9px}
+.wsell .ms,.wship .ms{font-size:24px}
+.ops.wops{margin-top:14px}
+.wnext{width:100%;margin-top:18px;min-height:48px}
+
+/* ---- メンバー管理 ---- */
+.mblist{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.mb{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:12px 14px;
+  background:var(--n100);border-radius:var(--r2)}
+.mb .t{flex:1 1 200px;min-width:0}
+.mb .t b{font-size:15px}
+.mb .a{display:flex;gap:8px;flex-wrap:wrap}
+.tag.rl{background:var(--n200);color:var(--n800)}
+.tag.rl.admin{background:var(--i100);color:var(--ink);border:1px solid var(--i300);font-weight:700}
+.tag.rl.member{background:var(--l200);color:#111;border:1px solid var(--l400);font-weight:700}
+.tag.rl.viewer{background:#fff;color:var(--n600);border:1px solid var(--line)}
+@media(max-width:480px){
+  .mb .a{flex:1 1 100%}
+  .mb .a .btn{flex:1}
+}
 
 /* ---- 商品詳細のタブ ---- */
 .tabs2{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:24px 0 18px;overflow-x:auto}
@@ -265,11 +507,56 @@ table.t tr.clk:hover td{background:var(--n100)}
 .tabs2 button:hover{color:var(--ink)}
 .tabs2 button.on{color:var(--ink);border-bottom-color:var(--ink);font-weight:700}
 .tabs2 button.on .n{background:var(--ink);color:#fff}
+/* 棚卸の4タブ（未確認／確認済み／差異／帳簿外）。スマホでも4つとも見えるように、
+   狭いときはアイコンを消して余白を詰める。横スクロールで隠したくないため。 */
+@media(max-width:480px){
+  .tabs2.sttabs button{padding:10px 8px;font-size:13px;gap:5px}
+  .tabs2.sttabs button .ms{display:none}
+}
+@media(max-width:400px){
+  .tabs2.sttabs button{padding:10px 5px;font-size:12.5px;gap:4px}
+  .tabs2.sttabs button .n{padding:1px 5px}
+}
 
 /* ---- 在庫状態・販売チャネルのタグ ---- */
 .tag.stk-ok{background:var(--i100);color:var(--i800)}
 .tag.stk-few{background:var(--l200);color:#111}
 .tag.stk-none{background:var(--n300);color:var(--n800)}
+/* ---- 出品状況（未出品／出品停止／出品中） ----
+   「未出品」は空欄や「—」では表さない。次に作業が必要という意味が伝わる注意色にする
+   （エラーの赤ではなくオレンジ）。出品中は既存の Lime（Success系）をそのまま使う */
+.tag.ls{font-weight:700}
+.tag.ls.none{background:#FFF3E0;color:#A64B00;border:1px solid #E8A33D}
+.tag.ls.off{background:var(--n200);color:var(--n700);border:1px solid var(--line)}
+.tag.ls.live{background:var(--l200);color:#43530E;border:1px solid var(--l400)}
+.chtabs.lsw{margin-top:0}
+.chtabs.lsw button{padding:9px 12px}
+.lsgo{margin-top:5px;font-size:11.5px;min-height:30px;padding:3px 9px}
+/* 未出品で絞っているときに出す「Amazon 未登録／出品停止」。
+   色は既存の .tag.ls（未出品＝注意色／出品停止＝グレー）をそのまま使う */
+.msr{margin-bottom:4px}
+/* ---- 棚卸済み商品の出品率（在庫一覧の上） ----
+   グラフのライブラリは入れず、既存の .prog と同じ考え方の横棒で出す。
+   色は既存の Success 系（#2E7D32）と --n300 を使い、新しい色は足さない */
+.lkpi{border:1px solid var(--line);border-radius:var(--r2);background:var(--panel);
+  padding:12px 14px;margin:0 0 12px}
+.lkh{display:flex;gap:11px;align-items:flex-start}
+.lkh > .ms{font-size:20px;color:var(--n600);flex:0 0 auto}
+.lkh .bx{flex:1 1 240px;min-width:0}
+.lkh .bt{font-weight:700;font-size:15px}
+.lkr{display:grid;grid-template-columns:118px minmax(80px,1fr) auto auto;gap:11px;
+  align-items:center;margin-top:11px}
+.lkn{display:flex;gap:8px;align-items:baseline;min-width:0;font-size:13.5px;font-weight:500}
+.lkn b{font-size:19px;font-weight:700;font-variant-numeric:tabular-nums}
+.lkb{height:12px;background:var(--n300);border-radius:var(--r1);overflow:hidden}
+.lkb i{display:block;height:100%;background:#2E7D32}
+.lkm{font-size:12.5px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.lkm .meta{font-size:11.5px}
+@media(max-width:700px){
+  .lkr{grid-template-columns:1fr;gap:5px;margin-top:14px}
+  .lkm{white-space:normal}
+  .lkr .btn{justify-self:start}
+}
 .tag.ch{background:var(--n200);color:var(--n700);font-weight:700;font-size:11px;padding:2px 7px}
 .tag.ch.on{background:var(--ink);color:#fff}
 /* 出品先。サイト名は長いので、一覧では小さなバッジだけを並べる */
@@ -294,6 +581,14 @@ table.t td.mall{white-space:nowrap}
 .diffbar .ms{font-size:20px;color:#B26A00}
 .diffbar .bt{font-weight:700}
 .diffbar.on{background:var(--n100);border-color:var(--line)}
+/* お知らせバーの説明ブロック。**最低幅を持たせる。**
+   持たせないと、折り返さないボタンに押されて説明が1文字ずつ縦に折れてしまう */
+.diffbar .bx,.stbar .bx{flex:1 1 240px;min-width:0}
+/* 狭い画面では、説明とボタンを段で分ける */
+@media(max-width:560px){
+  .diffbar .bx,.stbar .bx{flex:1 1 100%}
+  .diffbar .btn,.stbar .btn{flex:1 1 auto}
+}
 .diffbar.on .ms{color:var(--n600)}
 table.t tr.warn td:first-child{box-shadow:inset 3px 0 0 #E8A33D}
 /* 数量管理の行。管理番号を持たないので、個体の行と取り違えないよう地を変える */
@@ -337,6 +632,29 @@ table.t tr.clk.on:hover td{background:var(--i200)}
 #selbar .selops{display:flex;gap:8px;flex-wrap:wrap;flex:1;justify-content:center}
 #selbar .selops .btn{white-space:nowrap;min-height:38px;padding:7px 12px;font-size:13px;flex-direction:row}
 #selbar .selops .btn .ms{font-size:17px}
+/* たたみメニュー。バーは画面下に固定なので**上に開く**。
+   色は新しく足さず、既存のボタン・カードのトークンをそのまま使う。 */
+#selbar .selmenu{position:relative;display:inline-flex}
+#selbar .selpop{display:none;position:absolute;bottom:calc(100% + 8px);left:0;z-index:40;
+  min-width:232px;max-width:min(92vw,320px);background:#fff;border:1px solid var(--line);
+  border-radius:var(--r);box-shadow:0 10px 30px rgba(17,17,17,.16);padding:6px}
+#selbar .selmenu.on .selpop{display:block}
+#selbar .selpop .h{font-size:11px;font-weight:700;color:var(--n500);
+  padding:7px 10px 3px;letter-spacing:.02em}
+#selbar .selpop .sep{height:1px;background:var(--rule);margin:5px 0}
+#selbar .selpop .mi{display:flex;align-items:center;gap:9px;width:100%;
+  background:none;border:0;cursor:pointer;text-align:left;
+  font:inherit;font-size:13.5px;color:var(--ink);padding:10px;min-height:44px;
+  border-radius:var(--r2);white-space:nowrap}
+#selbar .selpop .mi:hover:not(:disabled){background:var(--n100)}
+#selbar .selpop .mi .ms{font-size:19px;color:var(--n500);flex:none}
+#selbar .selpop .mi.danger{color:#B3261E}
+#selbar .selpop .mi.danger .ms{color:#B3261E}
+#selbar .selpop .mi.lime{color:#1B5E20}
+#selbar .selpop .mi.lime .ms{color:#1B5E20}
+#selbar .selpop .mi:disabled{color:var(--n400);cursor:not-allowed}
+#selbar .selpop .mi:disabled .ms{color:var(--n400)}
+#selbar .selops .btn .ms.cv{font-size:18px;margin-left:-2px}
 /* バーが出ている間は、最後の行がバーに隠れないように下を空ける */
 body.selbar-on{padding-bottom:104px}
 /* スマホは「件数＋選択解除」で1段、操作ボタンで2段程度に折り返す */
@@ -348,6 +666,9 @@ body.selbar-on{padding-bottom:104px}
   #selbar > .btn.ghost{order:1}
   #selbar .selops{order:2;flex:1 1 100%;justify-content:flex-start;gap:6px}
   #selbar .selops .btn{padding:6px 9px;font-size:12.5px;min-height:36px}
+  /* 390px でも画面からはみ出さない。右端に近いメニューは右揃えにする */
+  #selbar .selpop{min-width:208px;max-width:calc(100vw - 32px)}
+  #selbar .selmenu:last-child .selpop{left:auto;right:0}
   body.selbar-on{padding-bottom:136px}
 }
 
@@ -377,7 +698,18 @@ body.selbar-on{padding-bottom:104px}
 /* min-width:0 が無いと、中の表の幅にひきずられて箱が画面からはみ出し、
    スマホでは右上の閉じるボタンに手が届かなくなる */
 #modal .mbox{background:var(--bg);border-radius:var(--r4);width:min(760px,100%);min-width:0;
-  max-height:88vh;display:flex;flex-direction:column;box-shadow:var(--sh-lg)}
+  max-height:min(88vh,calc(100dvh - 40px));display:flex;flex-direction:column;box-shadow:var(--sh-lg)}
+/* シート・モーダルを開いている間は後ろのページを動かさない */
+body.modal-on{overflow:hidden}
+/* 小画面では左右の余白だけ詰める。**ボタンが画面外へ出ないよう高さは画面に追従させる** */
+@media(max-width:560px){
+  #modal{padding:12px}
+  #sheet{padding:12px}
+  #modal .mbox{max-height:calc(100dvh - 24px)}
+  #sheet .p{max-height:calc(100dvh - 24px)}
+  #sheet .acts{flex-wrap:wrap}
+  #sheet .acts .btn.cancel{width:auto;flex:1 1 100px}
+}
 #modal .mh{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
 #modal .mh h2{flex:1;font-size:22px}
 #modal .mh .x{border:none;background:transparent;cursor:pointer;color:var(--n600);padding:4px;display:flex}
@@ -465,16 +797,97 @@ table.t th.mchk-col,table.t td.mchk-col{white-space:nowrap;width:1%}
 .mchk:hover{border-color:var(--ink);color:var(--ink);background:var(--n100)}
 .mchk:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 .mchk.off{color:var(--n500);background:var(--n100);border-style:dashed;cursor:not-allowed}
+/* 相場を見に行く3つのあとに、自分の原価から値付けする［¥］を置く */
+.mchk.calc{font-size:14px;border-color:var(--l500);background:var(--l100);color:var(--ink)}
+.mchk.calc:hover{border-color:var(--ink);background:var(--l200)}
 a.idlink{color:inherit;text-decoration:none;border-bottom:1px solid transparent}
 a.idlink:hover{border-bottom-color:currentColor}
 a.idlink:focus-visible{outline:2px solid var(--ink);outline-offset:2px;border-radius:2px}
 
-/* スマートフォンでは列が横に流れてしまうので、価格調査の列はたたんで
-   型番・販売予定価格のすぐ下にまとめて出す */
-@media(max-width:560px){
-  table.t th.mchk-col,table.t td.mchk-col{display:none}
-  .mchks.sp{display:flex;justify-content:flex-start;gap:4px;margin-top:7px}
-  .mchks.sp .lbl{font-size:10.5px;color:var(--n600);align-self:center;margin-right:2px}
+/* 狭い画面では在庫一覧（個体別）ごとカードに切り替えるので、
+   価格調査の列だけをたたむ必要はなくなった（下の table.t.unittbl のところ）。
+   .mchks.sp は在庫一覧の型番セルにあった二重表示をやめたので、いまは使っていない */
+.mchks.sp{display:none}
+
+/* ---- 在庫一覧（個体別）の表 ----------------------------------------------
+   13列あって横に間延びし、右の 状態・棚卸・8RENT が切れていた。
+   関係の近いものを同じセルの2段にまとめて10列にし、幅は colgroup の％で配る。
+   `table-layout: fixed` なので**表の幅は必ず親と同じ**になり、横スクロールが出ない
+   （スクロールバーを隠しているのではない）。この指定は在庫一覧の表だけに当てる。 */
+table.t.unittbl{table-layout:fixed;width:100%}
+table.t.unittbl th,table.t.unittbl td{padding:9px 6px 9px 0;vertical-align:top;word-break:break-word}
+table.t.unittbl th{vertical-align:bottom}
+table.t.unittbl th.ck,table.t.unittbl td.ck{padding-right:0}
+table.t.unittbl td.ck{padding-top:10px}      /* 1行目の高さに合わせる */
+table.t.unittbl td.col-id{font-weight:600;line-height:1.35}
+table.t.unittbl td.col-id .meta{font-weight:400}
+table.t.unittbl .mdl{font-weight:500;line-height:1.35}
+table.t.unittbl td.col-price{line-height:1.35;padding-right:12px}  /* 数字が右の欄にくっつかないように */
+/* 価格は「楽天 ¥5,320」のように**必ずラベルを付けて**出す。数字だけは出さない。
+   ラベルは左、金額は右で桁をそろえる */
+table.t.unittbl td.col-price .pr{display:flex;align-items:baseline;gap:6px;justify-content:space-between}
+table.t.unittbl td.col-price .pr + .pr{margin-top:1px}
+table.t.unittbl td.col-price .pl{font-size:10.5px;color:var(--n600);flex:0 0 auto;letter-spacing:0}
+table.t.unittbl td.col-price .pv{font-size:12.5px;font-variant-numeric:tabular-nums;text-align:right}
+table.t.unittbl td.col-price .pv .meta{font-size:12.5px}
+/* 商品名。管理番号のすぐ下。型番と同じ文字なら app.js 側で出していない */
+table.t.unittbl td.col-id .pname{font-size:12px;color:var(--n700);line-height:1.35;margin-top:2px;
+  overflow-wrap:anywhere}
+table.t.unittbl td.col-market{padding-right:4px}
+table.t.unittbl td.col-market .mchks{flex-wrap:wrap;gap:3px}
+table.t.unittbl td.col-listing{white-space:normal}
+table.t.unittbl td.col-listing .malls{gap:3px}
+table.t.unittbl td.col-loc{line-height:1.45}
+/* タグは切らない。左右の余白だけ少し詰めて1行に収め、
+   それでも入らないときは折り返す（切るよりは折り返す） */
+/* タグは中身のぶんだけ。入りきらないときだけ折り返す（切るよりは折り返す）。
+   棚卸の印は class="tag chk" で、チェックボックスの .chk（display:flex）と名前が当たる。
+   あちらが後ろにあるので欄いっぱいに広がってしまうため、ここで戻している */
+table.t.unittbl td.col-status .tag,table.t.unittbl td.col-check .tag,
+table.t.unittbl td.col-rental .tag,table.t.unittbl td.col-listing .tag.ls,
+table.t.unittbl td.col-ch .tag,
+table.t.unittbl td.col-ship .tag{display:inline-flex;width:max-content;max-width:100%;
+  white-space:normal;text-align:left;padding:3px 7px}
+table.t.unittbl td.col-listing .malls{margin-top:3px}
+table.t.unittbl td .meta{font-size:11px;margin-top:2px;line-height:1.45}
+/* ---- 販売一覧（販売済みの個体） ----
+   在庫一覧と同じ作り（PCは表、狭い画面は1件1カード）を使うので、
+   カードに切り替えるCSSは unittbl のものをそのまま共有する */
+table.t.salestbl td.col-when,
+table.t.salestbl td.col-ship{line-height:1.4;font-variant-numeric:tabular-nums}
+table.t.salestbl td.col-ops{white-space:normal}
+table.t.salestbl td.col-ops .btn{font-size:12px;padding:5px 9px;min-height:34px}
+table.t.unittbl td.col-check .meta{white-space:normal}
+
+/* 狭い画面では10列を押し込まず、1件1カードにする。情報は1つも隠さない */
+@media(max-width:700px){
+  table.t.unittbl,table.t.unittbl tbody,table.t.unittbl tr,table.t.unittbl td{display:block;width:auto}
+  table.t.unittbl{table-layout:auto}
+  table.t.unittbl colgroup{display:none}
+  /* 見出しの行は要らないが、「表示中をすべて選ぶ」だけはカードでも使えるように残す */
+  table.t.unittbl thead,table.t.unittbl thead tr{display:block;border:none;padding:0;margin:0;background:none}
+  table.t.unittbl thead th{display:none}
+  table.t.unittbl thead th.ck{display:flex;align-items:center;gap:9px;padding:0 0 10px;width:auto}
+  table.t.unittbl thead th.ck::after{content:"表示中をすべて選ぶ";font-size:12px;
+    color:var(--n600);letter-spacing:0;text-transform:none;font-weight:400}
+  table.t.unittbl tr{border:1px solid var(--line);border-radius:var(--r2);
+    padding:10px 12px;margin-bottom:10px;background:#fff}
+  table.t.unittbl tr.qty{background:var(--n100)}
+  table.t.unittbl tr.clk.on{background:var(--i100)}
+  /* 左に項目名、右に中身。中身が2つ3つあるときは右側だけで縦に積む */
+  table.t.unittbl td{border:none;padding:4px 0;display:grid;
+    grid-template-columns:72px minmax(0,1fr);gap:0 10px;align-items:start}
+  table.t.unittbl td::before{content:attr(data-label);grid-column:1;grid-row:1;
+    font-size:11px;color:var(--n600);padding-top:2px}
+  table.t.unittbl td > *{grid-column:2;min-width:0;justify-self:start}
+  table.t.unittbl td.ck{display:block;padding:0 0 6px;width:auto}
+  table.t.unittbl td.ck::before{content:none}
+  /* 価格は1行に詰め込まず、「楽天 ¥5,320」を縦に積む。横スクロールはさせない */
+  table.t.unittbl td.col-price > .pr{grid-column:2;display:flex;align-items:baseline;gap:8px;
+    justify-content:flex-start;min-width:0}
+  table.t.unittbl td.col-price .pl{flex:0 0 52px}
+  table.t.unittbl td.col-price .pv{text-align:left}
+  table.t.unittbl td.col-market .mchks{flex-wrap:wrap}
 }
 table.t.buy input.plan{width:116px;min-height:38px;text-align:right;padding:6px 9px;font-size:14px;display:inline-block}
 /* 数量は必ず直せる欄。直したことが分かるよう、CSVの値との差を下に出す */
@@ -484,6 +897,20 @@ table.t.buy .qn.chg{color:#8A6D00;font-weight:700}
 table.t.buy tfoot th{border-top:2px solid var(--ink);border-bottom:none;font-size:14px;
   text-transform:none;letter-spacing:0;color:var(--ink);font-weight:700;padding-top:11px}
 table.t.buy td .meta{font-size:11.5px;margin-top:2px}
+/* 取込確認画面の行ごとの分類。判定根拠を値のすぐ下に出す */
+table.t.buy td.pick{min-width:158px}
+table.t.buy td.pick select.input{width:100%;min-width:150px;min-height:38px;padding:6px 8px;font-size:13px}
+table.t.buy td.pick .why{display:inline-block;margin-top:4px;font-size:11px;padding:1px 7px;border-radius:999px;
+  border:1px solid var(--rule);color:var(--n700);background:var(--n100);white-space:nowrap}
+table.t.buy td.pick .why.w1{border-color:#2E7D32;color:#1B5E20;background:#E8F5E9}
+table.t.buy td.pick .why.w3{border-color:var(--ink);color:var(--ink);background:#fff}
+table.t.buy td.pick .why.ng{border-color:#B3261E;color:#B3261E;background:#FDECEA;font-weight:700}
+.impTodo{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 10px;
+  padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r2);background:var(--n100)}
+.impTodo .tg{font-size:13px;font-weight:700;padding:3px 11px;border-radius:999px;white-space:nowrap}
+.impTodo .tg.ok{background:#E8F5E9;color:#1B5E20}
+.impTodo .tg.warn{background:#FFF8E1;color:#8A6D00}
+.impTodo .tg.ng{background:#FDECEA;color:#B3261E}
 
 .prices{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:9px;align-items:end;
   background:var(--panel);border-radius:var(--r2);padding:12px 14px;margin:14px 0}
@@ -528,6 +955,15 @@ table.t.buy td .meta{font-size:11.5px;margin-top:2px}
 .batchbar.done{border-width:2px;padding:13px 15px}
 .batchbar.done .ms{color:#2E7D32;font-size:24px}
 .batchbar.done .bt{font-weight:700;font-size:18px}
+/* 「登録できた」で終わらせない。QRを貼るまでが1回の仕入作業だと分かるようにする */
+.nextstep{display:flex;align-items:flex-start;gap:11px;margin:0 0 14px;
+  background:#FFF8E1;border:2px solid #E8A33D;border-radius:var(--r2);padding:12px 15px}
+.nextstep .ms{font-size:24px;color:#8A6D00;flex:0 0 auto}
+.nextstep .t{font-weight:700;font-size:16px}
+.nextstep .meta{margin-top:3px}
+.regmain .rmnext{display:flex;align-items:flex-start;gap:9px;margin-top:10px;font-size:13px;
+  color:#5C4700;background:#FFF8E1;border:1px solid #E8A33D;border-radius:var(--r2);padding:10px 13px;line-height:1.7}
+.regmain .rmnext .ms{font-size:19px;color:#8A6D00;flex:0 0 auto}
 
 /* ---- トースト ---- */
 #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:95;background:var(--n900);color:#fff;
@@ -551,9 +987,40 @@ table.t.buy td .meta{font-size:11.5px;margin-top:2px}
 .label .tx .id{font-size:7pt;font-weight:700;line-height:1.2}
 .label .tx .nm{font-size:6pt;line-height:1.25;margin-top:.6mm}
 .label .tx .lo{font-size:5.5pt;color:#555;line-height:1.2;margin-top:.6mm}
+/* 個体のラベルだけ、倉庫での目視を優先して **管理番号と型番を大きく** する。
+   実寸 40×30mm は変えない。QRは 22mm → 18.5mm に少しだけ小さくするが、
+   余白（1.5mm）と誤り訂正は今までのままなので、スマホの読み取りは落とさない。
+   数量品・棚のラベル（.label のまま）はこれまでの大きさを保つ。 */
+.label.item{gap:1.2mm}
+.label.item img{width:18.5mm;height:18.5mm}
+.label.item .tx{flex:1 1 auto;align-self:stretch;display:flex;flex-direction:column;justify-content:center}
+.label.item .tx .id{font-size:11.5pt;font-weight:700;line-height:1.1;letter-spacing:-.1pt}
+/* 長い型番は2行まで折り返して、入らないぶんは切る（ラベルの外へはみ出させない） */
+.label.item .tx .mdl{font-size:9.5pt;font-weight:700;line-height:1.15;margin-top:.7mm;
+  word-break:break-all;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;
+  max-height:2.3em}
+.label.item .tx .mdl.s1{font-size:8pt}
+.label.item .tx .mdl.s2{font-size:7pt}
+.label.item .tx .mk{font-size:6.5pt;color:#333;line-height:1.15;margin-top:.5mm;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.label.item .tx .lo{font-size:5.5pt;margin-top:.5mm;line-height:1.15;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .picks{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px;margin:12px 0 20px}
 .picks label{display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--n100);border-radius:var(--r2);
   cursor:pointer;font-size:13px}
+/* 行が3段（管理番号・保管場所・印刷状態）になるので、チェックは1段目に合わせる */
+.picks label input[type=checkbox]{align-self:flex-start;margin-top:3px}
+/* QRラベル画面の印刷状態。チェック（今回印刷するもの）とは別物なので、
+   文字も付けて取り違えないようにする。色は在庫一覧・棚卸の 🖨 と同じ値。 */
+.qrst{display:inline-flex;align-items:center;gap:4px;margin-top:4px;padding:1px 7px 1px 5px;
+  font-size:11px;font-weight:700;white-space:nowrap;border-radius:var(--r2);
+  background:#fff;color:var(--n600);border:1px solid var(--line)}
+.qrst .ms{font-size:14px}
+.qrst.on{background:#E8F5E9;color:#1B5E20;border-color:#2E7D32}
+/* 上に出す「対象／未印刷／印刷済み」 */
+.qrsum{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:12px 0 8px;font-size:13px}
+.qrsum > span:first-child{padding:1px 2px}
+.qrsum .qrst{margin-top:0;font-size:12px;padding:3px 9px 3px 7px}
 
 @media print{
   [data-noprint]{display:none !important}
@@ -590,9 +1057,27 @@ table.t.buy td .meta{font-size:11.5px;margin-top:2px}
   </div>
 
   <header class="bar" data-noprint><div class="wrap">
+    <!-- スマホだけに出すコンパクトヘッダー。☰ / 画面名 / QR の3つだけ。
+         QR読取は倉庫で使う回数が多いので、ドロワーの中には隠さない -->
+    <div class="mbar">
+      <button class="hb" id="hbBtn" onclick="toggleDrawer()" aria-expanded="false"
+              aria-controls="drawer" aria-label="メニューを開く"><span class="ms">menu</span></button>
+      <span class="mtitle" id="scrName">ホーム</span>
+      <button class="mqr" onclick="openScan('lookup')" aria-label="QRコードを読み取る">
+        <span class="ms">qr_code_scanner</span>QR</button>
+    </div>
     <button class="scanbtn" onclick="openScan('lookup')"><span class="ms">qr_code_scanner</span>QRコードを読み取る</button>
     <nav class="menu" id="menu"></nav>
   </div></header>
+
+  <!-- スマホのハンバーガーメニュー。中身は renderMenu() が PC のナビと同じ並びで入れる -->
+  <div id="drawerBg" data-noprint onclick="toggleDrawer(false)"></div>
+  <nav id="drawer" data-noprint aria-label="メニュー">
+    <div class="dh"><span>メニュー</span>
+      <button class="x" onclick="toggleDrawer(false)" aria-label="閉じる"><span class="ms">close</span></button></div>
+    <button class="dqr" onclick="openScan('lookup')"><span class="ms">qr_code_scanner</span>QRコードを読み取る</button>
+    <div id="drawerMenu"></div>
+  </nav>
 
   <div class="wrap">
     <div id="setup">
@@ -655,6 +1140,8 @@ table.t.buy td .meta{font-size:11.5px;margin-top:2px}
 
 <!-- /zaiko（末尾スラッシュなし）でも読めるよう、パスは絶対で書く -->
 <script src="/assets/csv.js"></script>
+<script src="/assets/sns-master.js"></script>
+<script src="/zaiko/sns.js"></script>
 <script src="/zaiko/app.js"></script>
 </body>
 </html>
