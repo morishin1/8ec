@@ -70,6 +70,12 @@ begin
   if v_month is null or v_month <> (date_trunc('month', v_month)::date + interval '1 month - 1 day')::date then
     raise exception '月末日を指定してください';
   end if;
+  if v_month < date '2026-11-30' then
+    raise exception '月末在庫の記録は2026年11月末分から開始します。過去の後付け確定はできません';
+  end if;
+  if v_month <> date_trunc('month', v_today)::date - 1 then
+    raise exception '確定できるのは直前に終了した月だけです。過去月を現在値で記録できません';
+  end if;
   if v_today <= v_month then
     raise exception '月末が終了してから保存できます';
   end if;
