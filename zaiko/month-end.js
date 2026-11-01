@@ -61,8 +61,10 @@ async function selectMonthEnd(month) {
 async function captureLastMonth() {
   if (!canAdmin() || monthEndUi.busy) return;
   const d = new Date();
-  const local = new Intl.DateTimeFormat('en-CA', { timeZone:'Asia/Tokyo', year:'numeric', month:'2-digit', day:'2-digit' }).format(d);
-  const [year, month] = local.split('-').map(Number);
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US',
+    { timeZone:'Asia/Tokyo', year:'numeric', month:'2-digit', day:'2-digit' })
+    .formatToParts(d).filter(x => x.type !== 'literal').map(x => [x.type, Number(x.value)]));
+  const year = parts.year, month = parts.month;
   const last = new Date(Date.UTC(year, month - 1, 0)).toISOString().slice(0,10);
   if (!window.confirm(last + 'の月末在庫を、現在の帳簿状態で確定します。\\n' +
     '締め後に入出庫や売却があった場合、正確な月末の値にはなりません。\\n' +
