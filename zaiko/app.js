@@ -173,6 +173,7 @@ const MENU = [
   ['out', 'logout', '出庫', '/out'],
   ['loan', 'swap_horiz', '貸出・返却', '/loan'],
   ['stock', 'fact_check', '棚卸', '/stock', 'ware'],
+  ['monthEnd', 'calendar_month', '月末在庫', '/month-end', 'admin'],
   ['locs', 'warehouse', '保管場所', '/locations', 'ware'],
   ['hist', 'history', '履歴', '/history'],
   ['reg', 'add_box', '商品登録', '/register'],
@@ -909,6 +910,7 @@ function parsePath() {
   if (seg[0] === 'sns') return { screen: 'sns', snsNo: seg[1] === 'new' ? 'new' : (Number(seg[1]) || null) };
   const byPath = { list: 'list', sales: 'sales', in: 'in', out: 'out', loan: 'loan', stock: 'stock', locations: 'locs',
                    masters: 'master', members: 'members', history: 'hist', register: 'reg', labels: 'labels',
+                   'month-end': 'monthEnd',
                    deals: 'deals', 'rental-requests': 'rental' };
   const screen = byPath[seg[0]] || 'dash';
   return screen === 'list' ? { screen, listMode: modeFromQuery() } : { screen };
@@ -964,10 +966,10 @@ window.addEventListener('popstate', () => route(false));
    **データを取りに行く前に見る。** あとから戻すと、管理者向けの画面のデータだけ
    先に取ってしまうため（loadOne より前に guardRoute() を通す）。 */
 const ADMIN_SCREENS = ['reg', 'labels', 'deals', 'rental', 'master', 'members', 'hist',
-                       'prod', 'quote', 'contract', 'sns'];
+                       'prod', 'quote', 'contract', 'sns', 'monthEnd'];
 const SCREEN_NAME = { reg: '商品登録', labels: 'QRラベル', deals: '案件', rental: '8RENT申込',
                       master: 'マスター管理', members: 'メンバー管理', hist: '履歴',
-                      prod: '商品詳細', quote: '見積', contract: '契約', sns: 'SNS投稿' };
+                      prod: '商品詳細', quote: '見積', contract: '契約', sns: 'SNS投稿', monthEnd: '月末在庫' };
 function guardRoute(r) {
   if (ADMIN_SCREENS.indexOf(r.screen) < 0 || canAdmin()) return r;
   toast(`${SCREEN_NAME[r.screen] || 'この画面'}は管理者だけが使えます`);
@@ -989,6 +991,7 @@ function applyRoute(r) {
   // 管理者ホームへ戻ったときは、今月の数字を取り直してから描き直す
   // （同じ画面のまま売却・売却取消をしても最新になる。ページの再読み込みは要らない）
   if (r.screen === 'dash' && canAdmin() && ui.loaded) refreshStats().then(render);
+  if (r.screen === 'monthEnd' && canAdmin() && typeof loadMonthEnds === 'function') loadMonthEnds();
   // 販売一覧は「売れた日時」を履歴から取る。開いたときだけ1回読む
   if (r.screen === 'sales' && ui.loaded && db.soldAt === null) loadSoldAt().then(render);
 }
@@ -1137,7 +1140,8 @@ function render() {
     /* SNS投稿の画面は別ファイル（zaiko/sns.js）。**読み込めていなくても
        ほかの画面を止めない**よう、ここでは関数を直接書かずに見てから使う
        （直接書くと、この表を作るたびに評価されて ReferenceError になる）。 */
-    sns: snsView
+    sns: snsView,
+    monthEnd: (typeof viewMonthEnd === 'function' ? viewMonthEnd : () => '<div class="empty">月末在庫画面を読み込めません。</div>')
   }[ui.screen] || viewDash;
   v.innerHTML = fn();
   paintSalesBadge();          // 未発送の件数は描くたびに入れ直す
