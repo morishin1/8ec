@@ -8919,7 +8919,8 @@ function viewStock() {
         : ''}貸出中・予約中・販売予約・売却済・廃棄は対象に入りません
         （現物を確認しに行けないため）。未確認の数にも混ざりません。</p>
 
-      <div class="sec">これまでの棚卸</div>
+      <div class="sec" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">これまでの棚卸</div>
+      ${canAdmin() && db.stPast.some(s => s.status === 'closed') ? '<button class="btn sm ghost" style="margin-bottom:10px" onclick="exportLatestStocktakeCsv()"><span class="ms">download</span>直近の棚卸一覧をCSV</button><p class="meta">棚卸結果は当時の記録、商品状態・仕入原価は現在の参考値です。</p>' : ''}
       ${pastStocktakeTable()}`;
   }
 
