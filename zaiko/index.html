@@ -287,6 +287,17 @@ table.t tr.clk:hover td{background:var(--n100)}
 .needorder{display:inline-flex;align-items:center;gap:8px;background:var(--l100);color:var(--ink);
   padding:8px 14px;border-radius:var(--r2);font-size:14px}
 
+/* 商品共通メモと個体メモは表示も操作も明確に分ける */
+.item-notes{display:grid;gap:9px;margin:16px 0 20px}
+.item-note-card,.item-note-shared{padding:13px 15px;border:1px solid var(--line);background:var(--n100);min-width:0}
+.item-note-card{border-left:3px solid var(--ink)}
+.item-note-shared{background:#fff}
+.item-note-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between;margin-bottom:7px}
+.item-note-head .btn{min-height:34px}
+.item-note-title{font-weight:700;font-size:14px}
+.item-note-title .meta{font-weight:400;margin-left:7px}
+.item-note-text{font-size:13.5px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:176px;overflow:auto}
+.item-note-shared .item-note-text{margin-top:6px;max-height:100px}
 /* ---- 棚卸 ---- */
 .stcount{font-size:56px;font-weight:700;line-height:1}
 .stcount small{font-size:26px;color:var(--n600);font-weight:400}
