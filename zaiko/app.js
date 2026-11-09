@@ -7223,6 +7223,70 @@ async function doSaleEdit(id) {
   toast(`販売情報を直しました（${chanLabel(key)}／${yen(price)}）`);
 }
 
+/* ---- 個体メモ（商品マスタとは独立した1台の記録） -------------------------
+   inventory_items.note にのみ保存する。型番共通メモは inventory_products.note。
+   個体メモの保存時に商品マスタの編集RPCは呼ばない。 */
+function itemNotesHtml(it, m) {
+  const note = it.note ? esc(it.note) : '<span class="meta">未登録</span>';
+  const shared = m && m.note
+    ? `<div class="item-note-shared">
+         <div class="item-note-title">型番共通メモ <span class="meta">同じ商品の全個体で共通</span></div>
+         <div class="item-note-text">${esc(m.note)}</div>
+       </div>`
+    : '';
+  return `<div class="item-notes">
+    <div class="item-note-card">
+      <div class="item-note-head">
+        <div class="item-note-title">個体メモ <span class="meta">管理番号 ${esc(it.id)} のみ</span></div>
+        <button type="button" class="btn sm ghost"
+          onclick="sheetItemNote('${esc(it.id)}')">
+          <span class="ms">edit</span>編集</button>
+      </div>
+      <div class="item-note-text">${note}</div>
+    </div>
+    ${shared}
+  </div>`;
+}
+
+function sheetItemNote(id) {
+  const it = item(id);
+  if (!it) { toast('個体が見つかりません'); return; }
+  if (!canAdmin()) { toast('個体メモを編集できるのは管理者だけです'); return; }
+  const m = prod(it.product_code);
+  openSheet({
+    title: '個体メモを編集', subject: id, cta: '保存', keepOpenOnError: true,
+    hint: 'この管理番号のメモだけを変更します。同じ型番のほかの個体や型番共通情報は変更しません。',
+    body: `
+      <div class="meta" style="margin-bottom:12px">
+        管理番号：<strong>${esc(it.id)}</strong>
+        ／ 型番：${esc((m || it).model || '—')}
+      </div>
+      <label class="field"><span>個体メモ（この1台のみ）</span>
+        <textarea class="input" id="itemNoteText" rows="5"
+          placeholder="例：液晶に小傷あり／動作確認済み">${esc(it.note || '')}</textarea>
+      </label>
+      <p class="meta" style="margin-top:8px">空欄で保存すると、この個体のメモだけを削除します。型番共通メモには影響しません。</p>
+    `,
+    run: () => saveItemNote(id)
+  });
+}
+
+async function saveItemNote(id) {
+  if (!canAdmin()) { toast('個体メモを編集できるのは管理者だけです'); return false; }
+  const field = $('itemNoteText');
+  if (!field) return false;
+  const { data, error } = await sb.rpc('inv_item_note_edit', {
+    p_item_id: id, p_note: field.value.trim() || null
+  });
+  if (error) { toast('個体メモを保存できませんでした：' + error.message); return false; }
+  const k = db.items.findIndex(x => x.id === id);
+  if (k >= 0 && data) db.items[k] = data;
+  await refreshTx();
+  render();
+  toast('この個体のメモを保存しました');
+  return true;
+}
+
 /* ---- 個体詳細の［編集］ ----------------------------------------------------
    直せるのは2種類だけで、**どちらの表のものかを画面でも分ける**。
 
@@ -7257,7 +7321,7 @@ function sheetItemEdit(id) {
         <input class="input" id="ieSerial" value="${v(it.serial)}" placeholder="本体に書かれている番号"></label>
       <label class="field" style="margin-bottom:10px"><span>仕入日</span>
         <input class="input" type="date" id="ieBuy" value="${v(it.purchased_on)}"></label>
-      <label class="field"><span>備考</span>
+      <label class="field"><span>個体メモ（この管理番号のみ）</span>
         <textarea class="input" id="ieNote" rows="2">${v(it.note)}</textarea></label>
 
       <div class="sec" style="margin:18px 0 4px">商品情報</div>
@@ -7363,6 +7427,7 @@ function viewItem() {
         <div><span class="k">仕入日</span>${it.purchased_on ? fmtD(it.purchased_on) : '—'}</div>
         <div><span class="k">棚卸確認</span>${it.last_checked_at ? fmtDT(it.last_checked_at) : '未確認'}</div>
       </div>
+      ${itemNotesHtml(it, m)}
       ${priceBox(it)}
       ${guardNote()}
       <div class="ops">
@@ -7389,7 +7454,6 @@ function viewItem() {
   </div>
   ${itemListings(it)}
   ${m && m.spec ? `<div class="sec">スペック</div><div class="pre">${esc(m.spec)}</div>` : ''}
-  ${it.note ? `<div class="sec">備考</div><div class="pre">${esc(it.note)}</div>` : ''}
   ${it.legacy_note ? `<div class="sec">旧データ備考</div><div class="pre legacy">${esc(it.legacy_note)}</div>` : ''}
   <div class="sec">この機器の履歴</div>
   ${hist.length ? hist.map(txRow).join('') : '<div class="empty">まだ記録はありません。</div>'}`;
